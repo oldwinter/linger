@@ -58,9 +58,13 @@ describe("desktop distributions", () => {
         voice.map((source) => [source.target, source.file !== undefined]),
       ).toEqual([[target, true]]);
       const tool = validateToolSource(value.localmodelsTool);
-      expect(tool.url.endsWith(`/${pin("STACK_VERSION")}/${target}.tgz`)).toBe(
-        true,
-      );
+      // stack.sh pins the npm version; the kit is @simplexai/localmodels-<target>
+      // on npm, with the npmmirror copy of the same tarball as its mirror.
+      const tarball = `@simplexai/localmodels-${target}/-/localmodels-${target}-${pin("STACK_NPM_VERSION")}.tgz`;
+      expect(tool.url).toBe(`https://registry.npmjs.org/${tarball}`);
+      expect(tool.mirrors).toEqual([
+        `https://registry.npmmirror.com/${tarball}`,
+      ]);
       expect(value.localmodelsTool.sourceCommit).toBe(
         pin("STACK_SOURCE_COMMIT"),
       );
