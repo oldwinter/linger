@@ -10,6 +10,8 @@ import {
   rename,
   stat,
   utimes,
+  symlink,
+  link,
 } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -276,6 +278,46 @@ test.skipIf(process.platform === "win32")(
     );
   },
 );
+// A refused member must reject the install, not leave the extraction pending.
+for (const [label, add] of [
+  [
+    "a symlink",
+    (kit: string) => symlink("/etc/passwd", path.join(kit, "link")),
+  ],
+  [
+    "a hard link",
+    (kit: string) =>
+      link(path.join(kit, "tool.json"), path.join(kit, "tool-copy.json")),
+  ],
+] as const)
+  test.skipIf(process.platform === "win32")(
+    `rejects a kit archive holding ${label} instead of hanging`,
+    async () => {
+      const f = await fixture();
+      await chmod(f.directory, 0o700);
+      await add(f.directory);
+      const archive = path.join(f.home, "kit.tgz");
+      execFileSync("tar", ["-czf", archive, "-C", f.directory, "."], {
+        env: { ...process.env, COPYFILE_DISABLE: "1" },
+      });
+      await rm(f.directory, { recursive: true, force: true });
+      const bytes = await readFile(archive);
+      const source = { ...f.source, sha256: hash(bytes), bytes: bytes.length };
+      await expect(
+        ensureLocalmodelsTool(
+          f.home,
+          {},
+          { source, fetcher: async () => new Response(bytes) },
+        ),
+      ).rejects.toThrow("Unsafe upstream tool archive.");
+      expect(
+        (await readdir(path.join(f.home, "tools/localmodels"))).filter((name) =>
+          /^pending-|\.tgz$/.test(name),
+        ),
+      ).toEqual([]);
+    },
+    5000,
+  );
 test("does not silently fall back to a user Python or local implementation", async () => {
   const f = await fixture();
   vi.stubEnv("LINGER_LOCALMODELS_TOOL_JSON", "");

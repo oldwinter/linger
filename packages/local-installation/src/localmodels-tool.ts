@@ -186,6 +186,15 @@ const location = (tool: Awaited<ReturnType<typeof verify>>) => ({
 });
 async function unpack(archive: string, directory: string) {
   let size = 0;
+  // tar calls the filter from a stream event, so an error thrown there would
+  // escape as an uncaught exception and leave extract() pending forever.
+  // Record the first refusal, skip every later member, and throw afterwards,
+  // as native-dependencies.ts does.
+  let refused: Error | undefined;
+  const refuse = (message: string) => {
+    refused ??= new Error(message);
+    return false;
+  };
   await extract({
     file: archive,
     cwd: directory,
@@ -200,18 +209,20 @@ async function unpack(archive: string, directory: string) {
             : entry.isFile()
               ? "File"
               : "Unsupported";
+      if (refused) return false;
       const relative = name.replace(/^\.\//, "").replace(/\/$/, "");
       if (!relative) return type === "Directory";
       if (!safeRelative(relative) || !["File", "Directory"].includes(type))
-        throw new Error("Unsafe upstream tool archive.");
+        return refuse("Unsafe upstream tool archive.");
       size += entry.size;
       if (size > 1024 ** 3)
-        throw new Error(
+        return refuse(
           "Upstream tool archive exceeds its extracted size limit.",
         );
       return true;
     },
   });
+  if (refused) throw refused;
 }
 /**
  * Verified kits are sealed read-only: upstream children that run the kit's
