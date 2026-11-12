@@ -1,15 +1,18 @@
-answer:
+ask:
   post:
-    operationId: answerAgentHerdrPane
+    operationId: askAgentHerdrPane
     tags: [Agent Business API]
     security: [{ agentBearer: [] }]
-    summary: Answer a blocked herdr agent pane on the owner's Local Computer with the owner's own answer.
+    summary: Ask the owner of this AnotherMe's Local Computer how to answer a blocked herdr agent pane.
     description: >-
-      Only the Computer owner's AnotherMe may answer, and only with what the
-      owner said. The Computer types the text and Enter into the pane only
-      while it is still blocked in the state named by state_change_seq;
-      otherwise nothing is sent and the status says why. Delivery is never
-      retried: outcome_unknown means the answer may have reached the pane.
+      Only the Computer owner's AnotherMe may ask, and only about a pane state
+      the Computer reported as blocked. TeamHub posts a question card bound to
+      that pane state for the owner. When the owner answers, TeamHub itself
+      types exactly the picked choice or the owner's written answer into the
+      pane, once, and only while the pane is still blocked on that state; the
+      asking Agent then hears the answer and whether it was delivered. The
+      Agent never supplies the text that is sent. Asking again about the same
+      pane state returns the same card.
     requestBody:
       required: true
       content:
@@ -17,35 +20,42 @@ answer:
           schema:
             type: object
             additionalProperties: false
-            required: [pane_id, state_change_seq, text]
+            required: [pane_id, state_change_seq, question, options]
             properties:
               pane_id: { type: string, minLength: 1, maxLength: 128 }
               state_change_seq:
                 type: integer
                 format: int64
                 minimum: 0
-              text:
+              question:
                 type: string
                 minLength: 1
-                maxLength: 4000
-                description: The owner's answer, typed into the pane as is.
+                maxLength: 2000
+                description: What the coding agent asks, as the card shows it.
+              options:
+                type: array
+                minItems: 1
+                maxItems: 20
+                description: The choices the coding agent offers; the owner may also write their own answer.
+                items: { type: string, minLength: 1, maxLength: 200 }
     responses:
       "200":
-        description: >-
-          sent: the pane received the text and Enter; pane_closed: the pane or
-          its agent is gone; pane_not_blocked: the pane moved on from that
-          question; outcome_unknown: the Computer did not confirm delivery.
+        description: The question card, new or the one already asked for this pane state.
         content:
           application/json:
             schema:
               type: object
               additionalProperties: false
-              required: [status, computer_id]
+              required:
+                [status, computer_id, room_id, message_id, interaction_id]
               properties:
                 status:
                   type: string
-                  enum: [sent, pane_closed, pane_not_blocked, outcome_unknown]
+                  enum: [asked]
                 computer_id: { type: string }
+                room_id: { type: string }
+                message_id: { type: string }
+                interaction_id: { type: string }
       "400":
         $ref: "../components/agent-api-errors.yaml#/components/responses/BadRequest"
       "401":

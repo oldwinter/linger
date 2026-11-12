@@ -1145,8 +1145,8 @@ paths:
     post:
       operationId: callLocalComputerTool
       summary:
-        Execute one authorized local browser action, Task file read or herdr
-        pane answer without a model turn
+        Execute one authorized local browser action, Task file read, or the
+        typing of a Human's answer card into a herdr pane, without a model turn
       security:
         - agentManagementBearer: []
       requestBody:

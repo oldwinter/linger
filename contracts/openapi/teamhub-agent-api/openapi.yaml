@@ -1081,8 +1081,8 @@ paths:
     $ref: "../paths/agent-computer-permissions.yaml#/status"
   /api/agent/v1/computer/permissions/request:
     $ref: "../paths/agent-computer-permissions.yaml#/request"
-  /api/agent/v1/computer/herdr/answer:
-    $ref: "../paths/agent-herdr.yaml#/answer"
+  /api/agent/v1/computer/herdr/ask:
+    $ref: "../paths/agent-herdr.yaml#/ask"
   /api/agent/v1/apps/tools/bind:
     $ref: ../paths/agent-connector-cli.yaml#/bindings
   /api/agent/v1/apps/account:

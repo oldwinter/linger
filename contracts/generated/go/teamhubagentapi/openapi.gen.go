@@ -1157,24 +1157,15 @@ func (e RequestAgentBrowserConnection200JSONResponseBodyStatus) Valid() bool {
 	}
 }
 
-// Defines values for AnswerAgentHerdrPane200JSONResponseBodyStatus.
+// Defines values for AskAgentHerdrPane200JSONResponseBodyStatus.
 const (
-	OutcomeUnknown AnswerAgentHerdrPane200JSONResponseBodyStatus = "outcome_unknown"
-	PaneClosed     AnswerAgentHerdrPane200JSONResponseBodyStatus = "pane_closed"
-	PaneNotBlocked AnswerAgentHerdrPane200JSONResponseBodyStatus = "pane_not_blocked"
-	Sent           AnswerAgentHerdrPane200JSONResponseBodyStatus = "sent"
+	Asked AskAgentHerdrPane200JSONResponseBodyStatus = "asked"
 )
 
-// Valid indicates whether the value is a known member of the AnswerAgentHerdrPane200JSONResponseBodyStatus enum.
-func (e AnswerAgentHerdrPane200JSONResponseBodyStatus) Valid() bool {
+// Valid indicates whether the value is a known member of the AskAgentHerdrPane200JSONResponseBodyStatus enum.
+func (e AskAgentHerdrPane200JSONResponseBodyStatus) Valid() bool {
 	switch e {
-	case OutcomeUnknown:
-		return true
-	case PaneClosed:
-		return true
-	case PaneNotBlocked:
-		return true
-	case Sent:
+	case Asked:
 		return true
 	default:
 		return false
@@ -3108,17 +3099,19 @@ type RequestAgentBrowserConnectionJSONBody = map[string]interface{}
 // RequestAgentBrowserConnection200JSONResponseBodyStatus defines parameters for RequestAgentBrowserConnection.
 type RequestAgentBrowserConnection200JSONResponseBodyStatus string
 
-// AnswerAgentHerdrPaneJSONBody defines parameters for AnswerAgentHerdrPane.
-type AnswerAgentHerdrPaneJSONBody struct {
-	PaneId         string `json:"pane_id"`
-	StateChangeSeq int64  `json:"state_change_seq"`
+// AskAgentHerdrPaneJSONBody defines parameters for AskAgentHerdrPane.
+type AskAgentHerdrPaneJSONBody struct {
+	// Options The choices the coding agent offers; the owner may also write their own answer.
+	Options []string `json:"options"`
+	PaneId  string   `json:"pane_id"`
 
-	// Text The owner's answer, typed into the pane as is.
-	Text string `json:"text"`
+	// Question What the coding agent asks, as the card shows it.
+	Question       string `json:"question"`
+	StateChangeSeq int64  `json:"state_change_seq"`
 }
 
-// AnswerAgentHerdrPane200JSONResponseBodyStatus defines parameters for AnswerAgentHerdrPane.
-type AnswerAgentHerdrPane200JSONResponseBodyStatus string
+// AskAgentHerdrPane200JSONResponseBodyStatus defines parameters for AskAgentHerdrPane.
+type AskAgentHerdrPane200JSONResponseBodyStatus string
 
 // RequestAgentComputerPermissionsJSONBody defines parameters for RequestAgentComputerPermissions.
 type RequestAgentComputerPermissionsJSONBody struct {
@@ -3229,8 +3222,8 @@ type ListAvailableAgentsJSONRequestBody = AgentListAvailableAgentsRequest
 // RequestAgentBrowserConnectionJSONRequestBody defines body for RequestAgentBrowserConnection for application/json ContentType.
 type RequestAgentBrowserConnectionJSONRequestBody = RequestAgentBrowserConnectionJSONBody
 
-// AnswerAgentHerdrPaneJSONRequestBody defines body for AnswerAgentHerdrPane for application/json ContentType.
-type AnswerAgentHerdrPaneJSONRequestBody AnswerAgentHerdrPaneJSONBody
+// AskAgentHerdrPaneJSONRequestBody defines body for AskAgentHerdrPane for application/json ContentType.
+type AskAgentHerdrPaneJSONRequestBody AskAgentHerdrPaneJSONBody
 
 // RequestAgentComputerPermissionsJSONRequestBody defines body for RequestAgentComputerPermissions for application/json ContentType.
 type RequestAgentComputerPermissionsJSONRequestBody RequestAgentComputerPermissionsJSONBody

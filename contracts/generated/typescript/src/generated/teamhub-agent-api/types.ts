@@ -889,7 +889,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/agent/v1/computer/herdr/answer": {
+  "/api/agent/v1/computer/herdr/ask": {
     parameters: {
       query?: never;
       header?: never;
@@ -899,10 +899,10 @@ export interface paths {
     get?: never;
     put?: never;
     /**
-     * Answer a blocked herdr agent pane on the owner's Local Computer with the owner's own answer.
-     * @description Only the Computer owner's AnotherMe may answer, and only with what the owner said. The Computer types the text and Enter into the pane only while it is still blocked in the state named by state_change_seq; otherwise nothing is sent and the status says why. Delivery is never retried: outcome_unknown means the answer may have reached the pane.
+     * Ask the owner of this AnotherMe's Local Computer how to answer a blocked herdr agent pane.
+     * @description Only the Computer owner's AnotherMe may ask, and only about a pane state the Computer reported as blocked. TeamHub posts a question card bound to that pane state for the owner. When the owner answers, TeamHub itself types exactly the picked choice or the owner's written answer into the pane, once, and only while the pane is still blocked on that state; the asking Agent then hears the answer and whether it was delivered. The Agent never supplies the text that is sent. Asking again about the same pane state returns the same card.
      */
-    post: operations["answerAgentHerdrPane"];
+    post: operations["askAgentHerdrPane"];
     delete?: never;
     options?: never;
     head?: never;
@@ -4344,7 +4344,7 @@ export interface operations {
       default: components["responses"]["InternalError"];
     };
   };
-  answerAgentHerdrPane: {
+  askAgentHerdrPane: {
     parameters: {
       query?: never;
       header?: never;
@@ -4357,13 +4357,15 @@ export interface operations {
           pane_id: string;
           /** Format: int64 */
           state_change_seq: number;
-          /** @description The owner's answer, typed into the pane as is. */
-          text: string;
+          /** @description What the coding agent asks, as the card shows it. */
+          question: string;
+          /** @description The choices the coding agent offers; the owner may also write their own answer. */
+          options: string[];
         };
       };
     };
     responses: {
-      /** @description sent: the pane received the text and Enter; pane_closed: the pane or its agent is gone; pane_not_blocked: the pane moved on from that question; outcome_unknown: the Computer did not confirm delivery. */
+      /** @description The question card, new or the one already asked for this pane state. */
       200: {
         headers: {
           [name: string]: unknown;
@@ -4371,12 +4373,11 @@ export interface operations {
         content: {
           "application/json": {
             /** @enum {string} */
-            status:
-              | "sent"
-              | "pane_closed"
-              | "pane_not_blocked"
-              | "outcome_unknown";
+            status: "asked";
             computer_id: string;
+            room_id: string;
+            message_id: string;
+            interaction_id: string;
           };
         };
       };
