@@ -35,8 +35,10 @@ Daemon. A server connection token from the Web app works too:
   agents in its panes through herdr's local socket and reports a pane that
   becomes blocked or finishes to Another Me (see
   [Proactive Another Me](../../docs/proactive.md#coding-agents-in-herdr)).
-  Another Me can type your own answer into a pane that still waits on the same
-  question. The Daemon never starts, splits or closes herdr panes or agents.
+  Your answer to Another Me's question card about a pane is typed into that
+  pane by Linger, once and only while the pane still waits on the same
+  question; Another Me itself cannot type into a pane. The Daemon never
+  starts, splits or closes herdr panes or agents.
   `linger-computer doctor` shows a herdr line only when herdr is installed;
   restart the Daemon after installing herdr.
 

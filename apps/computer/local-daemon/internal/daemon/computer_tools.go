@@ -107,8 +107,9 @@ func liveBrowserResult(data json.RawMessage) (map[string]any, error) {
 	return result, nil
 }
 
-// callHerdr answers a blocked herdr agent pane. TeamHub allows only the
-// owner's AnotherMe to call it, with the owner's answer.
+// callHerdr answers a blocked herdr agent pane. Only TeamHub calls it, with
+// the owner's answer from an answered question card bound to that pane state;
+// no Agent tool reaches it.
 func (d *Daemon) callHerdr(ctx context.Context, name string, arguments json.RawMessage) (map[string]any, error) {
 	var request struct {
 		PaneID         string `json:"pane_id"`

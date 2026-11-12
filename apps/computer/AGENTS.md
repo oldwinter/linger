@@ -25,7 +25,9 @@
   transport, identity, process-instance lease, Registration, Context, Local MCP
   Relay, and Local Skill adapters, and the optional herdr bridge
   (`internal/linger/herdr`): it watches herdr agent panes over herdr's socket
-  and answers a blocked pane, and it never creates, splits or closes panes.
+  and types an owner's answer, which only TeamHub sends from an answered
+  question card, into a blocked pane; it never creates, splits or closes
+  panes.
   Its tests use a fake herdr socket, never the user's herdr server.
 - `internal/computercli` implements the control commands over
   `internal/computerconfig` (the config parser and process environment shared

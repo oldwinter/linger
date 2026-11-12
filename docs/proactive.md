@@ -59,7 +59,11 @@ reaches Another Me as one event per pane state, with the agent, its folder and
 the pane's last lines, obvious secrets removed. Quiet hours, the daily limit
 and your rules apply as to any app event.
 
-When the agent waits on a choice, Another Me asks you with a question card.
-Your answer is typed into that pane only while it still waits on the same
-question; if the pane closed or moved on, Another Me tells you the answer was
-not delivered. An answer is sent once and never retried.
+When the agent waits on a choice, Another Me asks you with a question card
+bound to that pane and that question. Only your own answer on that card ever
+reaches the pane: Linger, not Another Me, types the choice you picked or the
+line you wrote, once, and only while the pane still waits on the same
+question. Another Me has no way to type into a pane itself. Afterwards it
+tells you whether your answer arrived, the pane had closed, or the agent had
+already moved on; an answer whose delivery the computer did not confirm is
+never sent again.
