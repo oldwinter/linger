@@ -36,8 +36,8 @@ func TestBuiltinCatalogLoadsVersionedPackages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Skills) != 15+importedBuiltinSkillCount {
-		t.Fatalf("catalog Skills=%d, want %d", len(catalog.Skills), 15+importedBuiltinSkillCount)
+	if len(catalog.Skills) != 16+importedBuiltinSkillCount {
+		t.Fatalf("catalog Skills=%d, want %d", len(catalog.Skills), 16+importedBuiltinSkillCount)
 	}
 	assertImportedBuiltinSkillDefaults(t, catalog)
 	for _, skill := range catalog.Skills {
@@ -179,6 +179,14 @@ func TestBuiltinCatalogLoadsVersionedPackages(t *testing.T) {
 	chatCard := findBuiltinSkill(t, catalog, "simplexai_chat_card")
 	if chatCard.Name != "chat-card" || !slices.Equal(chatCard.DefaultAgentTypes, []string{"anotherme", "general"}) {
 		t.Fatalf("simplexai_chat_card catalog entry=%+v", chatCard)
+	}
+
+	// General Agents drive the user's coding agents through herdr; Another Me
+	// does not hand the user's own work to another agent by default.
+	herdr := findBuiltinSkill(t, catalog, "simplexai_herdr")
+	if herdr.Name != "herdr" || herdr.BootstrapManifestID != "skill_manifest_simplexai_herdr_1_0_0" ||
+		!slices.Equal(herdr.DefaultAgentTypes, []string{"general"}) {
+		t.Fatalf("simplexai_herdr catalog entry=%+v", herdr)
 	}
 
 	// Images and videos are generated through the connected fal or Higgsfield account.

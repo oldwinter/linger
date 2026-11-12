@@ -56,7 +56,7 @@ func TestAgentSkillDirectoryScopesBindingHistory(t *testing.T) {
 	}
 	// All seven selected General Agents receive the thirteen current catalog
 	// defaults; the official Agent also binds the three explicit-only Skills.
-	const generalDefaultSkills = 13
+	const generalDefaultSkills = 14
 	const explicitSkills = 3
 	expectedBindings := len(ids)*generalDefaultSkills + explicitSkills
 	recorder := &directoryQueryRecorder{DBTX: env.pool}
