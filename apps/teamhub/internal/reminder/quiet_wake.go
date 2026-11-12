@@ -52,7 +52,10 @@ type Wake struct {
 	Body string
 	// TrackingItemID cancels the wake when that Tracking Item is deleted.
 	TrackingItemID string
-	Grant          *GrantReference
+	// An event wake carries the authority that admitted its event: Grant for
+	// app data, or ComputerID, the Local Computer that observed it.
+	Grant      *GrantReference
+	ComputerID string
 	// FiredRoutine is set only by the Routine scheduler; the delivered
 	// Message records it.
 	FiredRoutine *messagecreation.FiredRoutine
@@ -78,13 +81,19 @@ func EnqueueTx(ctx context.Context, tx pgx.Tx, wake Wake) error {
 	if strings.TrimSpace(wake.Body) == "" || wake.TenantID == "" || wake.RoomID == "" {
 		return errors.New("quiet wake is incomplete")
 	}
-	if wake.Source == SourceEvent && wake.Grant == nil {
+	if wake.Grant != nil && wake.ComputerID != "" {
+		return errors.New("quiet wake has two authorities")
+	}
+	if wake.Source == SourceEvent && wake.Grant == nil && wake.ComputerID == "" {
 		return ErrGrantRevoked
 	}
 	id := newID()
-	var tracking pgtype.Text
+	var tracking, computer pgtype.Text
 	if wake.TrackingItemID != "" {
 		tracking = pgtype.Text{String: wake.TrackingItemID, Valid: true}
+	}
+	if wake.ComputerID != "" {
+		computer = pgtype.Text{String: wake.ComputerID, Valid: true}
 	}
 	var firedRoutineID, firedRoutineInstruction pgtype.Text
 	if wake.FiredRoutine != nil {
@@ -97,7 +106,7 @@ func EnqueueTx(ctx context.Context, tx pgx.Tx, wake Wake) error {
 	}
 	if err := store.New(tx).InsertPendingWake(ctx, store.InsertPendingWakeParams{
 		ID: id, TenantID: wake.TenantID, RoomID: wake.RoomID, AuthorActorID: wake.Author.ID,
-		ConnectionGrant: grant, AgentActorID: wake.Agent.ID, Body: wake.Body, TrackingItemID: tracking, Source: wake.Source,
+		ConnectionGrant: grant, LocalComputerID: computer, AgentActorID: wake.Agent.ID, Body: wake.Body, TrackingItemID: tracking, Source: wake.Source,
 		FiredRoutineID: firedRoutineID, FiredRoutineInstruction: firedRoutineInstruction,
 	}); err != nil {
 		return err
@@ -174,20 +183,15 @@ func Deliver(ctx context.Context, pool *pgxpool.Pool, wakeID string, now time.Ti
 		return wait, nil
 	}
 	for _, item := range pending {
-		var grant *GrantReference
-		if err := json.Unmarshal(item.ConnectionGrant, &grant); err != nil {
+		authorized, err := WakeAuthorized(ctx, queries, item.Source, item.TenantID, item.AuthorActorID, item.AgentActorID, item.ConnectionGrant, item.LocalComputerID)
+		if err != nil {
 			return 0, err
 		}
-		if item.Source == SourceEvent || grant != nil {
-			err := grant.Check(ctx, queries)
-			if errors.Is(err, ErrGrantRevoked) || err == nil && (grant.TenantID != item.TenantID || grant.AgentActorID != item.AgentActorID) {
-				if err := queries.DeletePendingWake(ctx, item.ID); err != nil {
-					return 0, err
-				}
-				continue
-			} else if err != nil {
+		if !authorized {
+			if err := queries.DeletePendingWake(ctx, item.ID); err != nil {
 				return 0, err
 			}
+			continue
 		}
 		if err := deliverOne(ctx, queries, item); err != nil {
 			return 0, err

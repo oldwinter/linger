@@ -18,6 +18,7 @@ const (
 	EventTrackOnly      = "Event track only"
 	NightlyPlan         = "Nightly plan"
 	RoutineTrackingItem = "Routine tracking item"
+	HerdrBlocked        = "Herdr blocked"
 )
 
 // Prompt returns one wake label with its {name} placeholders replaced.
@@ -42,7 +43,7 @@ func parsePrompts(text string) map[string]string {
 		}
 	}
 	parsed := map[string]string{}
-	for _, name := range []string{EventData, EventTrackOnly, NightlyPlan, RoutineTrackingItem} {
+	for _, name := range []string{EventData, EventTrackOnly, NightlyPlan, RoutineTrackingItem, HerdrBlocked} {
 		if len(sections[name]) == 0 {
 			panic("wake_prompts.md is missing " + name)
 		}

@@ -83,7 +83,7 @@ WHERE registration.actor_id=sqlc.arg(actor_id)::text AND registration.tenant_id=
 
 -- name: ListVoiceLiveRoomPendingWakes :many
 -- Proactive wakes still waiting for the call in this Room to end, oldest first.
-SELECT id,source,body,connection_grant,agent_actor_id,tenant_id FROM proactive_pending_wakes
+SELECT id,source,body,connection_grant,local_computer_id,author_actor_id,agent_actor_id,tenant_id FROM proactive_pending_wakes
 WHERE room_id=sqlc.arg(room_id)::text AND delivered_at IS NULL
 ORDER BY created_at
 LIMIT 20;

@@ -2,7 +2,6 @@ package voice
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -505,14 +504,12 @@ func (s *Service) LiveTasks(ctx context.Context, voiceSessionID string) (teamhub
 		if wake.Source != reminder.SourceEvent || wake.AgentActorID != session.Agent.ID || wake.TenantID != session.TenantID {
 			continue
 		}
-		var grant *reminder.GrantReference
-		if json.Unmarshal(wake.ConnectionGrant, &grant) != nil || grant == nil {
-			continue
-		}
-		if err := grant.Check(ctx, s.queries); errors.Is(err, reminder.ErrGrantRevoked) {
-			continue
-		} else if err != nil {
+		authorized, err := reminder.WakeAuthorized(ctx, s.queries, wake.Source, wake.TenantID, wake.AuthorActorID, wake.AgentActorID, wake.ConnectionGrant, wake.LocalComputerID)
+		if err != nil {
 			return teamhubinternal.VoiceLiveTaskList{}, fmt.Errorf("authorize live alert: %w", err)
+		}
+		if !authorized {
+			continue
 		}
 		text, _ := voicelive.Truncate(strings.TrimSpace(strings.TrimPrefix(wake.Body, notify)), 20000)
 		alerts = append(alerts, teamhubinternal.VoiceLiveAlert{AlertId: wake.ID, Text: text})

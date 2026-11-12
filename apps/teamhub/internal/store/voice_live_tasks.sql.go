@@ -325,19 +325,21 @@ func (q *Queries) ListVoiceLivePendingApprovals(ctx context.Context, arg ListVoi
 }
 
 const listVoiceLiveRoomPendingWakes = `-- name: ListVoiceLiveRoomPendingWakes :many
-SELECT id,source,body,connection_grant,agent_actor_id,tenant_id FROM proactive_pending_wakes
+SELECT id,source,body,connection_grant,local_computer_id,author_actor_id,agent_actor_id,tenant_id FROM proactive_pending_wakes
 WHERE room_id=$1::text AND delivered_at IS NULL
 ORDER BY created_at
 LIMIT 20
 `
 
 type ListVoiceLiveRoomPendingWakesRow struct {
-	ID              string `json:"id"`
-	Source          string `json:"source"`
-	Body            string `json:"body"`
-	ConnectionGrant []byte `json:"connection_grant"`
-	AgentActorID    string `json:"agent_actor_id"`
-	TenantID        string `json:"tenant_id"`
+	ID              string      `json:"id"`
+	Source          string      `json:"source"`
+	Body            string      `json:"body"`
+	ConnectionGrant []byte      `json:"connection_grant"`
+	LocalComputerID pgtype.Text `json:"local_computer_id"`
+	AuthorActorID   string      `json:"author_actor_id"`
+	AgentActorID    string      `json:"agent_actor_id"`
+	TenantID        string      `json:"tenant_id"`
 }
 
 // Proactive wakes still waiting for the call in this Room to end, oldest first.
@@ -355,6 +357,8 @@ func (q *Queries) ListVoiceLiveRoomPendingWakes(ctx context.Context, roomID stri
 			&i.Source,
 			&i.Body,
 			&i.ConnectionGrant,
+			&i.LocalComputerID,
+			&i.AuthorActorID,
 			&i.AgentActorID,
 			&i.TenantID,
 		); err != nil {

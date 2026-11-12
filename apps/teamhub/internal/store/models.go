@@ -1290,6 +1290,7 @@ type ProactivePendingWake struct {
 	ConnectionGrant         []byte             `json:"connection_grant"`
 	FiredRoutineID          pgtype.Text        `json:"fired_routine_id"`
 	FiredRoutineInstruction pgtype.Text        `json:"fired_routine_instruction"`
+	LocalComputerID         pgtype.Text        `json:"local_computer_id"`
 }
 
 type ProactivePotentialItem struct {

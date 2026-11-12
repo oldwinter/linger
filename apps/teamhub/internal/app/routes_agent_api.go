@@ -28,6 +28,7 @@ func (a *App) agentAPIRoutes() []contractRoute {
 		route(http.MethodPost, "/api/agent/v1/apps/tools/search", nil, a.searchAgentConnectedAppTools),
 		route(http.MethodPost, "/api/agent/v1/available-agents", nil, a.listAvailableAgents),
 		route(http.MethodPost, "/api/agent/v1/computer/browser-connection", nil, a.requestAgentBrowserConnection),
+		route(http.MethodPost, "/api/agent/v1/computer/herdr/answer", nil, a.answerAgentHerdrPane),
 		route(http.MethodPost, "/api/agent/v1/computer/permissions/request", nil, a.requestAgentComputerPermissions),
 		route(http.MethodPost, "/api/agent/v1/computer/permissions/status", nil, a.getAgentComputerPermissions),
 		route(http.MethodPost, "/api/agent/v1/creation-approval-requests", nil, a.submitAgentCreationApprovalRequest),
