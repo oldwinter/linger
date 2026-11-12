@@ -24,6 +24,7 @@ import (
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/clicredential"
 	lingercontext "github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/context"
 	lingercontrol "github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/control"
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/herdr"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/localskills"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/localtools"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/registration"
@@ -275,6 +276,14 @@ func run(args []string) (resultErr error) {
 		runtimes: runtimes, diagnostics: discovered.Diagnostics, revision: runtimeObservationRevision,
 	}
 	codexModelSessions := &provider.CodexSessions{Root: filepath.Join(computer.StateDirectory, "model-invoke", "codex-sessions")}
+	// herdr is optional: without it on the terminal PATH nothing watches it
+	// and the herdr tool reports herdr_unavailable.
+	var herdrClient *herdr.Client
+	var herdrPanes daemon.HerdrPanes
+	if installation, ok := herdr.Locate(provider.TerminalEnvironment(context.Background(), environment)); ok {
+		herdrClient = &herdr.Client{Socket: installation.Socket}
+		herdrPanes = herdrClient
+	}
 	localDaemon, err := daemon.New(daemon.Options{
 		ComputerID: computer.ComputerID, DisplayName: computer.DisplayName,
 		Capacity: computer.MaxConcurrentOperations, Runtimes: runtimes,
@@ -297,6 +306,7 @@ func run(args []string) (resultErr error) {
 		ComputerPermissions: localtools.NewComputerPermissions(permissionOptions),
 		CLICredentials:      cliCredentials,
 		TeamHubCLIBin:       teamhubBin,
+		HerdrPanes:          herdrPanes,
 		ModelInvoker: provider.ModelInvoker{
 			TempBase:         operationTempBase,
 			ClaudeConfigRoot: filepath.Join(computer.StateDirectory, "model-invoke", "claude", ".claude"),
@@ -359,6 +369,9 @@ func run(args []string) (resultErr error) {
 		go reportDesktopStatus(ctx, desktop.encode, localDaemon, desktopStatusInterval)
 	}
 	inventory.start(ctx, localDaemon)
+	if herdrClient != nil {
+		go func() { _ = herdr.Watch(ctx, herdrClient, localDaemon.PublishHerdrEvent) }()
+	}
 	monitorDone := make(chan error, 1)
 	go func() {
 		monitorDone <- provider.MonitorRuntimeDiagnostics(ctx, provider.RuntimeMonitorOptions{

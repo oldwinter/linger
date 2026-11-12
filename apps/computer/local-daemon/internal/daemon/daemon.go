@@ -64,6 +64,15 @@ type Options struct {
 	OnModelUnavailable func(runtimeType, modelID string)
 	// ModelInvoker runs model invocations; nil answers each with runtime_unavailable.
 	ModelInvoker ModelInvoker
+	// HerdrPanes answers blocked herdr agent panes; nil when herdr is not
+	// installed, and the herdr tool then reports herdr_unavailable.
+	HerdrPanes HerdrPanes
+}
+
+// HerdrPanes types the owner's answer into a herdr agent pane that is still
+// blocked on the question it answers.
+type HerdrPanes interface {
+	Answer(ctx context.Context, paneID string, stateChangeSeq uint64, text string) (string, error)
 }
 
 type OperationResolver interface {
@@ -98,6 +107,7 @@ type Daemon struct {
 	contextViews        *lingercontext.ViewStore
 	localSkills         LocalSkillCatalog
 	localTools          LocalToolBinder
+	herdrPanes          HerdrPanes
 	browserConnections  BrowserConnections
 	computerPermissions ComputerPermissions
 	owners              []ComputerOwner
@@ -249,6 +259,7 @@ func New(options Options) (*Daemon, error) {
 		teamhubCLIBin:        options.TeamHubCLIBin,
 		openMCPProxies:       mcpproxy.Open,
 		onModelUnavailable:   options.OnModelUnavailable,
+		herdrPanes:           options.HerdrPanes,
 	}, nil
 }
 

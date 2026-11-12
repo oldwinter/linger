@@ -36,13 +36,15 @@ type deps struct {
 	// token is not echoed; ok is false for pipes and files.
 	rawTerminal func() (restore func(), ok bool, err error)
 
-	checkUserSession      func() error
-	checkRuntime          func(ctx context.Context, runtimeType string, request runtimeRequest) (runtimeCheck, error)
-	diagnoseRuntimes      func(ctx context.Context, configuredPaths, environment map[string]string, enabled []string) ([]runtimeDiagnostic, error)
-	newClient             func(stateDirectory string) controlClient
-	inspectDaemon         func(ctx context.Context, stateDirectory string) doctorCheck
-	probeGateway          func(ctx context.Context, gatewayURL string) doctorCheck
-	productRuntime        func() doctorCheck
+	checkUserSession func() error
+	checkRuntime     func(ctx context.Context, runtimeType string, request runtimeRequest) (runtimeCheck, error)
+	diagnoseRuntimes func(ctx context.Context, configuredPaths, environment map[string]string, enabled []string) ([]runtimeDiagnostic, error)
+	newClient        func(stateDirectory string) controlClient
+	inspectDaemon    func(ctx context.Context, stateDirectory string) doctorCheck
+	probeGateway     func(ctx context.Context, gatewayURL string) doctorCheck
+	productRuntime   func() doctorCheck
+	// inspectHerdr reports herdr when it is installed; ok is false without it.
+	inspectHerdr          func(ctx context.Context) (check doctorCheck, ok bool)
 	readLogs              func(ctx context.Context, request logRequest, output io.Writer) error
 	setup                 func(ctx context.Context, options setupOptions) (setupResult, error)
 	startDaemon           func(ctx context.Context, configPath string) error
@@ -137,6 +139,9 @@ func (c *cli) execute(ctx context.Context, parsed command) (int, error) {
 			return 0, err
 		}
 		report.Checks = append(report.Checks, inspectBrowserMode(c.deps.homeDirectory, c.deps.environment, c.deps.goos))
+		if check, ok := c.deps.inspectHerdr(ctx); ok {
+			report.Checks = append(report.Checks, check)
+		}
 		report.OK = allPass(report.Checks)
 		if parsed.json {
 			c.out(marshalReport(report))
