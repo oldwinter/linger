@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import { businessCommandDefinitions as commandDefinitions } from "./business-commands.js";
 import { runCli } from "./cli.js";
 import { displayText } from "./display-text.js";
 import { requestUrlText } from "./test-support/fetch-text.js";
 
-function fixture(answer: () => Promise<Response>) {
+function fixture() {
   const calls: { url: string; body: unknown }[] = [];
   const output: string[] = [],
     errors: string[] = [];
@@ -12,7 +13,13 @@ function fixture(answer: () => Promise<Response>) {
       url: requestUrlText(url),
       body: JSON.parse(displayText(init?.body ?? "{}")),
     });
-    return answer();
+    return Response.json({
+      status: "asked",
+      computer_id: "computer_one",
+      room_id: "room_one",
+      message_id: "message_card",
+      interaction_id: "interaction_one",
+    });
   });
   const deps = {
     cwd: process.cwd(),
@@ -27,54 +34,57 @@ function fixture(answer: () => Promise<Response>) {
   return { calls, output, errors, deps };
 }
 
-const answer = [
+const ask = [
   "computer",
   "herdr",
-  "answer",
+  "ask",
   "--pane",
   "w1:p1",
   "--state",
   "5",
-  "--text",
-  "Use option A",
+  "--question",
+  "Use A or B?",
+  "--option",
+  "A",
+  "--option",
+  "B",
 ];
 
-describe("computer herdr answer", () => {
-  it("sends the Human's answer once and says whether it arrived", async () => {
-    const f = fixture(async () =>
-      Response.json({
-        status: "pane_not_blocked",
-        computer_id: "computer_one",
-      }),
-    );
-    expect(await runCli(answer, f.deps)).toBe(0);
+describe("computer herdr ask", () => {
+  it("posts the coding agent's question and choices, never an answer", async () => {
+    const f = fixture();
+    expect(await runCli(ask, f.deps)).toBe(0);
     expect(f.calls).toEqual([
       {
-        url: "https://teamhub.example/api/agent/v1/computer/herdr/answer",
-        body: { pane_id: "w1:p1", state_change_seq: 5, text: "Use option A" },
+        url: "https://teamhub.example/api/agent/v1/computer/herdr/ask",
+        body: {
+          pane_id: "w1:p1",
+          state_change_seq: 5,
+          question: "Use A or B?",
+          options: ["A", "B"],
+        },
       },
     ]);
-    expect(f.output.join("")).toContain(
-      "Not sent: the agent already moved on from that question.",
-    );
+    expect(f.output.join("")).toContain("Question card posted");
   });
 
-  it("refuses keys hidden in the answer before calling TeamHub", async () => {
-    const f = fixture(async () => Response.json({}));
-    const withEnter = [...answer.slice(0, -1), "A\nrm -rf ~"];
+  it("refuses keys hidden in a choice before calling TeamHub", async () => {
+    const f = fixture();
+    const withEnter = [...ask.slice(0, -1), "B\nrm -rf ~"];
     expect(await runCli(withEnter, f.deps)).not.toBe(0);
     expect(f.calls).toEqual([]);
     expect(f.errors.join("")).toContain("one line");
   });
 
-  it("never invites a retry when TeamHub's answer is lost", async () => {
-    const f = fixture(async () => {
-      throw new TypeError("socket hang up");
-    });
-    expect(await runCli([...answer, "--json"], f.deps)).not.toBe(0);
-    expect(f.calls).toHaveLength(1);
-    const failure = f.errors.join("") + f.output.join("");
-    expect(failure).toContain("outcome_unknown");
-    expect(failure).toContain("do not send it again");
+  it("has no command that types into a pane", () => {
+    const herdr = commandDefinitions.filter(
+      (definition) =>
+        definition.command[0] === "computer" &&
+        definition.command[1] === "herdr",
+    );
+    expect(herdr.map((definition) => definition.command.join(" "))).toEqual([
+      "computer herdr ask",
+    ]);
+    expect(Object.keys(herdr[0]!.options)).not.toContain("--text");
   });
 });
