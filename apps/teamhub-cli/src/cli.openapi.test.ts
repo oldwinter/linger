@@ -357,6 +357,12 @@ async function respond(request: Request): Promise<Response> {
     return Response.json({ connections: [autoReminders] });
   if (endpoint.endsWith("/apps/auto-reminders/set"))
     return Response.json(autoReminders);
+  if (endpoint.endsWith("/proactive/acts"))
+    return Response.json({
+      work_item_id: "workitem_one",
+      strength: "create",
+      replay: false,
+    });
   if (endpoint.endsWith("/proactive/shadow-divergences"))
     return Response.json({
       id: "psd_0123456789abcdef0123456789abcdef",

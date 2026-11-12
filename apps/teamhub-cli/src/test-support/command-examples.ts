@@ -126,6 +126,18 @@ export const commandExamples: Record<string, string[]> = {
   request_computer_permission: ["--permissions", "screen_recording"],
   list_auto_reminders: [],
   set_auto_reminders: ["connection_one", "--off"],
+  act_under_mandate: [
+    "--rule",
+    "pr_0123456789abcdef0123456789abcdef",
+    "--source",
+    "gmail",
+    "--external-id",
+    "thread_1",
+    "--title",
+    "Review the contract change",
+    "--brief",
+    "Compare the new terms with the signed contract.",
+  ],
   record_shadow_divergence: [
     "--rule",
     "pr_0123456789abcdef0123456789abcdef",
