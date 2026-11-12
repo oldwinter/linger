@@ -463,9 +463,9 @@ var linuxReadOnlyNames = []string{"numfmt", "tac"}
 
 var sedPrint = regexp.MustCompile(`^([0-9]+,)?[0-9]+p$`)
 
-// readOnlyCommand reports whether a command only reads: a read-only name, or
+// readOnlyCommand reports whether a command only reads: a read-only name,
 // uniq, base64, find, rg, or sed without the options that write files or run
-// other programs.
+// other programs, or a herdr command that reads the terminal session.
 func readOnlyCommand(words []string) bool {
 	name, args := words[0], words[1:]
 	if slices.Contains(readOnlyNames, name) || runtime.GOOS == "linux" && slices.Contains(linuxReadOnlyNames, name) {
@@ -503,6 +503,8 @@ func readOnlyCommand(words []string) bool {
 		})
 	case "sed":
 		return len(words) >= 3 && len(words) <= 4 && words[1] == "-n" && sedPrint.MatchString(words[2])
+	case "herdr":
+		return herdrReadOnly(args)
 	}
 	return false
 }
