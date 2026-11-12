@@ -166,6 +166,57 @@ describe("RunnerGateway", () => {
     }
   });
 
+  it("hands each herdr pane event to TeamHub and survives a lost report", async () => {
+    const gateway = createTestRunnerGateway({ heartbeatIntervalMs: 60_000 });
+    const registry = testRegistryOf(gateway);
+    const peer = new RecordingPeer();
+    const connection = await gateway.acceptConnection(
+      authenticatedPrincipal(),
+      hello(),
+      peer,
+    );
+    const herdrEvent = (stateChangeSeq: number) =>
+      ({
+        type: "runner.herdr_event",
+        protocol_version: "2",
+        runner_id: "runner-local",
+        sent_at: "2026-11-13T01:00:00.000Z",
+        event: {
+          kind: "agent_blocked",
+          pane_id: "w1:p1",
+          state_change_seq: stateChangeSeq,
+          agent: "codex",
+          tail: "A or B?",
+        },
+      }) as const;
+    try {
+      await connection.receive(herdrEvent(3));
+      expect(registry.herdrEvents).toEqual([
+        {
+          computerId: "runner-local",
+          event: {
+            kind: "agent_blocked",
+            pane_id: "w1:p1",
+            state_change_seq: 3,
+            agent: "codex",
+            tail: "A or B?",
+          },
+        },
+      ]);
+      vi.spyOn(registry, "reportHerdrEvent").mockRejectedValueOnce(
+        new TeamHubRuntimeStateError(503, "TeamHub is restarting"),
+      );
+      await connection.receive(herdrEvent(4));
+      await connection.receive(herdrEvent(5));
+      expect(peer.closed).toEqual([]);
+      expect(
+        registry.herdrEvents.map(({ event }) => event.state_change_seq),
+      ).toEqual([3, 5]);
+    } finally {
+      connection.disconnect();
+    }
+  });
+
   it("admits no Computer until the Agent Service epoch starts, then ensures its placed Agents", async () => {
     const gateway = createTestRunnerGateway({ openConnectionsLater: true });
     placeAgent(gateway, defaultAgentPlacement());

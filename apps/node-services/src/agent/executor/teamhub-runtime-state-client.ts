@@ -179,6 +179,10 @@ export interface TeamHubRuntimeStateClient {
     body: RuntimeStateSchemas["AgentRuntimeLocalComputerCredentialRequest"],
     signal?: AbortSignal,
   ): Promise<RuntimeStateSchemas["AgentRuntimeLocalComputerRemovalResult"]>;
+  reportHerdrEvent(
+    body: RuntimeStateSchemas["HerdrAgentEventReport"],
+    signal?: AbortSignal,
+  ): Promise<void>;
   recordRunOperation(
     body: RuntimeStateSchemas["RecordAgentLocalRunOperationRequest"],
     signal?: AbortSignal,
@@ -264,6 +268,9 @@ export const createTeamHubRuntimeStateClient = (
         responsesAfterUnknownAttempt.has(response),
       );
     }
+    // An accepted command answers without a body.
+    if (response.status === 202 || response.status === 204)
+      return undefined as T;
     try {
       return (await response.json()) as T;
     } catch (error) {
@@ -430,6 +437,8 @@ export const createTeamHubRuntimeStateClient = (
         raw.removeLocalComputer(body, signal),
         signal,
       ),
+    reportHerdrEvent: (body, signal) =>
+      request<void>(raw.reportHerdrEvent(body, signal), signal),
     recordRunOperation: (body, signal) =>
       request<RuntimeStateSchemas["AgentRuntimeSuccessResult"]>(
         raw.recordRunOperation(body, signal),

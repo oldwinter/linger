@@ -1,4 +1,7 @@
-import type { RuntimeDiagnostics } from "@linger/wire-contracts/runner-gateway/types";
+import type {
+  HerdrAgentEvent,
+  RuntimeDiagnostics,
+} from "@linger/wire-contracts/runner-gateway/types";
 
 import type { LocalRuntimeType } from "../../../src/agent/runner-gateway/local-computer-management.js";
 import {
@@ -41,6 +44,8 @@ export interface TestLocalComputerRegistry extends LocalComputerRegistry {
   place(computerId: string, placement: RunnerPlacement): void;
   unplace(agentId: string): void;
   recorded(computerId: string): TestRecordedLocalComputer | undefined;
+  /** The herdr events handed to TeamHub, oldest first. */
+  readonly herdrEvents: { computerId: string; event: HerdrAgentEvent }[];
   list(owner: LocalComputerOwner): readonly TestRecordedLocalComputer[];
 }
 
@@ -89,6 +94,10 @@ export function createTestLocalComputerRegistry(
       placements.delete(agentId);
     },
     recorded: (computerId) => computers.get(computerId),
+    herdrEvents: [],
+    async reportHerdrEvent(computerId, event) {
+      registry.herdrEvents.push({ computerId, event: structuredClone(event) });
+    },
     list: (owner) =>
       [...computers.values()]
         .filter((computer) => !computer.removed && owns(computer, owner))
