@@ -493,6 +493,90 @@ const appsAutoRemindersSet: CommandDefinition = {
     ),
   render: (result) => autoRemindersLine(result),
 };
+const proactiveActions = ["notify", "track", "silent"] as const;
+const proactiveShadowDivergence: CommandDefinition = {
+  command: ["proactive", "shadow-divergence"],
+  toolName: "record_shadow_divergence",
+  operationId: true,
+  description:
+    "Record that one of your Human's shadow rules would have handled a matter differently from what you did.",
+  readOnly: false,
+  usage: [
+    'teamhub proactive shadow-divergence --rule <rule-id> --matter "<matter>" --would <notify|track|silent> --took <notify|track|silent>',
+  ],
+  options: {
+    "--rule": { description: "Shadow rule ID from the proactive wake." },
+    "--matter": { description: "The matter in a few words." },
+    "--would": { description: "What the shadow rule would have done." },
+    "--took": { description: "What you did under the active rules." },
+  },
+  examples: [
+    'teamhub proactive shadow-divergence --rule pr_0123456789abcdef0123456789abcdef --matter "AWS invoice" --would track --took notify',
+  ],
+  notes: [
+    "Only Another Me uses this, while judging a proactive wake that lists <shadow-rules>. Shadow rules never decide; the Human reads these records before promoting one. Recording the same divergence again is harmless.",
+  ],
+  inputSchema: {
+    type: "object",
+    properties: {
+      rule_id: { type: "string", pattern: "^pr_[a-f0-9]{32}$" },
+      matter: { type: "string", minLength: 1, maxLength: 300 },
+      shadow_action: { type: "string", enum: [...proactiveActions] },
+      taken_action: { type: "string", enum: [...proactiveActions] },
+    },
+    required: ["rule_id", "matter", "shadow_action", "taken_action"],
+    additionalProperties: false,
+  },
+  outputSchema: {
+    type: "object",
+    properties: {
+      id: { type: "string" },
+      rule_id: { type: "string" },
+      matter: { type: "string" },
+      shadow_action: { type: "string" },
+      taken_action: { type: "string" },
+    },
+    required: ["id", "rule_id", "matter", "shadow_action", "taken_action"],
+  },
+  normalize: async (args) => {
+    assertPositionals(args, 0);
+    const ruleId = option(args, "--rule") ?? "";
+    const matter = (option(args, "--matter") ?? "").trim();
+    const would = option(args, "--would") ?? "";
+    const took = option(args, "--took") ?? "";
+    if (!/^pr_[a-f0-9]{32}$/u.test(ruleId))
+      invalid("--rule must be a shadow rule ID from the wake.");
+    if (!matter || matter.length > 300)
+      invalid("--matter must name the matter in at most 300 characters.");
+    const isAction = (value: string) =>
+      (proactiveActions as readonly string[]).includes(value);
+    if (!isAction(would) || !isAction(took) || would === took)
+      invalid(
+        "--would and --took must be two different actions of notify, track or silent.",
+      );
+    return {
+      input: {
+        rule_id: ruleId,
+        matter,
+        shadow_action: would,
+        taken_action: took,
+      },
+    };
+  },
+  execute: async (input, context) =>
+    teamHubData(
+      context.client.api.POST("/api/agent/v1/proactive/shadow-divergences", {
+        body: input as {
+          rule_id: string;
+          matter: string;
+          shadow_action: (typeof proactiveActions)[number];
+          taken_action: (typeof proactiveActions)[number];
+        },
+      }),
+    ),
+  render: (result) =>
+    `Recorded: ${singleLineText(result.matter)}  would ${singleLineText(result.shadow_action)}, took ${singleLineText(result.taken_action)}`,
+};
 const appsSearch = definition(
   ["apps", "search"],
   "search_app_tools",
@@ -1240,6 +1324,7 @@ export const businessCommandDefinitions: readonly CommandDefinition[] = [
   appsExecute,
   ...knowledgeDefinitions,
   ...trackingItemCommands,
+  proactiveShadowDivergence,
   personalProfileShow,
   personalProfileStart,
   personalProfileWrite,

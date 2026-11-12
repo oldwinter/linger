@@ -126,6 +126,16 @@ export const commandExamples: Record<string, string[]> = {
   request_computer_permission: ["--permissions", "screen_recording"],
   list_auto_reminders: [],
   set_auto_reminders: ["connection_one", "--off"],
+  record_shadow_divergence: [
+    "--rule",
+    "pr_0123456789abcdef0123456789abcdef",
+    "--matter",
+    "AWS invoice",
+    "--would",
+    "track",
+    "--took",
+    "notify",
+  ],
   search_app_tools: [
     "read",
     "--connectionId",

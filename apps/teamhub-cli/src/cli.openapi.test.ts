@@ -357,6 +357,16 @@ async function respond(request: Request): Promise<Response> {
     return Response.json({ connections: [autoReminders] });
   if (endpoint.endsWith("/apps/auto-reminders/set"))
     return Response.json(autoReminders);
+  if (endpoint.endsWith("/proactive/shadow-divergences"))
+    return Response.json({
+      id: "psd_0123456789abcdef0123456789abcdef",
+      rule_id: "pr_0123456789abcdef0123456789abcdef",
+      guideline_version: 2,
+      matter: "AWS invoice",
+      shadow_action: "track",
+      taken_action: "notify",
+      created_at: "2026-11-01T08:00:00Z",
+    });
   if (endpoint.endsWith("/apps/tools/search"))
     return Response.json({ tools: [] });
   if (endpoint.endsWith("/apps/tools/execute"))
