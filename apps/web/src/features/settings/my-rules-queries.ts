@@ -2,6 +2,7 @@ import { queryOptions } from "@tanstack/react-query";
 
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
+import type { TeamHubProactiveMandate } from "@/features/teamhub/teamhub-types";
 
 export const myRulesQueryKey = (tenantId: string) =>
   ["teamhub", "proactive-rules", tenantId] as const;
@@ -25,7 +26,8 @@ export type MyRulesCommand =
   | { kind: "pin"; ruleId: string; pinned: boolean }
   | { kind: "edit"; ruleId: string; text: string }
   | { kind: "delete"; ruleId: string }
-  | { kind: "promote"; ruleId: string };
+  | { kind: "promote"; ruleId: string }
+  | { kind: "mandate"; ruleId: string; mandate: TeamHubProactiveMandate };
 
 export function runMyRulesCommand(
   client: TeamHubClient,
@@ -58,6 +60,13 @@ export function runMyRulesCommand(
           {
             params: { path },
           },
+        ),
+      );
+    case "mandate":
+      return teamHubData(
+        client.api.PUT(
+          "/v0/tenants/{tenantId}/me/proactive-rules/{ruleId}/mandate",
+          { body: { mandate: command.mandate }, params: { path } },
         ),
       );
     case "promote":

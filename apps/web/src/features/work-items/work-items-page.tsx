@@ -376,6 +376,9 @@ function WorkItemColumn({
                     </span>
                   ) : null}
                 </span>
+                {item.mandate ? (
+                  <WorkItemMandateNote mandate={item.mandate} />
+                ) : null}
                 <span className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-app-border pt-2 text-[12px] leading-4 text-app-subtle">
                   <span className="flex min-w-0 items-center gap-2">
                     <span className="[overflow-wrap:anywhere]">
@@ -399,6 +402,23 @@ function WorkItemColumn({
         </ul>
       ) : null}
     </section>
+  );
+}
+
+/** Why Another Me created this Work Item: the Human's rule it acted under. */
+function WorkItemMandateNote({
+  mandate,
+}: {
+  mandate: NonNullable<TeamHubWorkItem["mandate"]>;
+}) {
+  return (
+    <span className="mt-2 block text-[12px] leading-4 text-app-subtle [overflow-wrap:anywhere]">
+      {mandate.strength === "create_and_delegate"
+        ? "Created and delegated"
+        : "Created"}{" "}
+      by Another Me under your rule “{mandate.rule_text}”
+      {mandate.revoked ? " · mandate revoked" : ""}
+    </span>
   );
 }
 

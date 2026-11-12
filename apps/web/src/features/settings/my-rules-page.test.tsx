@@ -31,6 +31,7 @@ function rule(
     created_at: "2026-11-01T08:00:00Z",
     promoted_at: status === "active" ? "2026-11-01T08:00:00Z" : null,
     guideline_version: 2,
+    mandate: "none",
   };
 }
 
@@ -61,6 +62,7 @@ const book: TeamHubProactiveRuleBook = {
       created_at: "2026-11-02T08:00:00Z",
     },
   ],
+  mandates: [],
 };
 
 function renderPage() {
@@ -213,5 +215,57 @@ describe("My Rules", () => {
         }),
       )
       .toBeNull();
+  });
+
+  it("lets the Human grant a mandate on an active rule and lists what Another Me did under it", async () => {
+    const runtime = renderPage();
+    expect(
+      within(await row("Vendor invoices → track for follow-up")).queryByRole(
+        "combobox",
+        { name: "Mandate" },
+      ),
+    ).toBeNull();
+    const granted: TeamHubProactiveRuleBook = {
+      ...book,
+      rules: [{ ...book.rules[0]!, mandate: "create" }, book.rules[1]!],
+      mandates: [
+        {
+          owner_actor_id: "actor_human",
+          rule_id: activeId,
+          rule_text: "Client replies → remind directly",
+          guideline_version: 3,
+          event_source: "gmail",
+          event_external_id: "thread_1",
+          strength: "create",
+          revoked: false,
+          recorded_at: "2026-11-03T08:00:00Z",
+          work_item_id: "workitem_1",
+          number: 7,
+          title: "Answer the Acme reply",
+        },
+      ],
+    };
+    runtime.server.on("PUT", `${rulePath}/mandate`, ({ body, params }) => {
+      expect(params).toMatchObject({ ruleId: activeId });
+      expect(body).toEqual({ mandate: "create" });
+      return granted;
+    });
+    const active = await row("Client replies → remind directly");
+    fireEvent.click(within(active).getByRole("combobox", { name: "Mandate" }));
+    fireEvent.click(
+      await screen.findByRole("option", { name: "Create a Work Item" }),
+    );
+    const actions = await screen.findByRole("list", {
+      name: "Actions taken under this rule",
+    });
+    expect(
+      within(actions).getByText("#7 Answer the Acme reply: created for gmail"),
+    ).toBeTruthy();
+    expect(
+      within(await row("Client replies → remind directly")).getByRole(
+        "combobox",
+        { name: "Mandate" },
+      ).textContent,
+    ).toContain("Create a Work Item");
   });
 });

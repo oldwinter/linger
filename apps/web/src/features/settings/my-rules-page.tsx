@@ -11,12 +11,14 @@ import { useParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { Select, SelectItem } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubProactiveAction,
+  TeamHubProactiveMandate,
   TeamHubProactiveRule,
   TeamHubProactiveRuleBook,
 } from "@/features/teamhub/teamhub-types";
@@ -33,6 +35,12 @@ const actionLabel: Record<TeamHubProactiveAction, string> = {
   notify: "Tell now",
   track: "Follow up later",
   silent: "Stay silent",
+};
+
+const mandateLabel: Record<TeamHubProactiveMandate, string> = {
+  none: "Only remind",
+  create: "Create a Work Item",
+  create_and_delegate: "Create and delegate",
 };
 
 const leaningLabel = {
@@ -57,7 +65,7 @@ export function MyRulesPage() {
   return (
     <div className="mx-auto flex w-full max-w-(--app-settings-width) flex-col gap-8 pb-4">
       <SettingsPageHeading
-        description="How Another Me decides what to tell you, learned from your replies. Only active rules decide; a newly learned rule waits in shadow until you promote it."
+        description="How Another Me decides what to tell you, learned from your replies. Only active rules decide; a newly learned rule waits in shadow until you promote it. Another Me acts beyond reminding only where you allow it on an active rule."
         title="My Rules"
       />
       {rules.isPending ? (
@@ -113,6 +121,9 @@ function RuleBook({
                   (divergence) => divergence.rule_id === rule.id,
                 )}
                 key={rule.id}
+                mandates={book.mandates.filter(
+                  (mandate) => mandate.rule_id === rule.id,
+                )}
                 onCommand={onCommand}
                 rule={rule}
               />
@@ -158,11 +169,13 @@ function RuleBook({
 function RuleRow({
   busy,
   divergences,
+  mandates,
   onCommand,
   rule,
 }: {
   busy: boolean;
   divergences: TeamHubProactiveRuleBook["divergences"];
+  mandates: TeamHubProactiveRuleBook["mandates"];
   onCommand: (input: MyRulesCommand) => Promise<unknown>;
   rule: TeamHubProactiveRule;
 }) {
@@ -269,6 +282,49 @@ function RuleRow({
           </div>
         </form>
       )}
+      {shadow ? null : (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span>When this rule applies, Another Me may</span>
+          <Select
+            aria-label="Mandate"
+            disabled={busy}
+            onValueChange={(mandate) =>
+              void onCommand({
+                kind: "mandate",
+                ruleId: rule.id,
+                mandate: mandate as TeamHubProactiveMandate,
+              })
+            }
+            value={rule.mandate}
+            variant="pill"
+          >
+            {(["none", "create", "create_and_delegate"] as const).map(
+              (mandate) => (
+                <SelectItem key={mandate} value={mandate}>
+                  {mandateLabel[mandate]}
+                </SelectItem>
+              ),
+            )}
+          </Select>
+        </div>
+      )}
+      {mandates.length > 0 ? (
+        <ul
+          aria-label="Actions taken under this rule"
+          className="flex flex-col gap-1 text-xs text-muted-foreground"
+        >
+          {mandates.map((mandate) => (
+            <li key={mandate.work_item_id}>
+              #{mandate.number} {mandate.title}:{" "}
+              {mandate.strength === "create_and_delegate"
+                ? "created and delegated"
+                : "created"}{" "}
+              for {mandate.event_source}
+              {mandate.revoked ? " · mandate revoked" : ""}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {shadow && divergences.length > 0 ? (
         <ul
           aria-label="Where this rule would have decided differently"
