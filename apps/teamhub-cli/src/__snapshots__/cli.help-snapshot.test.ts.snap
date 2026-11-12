@@ -252,6 +252,27 @@ When it posts the card, end your turn. The card result wakes you when the owner 
 {"command":["browser","connect"],"description":"Ask the owner of this Computer to connect their everyday Chrome: posts a browser connection card in this chat unless Chrome is already connected.","read_only":true,"input_schema":{"type":"object","properties":{},"additionalProperties":false},"output_schema":{"type":"object","properties":{"status":{"enum":["ready","connection_requested"]},"message_id":{"type":"string"},"interaction_id":{"type":"string"}},"required":["status"]},"cli":{"usage":["teamhub browser connect"],"arguments":[],"options":{"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true}},"notes":["Run this when a browser tool returns BROWSER_CONNECTION_REQUIRED or BROWSER_CONNECTION_INVALID. Never ask for the extension token in a message.","When it posts the card, end your turn. The card result wakes you when the owner connects Chrome or declines."]}}
 ",
   },
+  "computer herdr answer": {
+    "help": "exit 0
+teamhub computer herdr answer --pane <pane-id> --state <n> --text <answer>
+Type the Human's own answer, once, into a blocked coding agent's herdr pane on their computer.
+
+Options:
+  --pane <value>  The pane ID from the herdr event.
+  --state <value>  The pane state number from the herdr event.
+  --text <value>  The Human's answer exactly as they gave it: one line of at most 4000 characters.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+Only for a herdr event in your owner's chat, and only with what your owner answered; never answer for them.
+The pane gets the text and Enter only while it still waits on that same state. TeamHub does not deduplicate answers, so never send one again, even with the same --operation-id.
+",
+    "schema": "exit 0
+{"command":["computer","herdr","answer"],"description":"Type the Human's own answer, once, into a blocked coding agent's herdr pane on their computer.","read_only":false,"input_schema":{"type":"object","properties":{"pane_id":{"type":"string","minLength":1,"maxLength":128},"state_change_seq":{"type":"integer","minimum":0},"text":{"type":"string","minLength":1,"maxLength":4000}},"required":["pane_id","state_change_seq","text"],"additionalProperties":false},"output_schema":{"type":"object","properties":{"status":{"enum":["sent","pane_closed","pane_not_blocked","outcome_unknown"]},"computer_id":{"type":"string"}},"required":["status","computer_id"]},"cli":{"usage":["teamhub computer herdr answer --pane <pane-id> --state <n> --text <answer>"],"arguments":[],"options":{"--pane":{"description":"The pane ID from the herdr event."},"--state":{"description":"The pane state number from the herdr event."},"--text":{"description":"The Human's answer exactly as they gave it: one line of at most 4000 characters."},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true},"--operation-id":{"description":"Stable operation identity for recovery."}},"notes":["Only for a herdr event in your owner's chat, and only with what your owner answered; never answer for them.","The pane gets the text and Enter only while it still waits on that same state. TeamHub does not deduplicate answers, so never send one again, even with the same --operation-id."]}}
+",
+  },
   "computer permissions request": {
     "help": "exit 0
 teamhub computer permissions request --permissions screen_recording[,accessibility] [--for shell|computer-use] [--reason TEXT] [--wait SECONDS]
@@ -3421,6 +3442,21 @@ Options:
   --schema  Show offline input and output schemas.
 Run this when teamhub computer permissions status shows a missing permission, or a screenshot or computer-use tool fails for lack of one.
 When it posts the card, end your turn. The card wakes you once everything is granted or the owner declines. Never operate System Settings or privacy prompts yourself.
+
+teamhub computer herdr answer --pane <pane-id> --state <n> --text <answer>
+Type the Human's own answer, once, into a blocked coding agent's herdr pane on their computer.
+
+Options:
+  --pane <value>  The pane ID from the herdr event.
+  --state <value>  The pane state number from the herdr event.
+  --text <value>  The Human's answer exactly as they gave it: one line of at most 4000 characters.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+Only for a herdr event in your owner's chat, and only with what your owner answered; never answer for them.
+The pane gets the text and Enter only while it still waits on that same state. TeamHub does not deduplicate answers, so never send one again, even with the same --operation-id.
 ",
   "docs": "exit 0
 teamhub docs create --title <text> (--content <text> | --file <path|->) [flags]
