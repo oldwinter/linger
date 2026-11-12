@@ -242,3 +242,11 @@ skills:
       - manifest_id: skill_manifest_simplexai_humanlike_browse_1_0_0
         version: 1.0.0
         package_path: builtin/humanlike-browse/1.0.0
+  - skill_id: simplexai_herdr
+    bootstrap_manifest_id: skill_manifest_simplexai_herdr_1_0_0
+    default_agent_types:
+      - general
+    manifests:
+      - manifest_id: skill_manifest_simplexai_herdr_1_0_0
+        version: 1.0.0
+        package_path: builtin/herdr/1.0.0

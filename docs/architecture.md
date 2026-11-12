@@ -13,7 +13,12 @@ figure.
 | Runtime → teamhub CLI ↔ Rooms / Chat         | messages / files, tasks / routines / more actions | The CLI calls the server directly, and the server checks each call against the agent's current permissions                                                                                                                                    |
 | Runtime → Guardrail → Cua, Playwright, Shell | click, type · browse · commands, as you           | Rule-based checks, then an LLM review; Cua, Playwright and the Shell then act as the user                                                                                                                                                     |
 
-<sub>Pi runs without review.</sub>
+<sub>Pi runs without review. With the herdr Skill an agent drives your own
+coding agents in herdr panes: read-only herdr commands run without review, and
+a command that runs text in a pane, types into it, or starts or prompts a
+coding agent there is reviewed with that text attached, because the pane runs
+it as you and nothing reviews it again. Pi Runs send herdr commands without
+review too.</sub>
 
 ## Inside Rooms / Chat
 

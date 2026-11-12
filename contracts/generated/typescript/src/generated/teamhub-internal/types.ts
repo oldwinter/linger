@@ -1672,6 +1672,21 @@ export interface components {
           name?: string;
         }[];
       };
+      /** @description Text a herdr command hands to a terminal pane, where it runs as the user and is not reviewed again. */
+      delegations?: {
+        /**
+         * @description shell_command runs in the pane's shell; terminal_input is typed into whatever program the pane runs; agent_prompt is a task for the coding agent in the pane; agent_start starts a coding agent there, and text is its native arguments.
+         * @enum {string}
+         */
+        kind:
+          | "shell_command"
+          | "terminal_input"
+          | "agent_prompt"
+          | "agent_start";
+        target: string;
+        agent?: string;
+        text: string;
+      }[];
       /** @description Facts the host could not collect and that the decision depends on. */
       missing?: string[];
       /** @description The window, screen or page the host captured just before a browser or desktop action. Shown only to the approver; the judge model does not see it. */

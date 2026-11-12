@@ -107,3 +107,12 @@ third_party/licenses/.
      third_party/licenses/libopus-BSD-3-Clause.txt
    TeamHub and Voice Runtime images include this file at /app/NOTICE and
    the license texts at /app/third_party/licenses/.
+
+8. herdr (herdrdev/herdr)
+   Copyright the herdr authors. Apache License 2.0.
+   Source: https://github.com/herdrdev/herdr/tree/v0.9.5/skills/herdr
+   skills/builtin/herdr/1.0.0/SKILL.md is adapted from herdr's
+   skills/herdr/SKILL.md. Changes: the Agent runs outside herdr and checks
+   that herdr is available instead of HERDR_ENV, works in a herdr workspace
+   of its own, and types only into panes it created or the user named.
+   License text: third_party/licenses/Apache-2.0.txt

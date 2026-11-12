@@ -47,7 +47,9 @@ type Evidence struct {
 	Patch   string   `json:"patch,omitempty"`
 	Browser *Browser `json:"browser,omitempty"`
 	Desktop *Desktop `json:"desktop,omitempty"`
-	Missing []string `json:"missing,omitempty"`
+	// Delegations is the text a herdr command hands to terminal panes.
+	Delegations []Delegation `json:"delegations,omitempty"`
+	Missing     []string     `json:"missing,omitempty"`
 	// Screenshot is shown only to the approver; the judge never sees it.
 	Screenshot *Screenshot `json:"screenshot,omitempty"`
 }
@@ -75,6 +77,17 @@ type DesktopTarget struct {
 	Token string `json:"token"`
 	Role  string `json:"role"`
 	Name  string `json:"name,omitempty"`
+}
+
+// Delegation is text a command hands to a terminal pane, where it runs as
+// the user and is not reviewed again. Kind is one of the Delegation kinds;
+// Target is the pane ID or agent name; Agent is the agent kind an
+// agent_start launches.
+type Delegation struct {
+	Kind   string `json:"kind"`
+	Target string `json:"target"`
+	Agent  string `json:"agent,omitempty"`
+	Text   string `json:"text"`
 }
 
 // Screenshot is base64 image bytes of the screen or page before the action.
