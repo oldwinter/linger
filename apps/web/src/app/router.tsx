@@ -705,6 +705,13 @@ function createSettingsRoute(): RouteObject {
       },
       {
         lazy: async () => ({
+          Component: (await import("@/features/settings/my-rules-page"))
+            .MyRulesPage,
+        }),
+        path: "my-rules",
+      },
+      {
+        lazy: async () => ({
           Component: (await import("@/features/local-computer/computers-page"))
             .ComputersPage,
         }),

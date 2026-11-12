@@ -19,6 +19,10 @@ export type TeamHubMessageActivityRecord =
 export type TeamHubAnotherMe = components["schemas"]["AnotherMe"];
 export type TeamHubPocketNote = components["schemas"]["PocketNote"];
 export type TeamHubPocketNotePage = components["schemas"]["PocketNotePage"];
+export type TeamHubProactiveRuleBook =
+  components["schemas"]["ProactiveRuleBook"];
+export type TeamHubProactiveRule = components["schemas"]["ProactiveRule"];
+export type TeamHubProactiveAction = components["schemas"]["ProactiveAction"];
 export type TeamHubLocalRuntimeType = components["schemas"]["LocalRuntimeType"];
 export type TeamHubLocalComputerPage =
   components["schemas"]["LocalComputerPage"];
