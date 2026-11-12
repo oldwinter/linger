@@ -383,7 +383,20 @@ describe("AgentManager HTTP adapter", () => {
       instructions: "[Proactive event: decide yourself]",
     }));
     const request = {
-      specific: ["clients → remind directly"],
+      rules: ["clients → remind directly"],
+      shadowRules: [
+        {
+          id: "pr_0123456789abcdef0123456789abcdef",
+          text: "vendor invoices → track for follow-up",
+        },
+      ],
+      mandateRules: [
+        {
+          id: "pr_0123456789abcdef0123456789abcdef",
+          text: "clients → remind directly",
+          mandate: "create",
+        },
+      ],
       openItems: [
         { content: "Wait for Lisa to reply with the quote" },
         { content: "Meet the client", dueAt: "2026-10-23T07:00:00Z" },
@@ -429,10 +442,21 @@ describe("AgentManager HTTP adapter", () => {
     expect(judge).toHaveBeenLastCalledWith(manyItems);
     for (const invalid of [
       { ...request, event: { source: "gmail" } },
-      { ...request, specific: ["x".repeat(201)] },
+      { ...request, rules: ["x".repeat(201)] },
+      { ...request, shadowRules: [{ id: "rule_1", text: "invoices" }] },
+      {
+        ...request,
+        mandateRules: [
+          {
+            id: "pr_0123456789abcdef0123456789abcdef",
+            text: "clients",
+            mandate: "everything",
+          },
+        ],
+      },
       { ...request, openItems: [{ content: "" }] },
       { ...request, openItems: [{ content: "x", dueAt: "soon" }] },
-      { specific: [] },
+      { rules: [], openItems: [] },
     ])
       expect((await post(url, invalid)).status).toBe(400);
     expect(judge).toHaveBeenCalledTimes(2);

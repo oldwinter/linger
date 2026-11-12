@@ -157,10 +157,7 @@ func (s *Service) HandleEvent(ctx context.Context, event Event) (Outcome, error)
 	if err != nil {
 		return Outcome{}, err
 	}
-	request := EventJudgeRequest{Specific: guideline.Specific, OpenItems: []OpenItem{}}
-	if request.Specific == nil {
-		request.Specific = []string{}
-	}
+	request := EventJudgeRequest{Rules: guideline.JudgeRules(), OpenItems: []OpenItem{}}
 	for _, item := range items {
 		open := OpenItem{ID: item.ID, Kind: item.Kind, Content: item.Content}
 		if item.DueAt.Valid {
@@ -260,6 +257,10 @@ func eventText(label string, event Event) string {
 	}
 	if event.OccursAt != nil {
 		facts = append(facts, "time: "+event.OccursAt.In(time.Local).Format("2006-01-02 15:04 -07:00"))
+	}
+	// A mandate act names the event by its source and ID.
+	if event.ExternalID != "" {
+		facts = append(facts, "external_id: "+event.ExternalID)
 	}
 	return label + "\n" + strings.Join(facts, "; ") + "\n<event>\n" + strings.TrimSpace(event.Summary) +
 		"\n</event>\n" + reminder.Prompt(reminder.EventData, nil)

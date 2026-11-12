@@ -282,6 +282,46 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/agent/v1/proactive/shadow-divergences": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Record that one of the Human's shadow rules would have handled a matter differently
+     * @description Only an AnotherMe judging proactively under its Human's rules calls this, once per matter where a shadow rule from its wake would have taken another action than the one it took. The Human reads these in My Rules before promoting the rule.
+     */
+    post: operations["recordProactiveShadowDivergence"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/agent/v1/proactive/acts": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Create a Work Item, or delegate a Task, under one of the Human's rule mandates
+     * @description Only an AnotherMe judging an outside event calls this, and only under an active rule whose mandate the Human granted in My Rules: create needs create, delegate needs create_and_delegate. The Work Item and its immutable Mandate record commit together. One rule acts once per event: repeating the call returns the first Work Item.
+     */
+    post: operations["actUnderProactiveMandate"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/agent/v1/skills/packages": {
     parameters: {
       query?: never;
@@ -1791,6 +1831,50 @@ export interface components {
         /** @enum {string} */
         status: "open" | "done";
       };
+    ProactiveRuleId: string;
+    /**
+     * @description notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+     * @enum {string}
+     */
+    ProactiveAction: "notify" | "track" | "silent";
+    ProactiveShadowDivergenceRecord: {
+      rule_id: components["schemas"]["ProactiveRuleId"];
+      /** @description The matter in a few words, as the Human would recognize it. */
+      matter: string;
+      shadow_action: components["schemas"]["ProactiveAction"];
+      taken_action: components["schemas"]["ProactiveAction"];
+    };
+    /** @description One matter a judgment handled differently from what a shadow rule would have done. */
+    ProactiveShadowDivergence: {
+      id: string;
+      rule_id: components["schemas"]["ProactiveRuleId"];
+      guideline_version: number;
+      matter: string;
+      shadow_action: components["schemas"]["ProactiveAction"];
+      taken_action: components["schemas"]["ProactiveAction"];
+      /** Format: date-time */
+      created_at: string;
+    };
+    ProactiveActRequest: {
+      rule_id: components["schemas"]["ProactiveRuleId"];
+      /** @description The outside event's source, as the wake names it. */
+      event_source: string;
+      /** @description The outside event's ID in its source, as the wake names it. */
+      event_external_id: string;
+      title: string;
+      /** @description What needs doing; the Work Item description, or the delegated Task's requirement. */
+      brief: string;
+      /** @description Delegate the work as a Task to the caller's own AlterEgo; needs a create_and_delegate mandate. */
+      delegate: boolean;
+    };
+    /** @enum {string} */
+    ProactiveMandateStrength: "create" | "create_and_delegate";
+    ProactiveActResult: {
+      work_item_id: string;
+      strength: components["schemas"]["ProactiveMandateStrength"];
+      /** @description True when this rule already acted on this event; the first act's Work Item is returned. */
+      replay: boolean;
+    };
     /** @description Opaque document identifier. */
     AgentDocumentAuthorityId: string;
     /** @description One Native Document edit, resolved against the frozen mutation state. Action-specific fields are validated before admission and computation. */
@@ -3356,6 +3440,56 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["TrackingItem"];
+        };
+      };
+      default: components["responses"]["InternalError"];
+    };
+  };
+  recordProactiveShadowDivergence: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ProactiveShadowDivergenceRecord"];
+      };
+    };
+    responses: {
+      /** @description The recorded divergence. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProactiveShadowDivergence"];
+        };
+      };
+      default: components["responses"]["InternalError"];
+    };
+  };
+  actUnderProactiveMandate: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ProactiveActRequest"];
+      };
+    };
+    responses: {
+      /** @description The Work Item created under the mandate. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProactiveActResult"];
         };
       };
       default: components["responses"]["InternalError"];

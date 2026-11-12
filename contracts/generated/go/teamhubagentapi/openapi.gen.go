@@ -980,6 +980,45 @@ func (e EditNativeDocumentSemanticOperationCommand) Valid() bool {
 	}
 }
 
+// Defines values for ProactiveAction.
+const (
+	Notify ProactiveAction = "notify"
+	Silent ProactiveAction = "silent"
+	Track  ProactiveAction = "track"
+)
+
+// Valid indicates whether the value is a known member of the ProactiveAction enum.
+func (e ProactiveAction) Valid() bool {
+	switch e {
+	case Notify:
+		return true
+	case Silent:
+		return true
+	case Track:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProactiveMandateStrength.
+const (
+	Create            ProactiveMandateStrength = "create"
+	CreateAndDelegate ProactiveMandateStrength = "create_and_delegate"
+)
+
+// Valid indicates whether the value is a known member of the ProactiveMandateStrength enum.
+func (e ProactiveMandateStrength) Valid() bool {
+	switch e {
+	case Create:
+		return true
+	case CreateAndDelegate:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ReferenceSegmentTargetType.
 const (
 	ReferenceSegmentTargetTypeAgent ReferenceSegmentTargetType = "agent"
@@ -2833,6 +2872,68 @@ type PersonalProfileTimelineEntry struct {
 	Role         string   `json:"role"`
 }
 
+// ProactiveActRequest defines model for ProactiveActRequest.
+type ProactiveActRequest struct {
+	// Brief What needs doing; the Work Item description, or the delegated Task's requirement.
+	Brief string `json:"brief"`
+
+	// Delegate Delegate the work as a Task to the caller's own AlterEgo; needs a create_and_delegate mandate.
+	Delegate bool `json:"delegate"`
+
+	// EventExternalId The outside event's ID in its source, as the wake names it.
+	EventExternalId string `json:"event_external_id"`
+
+	// EventSource The outside event's source, as the wake names it.
+	EventSource string          `json:"event_source"`
+	RuleId      ProactiveRuleId `json:"rule_id"`
+	Title       string          `json:"title"`
+}
+
+// ProactiveActResult defines model for ProactiveActResult.
+type ProactiveActResult struct {
+	// Replay True when this rule already acted on this event; the first act's Work Item is returned.
+	Replay     bool                     `json:"replay"`
+	Strength   ProactiveMandateStrength `json:"strength"`
+	WorkItemId string                   `json:"work_item_id"`
+}
+
+// ProactiveAction notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+type ProactiveAction string
+
+// ProactiveMandateStrength defines model for ProactiveMandateStrength.
+type ProactiveMandateStrength string
+
+// ProactiveRuleId defines model for ProactiveRuleId.
+type ProactiveRuleId = string
+
+// ProactiveShadowDivergence One matter a judgment handled differently from what a shadow rule would have done.
+type ProactiveShadowDivergence struct {
+	CreatedAt        time.Time       `json:"created_at"`
+	GuidelineVersion int             `json:"guideline_version"`
+	Id               string          `json:"id"`
+	Matter           string          `json:"matter"`
+	RuleId           ProactiveRuleId `json:"rule_id"`
+
+	// ShadowAction notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+	ShadowAction ProactiveAction `json:"shadow_action"`
+
+	// TakenAction notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+	TakenAction ProactiveAction `json:"taken_action"`
+}
+
+// ProactiveShadowDivergenceRecord defines model for ProactiveShadowDivergenceRecord.
+type ProactiveShadowDivergenceRecord struct {
+	// Matter The matter in a few words, as the Human would recognize it.
+	Matter string          `json:"matter"`
+	RuleId ProactiveRuleId `json:"rule_id"`
+
+	// ShadowAction notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+	ShadowAction ProactiveAction `json:"shadow_action"`
+
+	// TakenAction notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+	TakenAction ProactiveAction `json:"taken_action"`
+}
+
 // ReferenceSegment defines model for ReferenceSegment.
 type ReferenceSegment struct {
 	Content string `json:"content"`
@@ -3255,6 +3356,12 @@ type WriteAgentPersonalProfileJSONRequestBody = AgentPersonalProfileWriteRequest
 
 // SendAgentPresentationSequenceJSONRequestBody defines body for SendAgentPresentationSequence for application/json ContentType.
 type SendAgentPresentationSequenceJSONRequestBody = AgentSendPresentationSequenceRequest
+
+// ActUnderProactiveMandateJSONRequestBody defines body for ActUnderProactiveMandate for application/json ContentType.
+type ActUnderProactiveMandateJSONRequestBody = ProactiveActRequest
+
+// RecordProactiveShadowDivergenceJSONRequestBody defines body for RecordProactiveShadowDivergence for application/json ContentType.
+type RecordProactiveShadowDivergenceJSONRequestBody = ProactiveShadowDivergenceRecord
 
 // AddAgentRoomMemberJSONRequestBody defines body for AddAgentRoomMember for application/json ContentType.
 type AddAgentRoomMemberJSONRequestBody = AgentAddRoomMemberRequest

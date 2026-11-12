@@ -69,6 +69,58 @@ paths:
     $ref: "../paths/tracking-items.yaml#/update"
   /api/agent/v1/tracking-items/done:
     $ref: "../paths/tracking-items.yaml#/done"
+  /api/agent/v1/proactive/shadow-divergences:
+    post:
+      tags: [Agent Business API]
+      operationId: recordProactiveShadowDivergence
+      summary: Record that one of the Human's shadow rules would have handled a matter differently
+      description: >-
+        Only an AnotherMe judging proactively under its Human's rules calls
+        this, once per matter where a shadow rule from its wake would have
+        taken another action than the one it took. The Human reads these in
+        My Rules before promoting the rule.
+      security: [{ agentBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "../components/proactive.yaml#/components/schemas/ProactiveShadowDivergenceRecord"
+      responses:
+        "200":
+          description: The recorded divergence.
+          content:
+            application/json:
+              schema:
+                $ref: "../components/proactive.yaml#/components/schemas/ProactiveShadowDivergence"
+        default:
+          $ref: "../components/agent-api-errors.yaml#/components/responses/InternalError"
+  /api/agent/v1/proactive/acts:
+    post:
+      tags: [Agent Business API]
+      operationId: actUnderProactiveMandate
+      summary: Create a Work Item, or delegate a Task, under one of the Human's rule mandates
+      description: >-
+        Only an AnotherMe judging an outside event calls this, and only under an active rule whose
+        mandate the Human granted in My Rules: create needs create, delegate needs create_and_delegate.
+        The Work Item and its immutable Mandate record commit together. One rule acts once per event:
+        repeating the call returns the first Work Item.
+      security: [{ agentBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "../components/proactive.yaml#/components/schemas/ProactiveActRequest"
+      responses:
+        "200":
+          description: The Work Item created under the mandate.
+          content:
+            application/json:
+              schema:
+                $ref: "../components/proactive.yaml#/components/schemas/ProactiveActResult"
+        default:
+          $ref: "../components/agent-api-errors.yaml#/components/responses/InternalError"
   /api/agent/v1/skills/packages:
     $ref: "../paths/agent-cli-capabilities.yaml#/skillPackage"
   /api/agent/v1/skills/packages/{manifestId}:

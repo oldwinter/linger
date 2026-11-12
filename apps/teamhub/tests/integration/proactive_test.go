@@ -269,6 +269,9 @@ func TestProactiveRoutinesEventsAndListeners(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	seedProactiveRules(t, pool, "actor_acme_alice", 2,
+		proactiveRuleRecord(proactiveActiveRuleID, "client replies → remind directly", "active", false, "learned"),
+		proactiveRuleRecord(proactiveShadowRuleID, "vendor invoices → track for follow-up", "shadow", false, "learned"))
 	grant := reminder.GrantReference{ID: "grant_alice_gmail", Revision: 1, ConnectionID: "connection_alice_gmail", AgentActorID: agentID, TenantID: acmeTenant}
 	var states []string
 	judge := func(_ context.Context, request proactive.EventJudgeRequest) (string, error) {
@@ -292,6 +295,10 @@ func TestProactiveRoutinesEventsAndListeners(t *testing.T) {
 	}
 	if outcome, err := day.HandleEvent(t.Context(), mail); err != nil || outcome.Skipped != "" || wakes() != 1 || !strings.Contains(states[0], "waiting for Lisa to reply to the quote") {
 		t.Fatalf("first event=%+v err=%v wakes=%d", outcome, err, wakes())
+	}
+	// Only active rules decide; shadow rules are handed over apart, by ID.
+	if want := `"Rules":{"version":2,"rules":["client replies → remind directly"],"shadow_rules":[{"id":"` + proactiveShadowRuleID + `","text":"vendor invoices → track for follow-up"}],"mandate_rules":[]}`; !strings.Contains(states[0], want) {
+		t.Fatalf("judge input=%s, want %s", states[0], want)
 	}
 	if outcome, err := day.HandleEvent(t.Context(), mail); err != nil || outcome.Skipped != "already_judged" || wakes() != 1 {
 		t.Fatalf("same state=%+v err=%v", outcome, err)
@@ -786,10 +793,9 @@ func TestProactivePlanWakeCarriesTheHumansRules(t *testing.T) {
 	allowParallelIntegrationTest(t)
 	env, pool := newConnectedAnotherMeEnv(t, nil)
 	roomID := anotherMeRoomID(t, pool, "actor_acme_alice")
-	if _, err := pool.Exec(t.Context(), `INSERT INTO proactive_guidelines (tenant_id, owner_actor_id, version, specific, clues)
-		VALUES ($1, 'actor_acme_alice', 1, '["Never remind me about groceries"]'::jsonb, '[]'::jsonb)`, acmeTenant); err != nil {
-		t.Fatal(err)
-	}
+	seedProactiveRules(t, pool, "actor_acme_alice", 1,
+		proactiveRuleRecord(proactiveActiveRuleID, "Never remind me about groceries", "active", false, "learned"),
+		proactiveRuleRecord(proactiveShadowRuleID, "Remind me about every bakery", "shadow", false, "learned"))
 	if _, err := pool.Exec(t.Context(), `INSERT INTO memory_index.tracking_items(id,tenant_id,owner_actor_id,kind,content,source_ref,source_timezone)
 		VALUES('ti_0000000000000000000000000000000a',$1,'actor_acme_alice','todo','Buy milk','evidence/2026-11-06/sessions/pocket-note.md','UTC')`, acmeTenant); err != nil {
 		t.Fatal(err)
@@ -802,5 +808,8 @@ func TestProactivePlanWakeCarriesTheHumansRules(t *testing.T) {
 	if countRows(t, env, `SELECT count(*) FROM proactive_pending_wakes WHERE room_id=$1 AND source='plan'
 		AND body LIKE '[Proactive plan:%<part-1>%- Never remind me about groceries%</part-1>%<items>%ti_0000000000000000000000000000000a (todo) Buy milk%</items>%'`, roomID) != 1 {
 		t.Fatal("the plan wake did not carry the Human's rules and items")
+	}
+	if countRows(t, env, `SELECT count(*) FROM proactive_pending_wakes WHERE room_id=$1 AND source='plan' AND body LIKE '%bakery%'`, roomID) != 0 {
+		t.Fatal("a shadow rule decided the plan")
 	}
 }

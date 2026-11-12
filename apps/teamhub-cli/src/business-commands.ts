@@ -493,6 +493,190 @@ const appsAutoRemindersSet: CommandDefinition = {
     ),
   render: (result) => autoRemindersLine(result),
 };
+const proactiveActions = ["notify", "track", "silent"] as const;
+const proactiveShadowDivergence: CommandDefinition = {
+  command: ["proactive", "shadow-divergence"],
+  toolName: "record_shadow_divergence",
+  operationId: true,
+  description:
+    "Record that one of your Human's shadow rules would have handled a matter differently from what you did.",
+  readOnly: false,
+  usage: [
+    'teamhub proactive shadow-divergence --rule <rule-id> --matter "<matter>" --would <notify|track|silent> --took <notify|track|silent>',
+  ],
+  options: {
+    "--rule": { description: "Shadow rule ID from the proactive wake." },
+    "--matter": { description: "The matter in a few words." },
+    "--would": { description: "What the shadow rule would have done." },
+    "--took": { description: "What you did under the active rules." },
+  },
+  examples: [
+    'teamhub proactive shadow-divergence --rule pr_0123456789abcdef0123456789abcdef --matter "AWS invoice" --would track --took notify',
+  ],
+  notes: [
+    "Only Another Me uses this, while judging a proactive wake that lists <shadow-rules>. Shadow rules never decide; the Human reads these records before promoting one. Recording the same divergence again is harmless.",
+  ],
+  inputSchema: {
+    type: "object",
+    properties: {
+      rule_id: { type: "string", pattern: "^pr_[a-f0-9]{32}$" },
+      matter: { type: "string", minLength: 1, maxLength: 300 },
+      shadow_action: { type: "string", enum: [...proactiveActions] },
+      taken_action: { type: "string", enum: [...proactiveActions] },
+    },
+    required: ["rule_id", "matter", "shadow_action", "taken_action"],
+    additionalProperties: false,
+  },
+  outputSchema: {
+    type: "object",
+    properties: {
+      id: { type: "string" },
+      rule_id: { type: "string" },
+      matter: { type: "string" },
+      shadow_action: { type: "string" },
+      taken_action: { type: "string" },
+    },
+    required: ["id", "rule_id", "matter", "shadow_action", "taken_action"],
+  },
+  normalize: async (args) => {
+    assertPositionals(args, 0);
+    const ruleId = option(args, "--rule") ?? "";
+    const matter = (option(args, "--matter") ?? "").trim();
+    const would = option(args, "--would") ?? "";
+    const took = option(args, "--took") ?? "";
+    if (!/^pr_[a-f0-9]{32}$/u.test(ruleId))
+      invalid("--rule must be a shadow rule ID from the wake.");
+    if (!matter || matter.length > 300)
+      invalid("--matter must name the matter in at most 300 characters.");
+    const isAction = (value: string) =>
+      (proactiveActions as readonly string[]).includes(value);
+    if (!isAction(would) || !isAction(took) || would === took)
+      invalid(
+        "--would and --took must be two different actions of notify, track or silent.",
+      );
+    return {
+      input: {
+        rule_id: ruleId,
+        matter,
+        shadow_action: would,
+        taken_action: took,
+      },
+    };
+  },
+  execute: async (input, context) =>
+    teamHubData(
+      context.client.api.POST("/api/agent/v1/proactive/shadow-divergences", {
+        body: input as {
+          rule_id: string;
+          matter: string;
+          shadow_action: (typeof proactiveActions)[number];
+          taken_action: (typeof proactiveActions)[number];
+        },
+      }),
+    ),
+  render: (result) =>
+    `Recorded: ${singleLineText(result.matter)}  would ${singleLineText(result.shadow_action)}, took ${singleLineText(result.taken_action)}`,
+};
+const proactiveAct: CommandDefinition = {
+  command: ["proactive", "act"],
+  toolName: "act_under_mandate",
+  operationId: true,
+  description:
+    "Create a Work Item for an outside event, or delegate it as a Task to your AlterEgo, under a mandate your Human granted on one of their rules.",
+  readOnly: false,
+  usage: [
+    'teamhub proactive act --rule <rule-id> --source <event-source> --external-id <event-id> --title "<title>" --brief "<what needs doing>" [--delegate]',
+  ],
+  options: {
+    "--rule": { description: "Mandate rule ID from the proactive wake." },
+    "--source": { description: "The event's source, as the wake names it." },
+    "--external-id": {
+      description: "The event's external_id, as the wake names it.",
+    },
+    "--title": { description: "Short Work Item title, 1-120 characters." },
+    "--brief": {
+      description:
+        "What needs doing: the Work Item description, or the delegated Task's requirement.",
+    },
+    "--delegate": {
+      description:
+        "Delegate the work as a Task to your AlterEgo; needs a create_and_delegate mandate.",
+      boolean: true,
+    },
+  },
+  examples: [
+    'teamhub proactive act --rule pr_0123456789abcdef0123456789abcdef --source gmail --external-id thread_1 --title "Review the Acme contract change" --brief "Compare the new payment terms with the signed contract."',
+  ],
+  notes: [
+    "Only Another Me uses this, while judging an outside event whose wake lists <mandate-rules>; without a matching mandate it only reminds or tracks. TeamHub checks the Human's current rules on every act, and one rule acts once per event: repeating the command returns the first Work Item.",
+  ],
+  inputSchema: {
+    type: "object",
+    properties: {
+      rule_id: { type: "string", pattern: "^pr_[a-f0-9]{32}$" },
+      event_source: { type: "string", minLength: 1, maxLength: 100 },
+      event_external_id: { type: "string", minLength: 1, maxLength: 500 },
+      title: { type: "string", minLength: 1, maxLength: 120 },
+      brief: { type: "string", minLength: 1, maxLength: 20000 },
+      delegate: { type: "boolean" },
+    },
+    required: [
+      "rule_id",
+      "event_source",
+      "event_external_id",
+      "title",
+      "brief",
+      "delegate",
+    ],
+    additionalProperties: false,
+  },
+  outputSchema: {
+    type: "object",
+    properties: {
+      work_item_id: { type: "string" },
+      strength: { type: "string" },
+      replay: { type: "boolean" },
+    },
+    required: ["work_item_id", "strength", "replay"],
+  },
+  normalize: async (args) => {
+    assertPositionals(args, 0);
+    const ruleId = option(args, "--rule") ?? "";
+    if (!/^pr_[a-f0-9]{32}$/u.test(ruleId))
+      invalid("--rule must be a mandate rule ID from the wake.");
+    const text = (name: string, max: number) => {
+      const value = (option(args, name) ?? "").trim();
+      if (!value || value.length > max)
+        invalid(`${name} must be 1 to ${max} characters.`);
+      return value;
+    };
+    return {
+      input: {
+        rule_id: ruleId,
+        event_source: text("--source", 100),
+        event_external_id: text("--external-id", 500),
+        title: text("--title", 120),
+        brief: text("--brief", 20000),
+        delegate: option(args, "--delegate") !== undefined,
+      },
+    };
+  },
+  execute: async (input, context) =>
+    teamHubData(
+      context.client.api.POST("/api/agent/v1/proactive/acts", {
+        body: input as {
+          rule_id: string;
+          event_source: string;
+          event_external_id: string;
+          title: string;
+          brief: string;
+          delegate: boolean;
+        },
+      }),
+    ),
+  render: (result) =>
+    `${result.replay ? "Already acted" : "Created"}: ${singleLineText(result.work_item_id)} under ${singleLineText(result.strength)}`,
+};
 const appsSearch = definition(
   ["apps", "search"],
   "search_app_tools",
@@ -1240,6 +1424,8 @@ export const businessCommandDefinitions: readonly CommandDefinition[] = [
   appsExecute,
   ...knowledgeDefinitions,
   ...trackingItemCommands,
+  proactiveShadowDivergence,
+  proactiveAct,
   personalProfileShow,
   personalProfileStart,
   personalProfileWrite,

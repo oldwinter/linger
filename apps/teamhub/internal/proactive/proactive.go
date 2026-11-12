@@ -1,9 +1,11 @@
 // Package proactive hands, for one Human at a time, outside events from their
 // own material to their AnotherMe, which judges in its own Run with the same
 // rules as its conversation review whether to remind them, record a Tracking
-// Item quietly, or stay silent. It only reminds; it never acts for the Human.
-// Every read and write is scoped to one (tenant, owner) pair, so no Human ever
-// sees another's material.
+// Item quietly, or stay silent. Beyond reminding it acts for the Human only
+// under a mandate the Human granted on one of their active rules: it may then
+// create a Work Item, or create one and delegate it, and each act records an
+// immutable Mandate with the Work Item. Every read and write is scoped to one
+// (tenant, owner) pair, so no Human ever sees another's material.
 package proactive
 
 import (
@@ -23,23 +25,9 @@ type Candidate struct {
 	DueAt     *time.Time `json:"due_at,omitempty"`
 }
 
-// Guideline is a Human's reminder prompt: the shared general part lives with
-// the Agent Service; Specific holds what dreaming learned from this Human's
-// replies.
-type Guideline struct {
-	Version  int      `json:"version"`
-	Specific []string `json:"specific"`
-}
-
-// MaxSpecific bounds the learned part so every evaluation stays small.
-const MaxSpecific = 20
-
-// DefaultGuideline is a new Human's guideline: general rules only.
-func DefaultGuideline() Guideline { return Guideline{Version: 1} }
-
 // EventJudgeRequest is what AnotherMe weighs an event against.
 type EventJudgeRequest struct {
-	Specific  []string
+	Rules     JudgeRules
 	OpenItems []OpenItem
 }
 

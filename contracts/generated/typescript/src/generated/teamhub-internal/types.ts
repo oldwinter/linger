@@ -2514,10 +2514,27 @@ export interface components {
       /** Format: date-time */
       created_at: string;
     };
+    ProactiveRuleId: string;
+    ProactiveShadowRule: {
+      id: components["schemas"]["ProactiveRuleId"];
+      text: string;
+    };
+    /** @enum {string} */
+    ProactiveMandateStrength: "create" | "create_and_delegate";
+    ProactiveMandateRule: {
+      id: components["schemas"]["ProactiveRuleId"];
+      text: string;
+      mandate: components["schemas"]["ProactiveMandateStrength"];
+    };
+    /** @description What one judgment reads of the Human's own rules. */
     ProactiveGuideline: {
       version: number;
-      threshold: number;
-      specific: string[];
+      /** @description Active rules; they decide. */
+      rules: string[];
+      /** @description Shadow rules; they do not decide, and the Run records where one would have decided differently. */
+      shadow_rules: components["schemas"]["ProactiveShadowRule"][];
+      /** @description Active rules under which the Human allows Another Me to create a Work Item, or create and delegate it. */
+      mandate_rules: components["schemas"]["ProactiveMandateRule"][];
     };
     ProactiveOpenItem: {
       id: string;

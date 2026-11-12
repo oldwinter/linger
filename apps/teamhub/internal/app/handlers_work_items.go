@@ -265,6 +265,13 @@ func workItemModel(item workitem.Item) httpapi.WorkItem {
 	model.OriginRoomId = item.OriginRoomID
 	model.OriginMessageId = item.OriginMessageID
 	model.WorkRoomId = item.WorkRoomID
+	if mandate := item.Mandate; mandate != nil {
+		model.Mandate = &httpapi.WorkItemMandate{
+			OwnerActorId: mandate.OwnerActorID, RuleId: mandate.RuleID, RuleText: mandate.RuleText,
+			GuidelineVersion: mandate.GuidelineVersion, EventSource: mandate.EventSource, EventExternalId: mandate.EventExternalID,
+			Strength: httpapi.ProactiveMandateStrength(mandate.Strength), Revoked: mandate.Revoked, RecordedAt: mandate.RecordedAt,
+		}
+	}
 	if item.TaskExecution != nil {
 		summary := httpapi.WorkItemTaskExecutionSummary{
 			Generation:             item.TaskExecution.Generation,

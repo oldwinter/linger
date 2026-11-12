@@ -66,9 +66,12 @@ type Item struct {
 	OriginMessageID      *string               `json:"origin_message_id,omitempty"`
 	WorkRoomID           *string               `json:"work_room_id,omitempty"`
 	TaskExecution        *TaskExecutionSummary `json:"task_execution,omitempty"`
-	ArchivedAt           *time.Time            `json:"archived_at,omitempty"`
-	CreatedAt            time.Time             `json:"created_at"`
-	UpdatedAt            time.Time             `json:"updated_at"`
+	// Mandate is set when Another Me created the Work Item under one of its
+	// Human's rules.
+	Mandate    *ItemMandate `json:"mandate,omitempty"`
+	ArchivedAt *time.Time   `json:"archived_at,omitempty"`
+	CreatedAt  time.Time    `json:"created_at"`
+	UpdatedAt  time.Time    `json:"updated_at"`
 }
 
 type Result[T any] struct {

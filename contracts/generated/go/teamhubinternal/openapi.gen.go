@@ -902,6 +902,24 @@ func (e PersonalWikiDocumentRevisionWikiState) Valid() bool {
 	}
 }
 
+// Defines values for ProactiveMandateStrength.
+const (
+	Create            ProactiveMandateStrength = "create"
+	CreateAndDelegate ProactiveMandateStrength = "create_and_delegate"
+)
+
+// Valid indicates whether the value is a known member of the ProactiveMandateStrength enum.
+func (e ProactiveMandateStrength) Valid() bool {
+	switch e {
+	case Create:
+		return true
+	case CreateAndDelegate:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ProactiveWindowMessageAuthor.
 const (
 	ProactiveWindowMessageAuthorAgent ProactiveWindowMessageAuthor = "agent"
@@ -2979,12 +2997,28 @@ type PersonalWikiDocumentRevision struct {
 // PersonalWikiDocumentRevisionWikiState The Wiki's refresh state, the same projection as the Personal Wiki state; failed publication must not be reported as completed.
 type PersonalWikiDocumentRevisionWikiState string
 
-// ProactiveGuideline defines model for ProactiveGuideline.
+// ProactiveGuideline What one judgment reads of the Human's own rules.
 type ProactiveGuideline struct {
-	Specific  []string `json:"specific"`
-	Threshold float32  `json:"threshold"`
-	Version   int      `json:"version"`
+	// MandateRules Active rules under which the Human allows Another Me to create a Work Item, or create and delegate it.
+	MandateRules []ProactiveMandateRule `json:"mandate_rules"`
+
+	// Rules Active rules; they decide.
+	Rules []string `json:"rules"`
+
+	// ShadowRules Shadow rules; they do not decide, and the Run records where one would have decided differently.
+	ShadowRules []ProactiveShadowRule `json:"shadow_rules"`
+	Version     int                   `json:"version"`
 }
+
+// ProactiveMandateRule defines model for ProactiveMandateRule.
+type ProactiveMandateRule struct {
+	Id      ProactiveRuleId          `json:"id"`
+	Mandate ProactiveMandateStrength `json:"mandate"`
+	Text    string                   `json:"text"`
+}
+
+// ProactiveMandateStrength defines model for ProactiveMandateStrength.
+type ProactiveMandateStrength string
 
 // ProactiveOpenItem defines model for ProactiveOpenItem.
 type ProactiveOpenItem struct {
@@ -2992,6 +3026,15 @@ type ProactiveOpenItem struct {
 	DueAt   *time.Time `json:"due_at,omitempty"`
 	Id      string     `json:"id"`
 	Kind    string     `json:"kind"`
+}
+
+// ProactiveRuleId defines model for ProactiveRuleId.
+type ProactiveRuleId = string
+
+// ProactiveShadowRule defines model for ProactiveShadowRule.
+type ProactiveShadowRule struct {
+	Id   ProactiveRuleId `json:"id"`
+	Text string          `json:"text"`
 }
 
 // ProactiveWakeRequest defines model for ProactiveWakeRequest.
@@ -3002,6 +3045,7 @@ type ProactiveWakeRequest struct {
 
 // ProactiveWindow defines model for ProactiveWindow.
 type ProactiveWindow struct {
+	// Guideline What one judgment reads of the Human's own rules.
 	Guideline ProactiveGuideline `json:"guideline"`
 
 	// JudgedCount Ordinary messages judged before this window; pass it back to finish the window. A window holds twenty messages unless TeamHub runs with a smaller test window.

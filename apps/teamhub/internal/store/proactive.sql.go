@@ -59,6 +59,48 @@ func (q *Queries) CreateProactiveOutput(ctx context.Context, arg CreateProactive
 	return err
 }
 
+const createProactiveShadowDivergence = `-- name: CreateProactiveShadowDivergence :one
+INSERT INTO proactive_shadow_divergences(id,tenant_id,owner_actor_id,rule_id,guideline_version,matter,shadow_action,taken_action)
+VALUES ($1::text,$2::text,$3::text,$4::text,
+        $5::integer,$6::text,$7::text,$8::text)
+ON CONFLICT (tenant_id,owner_actor_id,rule_id,guideline_version,matter,shadow_action,taken_action)
+DO UPDATE SET matter=EXCLUDED.matter
+RETURNING id,created_at
+`
+
+type CreateProactiveShadowDivergenceParams struct {
+	ID               string `json:"id"`
+	TenantID         string `json:"tenant_id"`
+	OwnerActorID     string `json:"owner_actor_id"`
+	RuleID           string `json:"rule_id"`
+	GuidelineVersion int32  `json:"guideline_version"`
+	Matter           string `json:"matter"`
+	ShadowAction     string `json:"shadow_action"`
+	TakenAction      string `json:"taken_action"`
+}
+
+type CreateProactiveShadowDivergenceRow struct {
+	ID        string             `json:"id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+// A replayed record returns the divergence already kept.
+func (q *Queries) CreateProactiveShadowDivergence(ctx context.Context, arg CreateProactiveShadowDivergenceParams) (CreateProactiveShadowDivergenceRow, error) {
+	row := q.db.QueryRow(ctx, createProactiveShadowDivergence,
+		arg.ID,
+		arg.TenantID,
+		arg.OwnerActorID,
+		arg.RuleID,
+		arg.GuidelineVersion,
+		arg.Matter,
+		arg.ShadowAction,
+		arg.TakenAction,
+	)
+	var i CreateProactiveShadowDivergenceRow
+	err := row.Scan(&i.ID, &i.CreatedAt)
+	return i, err
+}
+
 const getAnotherMeHuman = `-- name: GetAnotherMeHuman :one
 SELECT represented_human_actor_id::text
 FROM agent_registrations
@@ -78,7 +120,7 @@ func (q *Queries) GetAnotherMeHuman(ctx context.Context, arg GetAnotherMeHumanPa
 }
 
 const getLatestProactiveGuideline = `-- name: GetLatestProactiveGuideline :one
-SELECT version,specific FROM proactive_guidelines
+SELECT version,rules,deleted_rules,clues FROM proactive_guidelines
 WHERE tenant_id=$1::text AND owner_actor_id=$2::text
 ORDER BY version DESC
 LIMIT 1
@@ -90,14 +132,21 @@ type GetLatestProactiveGuidelineParams struct {
 }
 
 type GetLatestProactiveGuidelineRow struct {
-	Version  int32  `json:"version"`
-	Specific []byte `json:"specific"`
+	Version      int32  `json:"version"`
+	Rules        []byte `json:"rules"`
+	DeletedRules []byte `json:"deleted_rules"`
+	Clues        []byte `json:"clues"`
 }
 
 func (q *Queries) GetLatestProactiveGuideline(ctx context.Context, arg GetLatestProactiveGuidelineParams) (GetLatestProactiveGuidelineRow, error) {
 	row := q.db.QueryRow(ctx, getLatestProactiveGuideline, arg.TenantID, arg.OwnerActorID)
 	var i GetLatestProactiveGuidelineRow
-	err := row.Scan(&i.Version, &i.Specific)
+	err := row.Scan(
+		&i.Version,
+		&i.Rules,
+		&i.DeletedRules,
+		&i.Clues,
+	)
 	return i, err
 }
 
@@ -175,6 +224,37 @@ func (q *Queries) HasProactiveSignalForSource(ctx context.Context, arg HasProact
 	return column_1, err
 }
 
+const insertProactiveGuideline = `-- name: InsertProactiveGuideline :exec
+INSERT INTO proactive_guidelines(tenant_id,owner_actor_id,version,rules,deleted_rules,clues,change_note)
+VALUES ($1::text,$2::text,$3::integer,
+        $4::jsonb,$5::jsonb,$6::jsonb,$7::text)
+`
+
+type InsertProactiveGuidelineParams struct {
+	TenantID     string `json:"tenant_id"`
+	OwnerActorID string `json:"owner_actor_id"`
+	Version      int32  `json:"version"`
+	Rules        []byte `json:"rules"`
+	DeletedRules []byte `json:"deleted_rules"`
+	Clues        []byte `json:"clues"`
+	ChangeNote   string `json:"change_note"`
+}
+
+// The next version of a Human's guideline. Versions are consecutive, so a
+// writer that read an older latest version fails on the primary key.
+func (q *Queries) InsertProactiveGuideline(ctx context.Context, arg InsertProactiveGuidelineParams) error {
+	_, err := q.db.Exec(ctx, insertProactiveGuideline,
+		arg.TenantID,
+		arg.OwnerActorID,
+		arg.Version,
+		arg.Rules,
+		arg.DeletedRules,
+		arg.Clues,
+		arg.ChangeNote,
+	)
+	return err
+}
+
 const listAnotherMeConnectionsWithoutListener = `-- name: ListAnotherMeConnectionsWithoutListener :many
 SELECT registration.tenant_id, registration.represented_human_actor_id::text AS represented_human_actor_id,
        registration.actor_id AS agent_actor_id, room.id AS room_id,
@@ -246,6 +326,113 @@ func (q *Queries) ListAnotherMeConnectionsWithoutListener(ctx context.Context, a
 	return items, nil
 }
 
+const listProactiveMandates = `-- name: ListProactiveMandates :many
+SELECT activity.work_item_id, item.number, item.title, activity.details, activity.occurred_at,
+       NOT proactive_mandate_in_force(activity.tenant_id, activity.details->>'owner_actor_id',
+                                      activity.details->>'rule_id', activity.details->>'strength') AS revoked
+FROM work_item_activities activity
+JOIN work_items item ON item.id = activity.work_item_id AND item.tenant_id = activity.tenant_id
+WHERE activity.tenant_id = $1::text AND activity.kind = 'mandate_recorded'
+  AND activity.details->>'owner_actor_id' = $2::text
+ORDER BY activity.occurred_at DESC
+LIMIT $3::integer
+`
+
+type ListProactiveMandatesParams struct {
+	TenantID     string `json:"tenant_id"`
+	OwnerActorID string `json:"owner_actor_id"`
+	Take         int32  `json:"take"`
+}
+
+type ListProactiveMandatesRow struct {
+	WorkItemID string             `json:"work_item_id"`
+	Number     int64              `json:"number"`
+	Title      string             `json:"title"`
+	Details    []byte             `json:"details"`
+	OccurredAt pgtype.Timestamptz `json:"occurred_at"`
+	Revoked    pgtype.Bool        `json:"revoked"`
+}
+
+// The Work Items Another Me created under its Human's mandates, newest first.
+func (q *Queries) ListProactiveMandates(ctx context.Context, arg ListProactiveMandatesParams) ([]ListProactiveMandatesRow, error) {
+	rows, err := q.db.Query(ctx, listProactiveMandates, arg.TenantID, arg.OwnerActorID, arg.Take)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProactiveMandatesRow{}
+	for rows.Next() {
+		var i ListProactiveMandatesRow
+		if err := rows.Scan(
+			&i.WorkItemID,
+			&i.Number,
+			&i.Title,
+			&i.Details,
+			&i.OccurredAt,
+			&i.Revoked,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProactiveShadowDivergences = `-- name: ListProactiveShadowDivergences :many
+SELECT id,rule_id,guideline_version,matter,shadow_action,taken_action,created_at
+FROM proactive_shadow_divergences
+WHERE tenant_id=$1::text AND owner_actor_id=$2::text
+ORDER BY created_at DESC, id DESC
+LIMIT $3::integer
+`
+
+type ListProactiveShadowDivergencesParams struct {
+	TenantID     string `json:"tenant_id"`
+	OwnerActorID string `json:"owner_actor_id"`
+	Take         int32  `json:"take"`
+}
+
+type ListProactiveShadowDivergencesRow struct {
+	ID               string             `json:"id"`
+	RuleID           string             `json:"rule_id"`
+	GuidelineVersion int32              `json:"guideline_version"`
+	Matter           string             `json:"matter"`
+	ShadowAction     string             `json:"shadow_action"`
+	TakenAction      string             `json:"taken_action"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) ListProactiveShadowDivergences(ctx context.Context, arg ListProactiveShadowDivergencesParams) ([]ListProactiveShadowDivergencesRow, error) {
+	rows, err := q.db.Query(ctx, listProactiveShadowDivergences, arg.TenantID, arg.OwnerActorID, arg.Take)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProactiveShadowDivergencesRow{}
+	for rows.Next() {
+		var i ListProactiveShadowDivergencesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.RuleID,
+			&i.GuidelineVersion,
+			&i.Matter,
+			&i.ShadowAction,
+			&i.TakenAction,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProactiveTrackingItems = `-- name: ListProactiveTrackingItems :many
 SELECT id,kind,content,due_at FROM memory_index.tracking_items
 WHERE tenant_id=$1::text AND owner_actor_id=$2::text AND status='open'
@@ -304,6 +491,30 @@ func (q *Queries) LockConnectionAutoReminders(ctx context.Context, id string) (b
 	var auto_reminders bool
 	err := row.Scan(&auto_reminders)
 	return auto_reminders, err
+}
+
+const pruneProactiveShadowDivergences = `-- name: PruneProactiveShadowDivergences :exec
+DELETE FROM proactive_shadow_divergences
+WHERE tenant_id=$1::text AND owner_actor_id=$2::text
+  AND id NOT IN (
+    SELECT id FROM proactive_shadow_divergences
+    WHERE tenant_id=$1::text AND owner_actor_id=$2::text
+    ORDER BY created_at DESC, id DESC
+    LIMIT $3::integer
+  )
+`
+
+type PruneProactiveShadowDivergencesParams struct {
+	TenantID     string `json:"tenant_id"`
+	OwnerActorID string `json:"owner_actor_id"`
+	Keep         int32  `json:"keep"`
+}
+
+// Only the latest divergences are shown, so older ones are dropped as new
+// ones arrive.
+func (q *Queries) PruneProactiveShadowDivergences(ctx context.Context, arg PruneProactiveShadowDivergencesParams) error {
+	_, err := q.db.Exec(ctx, pruneProactiveShadowDivergences, arg.TenantID, arg.OwnerActorID, arg.Keep)
+	return err
 }
 
 const upsertProactivePotentialItem = `-- name: UpsertProactivePotentialItem :execrows

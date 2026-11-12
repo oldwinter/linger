@@ -4,9 +4,14 @@ import { localDate, localTimeZone } from "./date.js";
 // reads only that Human's proactive outputs, each tagged with the wake source
 // that led to it, with the next twenty Messages of its Room, writes a new guideline version (the previous one stays for
 // rollback), then clears the day's outputs and event deduplication records. A guideline
-// holds broad specific rules, which evaluation follows, and clues: specific
-// observations only dreaming reads, carrying evidence across nights until
-// they are strong enough to be rules.
+// holds broad specific rules as records, and clues: specific observations
+// only dreaming reads, carrying evidence across nights until they are strong
+// enough to be rules. A newly learned rule starts as shadow with no mandate:
+// it decides nothing until the Human promotes it in My Rules, and only the
+// Human grants a mandate. Rules the Human pinned or
+// wrote are never removed or rewritten here, and rules they deleted are not
+// written again without new feedback.
+import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -31,9 +36,34 @@ export type Clue = {
   last_seen: string;
 };
 
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions -- needs an implicit index signature
+export type ProactiveRule = {
+  id: string;
+  text: string;
+  /** Only active rules decide; dreaming writes new rules as shadow. */
+  status: "shadow" | "active";
+  pinned: boolean;
+  /** user once the Human edited it in My Rules. */
+  source: "learned" | "user";
+  created_at: string;
+  promoted_at: string | null;
+  /** The version that first held the rule as written. */
+  guideline_version: number;
+  /** What the Human allows Another Me to do beyond reminding; only they set it. */
+  mandate: "none" | "create" | "create_and_delegate";
+};
+
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions -- needs an implicit index signature
+export type DeletedRule = {
+  text: string;
+  deleted_at: string;
+};
+
 export interface Guideline {
   version: number;
-  specific: string[];
+  rules: ProactiveRule[];
+  /** Rules the Human deleted, newest first; TeamHub writes them. */
+  deleted_rules: DeletedRule[];
   clues: Clue[];
 }
 
@@ -90,13 +120,21 @@ const loadDreamPrompt = async () =>
   );
 
 export function defaultGuideline(): Guideline {
-  return { version: 1, specific: [], clues: [] };
+  return { version: 1, rules: [], deleted_rules: [], clues: [] };
 }
+
+/**
+ * Rules the Human pinned, wrote, or granted a mandate on; dreaming never
+ * removes or rewrites them, so it never revokes a mandate.
+ */
+const fixed = (rule: ProactiveRule) =>
+  rule.pinned || rule.source === "user" || rule.mandate !== "none";
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions -- needs an implicit index signature
 export type DreamOutput = {
   specific: string[];
   removed_rules: string[];
+  relearned_rules: string[];
   clues: Clue[];
   change_note: string;
 };
@@ -110,7 +148,13 @@ const leanings = [
 const dreamSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["specific", "removed_rules", "clues", "change_note"],
+  required: [
+    "specific",
+    "removed_rules",
+    "relearned_rules",
+    "clues",
+    "change_note",
+  ],
   properties: {
     specific: {
       type: "array",
@@ -118,6 +162,10 @@ const dreamSchema = {
       items: { type: "string", minLength: 1, maxLength: 200 },
     },
     removed_rules: {
+      type: "array",
+      items: { type: "string", maxLength: 200 },
+    },
+    relearned_rules: {
       type: "array",
       items: { type: "string", maxLength: 200 },
     },
@@ -142,25 +190,57 @@ const dreamSchema = {
   },
 };
 
-/** Applies the model's answer to the current guideline as the next version;
- * `today` is the local date the exchanges happened. */
+/**
+ * Applies the model's answer to the current guideline as the next version;
+ * `today` is the local date the exchanges happened and `now` stamps new rules.
+ */
 export function nextGuideline(
   current: Guideline,
   output: DreamOutput,
   today: string,
+  now: Date,
+  newRuleId: () => string = () => `pr_${randomBytes(16).toString("hex")}`,
 ): Guideline {
+  const version = current.version + 1;
   // A current rule leaves only when the answer names it as removed, so an
-  // answer that forgets to repeat the rules never wipes them.
+  // answer that forgets to repeat the rules never wipes them. A pinned rule,
+  // or one the Human wrote, never leaves here.
   const removed = new Set(output.removed_rules.map((rule) => rule.trim()));
-  const kept = current.specific.filter((rule) => !removed.has(rule.trim()));
-  const seen = new Set<string>();
-  const specific = [...output.specific, ...kept]
-    .map((rule) => rule.trim())
-    .filter((rule) => rule && !seen.has(rule) && seen.add(rule))
-    .slice(0, maxSpecificRules);
+  const rules = current.rules.filter(
+    (rule) => fixed(rule) || !removed.has(rule.text.trim()),
+  );
+  const seen = new Set(rules.map((rule) => rule.text.trim()));
+  // A deleted rule comes back only when the answer says today's feedback asks
+  // for it again; otherwise it was learned from evidence the Human rejected.
+  const deleted = new Set(current.deleted_rules.map((rule) => rule.text));
+  const relearned = new Set(
+    output.relearned_rules
+      .map((rule) => rule.trim())
+      .filter((rule) => deleted.has(rule)),
+  );
+  for (const text of output.specific.map((rule) => rule.trim())) {
+    if (rules.length >= maxSpecificRules) break;
+    if (!text || seen.has(text) || (deleted.has(text) && !relearned.has(text)))
+      continue;
+    seen.add(text);
+    rules.push({
+      id: newRuleId(),
+      text,
+      status: "shadow",
+      pinned: false,
+      source: "learned",
+      created_at: now.toISOString(),
+      promoted_at: null,
+      guideline_version: version,
+      mandate: "none",
+    });
+  }
   return {
-    version: current.version + 1,
-    specific,
+    version,
+    rules,
+    deleted_rules: current.deleted_rules.filter(
+      (rule) => !(relearned.has(rule.text) && seen.has(rule.text)),
+    ),
     clues: keptClues(output.clues, today),
   };
 }
@@ -285,7 +365,12 @@ export async function dreamProactiveGuideline(
     user: JSON.stringify({
       today,
       general_rules: prompt.generalRules,
-      specific_rules: current.specific,
+      specific_rules: current.rules.map((rule) => ({
+        text: rule.text,
+        status: rule.status,
+        fixed: fixed(rule),
+      })),
+      deleted_rules: current.deleted_rules.map((rule) => rule.text),
       clues: current.clues,
       exchanges: exchanges.map((exchange) => ({
         source: exchange.source,
@@ -302,7 +387,7 @@ export async function dreamProactiveGuideline(
     schema: dreamSchema,
     reasoningEffort: "medium",
   })) as DreamOutput;
-  const next = nextGuideline(current, output, today);
+  const next = nextGuideline(current, output, today, before);
   await store.save(owner, next, output.change_note.slice(0, 2_000));
   await store.clear(owner, before);
   return {
@@ -316,23 +401,11 @@ export async function dreamProactiveGuideline(
 export function postgresDreamStore(sql: postgres.Sql): DreamStore {
   return {
     async guideline(owner) {
-      const rows = await sql<
-        {
-          version: number;
-          specific: string[];
-          clues: Clue[];
-        }[]
-      >`
-        SELECT version, specific, clues FROM memory_source.proactive_guidelines
+      const rows = await sql<Guideline[]>`
+        SELECT version, rules, deleted_rules, clues FROM memory_source.proactive_guidelines
         WHERE tenant_id = ${owner.tenantId} AND owner_actor_id = ${owner.ownerActorId}
         ORDER BY version DESC LIMIT 1`;
-      return rows[0]
-        ? {
-            version: rows[0].version,
-            specific: rows[0].specific,
-            clues: rows[0].clues,
-          }
-        : defaultGuideline();
+      return rows[0] ?? defaultGuideline();
     },
     async exchanges(owner, before) {
       const rows = await sql<
@@ -356,7 +429,8 @@ export function postgresDreamStore(sql: postgres.Sql): DreamStore {
       await sql`
         SELECT memory_source.record_proactive_guideline(
           ${owner.tenantId}, ${owner.ownerActorId}, ${guideline.version},
-          ${sql.json(guideline.specific)}, ${sql.json(guideline.clues)}, ${note})`;
+          ${sql.json(guideline.rules)}, ${sql.json(guideline.deleted_rules)},
+          ${sql.json(guideline.clues)}, ${note})`;
     },
     async clear(owner, before) {
       await sql`

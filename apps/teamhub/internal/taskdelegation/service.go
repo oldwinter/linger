@@ -108,60 +108,79 @@ func (s *Service) Create(
 		}
 		return CreateResult{TaskID: stored.TaskID, Replay: true}, nil
 	}
-	queries := store.New(tx)
-	if _, err := queries.LockActiveRoomForMutation(ctx, authorization.RoomID); errors.Is(err, pgx.ErrNoRows) {
-		return CreateResult{}, ErrForbidden
-	} else if err != nil {
-		return CreateResult{}, err
-	}
-	// Count and insert under one per-Agent lock so concurrent creates respect the cap.
-	if err := queries.AcquireAdvisoryTransactionLock(ctx, "task-delegation|"+authorization.AgentActorID); err != nil {
-		return CreateResult{}, err
-	}
-	running, err := queries.CountRunningDelegatedTasksForAgent(ctx, store.CountRunningDelegatedTasksForAgentParams{
-		TenantID: authorization.TenantID, AgentActorID: authorization.AgentActorID,
-	})
+	taskID, err := StartInTx(ctx, tx, authorization, input.Name, input.Requirement,
+		"task_delegation:"+operationKey(authorization, input.InvocationID))
 	if err != nil {
 		return CreateResult{}, err
 	}
-	if running >= MaxRunningTasks {
-		return CreateResult{}, ErrLimitReached
-	}
-	agent, err := queries.GetActor(ctx, store.GetActorParams{ID: authorization.AgentActorID, TenantID: authorization.TenantID})
-	if err != nil {
-		return CreateResult{}, err
-	}
-	sponsor, err := queries.GetActor(ctx, store.GetActorParams{ID: authorization.SponsorActorID, TenantID: authorization.TenantID})
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && (sponsor.Kind != "human" || !sponsor.AccountID.Valid) {
-		return CreateResult{}, ErrForbidden
-	}
-	if err != nil {
-		return CreateResult{}, err
-	}
-	created, err := typedcard.CreateDelegatedTaskInTx(ctx, tx, queries, typedcard.DelegatedTaskInput{
-		TenantID: authorization.TenantID, OriginRoomID: authorization.RoomID,
-		Agent: agent, AgentManagementID: authorization.AgentID, Sponsor: sponsor,
-		Name: input.Name, Requirement: input.Requirement,
-		SourceKey: "task_delegation:" + operationKey(authorization, input.InvocationID),
-	})
-	if errors.Is(err, typedcard.ErrInvalid) {
-		return CreateResult{}, ErrInvalid
-	}
-	if err != nil {
-		return CreateResult{}, err
-	}
-	body, err := json.Marshal(persistedCreate{TaskID: created.TaskID})
+	body, err := json.Marshal(persistedCreate{TaskID: taskID})
 	if err != nil {
 		return CreateResult{}, err
 	}
 	if err := agentauth.SaveReceipt(ctx, tx, authorization.Principal, createTaskTool, input.InvocationID, requestHash,
-		agentauth.Receipt{ResourceID: created.TaskID, Body: body}); err != nil {
+		agentauth.Receipt{ResourceID: taskID, Body: body}); err != nil {
 		return CreateResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return CreateResult{}, err
 	}
-	return CreateResult{TaskID: created.TaskID}, nil
+	return CreateResult{TaskID: taskID}, nil
+}
+
+// StartInTx starts a Task for the authorized caller's own AlterEgo in the
+// caller's transaction, from its Room Context, within the running-Task cap.
+// sourceKey keeps the Task's origin unique; the caller owns idempotency.
+func StartInTx(ctx context.Context, tx pgx.Tx, authorization agentauth.Authorization, name, requirement, sourceKey string) (string, error) {
+	name, requirement = strings.TrimSpace(name), strings.TrimSpace(requirement)
+	if name == "" || requirement == "" || utf8.RuneCountInString(name) > 120 || utf8.RuneCountInString(requirement) > 20000 {
+		return "", ErrInvalid
+	}
+	if authorization.Target.Kind != "room" || authorization.RoomID == "" || authorization.ParticipantTaskID != "" {
+		return "", ErrForbidden
+	}
+	queries := store.New(tx)
+	if _, err := queries.LockActiveRoomForMutation(ctx, authorization.RoomID); errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrForbidden
+	} else if err != nil {
+		return "", err
+	}
+	// Count and insert under one per-Agent lock so concurrent creates respect the cap.
+	if err := queries.AcquireAdvisoryTransactionLock(ctx, "task-delegation|"+authorization.AgentActorID); err != nil {
+		return "", err
+	}
+	running, err := queries.CountRunningDelegatedTasksForAgent(ctx, store.CountRunningDelegatedTasksForAgentParams{
+		TenantID: authorization.TenantID, AgentActorID: authorization.AgentActorID,
+	})
+	if err != nil {
+		return "", err
+	}
+	if running >= MaxRunningTasks {
+		return "", ErrLimitReached
+	}
+	agent, err := queries.GetActor(ctx, store.GetActorParams{ID: authorization.AgentActorID, TenantID: authorization.TenantID})
+	if err != nil {
+		return "", err
+	}
+	sponsor, err := queries.GetActor(ctx, store.GetActorParams{ID: authorization.SponsorActorID, TenantID: authorization.TenantID})
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && (sponsor.Kind != "human" || !sponsor.AccountID.Valid) {
+		return "", ErrForbidden
+	}
+	if err != nil {
+		return "", err
+	}
+	created, err := typedcard.CreateDelegatedTaskInTx(ctx, tx, queries, typedcard.DelegatedTaskInput{
+		TenantID: authorization.TenantID, OriginRoomID: authorization.RoomID,
+		Agent: agent, AgentManagementID: authorization.AgentID, Sponsor: sponsor,
+		Name: name, Requirement: requirement,
+		SourceKey: sourceKey,
+	})
+	if errors.Is(err, typedcard.ErrInvalid) {
+		return "", ErrInvalid
+	}
+	if err != nil {
+		return "", err
+	}
+	return created.TaskID, nil
 }
 
 func hashRequest(input CreateInput) ([]byte, error) {

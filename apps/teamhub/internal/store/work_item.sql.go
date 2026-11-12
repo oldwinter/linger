@@ -261,6 +261,31 @@ func (q *Queries) CreateWorkItemDescriptionReference(ctx context.Context, arg Cr
 	return err
 }
 
+const createWorkItemMandateActivity = `-- name: CreateWorkItemMandateActivity :exec
+INSERT INTO work_item_activities(id, work_item_id, tenant_id, kind, actor_id, details)
+VALUES ($1::text, $2::text, $3::text, 'mandate_recorded',
+        $4::text, $5::jsonb)
+`
+
+type CreateWorkItemMandateActivityParams struct {
+	ID         string `json:"id"`
+	WorkItemID string `json:"work_item_id"`
+	TenantID   string `json:"tenant_id"`
+	ActorID    string `json:"actor_id"`
+	Details    []byte `json:"details"`
+}
+
+func (q *Queries) CreateWorkItemMandateActivity(ctx context.Context, arg CreateWorkItemMandateActivityParams) error {
+	_, err := q.db.Exec(ctx, createWorkItemMandateActivity,
+		arg.ID,
+		arg.WorkItemID,
+		arg.TenantID,
+		arg.ActorID,
+		arg.Details,
+	)
+	return err
+}
+
 const deleteWorkItemAccessGrant = `-- name: DeleteWorkItemAccessGrant :execrows
 DELETE FROM work_item_access_grants WHERE work_item_id=$1 AND actor_id=$2
 `
@@ -620,6 +645,46 @@ func (q *Queries) ListWorkItemDescriptionReferencesByItems(ctx context.Context, 
 			&i.ActorID,
 			&i.Ordinal,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listWorkItemMandatesByItems = `-- name: ListWorkItemMandatesByItems :many
+SELECT activity.work_item_id, activity.details, activity.occurred_at,
+       NOT proactive_mandate_in_force(activity.tenant_id, activity.details->>'owner_actor_id',
+                                      activity.details->>'rule_id', activity.details->>'strength') AS revoked
+FROM work_item_activities activity
+WHERE activity.kind = 'mandate_recorded' AND activity.work_item_id = ANY($1::text[])
+`
+
+type ListWorkItemMandatesByItemsRow struct {
+	WorkItemID string             `json:"work_item_id"`
+	Details    []byte             `json:"details"`
+	OccurredAt pgtype.Timestamptz `json:"occurred_at"`
+	Revoked    pgtype.Bool        `json:"revoked"`
+}
+
+func (q *Queries) ListWorkItemMandatesByItems(ctx context.Context, workItemIds []string) ([]ListWorkItemMandatesByItemsRow, error) {
+	rows, err := q.db.Query(ctx, listWorkItemMandatesByItems, workItemIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListWorkItemMandatesByItemsRow{}
+	for rows.Next() {
+		var i ListWorkItemMandatesByItemsRow
+		if err := rows.Scan(
+			&i.WorkItemID,
+			&i.Details,
+			&i.OccurredAt,
+			&i.Revoked,
 		); err != nil {
 			return nil, err
 		}
