@@ -4772,6 +4772,39 @@ paths:
         '400': { $ref: '../components/common.yaml#/components/responses/BadRequest' }
         '401': { $ref: '../components/common.yaml#/components/responses/Unauthenticated' }
         '404': { $ref: '../components/common.yaml#/components/responses/NotFound' }
+  /v0/tenants/{tenantId}/me/proactive-rules/{ruleId}/mandate:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+      - name: ruleId
+        in: path
+        required: true
+        schema:
+          $ref: '../components/proactive.yaml#/components/schemas/ProactiveRuleId'
+    put:
+      tags: [My Rules]
+      operationId: updateProactiveRuleMandate
+      summary: Set what Another Me may do beyond reminding when one active rule applies.
+      description: >-
+        create lets Another Me create a Work Item for a matching outside event; create_and_delegate also
+        lets it delegate that work as a Task to its AlterEgo. Lowering the mandate, or deleting the rule,
+        revokes it for later acts; Work Items already created keep their Mandate record. A shadow rule
+        carries none until it is promoted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../components/proactive.yaml#/components/schemas/ProactiveRuleMandateRequest'
+      responses:
+        '200':
+          description: The Human's rules after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/proactive.yaml#/components/schemas/ProactiveRuleBook'
+        '400': { $ref: '../components/common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: '../components/common.yaml#/components/responses/Unauthenticated' }
+        '404': { $ref: '../components/common.yaml#/components/responses/NotFound' }
   /v0/tenants/{tenantId}/me/proactive-rules/{ruleId}/promotion:
     parameters:
       - $ref: '#/components/parameters/TenantId'

@@ -633,6 +633,8 @@ export interface components {
       rules: string[];
       /** @description The Human's shadow rules; they do not decide, and the Run records where one would have decided differently. */
       shadowRules: components["schemas"]["ProactiveShadowRule"][];
+      /** @description The Human's active rules under which Another Me may create a Work Item, or create and delegate it. */
+      mandateRules: components["schemas"]["ProactiveMandateRule"][];
       /** @description The Human's open Tracking Items. */
       openItems: {
         content: string;
@@ -1323,6 +1325,13 @@ export interface components {
     ProactiveShadowRule: {
       id: components["schemas"]["ProactiveRuleId"];
       text: string;
+    };
+    /** @enum {string} */
+    ProactiveMandateStrength: "create" | "create_and_delegate";
+    ProactiveMandateRule: {
+      id: components["schemas"]["ProactiveRuleId"];
+      text: string;
+      mandate: components["schemas"]["ProactiveMandateStrength"];
     };
     LocalSkillScanCommandRequest: {
       request_id: components["schemas"]["Id"];

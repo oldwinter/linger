@@ -2438,6 +2438,45 @@ func (e ProactiveClueLeaning) Valid() bool {
 	}
 }
 
+// Defines values for ProactiveMandate.
+const (
+	ProactiveMandateCreate            ProactiveMandate = "create"
+	ProactiveMandateCreateAndDelegate ProactiveMandate = "create_and_delegate"
+	ProactiveMandateNone              ProactiveMandate = "none"
+)
+
+// Valid indicates whether the value is a known member of the ProactiveMandate enum.
+func (e ProactiveMandate) Valid() bool {
+	switch e {
+	case ProactiveMandateCreate:
+		return true
+	case ProactiveMandateCreateAndDelegate:
+		return true
+	case ProactiveMandateNone:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProactiveMandateStrength.
+const (
+	ProactiveMandateStrengthCreate            ProactiveMandateStrength = "create"
+	ProactiveMandateStrengthCreateAndDelegate ProactiveMandateStrength = "create_and_delegate"
+)
+
+// Valid indicates whether the value is a known member of the ProactiveMandateStrength enum.
+func (e ProactiveMandateStrength) Valid() bool {
+	switch e {
+	case ProactiveMandateStrengthCreate:
+		return true
+	case ProactiveMandateStrengthCreateAndDelegate:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ProactiveRuleSource.
 const (
 	Learned ProactiveRuleSource = "learned"
@@ -3361,6 +3400,7 @@ const (
 	WorkItemActivityKindCommentEdited             WorkItemActivityKind = "comment_edited"
 	WorkItemActivityKindCreated                   WorkItemActivityKind = "created"
 	WorkItemActivityKindExecutionControlRequested WorkItemActivityKind = "execution_control_requested"
+	WorkItemActivityKindMandateRecorded           WorkItemActivityKind = "mandate_recorded"
 	WorkItemActivityKindMetadataUpdated           WorkItemActivityKind = "metadata_updated"
 	WorkItemActivityKindStateTransitioned         WorkItemActivityKind = "state_transitioned"
 	WorkItemActivityKindTaskRecoveryDecision      WorkItemActivityKind = "task_recovery_decision"
@@ -3388,6 +3428,8 @@ func (e WorkItemActivityKind) Valid() bool {
 	case WorkItemActivityKindCreated:
 		return true
 	case WorkItemActivityKindExecutionControlRequested:
+		return true
+	case WorkItemActivityKindMandateRecorded:
 		return true
 	case WorkItemActivityKindMetadataUpdated:
 		return true
@@ -6513,6 +6555,12 @@ type ProactiveClue struct {
 // ProactiveClueLeaning defines model for ProactiveClue.Leaning.
 type ProactiveClueLeaning string
 
+// ProactiveMandate What the Human allows Another Me to do beyond reminding when a rule applies. Only the Human sets it, on an active rule; nightly learning never does.
+type ProactiveMandate string
+
+// ProactiveMandateStrength defines model for ProactiveMandateStrength.
+type ProactiveMandateStrength string
+
 // ProactiveRule defines model for ProactiveRule.
 type ProactiveRule struct {
 	CreatedAt time.Time `json:"created_at"`
@@ -6520,6 +6568,9 @@ type ProactiveRule struct {
 	// GuidelineVersion The guideline version that first held the rule as written.
 	GuidelineVersion int             `json:"guideline_version"`
 	Id               ProactiveRuleId `json:"id"`
+
+	// Mandate What the Human allows Another Me to do beyond reminding when a rule applies. Only the Human sets it, on an active rule; nightly learning never does.
+	Mandate ProactiveMandate `json:"mandate"`
 
 	// Pinned Nightly learning never removes or rewrites a pinned rule.
 	Pinned bool `json:"pinned"`
@@ -6547,8 +6598,11 @@ type ProactiveRuleBook struct {
 
 	// Divergences The latest shadow divergences, newest first.
 	Divergences []ProactiveShadowDivergence `json:"divergences"`
-	Rules       []ProactiveRule             `json:"rules"`
-	Version     int                         `json:"version"`
+
+	// Mandates The latest Work Items Another Me created under the Human's mandates, newest first.
+	Mandates []ProactiveRuleMandate `json:"mandates"`
+	Rules    []ProactiveRule        `json:"rules"`
+	Version  int                    `json:"version"`
 }
 
 // ProactiveRuleEditRequest defines model for ProactiveRuleEditRequest.
@@ -6558,6 +6612,28 @@ type ProactiveRuleEditRequest struct {
 
 // ProactiveRuleId defines model for ProactiveRuleId.
 type ProactiveRuleId = string
+
+// ProactiveRuleMandate One Work Item Another Me created under a mandate.
+type ProactiveRuleMandate struct {
+	EventExternalId  string                   `json:"event_external_id"`
+	EventSource      string                   `json:"event_source"`
+	GuidelineVersion int                      `json:"guideline_version"`
+	Number           int64                    `json:"number"`
+	OwnerActorId     string                   `json:"owner_actor_id"`
+	RecordedAt       time.Time                `json:"recorded_at"`
+	Revoked          bool                     `json:"revoked"`
+	RuleId           ProactiveRuleId          `json:"rule_id"`
+	RuleText         string                   `json:"rule_text"`
+	Strength         ProactiveMandateStrength `json:"strength"`
+	Title            string                   `json:"title"`
+	WorkItemId       string                   `json:"work_item_id"`
+}
+
+// ProactiveRuleMandateRequest defines model for ProactiveRuleMandateRequest.
+type ProactiveRuleMandateRequest struct {
+	// Mandate What the Human allows Another Me to do beyond reminding when a rule applies. Only the Human sets it, on an active rule; nightly learning never does.
+	Mandate ProactiveMandate `json:"mandate"`
+}
 
 // ProactiveRulePinRequest defines model for ProactiveRulePinRequest.
 type ProactiveRulePinRequest struct {
@@ -8075,6 +8151,9 @@ type WorkItem struct {
 	Id   Id           `json:"id"`
 	Kind WorkItemKind `json:"kind"`
 
+	// Mandate The authority under which Another Me created a Work Item: one of its Human's active rules as it stood in the guideline version it judged by, and the outside event it acted on. The record never changes; revoked is true once the Human's current rules no longer grant its strength.
+	Mandate *WorkItemMandate `json:"mandate,omitempty"`
+
 	// Number Stable Tenant-scoped Work Item display number.
 	Number int64 `json:"number"`
 
@@ -8118,7 +8197,7 @@ type WorkItemActivity struct {
 	// CommentId Opaque, case-sensitive identifier. Clients must not infer type or time from it.
 	CommentId *Id `json:"comment_id,omitempty"`
 
-	// Details Restricted activity-specific audit details. execution_control_requested includes action, control_revision, source_kind, source_id, and optional reason; task_recovery_decision includes action, generation, intervention identity/version, and source_kind.
+	// Details Restricted activity-specific audit details. execution_control_requested includes action, control_revision, source_kind, source_id, and optional reason; task_recovery_decision includes action, generation, intervention identity/version, and source_kind; mandate_recorded includes the WorkItemMandate fields it was recorded with.
 	Details   map[string]interface{} `json:"details"`
 	FromState *WorkItemState         `json:"from_state,omitempty"`
 
@@ -8256,6 +8335,19 @@ type WorkItemCreateRequest struct {
 
 // WorkItemKind defines model for WorkItemKind.
 type WorkItemKind string
+
+// WorkItemMandate The authority under which Another Me created a Work Item: one of its Human's active rules as it stood in the guideline version it judged by, and the outside event it acted on. The record never changes; revoked is true once the Human's current rules no longer grant its strength.
+type WorkItemMandate struct {
+	EventExternalId  string                   `json:"event_external_id"`
+	EventSource      string                   `json:"event_source"`
+	GuidelineVersion int                      `json:"guideline_version"`
+	OwnerActorId     string                   `json:"owner_actor_id"`
+	RecordedAt       time.Time                `json:"recorded_at"`
+	Revoked          bool                     `json:"revoked"`
+	RuleId           ProactiveRuleId          `json:"rule_id"`
+	RuleText         string                   `json:"rule_text"`
+	Strength         ProactiveMandateStrength `json:"strength"`
+}
 
 // WorkItemPage defines model for WorkItemPage.
 type WorkItemPage struct {
@@ -9060,6 +9152,9 @@ type PutTodayPocketNoteJSONRequestBody = PocketNoteUpdateRequest
 
 // EditProactiveRuleJSONRequestBody defines body for EditProactiveRule for application/json ContentType.
 type EditProactiveRuleJSONRequestBody = ProactiveRuleEditRequest
+
+// UpdateProactiveRuleMandateJSONRequestBody defines body for UpdateProactiveRuleMandate for application/json ContentType.
+type UpdateProactiveRuleMandateJSONRequestBody = ProactiveRuleMandateRequest
 
 // UpdateProactiveRulePinJSONRequestBody defines body for UpdateProactiveRulePin for application/json ContentType.
 type UpdateProactiveRulePinJSONRequestBody = ProactiveRulePinRequest

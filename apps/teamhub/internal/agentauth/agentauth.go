@@ -223,7 +223,7 @@ func businessAction(action string) bool {
 		"add_room_member", "create_agent", "get_agent", "update_agent", "list_connected_apps", "search_app_tools", "execute_app_tool", "manage_auto_reminders",
 		"get_personal_profile", "write_personal_profile", "start_personal_profile_build", "get_account_profile", "update_account_profile",
 		"request_browser_connection", "read_computer_permissions", "request_computer_permission",
-		"record_shadow_divergence":
+		"record_shadow_divergence", "act_under_mandate":
 		return true
 	}
 	return knowledgeAction(action)
@@ -260,6 +260,10 @@ func businessCapability(i Authorization, action string) bool {
 	case "record_shadow_divergence":
 		// Only an AnotherMe judges proactively, under its owner's rules.
 		return i.AgentType == "anotherme" && i.UserArtifactOwnerActorID != "" && i.ParticipantTaskID == "" && i.Target.Kind != "document"
+	case "act_under_mandate":
+		// An AnotherMe acts from its Room under its owner's mandates; each act
+		// still checks the owner's current rules.
+		return i.AgentType == "anotherme" && i.UserArtifactOwnerActorID != "" && i.ParticipantTaskID == "" && i.Target.Kind == "room" && i.RoomID != ""
 	case "create_task", "check_task", "send_task", "stop_task", "create_room", "create_team_md", "show_fragment":
 		return i.ParticipantTaskID == "" && i.Target.Kind != "document"
 	case "get_document_comment_thread", "reply_document_comment", "replace_document_comment_text":

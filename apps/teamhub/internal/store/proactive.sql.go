@@ -326,6 +326,61 @@ func (q *Queries) ListAnotherMeConnectionsWithoutListener(ctx context.Context, a
 	return items, nil
 }
 
+const listProactiveMandates = `-- name: ListProactiveMandates :many
+SELECT activity.work_item_id, item.number, item.title, activity.details, activity.occurred_at,
+       NOT proactive_mandate_in_force(activity.tenant_id, activity.details->>'owner_actor_id',
+                                      activity.details->>'rule_id', activity.details->>'strength') AS revoked
+FROM work_item_activities activity
+JOIN work_items item ON item.id = activity.work_item_id AND item.tenant_id = activity.tenant_id
+WHERE activity.tenant_id = $1::text AND activity.kind = 'mandate_recorded'
+  AND activity.details->>'owner_actor_id' = $2::text
+ORDER BY activity.occurred_at DESC
+LIMIT $3::integer
+`
+
+type ListProactiveMandatesParams struct {
+	TenantID     string `json:"tenant_id"`
+	OwnerActorID string `json:"owner_actor_id"`
+	Take         int32  `json:"take"`
+}
+
+type ListProactiveMandatesRow struct {
+	WorkItemID string             `json:"work_item_id"`
+	Number     int64              `json:"number"`
+	Title      string             `json:"title"`
+	Details    []byte             `json:"details"`
+	OccurredAt pgtype.Timestamptz `json:"occurred_at"`
+	Revoked    pgtype.Bool        `json:"revoked"`
+}
+
+// The Work Items Another Me created under its Human's mandates, newest first.
+func (q *Queries) ListProactiveMandates(ctx context.Context, arg ListProactiveMandatesParams) ([]ListProactiveMandatesRow, error) {
+	rows, err := q.db.Query(ctx, listProactiveMandates, arg.TenantID, arg.OwnerActorID, arg.Take)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProactiveMandatesRow{}
+	for rows.Next() {
+		var i ListProactiveMandatesRow
+		if err := rows.Scan(
+			&i.WorkItemID,
+			&i.Number,
+			&i.Title,
+			&i.Details,
+			&i.OccurredAt,
+			&i.Revoked,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProactiveShadowDivergences = `-- name: ListProactiveShadowDivergences :many
 SELECT id,rule_id,guideline_version,matter,shadow_action,taken_action,created_at
 FROM proactive_shadow_divergences

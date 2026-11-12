@@ -145,3 +145,15 @@ LIMIT 200;
 SELECT represented_human_actor_id::text
 FROM agent_registrations
 WHERE actor_id=sqlc.arg(agent_actor_id)::text AND tenant_id=sqlc.arg(tenant_id)::text AND agent_type='anotherme';
+
+-- name: ListProactiveMandates :many
+-- The Work Items Another Me created under its Human's mandates, newest first.
+SELECT activity.work_item_id, item.number, item.title, activity.details, activity.occurred_at,
+       NOT proactive_mandate_in_force(activity.tenant_id, activity.details->>'owner_actor_id',
+                                      activity.details->>'rule_id', activity.details->>'strength') AS revoked
+FROM work_item_activities activity
+JOIN work_items item ON item.id = activity.work_item_id AND item.tenant_id = activity.tenant_id
+WHERE activity.tenant_id = sqlc.arg(tenant_id)::text AND activity.kind = 'mandate_recorded'
+  AND activity.details->>'owner_actor_id' = sqlc.arg(owner_actor_id)::text
+ORDER BY activity.occurred_at DESC
+LIMIT sqlc.arg(take)::integer;

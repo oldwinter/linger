@@ -17,6 +17,12 @@ func AgentEventJudge(call func(context.Context, nodeservicesinternal.ProactiveEv
 		for _, rule := range request.Rules.ShadowRules {
 			body.ShadowRules = append(body.ShadowRules, nodeservicesinternal.ProactiveShadowRule{Id: rule.ID, Text: rule.Text})
 		}
+		body.MandateRules = make([]nodeservicesinternal.ProactiveMandateRule, 0, len(request.Rules.MandateRules))
+		for _, rule := range request.Rules.MandateRules {
+			body.MandateRules = append(body.MandateRules, nodeservicesinternal.ProactiveMandateRule{
+				Id: rule.ID, Text: rule.Text, Mandate: nodeservicesinternal.ProactiveMandateStrength(rule.Mandate),
+			})
+		}
 		if body.Rules == nil {
 			body.Rules = []string{}
 		}

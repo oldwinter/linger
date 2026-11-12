@@ -390,6 +390,13 @@ describe("AgentManager HTTP adapter", () => {
           text: "vendor invoices → track for follow-up",
         },
       ],
+      mandateRules: [
+        {
+          id: "pr_0123456789abcdef0123456789abcdef",
+          text: "clients → remind directly",
+          mandate: "create",
+        },
+      ],
       openItems: [
         { content: "Wait for Lisa to reply with the quote" },
         { content: "Meet the client", dueAt: "2026-10-23T07:00:00Z" },
@@ -437,6 +444,16 @@ describe("AgentManager HTTP adapter", () => {
       { ...request, event: { source: "gmail" } },
       { ...request, rules: ["x".repeat(201)] },
       { ...request, shadowRules: [{ id: "rule_1", text: "invoices" }] },
+      {
+        ...request,
+        mandateRules: [
+          {
+            id: "pr_0123456789abcdef0123456789abcdef",
+            text: "clients",
+            mandate: "everything",
+          },
+        ],
+      },
       { ...request, openItems: [{ content: "" }] },
       { ...request, openItems: [{ content: "x", dueAt: "soon" }] },
       { rules: [], openItems: [] },

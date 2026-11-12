@@ -44,6 +44,8 @@ const (
 	keptDivergences = 100
 	// listedDivergences is how many of them My Rules shows.
 	listedDivergences = 50
+	// listedMandates is how many acts under mandates My Rules shows.
+	listedMandates = 50
 )
 
 // Rule is one of a Human's own rules. Its ID is kept for its life; text and
@@ -58,6 +60,9 @@ type Rule struct {
 	PromotedAt *time.Time `json:"promoted_at"`
 	// GuidelineVersion is the version that first held the rule as written.
 	GuidelineVersion int `json:"guideline_version"`
+	// Mandate is what the Human allows Another Me to do beyond reminding
+	// when this rule applies. Only the Human sets it, on an active rule.
+	Mandate string `json:"mandate"`
 }
 
 // DeletedRule is a rule the Human deleted; dreaming does not write it again
@@ -98,21 +103,33 @@ type ShadowRule struct {
 	Text string `json:"text"`
 }
 
+// MandateRule is an active rule under which the Human allows Another Me to
+// create a Work Item, or create and delegate it.
+type MandateRule struct {
+	ID      string `json:"id"`
+	Text    string `json:"text"`
+	Mandate string `json:"mandate"`
+}
+
 // JudgeRules is what one judgment reads of a guideline.
 type JudgeRules struct {
-	Version     int          `json:"version"`
-	Rules       []string     `json:"rules"`
-	ShadowRules []ShadowRule `json:"shadow_rules"`
+	Version      int           `json:"version"`
+	Rules        []string      `json:"rules"`
+	ShadowRules  []ShadowRule  `json:"shadow_rules"`
+	MandateRules []MandateRule `json:"mandate_rules"`
 }
 
 // JudgeRules splits the guideline into the active rules that decide and the
 // shadow rules that are only compared.
 func (g Guideline) JudgeRules() JudgeRules {
-	judge := JudgeRules{Version: g.Version, Rules: []string{}, ShadowRules: []ShadowRule{}}
+	judge := JudgeRules{Version: g.Version, Rules: []string{}, ShadowRules: []ShadowRule{}, MandateRules: []MandateRule{}}
 	for _, rule := range g.Rules {
 		switch rule.Status {
 		case RuleActive:
 			judge.Rules = append(judge.Rules, rule.Text)
+			if mandateRank(rule.Mandate) > 0 {
+				judge.MandateRules = append(judge.MandateRules, MandateRule{ID: rule.ID, Text: rule.Text, Mandate: rule.Mandate})
+			}
 		case RuleShadow:
 			judge.ShadowRules = append(judge.ShadowRules, ShadowRule{ID: rule.ID, Text: rule.Text})
 		}
@@ -176,13 +193,14 @@ type ShadowDivergence struct {
 }
 
 // RuleBook is what My Rules shows: the Human's rules, the clues not yet
-// strong enough to be rules, and where shadow rules would have decided
-// differently.
+// strong enough to be rules, where shadow rules would have decided
+// differently, and what Another Me did under the Human's mandates.
 type RuleBook struct {
 	Version     int                `json:"version"`
 	Rules       []Rule             `json:"rules"`
 	Clues       []Clue             `json:"clues"`
 	Divergences []ShadowDivergence `json:"divergences"`
+	Mandates    []RuleMandate      `json:"mandates"`
 }
 
 // Rules returns the Human's rule book.
@@ -192,7 +210,7 @@ func (s *Service) Rules(ctx context.Context, owner Owner) (RuleBook, error) {
 	if err != nil {
 		return RuleBook{}, err
 	}
-	book := RuleBook{Version: guideline.Version, Rules: guideline.Rules, Clues: []Clue{}, Divergences: []ShadowDivergence{}}
+	book := RuleBook{Version: guideline.Version, Rules: guideline.Rules, Clues: []Clue{}, Divergences: []ShadowDivergence{}, Mandates: []RuleMandate{}}
 	if book.Rules == nil {
 		book.Rules = []Rule{}
 	}
@@ -212,6 +230,19 @@ func (s *Service) Rules(ctx context.Context, owner Owner) (RuleBook, error) {
 			ID: row.ID, RuleID: row.RuleID, GuidelineVersion: int(row.GuidelineVersion), Matter: row.Matter,
 			ShadowAction: row.ShadowAction, TakenAction: row.TakenAction, CreatedAt: row.CreatedAt.Time,
 		})
+	}
+	mandates, err := queries.ListProactiveMandates(ctx, store.ListProactiveMandatesParams{
+		TenantID: owner.TenantID, OwnerActorID: owner.ActorID, Take: listedMandates,
+	})
+	if err != nil {
+		return RuleBook{}, err
+	}
+	for _, row := range mandates {
+		mandate := RuleMandate{WorkItemID: row.WorkItemID, Number: row.Number, Title: row.Title, Revoked: row.Revoked.Bool, RecordedAt: row.OccurredAt.Time}
+		if err := json.Unmarshal(row.Details, &mandate.Mandate); err != nil {
+			return RuleBook{}, err
+		}
+		book.Mandates = append(book.Mandates, mandate)
 	}
 	return book, nil
 }
@@ -278,6 +309,24 @@ func (s *Service) PromoteRule(ctx context.Context, owner Owner, ruleID string) (
 		}
 		rule.Status = RuleActive
 		rule.PromotedAt = &now
+		return nil
+	})
+}
+
+// SetRuleMandate sets what Another Me may do beyond reminding when an active
+// rule applies. Lowering it, or deleting the rule, revokes the mandate for
+// later acts; acts already taken keep their records. A shadow rule carries
+// none until it is promoted.
+func (s *Service) SetRuleMandate(ctx context.Context, owner Owner, ruleID, mandate string) (RuleBook, error) {
+	if mandate != MandateNone && mandateRank(mandate) == 0 {
+		return RuleBook{}, ErrInvalidRule
+	}
+	return s.changeRule(ctx, owner, ruleID, "The Human set a rule's mandate to "+mandate+".", func(guideline *Guideline, index int, _ time.Time) error {
+		rule := &guideline.Rules[index]
+		if rule.Status != RuleActive && mandate != MandateNone {
+			return ErrInvalidRule
+		}
+		rule.Mandate = mandate
 		return nil
 	})
 }

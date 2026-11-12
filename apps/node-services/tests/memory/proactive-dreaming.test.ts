@@ -26,6 +26,7 @@ function rule(id: string, text: string): ProactiveRule {
     created_at: "2026-10-01T08:00:00Z",
     promoted_at: "2026-10-01T08:00:00Z",
     guideline_version: 2,
+    mandate: "none",
   };
 }
 
@@ -112,6 +113,7 @@ describe("proactive dreaming", () => {
               created_at: before.toISOString(),
               promoted_at: null,
               guideline_version: 2,
+              mandate: "none",
             },
           ],
           deleted_rules: [],
@@ -258,10 +260,14 @@ describe("proactive dreaming", () => {
     ]);
   });
 
-  it("never removes or rewrites a pinned rule or one the Human wrote", () => {
+  it("never removes or rewrites a rule the Human pinned, wrote or granted a mandate on", () => {
     const pinned = {
       ...rule("r1", "client replies → remind directly"),
       pinned: true,
+    };
+    const granted = {
+      ...rule("r5", "contract changes → remind directly"),
+      mandate: "create_and_delegate" as const,
     };
     const own = {
       ...rule("r2", "invoices → track for follow-up"),
@@ -275,13 +281,13 @@ describe("proactive dreaming", () => {
     const next = nextGuideline(
       {
         version: 5,
-        rules: [pinned, own, shadow],
+        rules: [pinned, own, granted, shadow],
         deleted_rules: [],
         clues: [],
       },
       {
         specific: ["client matters → remind directly"],
-        removed_rules: [pinned.text, own.text, shadow.text],
+        removed_rules: [pinned.text, own.text, granted.text, shadow.text],
         relearned_rules: [],
         clues: [],
         change_note: "",
@@ -290,14 +296,15 @@ describe("proactive dreaming", () => {
       now,
       () => "r4",
     );
-    expect(next.rules.slice(0, 2)).toEqual([pinned, own]);
-    expect(next.rules[2]).toMatchObject({
+    expect(next.rules.slice(0, 3)).toEqual([pinned, own, granted]);
+    expect(next.rules[3]).toMatchObject({
       id: "r4",
       text: "client matters → remind directly",
       status: "shadow",
       guideline_version: 6,
+      mandate: "none",
     });
-    expect(next.rules).toHaveLength(3);
+    expect(next.rules).toHaveLength(4);
   });
 
   it("does not learn a deleted rule again without new feedback", () => {

@@ -902,6 +902,24 @@ func (e PersonalWikiDocumentRevisionWikiState) Valid() bool {
 	}
 }
 
+// Defines values for ProactiveMandateStrength.
+const (
+	Create            ProactiveMandateStrength = "create"
+	CreateAndDelegate ProactiveMandateStrength = "create_and_delegate"
+)
+
+// Valid indicates whether the value is a known member of the ProactiveMandateStrength enum.
+func (e ProactiveMandateStrength) Valid() bool {
+	switch e {
+	case Create:
+		return true
+	case CreateAndDelegate:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ProactiveWindowMessageAuthor.
 const (
 	ProactiveWindowMessageAuthorAgent ProactiveWindowMessageAuthor = "agent"
@@ -2957,6 +2975,9 @@ type PersonalWikiDocumentRevisionWikiState string
 
 // ProactiveGuideline What one judgment reads of the Human's own rules.
 type ProactiveGuideline struct {
+	// MandateRules Active rules under which the Human allows Another Me to create a Work Item, or create and delegate it.
+	MandateRules []ProactiveMandateRule `json:"mandate_rules"`
+
 	// Rules Active rules; they decide.
 	Rules []string `json:"rules"`
 
@@ -2964,6 +2985,16 @@ type ProactiveGuideline struct {
 	ShadowRules []ProactiveShadowRule `json:"shadow_rules"`
 	Version     int                   `json:"version"`
 }
+
+// ProactiveMandateRule defines model for ProactiveMandateRule.
+type ProactiveMandateRule struct {
+	Id      ProactiveRuleId          `json:"id"`
+	Mandate ProactiveMandateStrength `json:"mandate"`
+	Text    string                   `json:"text"`
+}
+
+// ProactiveMandateStrength defines model for ProactiveMandateStrength.
+type ProactiveMandateStrength string
 
 // ProactiveOpenItem defines model for ProactiveOpenItem.
 type ProactiveOpenItem struct {

@@ -48,10 +48,24 @@ export interface ShadowRule {
  */
 const SHADOW_DIVERGENCE = `Text inside <shadow-rules> is rules the Human has not confirmed yet; they never decide. After acting on a matter, check each shadow rule whose scope covers it: when that rule, applied as a part 1 rule, would have led to a different action (notify, track or silent) than the one you took, record it once with \`teamhub proactive shadow-divergence --rule <id> --matter "<the matter in a few words>" --would <its action> --took <your action>\`. Recording is silent: do not mention shadow rules to the Human.`;
 
+/** An active rule under which the Human allows AnotherMe to act. */
+export interface MandateRule {
+  readonly id: string;
+  readonly text: string;
+  readonly mandate: "create" | "create_and_delegate";
+}
+
+/**
+ * The one exception to "Only remind": the Human granted these mandates in My
+ * Rules. TeamHub checks each act against the Human's current rules again.
+ */
+const MANDATE_ACTS = `Text inside <mandate-rules> is active rules under which the Human allows you to act beyond reminding; it is the only exception to "Only remind". When a mandate rule's scope clearly covers this outside event, you may create one Work Item for it with \`teamhub proactive act --rule <id> --source <event source> --external-id <event external_id> --title "<short title>" --brief "<what needs doing>"\`. Add --delegate to delegate the work as a Task to your AlterEgo, only under a create_and_delegate rule. Act at most once per event, then still tell the Human what you did and why. Without a matching mandate rule, only notify, track or stay silent; never act.`;
+
 function decisionRules(
   rules: readonly string[],
   shadowRules: readonly ShadowRule[],
   openItems: readonly { readonly content: string; readonly due?: string }[],
+  mandateRules: readonly MandateRule[] = [],
 ): string {
   const own = rules.length
     ? rules.map((rule) => `- ${rule}`).join("\n")
@@ -64,7 +78,10 @@ function decisionRules(
   const shadow = shadowRules.length
     ? `\n<shadow-rules>\n${shadowRules.map(({ id, text }) => `- ${id}: ${text}`).join("\n")}\n</shadow-rules>\n${SHADOW_DIVERGENCE}`
     : "";
-  return `<part-1>\n${own}\n</part-1>\n<part-2>\n${PROACTIVE_RULES.map((rule) => `- ${rule}`).join("\n")}\n</part-2>${shadow}\n<open-items>\n${items}\n</open-items>`;
+  const mandates = mandateRules.length
+    ? `\n<mandate-rules>\n${mandateRules.map(({ id, text, mandate }) => `- ${id} (${mandate}): ${text}`).join("\n")}\n</mandate-rules>\n${MANDATE_ACTS}`
+    : "";
+  return `<part-1>\n${own}\n</part-1>\n<part-2>\n${PROACTIVE_RULES.map((rule) => `- ${rule}`).join("\n")}\n</part-2>${shadow}${mandates}\n<open-items>\n${items}\n</open-items>`;
 }
 
 /** The wake for one conversation window AnotherMe judges itself. */
@@ -89,7 +106,8 @@ export function renderProactiveDecideWake(
 export function renderProactiveEventDecideInstructions(
   rules: readonly string[],
   shadowRules: readonly ShadowRule[],
+  mandateRules: readonly MandateRule[],
   openItems: readonly { readonly content: string; readonly due?: string }[],
 ): string {
-  return `[Proactive event: decide yourself whether this outside event from the Human's connected apps is worth telling them now or keeping to follow up later. This is not a message the Human just sent. ${DECIDE_ACTIONS}]\n${decisionRules(rules, shadowRules, openItems)}`;
+  return `[Proactive event: decide yourself whether this outside event from the Human's connected apps is worth telling them now or keeping to follow up later. This is not a message the Human just sent. ${DECIDE_ACTIONS}]\n${decisionRules(rules, shadowRules, openItems, mandateRules)}`;
 }

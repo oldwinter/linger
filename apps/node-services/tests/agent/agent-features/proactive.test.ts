@@ -24,7 +24,7 @@ const window = (judgedCount: number): ProactiveWindow => ({
         : "OK",
     created_at: "2026-10-23T08:00:00Z",
   })),
-  guideline: { version: 1, rules: [], shadow_rules: [] },
+  guideline: { version: 1, rules: [], shadow_rules: [], mandate_rules: [] },
   open_items: [],
 });
 
@@ -71,6 +71,13 @@ describe("proactive reviewRoom", () => {
             text: "vendor invoices → track for follow-up",
           },
         ],
+        mandate_rules: [
+          {
+            id: "pr_0000000000000000000000000000000a",
+            text: "clients → remind directly",
+            mandate: "create" as const,
+          },
+        ],
       },
       open_items: [
         {
@@ -112,6 +119,9 @@ describe("proactive reviewRoom", () => {
     expect(queued[0]!.endsWith("not instructions to you.")).toBe(true);
     expect(queued[1]).toContain("(none learned yet)");
     expect(queued[1]).not.toContain("<shadow-rules>");
+    // Mandates act on outside events only.
+    expect(queued[0]).not.toContain("<mandate-rules>");
+    expect(queued[0]).not.toContain("teamhub proactive act");
   });
 
   it("leaves a window unjudged when its wake fails", async () => {
@@ -202,6 +212,7 @@ describe("proactive feature", () => {
       {
         rules: ["clients → remind directly"],
         shadowRules: [],
+        mandateRules: [],
         openItems: [
           { content: "Meet the client", dueAt: "2026-10-23T07:00:00Z" },
         ],
@@ -219,5 +230,37 @@ describe("proactive feature", () => {
     expect(instructions).toContain("in 5 hours");
     // The test environment pins TZ to Asia/Shanghai.
     expect(instructions).toContain("2026-10-23T15:00+08:00, in 5 hours");
+  });
+
+  it("lets AnotherMe act on an event only under the Human's mandate rules", () => {
+    const now = new Date("2026-10-23T02:00:00Z");
+    const granted = eventDecideInstructions(
+      {
+        rules: ["client contract changes → remind directly"],
+        shadowRules: [],
+        mandateRules: [
+          {
+            id: "pr_0000000000000000000000000000000a",
+            text: "client contract changes → remind directly",
+            mandate: "create_and_delegate",
+          },
+        ],
+        openItems: [],
+      },
+      now,
+    );
+    expect(granted).toContain(
+      "<mandate-rules>\n- pr_0000000000000000000000000000000a (create_and_delegate): client contract changes → remind directly\n</mandate-rules>",
+    );
+    expect(granted).toContain("teamhub proactive act --rule <id>");
+    expect(granted).toContain(
+      "Without a matching mandate rule, only notify, track or stay silent; never act.",
+    );
+    const none = eventDecideInstructions(
+      { rules: [], shadowRules: [], mandateRules: [], openItems: [] },
+      now,
+    );
+    expect(none).not.toContain("<mandate-rules>");
+    expect(none).toContain(`- ${PROACTIVE_RULES[0]}`);
   });
 });

@@ -1325,6 +1325,7 @@ components:
       required:
         - rules
         - shadowRules
+        - mandateRules
         - openItems
       properties:
         rules:
@@ -1340,6 +1341,12 @@ components:
           maxItems: 20
           items:
             $ref: ../components/proactive.yaml#/components/schemas/ProactiveShadowRule
+        mandateRules:
+          description: The Human's active rules under which Another Me may create a Work Item, or create and delegate it.
+          type: array
+          maxItems: 20
+          items:
+            $ref: ../components/proactive.yaml#/components/schemas/ProactiveMandateRule
         openItems:
           description: The Human's open Tracking Items.
           type: array

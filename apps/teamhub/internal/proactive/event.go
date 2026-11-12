@@ -258,6 +258,10 @@ func eventText(label string, event Event) string {
 	if event.OccursAt != nil {
 		facts = append(facts, "time: "+event.OccursAt.In(time.Local).Format("2006-01-02 15:04 -07:00"))
 	}
+	// A mandate act names the event by its source and ID.
+	if event.ExternalID != "" {
+		facts = append(facts, "external_id: "+event.ExternalID)
+	}
 	return label + "\n" + strings.Join(facts, "; ") + "\n<event>\n" + strings.TrimSpace(event.Summary) +
 		"\n</event>\n" + reminder.Prompt(reminder.EventData, nil)
 }

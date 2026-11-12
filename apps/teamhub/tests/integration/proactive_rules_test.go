@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -21,7 +22,7 @@ const (
 func proactiveRuleRecord(id, text, status string, pinned bool, source string) map[string]any {
 	rule := map[string]any{
 		"id": id, "text": text, "status": status, "pinned": pinned, "source": source,
-		"created_at": "2026-11-01T08:00:00Z", "promoted_at": nil, "guideline_version": 1,
+		"created_at": "2026-11-01T08:00:00Z", "promoted_at": nil, "guideline_version": 1, "mandate": "none",
 	}
 	if status == "active" {
 		rule["promoted_at"] = "2026-11-01T08:00:00Z"
@@ -172,5 +173,125 @@ func TestProactiveMyRulesCommandsAndShadowDivergences(t *testing.T) {
 		proactiveRuleRecord("pr_0000000000000000000000000000000c", "someone else's rule", "active", false, "learned"))
 	if status, book := call(http.MethodGet, "", nil); status != http.StatusOK || book.Version != 6 || len(book.Rules) != 1 {
 		t.Fatalf("list after another Human's write status=%d book=%+v", status, book)
+	}
+}
+
+// TestProactiveMandatesActOnlyWhileTheHumanGrantsThem covers Phase B: only
+// the Human grants a mandate, on an active rule; Another Me then creates a
+// Work Item, or delegates a Task, once per rule and event, with an immutable
+// Mandate shown on the Work Item and in My Rules; lowering the mandate stops
+// later acts and marks earlier Mandates revoked.
+func TestProactiveMandatesActOnlyWhileTheHumanGrantsThem(t *testing.T) {
+	allowParallelIntegrationTest(t)
+	env, pool := newConnectedAnotherMeEnv(t, nil)
+	seedProactiveRules(t, pool, "actor_acme_alice", 2,
+		proactiveRuleRecord(proactiveActiveRuleID, "client contract changes → remind directly", "active", false, "learned"),
+		proactiveRuleRecord(proactiveShadowRuleID, "vendor invoices → track for follow-up", "shadow", false, "learned"))
+	alice := env.login("alice", alicePassword)
+	path := "/v0/tenants/" + acmeTenant + "/me/proactive-rules"
+	setMandate := func(ruleID, mandate string) (int, proactive.RuleBook) {
+		t.Helper()
+		status, _, body := env.request(alice, http.MethodPut, path+"/"+ruleID+"/mandate", map[string]string{"mandate": mandate}, "")
+		var book proactive.RuleBook
+		if status == http.StatusOK {
+			decode(t, body, &book)
+		}
+		return status, book
+	}
+	if status, _ := setMandate(proactiveShadowRuleID, "create"); status != http.StatusBadRequest {
+		t.Fatalf("a shadow rule took a mandate: %d", status)
+	}
+	status, book := setMandate(proactiveActiveRuleID, "create")
+	if status != http.StatusOK || book.Rules[0].Mandate != "create" || book.Rules[1].Mandate != "none" {
+		t.Fatalf("grant status=%d rules=%+v", status, book.Rules)
+	}
+	guideline, err := proactive.StoredGuideline(pool)(t.Context(), proactive.Owner{TenantID: acmeTenant, ActorID: "actor_acme_alice"})
+	if judge := guideline.JudgeRules(); err != nil || len(judge.MandateRules) != 1 || judge.MandateRules[0].ID != proactiveActiveRuleID {
+		t.Fatalf("judge mandate rules=%+v err=%v", judge.MandateRules, err)
+	}
+
+	var managementID string
+	if err := pool.QueryRow(t.Context(), `SELECT agent_management_id FROM agent_registrations
+		WHERE represented_human_actor_id='actor_acme_alice' AND agent_type='anotherme'`).Scan(&managementID); err != nil {
+		t.Fatal(err)
+	}
+	issued, err := agentcredential.New(pool).IssueManaged(t.Context(), managementID, "Mandate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	roomID := anotherMeRoomID(t, pool, "actor_acme_alice")
+	act := func(externalID string, delegate bool) (int, proactive.ActResult) {
+		t.Helper()
+		code, _, body := taskWorkerJSONRequest(t, env, http.MethodPost, "/api/agent/v1/proactive/acts", issued.AccessToken, map[string]any{
+			"rule_id": proactiveActiveRuleID, "event_source": "gmail", "event_external_id": externalID,
+			"title": "Review the Acme contract change", "brief": "Acme changed the payment terms; compare them with the signed contract.",
+			"delegate": delegate,
+		}, taskDelegationRoomContext(roomID))
+		var result proactive.ActResult
+		if code == http.StatusOK {
+			decode(t, body, &result)
+		}
+		return code, result
+	}
+	if code, _ := act("thread_1", true); code != http.StatusForbidden {
+		t.Fatalf("delegating under a create mandate=%d", code)
+	}
+	code, created := act("thread_1", false)
+	if code != http.StatusOK || created.WorkItemID == "" || created.Strength != "create" || created.Replay {
+		t.Fatalf("act=%d %+v", code, created)
+	}
+	// A retried Run never creates a second Work Item.
+	if code, again := act("thread_1", false); code != http.StatusOK || again.WorkItemID != created.WorkItemID || !again.Replay {
+		t.Fatalf("replayed act=%d %+v", code, again)
+	}
+	mandateOf := func(workItemID string) map[string]any {
+		t.Helper()
+		status, _, body := env.request(alice, http.MethodGet, "/v0/work-items/"+workItemID, nil, "")
+		var item struct {
+			Kind    string         `json:"kind"`
+			Mandate map[string]any `json:"mandate"`
+		}
+		if status != http.StatusOK {
+			t.Fatalf("get Work Item status=%d body=%s", status, body)
+		}
+		decode(t, body, &item)
+		item.Mandate["kind"] = item.Kind
+		return item.Mandate
+	}
+	if mandate := mandateOf(created.WorkItemID); mandate["kind"] != "issue" || mandate["rule_id"] != proactiveActiveRuleID ||
+		mandate["rule_text"] != "client contract changes → remind directly" || mandate["guideline_version"] != float64(3) ||
+		mandate["event_external_id"] != "thread_1" || mandate["strength"] != "create" || mandate["revoked"] != false {
+		t.Fatalf("Work Item mandate=%v", mandate)
+	}
+	if countRows(t, env, `SELECT count(*) FROM work_items WHERE created_by_actor_id=(SELECT actor_id FROM agent_registrations WHERE agent_management_id=$1)`, managementID) != 1 {
+		t.Fatal("the act created more than one Work Item")
+	}
+
+	// Lowering the mandate is the revocation: later acts stop, the record stays.
+	if status, _ := setMandate(proactiveActiveRuleID, "none"); status != http.StatusOK {
+		t.Fatalf("revoke status=%d", status)
+	}
+	if code, _ := act("thread_2", false); code != http.StatusForbidden {
+		t.Fatalf("act after revocation=%d", code)
+	}
+	if mandate := mandateOf(created.WorkItemID); mandate["revoked"] != true || mandate["strength"] != "create" {
+		t.Fatalf("revoked Work Item mandate=%v", mandate)
+	}
+
+	status, book = setMandate(proactiveActiveRuleID, "create_and_delegate")
+	if status != http.StatusOK || len(book.Mandates) != 1 || book.Mandates[0].WorkItemID != created.WorkItemID || book.Mandates[0].Revoked {
+		t.Fatalf("My Rules mandates=%+v", book.Mandates)
+	}
+	code, delegated := act("thread_3", true)
+	if code != http.StatusOK || delegated.Strength != "create_and_delegate" {
+		t.Fatalf("delegated act=%d %+v", code, delegated)
+	}
+	if mandate := mandateOf(delegated.WorkItemID); mandate["kind"] != "task" || mandate["strength"] != "create_and_delegate" {
+		t.Fatalf("delegated Task mandate=%v", mandate)
+	}
+	// Deleting the rule revokes every Mandate under it.
+	if status, _, body := env.request(alice, http.MethodDelete, path+"/"+proactiveActiveRuleID, nil, ""); status != http.StatusOK ||
+		!strings.Contains(string(body), `"revoked":true`) || strings.Contains(string(body), `"revoked":false`) {
+		t.Fatalf("delete status=%d body=%s", status, body)
 	}
 }

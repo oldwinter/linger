@@ -297,7 +297,7 @@ func TestProactiveRoutinesEventsAndListeners(t *testing.T) {
 		t.Fatalf("first event=%+v err=%v wakes=%d", outcome, err, wakes())
 	}
 	// Only active rules decide; shadow rules are handed over apart, by ID.
-	if want := `"Rules":{"version":2,"rules":["client replies → remind directly"],"shadow_rules":[{"id":"` + proactiveShadowRuleID + `","text":"vendor invoices → track for follow-up"}]}`; !strings.Contains(states[0], want) {
+	if want := `"Rules":{"version":2,"rules":["client replies → remind directly"],"shadow_rules":[{"id":"` + proactiveShadowRuleID + `","text":"vendor invoices → track for follow-up"}],"mandate_rules":[]}`; !strings.Contains(states[0], want) {
 		t.Fatalf("judge input=%s, want %s", states[0], want)
 	}
 	if outcome, err := day.HandleEvent(t.Context(), mail); err != nil || outcome.Skipped != "already_judged" || wakes() != 1 {

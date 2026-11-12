@@ -977,6 +977,24 @@ func (e PersonalKnowledgeSessionFactFactType) Valid() bool {
 	}
 }
 
+// Defines values for ProactiveMandateStrength.
+const (
+	Create            ProactiveMandateStrength = "create"
+	CreateAndDelegate ProactiveMandateStrength = "create_and_delegate"
+)
+
+// Valid indicates whether the value is a known member of the ProactiveMandateStrength enum.
+func (e ProactiveMandateStrength) Valid() bool {
+	switch e {
+	case Create:
+		return true
+	case CreateAndDelegate:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for WikiRefreshCandidateErrorResponseErrorDisposition.
 const (
 	Retryable WikiRefreshCandidateErrorResponseErrorDisposition = "retryable"
@@ -2071,6 +2089,9 @@ type PocketNoteTrackingRefreshRequest struct {
 
 // ProactiveEventJudgeRequest defines model for ProactiveEventJudgeRequest.
 type ProactiveEventJudgeRequest struct {
+	// MandateRules The Human's active rules under which Another Me may create a Work Item, or create and delegate it.
+	MandateRules []ProactiveMandateRule `json:"mandateRules"`
+
 	// OpenItems The Human's open Tracking Items.
 	OpenItems []struct {
 		Content string     `json:"content"`
@@ -2088,6 +2109,16 @@ type ProactiveEventJudgeRequest struct {
 type ProactiveEventJudgement struct {
 	Instructions string `json:"instructions"`
 }
+
+// ProactiveMandateRule defines model for ProactiveMandateRule.
+type ProactiveMandateRule struct {
+	Id      ProactiveRuleId          `json:"id"`
+	Mandate ProactiveMandateStrength `json:"mandate"`
+	Text    string                   `json:"text"`
+}
+
+// ProactiveMandateStrength defines model for ProactiveMandateStrength.
+type ProactiveMandateStrength string
 
 // ProactiveRuleId defines model for ProactiveRuleId.
 type ProactiveRuleId = string

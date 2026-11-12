@@ -184,6 +184,7 @@ func (a *App) publicRoutes() []contractRoute {
 		route(http.MethodPatch, "/v0/tenants/:tenantId/me/proactive-rules/:ruleId", nil, session, a.editProactiveRule),
 		route(http.MethodDelete, "/v0/tenants/:tenantId/me/proactive-rules/:ruleId", nil, session, a.deleteProactiveRule),
 		route(http.MethodPut, "/v0/tenants/:tenantId/me/proactive-rules/:ruleId/pin", nil, session, a.updateProactiveRulePin),
+		route(http.MethodPut, "/v0/tenants/:tenantId/me/proactive-rules/:ruleId/mandate", nil, session, a.updateProactiveRuleMandate),
 		route(http.MethodPost, "/v0/tenants/:tenantId/me/proactive-rules/:ruleId/promotion", nil, session, a.promoteProactiveRule),
 		route(http.MethodPost, "/v0/tenants/:tenantId/me/shared-document-folders", nil, session, a.createMySharedDocumentFolder),
 		route(http.MethodDelete, "/v0/tenants/:tenantId/me/shared-document-folders/:folderId", nil, session, a.deleteMySharedDocumentFolder),

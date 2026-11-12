@@ -1,9 +1,11 @@
 // Package proactive hands, for one Human at a time, outside events from their
 // own material to their AnotherMe, which judges in its own Run with the same
 // rules as its conversation review whether to remind them, record a Tracking
-// Item quietly, or stay silent. It only reminds; it never acts for the Human.
-// Every read and write is scoped to one (tenant, owner) pair, so no Human ever
-// sees another's material.
+// Item quietly, or stay silent. Beyond reminding it acts for the Human only
+// under a mandate the Human granted on one of their active rules: it may then
+// create a Work Item, or create one and delegate it, and each act records an
+// immutable Mandate with the Work Item. Every read and write is scoped to one
+// (tenant, owner) pair, so no Human ever sees another's material.
 package proactive
 
 import (

@@ -3669,6 +3669,29 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v0/tenants/{tenantId}/me/proactive-rules/{ruleId}/mandate": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ruleId: components["schemas"]["ProactiveRuleId"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Set what Another Me may do beyond reminding when one active rule applies.
+     * @description create lets Another Me create a Work Item for a matching outside event; create_and_delegate also lets it delegate that work as a Task to its AlterEgo. Lowering the mandate, or deleting the rule, revokes it for later acts; Work Items already created keep their Mandate record. A shadow rule carries none until it is promoted.
+     */
+    put: operations["updateProactiveRuleMandate"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v0/tenants/{tenantId}/me/proactive-rules/{ruleId}/promotion": {
     parameters: {
       query?: never;
@@ -6464,6 +6487,22 @@ export interface components {
       control_outcome?: "applied" | "superseded" | "rejected";
       execution_updated_at: components["schemas"]["Timestamp"];
     };
+    ProactiveRuleId: string;
+    /** @enum {string} */
+    ProactiveMandateStrength: "create" | "create_and_delegate";
+    /** @description The authority under which Another Me created a Work Item: one of its Human's active rules as it stood in the guideline version it judged by, and the outside event it acted on. The record never changes; revoked is true once the Human's current rules no longer grant its strength. */
+    WorkItemMandate: {
+      owner_actor_id: string;
+      rule_id: components["schemas"]["ProactiveRuleId"];
+      rule_text: string;
+      guideline_version: number;
+      event_source: string;
+      event_external_id: string;
+      strength: components["schemas"]["ProactiveMandateStrength"];
+      revoked: boolean;
+      /** Format: date-time */
+      recorded_at: string;
+    };
     WorkItem: {
       id: components["schemas"]["Id"];
       tenant_id: components["schemas"]["Id"];
@@ -6492,6 +6531,8 @@ export interface components {
       work_room_id?: components["schemas"]["Id"];
       /** @description Current PostgreSQL-authoritative execution projection for a Task. */
       task_execution?: components["schemas"]["WorkItemTaskExecutionSummary"];
+      /** @description Set when Another Me created the Work Item under one of its Human's rules. */
+      mandate?: components["schemas"]["WorkItemMandate"];
       archived_at?: components["schemas"]["Timestamp"];
       created_at: components["schemas"]["Timestamp"];
       updated_at: components["schemas"]["Timestamp"];
@@ -7281,7 +7322,8 @@ export interface components {
       | "comment_deleted"
       | "work_room_created"
       | "execution_control_requested"
-      | "task_recovery_decision";
+      | "task_recovery_decision"
+      | "mandate_recorded";
     WorkItemActivity: {
       id: components["schemas"]["Id"];
       work_item_id: components["schemas"]["Id"];
@@ -7292,7 +7334,7 @@ export interface components {
       target_actor_id?: components["schemas"]["Id"];
       comment_id?: components["schemas"]["Id"];
       room_id?: components["schemas"]["Id"];
-      /** @description Restricted activity-specific audit details. execution_control_requested includes action, control_revision, source_kind, source_id, and optional reason; task_recovery_decision includes action, generation, intervention identity/version, and source_kind. */
+      /** @description Restricted activity-specific audit details. execution_control_requested includes action, control_revision, source_kind, source_id, and optional reason; task_recovery_decision includes action, generation, intervention identity/version, and source_kind; mandate_recorded includes the WorkItemMandate fields it was recorded with. */
       details: {
         [key: string]: unknown;
       };
@@ -7359,7 +7401,11 @@ export interface components {
       /** @description Replaces today's page; an empty string clears it. */
       text: components["schemas"]["PocketNoteText"];
     };
-    ProactiveRuleId: string;
+    /**
+     * @description What the Human allows Another Me to do beyond reminding when a rule applies. Only the Human sets it, on an active rule; nightly learning never does.
+     * @enum {string}
+     */
+    ProactiveMandate: "none" | "create" | "create_and_delegate";
     ProactiveRule: {
       id: components["schemas"]["ProactiveRuleId"];
       text: string;
@@ -7384,6 +7430,7 @@ export interface components {
       promoted_at: string | null;
       /** @description The guideline version that first held the rule as written. */
       guideline_version: number;
+      mandate: components["schemas"]["ProactiveMandate"];
     };
     /** @description An observation nightly learning keeps until it is strong enough to become a rule; clues never decide. */
     ProactiveClue: {
@@ -7412,18 +7459,40 @@ export interface components {
       /** Format: date-time */
       created_at: string;
     };
+    /** @description One Work Item Another Me created under a mandate. */
+    ProactiveRuleMandate: {
+      owner_actor_id: string;
+      rule_id: components["schemas"]["ProactiveRuleId"];
+      rule_text: string;
+      guideline_version: number;
+      event_source: string;
+      event_external_id: string;
+      strength: components["schemas"]["ProactiveMandateStrength"];
+      revoked: boolean;
+      /** Format: date-time */
+      recorded_at: string;
+      work_item_id: string;
+      /** Format: int64 */
+      number: number;
+      title: string;
+    };
     ProactiveRuleBook: {
       version: number;
       rules: components["schemas"]["ProactiveRule"][];
       clues: components["schemas"]["ProactiveClue"][];
       /** @description The latest shadow divergences, newest first. */
       divergences: components["schemas"]["ProactiveShadowDivergence"][];
+      /** @description The latest Work Items Another Me created under the Human's mandates, newest first. */
+      mandates: components["schemas"]["ProactiveRuleMandate"][];
     };
     ProactiveRuleEditRequest: {
       text: string;
     };
     ProactiveRulePinRequest: {
       pinned: boolean;
+    };
+    ProactiveRuleMandateRequest: {
+      mandate: components["schemas"]["ProactiveMandate"];
     };
     /** @description One topical point of a module; it needs non-empty text or at least one item. */
     PersonalProfilePoint: {
@@ -14124,6 +14193,36 @@ export interface operations {
     requestBody: {
       content: {
         "application/json": components["schemas"]["ProactiveRulePinRequest"];
+      };
+    };
+    responses: {
+      /** @description The Human's rules after the change. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProactiveRuleBook"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  updateProactiveRuleMandate: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ruleId: components["schemas"]["ProactiveRuleId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ProactiveRuleMandateRequest"];
       };
     };
     responses: {

@@ -68,6 +68,7 @@ func (a *App) agentAPIRoutes() []contractRoute {
 		route(http.MethodPost, "/api/agent/v1/tracking-items/list", nil, a.listAgentTrackingItems),
 		route(http.MethodPost, "/api/agent/v1/tracking-items/update", nil, a.updateAgentTrackingItem),
 		route(http.MethodPost, "/api/agent/v1/proactive/shadow-divergences", nil, a.recordProactiveShadowDivergence),
+		route(http.MethodPost, "/api/agent/v1/proactive/acts", nil, a.actUnderProactiveMandate),
 		route(http.MethodPost, "/api/agent/v1/user-questions", nil, a.askAgentUser),
 	}
 }

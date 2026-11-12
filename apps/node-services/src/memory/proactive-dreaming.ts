@@ -6,8 +6,9 @@ import { localDate, localTimeZone } from "./date.js";
 // rollback), then clears the day's outputs and event deduplication records. A guideline
 // holds broad specific rules as records, and clues: specific observations
 // only dreaming reads, carrying evidence across nights until they are strong
-// enough to be rules. A newly learned rule starts as shadow: it decides
-// nothing until the Human promotes it in My Rules. Rules the Human pinned or
+// enough to be rules. A newly learned rule starts as shadow with no mandate:
+// it decides nothing until the Human promotes it in My Rules, and only the
+// Human grants a mandate. Rules the Human pinned or
 // wrote are never removed or rewritten here, and rules they deleted are not
 // written again without new feedback.
 import { randomBytes } from "node:crypto";
@@ -48,6 +49,8 @@ export type ProactiveRule = {
   promoted_at: string | null;
   /** The version that first held the rule as written. */
   guideline_version: number;
+  /** What the Human allows Another Me to do beyond reminding; only they set it. */
+  mandate: "none" | "create" | "create_and_delegate";
 };
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions -- needs an implicit index signature
@@ -120,8 +123,12 @@ export function defaultGuideline(): Guideline {
   return { version: 1, rules: [], deleted_rules: [], clues: [] };
 }
 
-/** Rules the Human pinned or wrote; dreaming never removes or rewrites them. */
-const fixed = (rule: ProactiveRule) => rule.pinned || rule.source === "user";
+/**
+ * Rules the Human pinned, wrote, or granted a mandate on; dreaming never
+ * removes or rewrites them, so it never revokes a mandate.
+ */
+const fixed = (rule: ProactiveRule) =>
+  rule.pinned || rule.source === "user" || rule.mandate !== "none";
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions -- needs an implicit index signature
 export type DreamOutput = {
@@ -225,6 +232,7 @@ export function nextGuideline(
       created_at: now.toISOString(),
       promoted_at: null,
       guideline_version: version,
+      mandate: "none",
     });
   }
   return {

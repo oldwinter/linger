@@ -1,5 +1,6 @@
 import {
   renderProactiveEventDecideInstructions,
+  type MandateRule,
   type ShadowRule,
 } from "./prompt.js";
 
@@ -31,6 +32,7 @@ export function eventDecideInstructions(
   input: {
     readonly rules: readonly string[];
     readonly shadowRules: readonly ShadowRule[];
+    readonly mandateRules: readonly MandateRule[];
     readonly openItems: readonly OpenItem[];
   },
   now: Date,
@@ -38,6 +40,7 @@ export function eventDecideInstructions(
   return renderProactiveEventDecideInstructions(
     input.rules,
     input.shadowRules,
+    input.mandateRules,
     promptOpenItems(
       input.openItems.map(({ content, dueAt }) => ({
         content,

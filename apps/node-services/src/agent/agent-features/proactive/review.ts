@@ -31,6 +31,8 @@ export async function reviewRoom(
     const window = await deps.client.window(roomId, agentId, signal);
     if (!window) break;
     const now = deps.now?.() ?? new Date();
+    // Mandates act on outside events only, so a conversation window's wake
+    // leaves the mandate rules out.
     await deps.client.queueWake(
       roomId,
       agentId,

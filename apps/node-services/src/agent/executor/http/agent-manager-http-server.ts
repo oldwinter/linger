@@ -524,7 +524,7 @@ const createAgentManagerHttpApp = <TRuntimeSettings>(
         throw new RequestError(
           400,
           "invalid_proactive_event",
-          "rules, shadowRules and openItems are required",
+          "rules, shadowRules, mandateRules and openItems are required",
         );
       return writeJson(context, 200, await proactiveEvents.judge(body));
     },
@@ -960,10 +960,10 @@ const isProactiveEventJudgeRequest = (
 ): value is ProactiveEventJudgeRequest => {
   if (
     !isRecord(value) ||
-    !hasOnly(value, ["rules", "shadowRules", "openItems"])
+    !hasOnly(value, ["rules", "shadowRules", "mandateRules", "openItems"])
   )
     return false;
-  const { rules, shadowRules, openItems } = value;
+  const { rules, shadowRules, mandateRules, openItems } = value;
   return (
     Array.isArray(rules) &&
     rules.length <= 20 &&
@@ -977,6 +977,17 @@ const isProactiveEventJudgeRequest = (
         typeof rule.id === "string" &&
         /^pr_[a-f0-9]{32}$/u.test(rule.id) &&
         isText(rule.text, 200),
+    ) &&
+    Array.isArray(mandateRules) &&
+    mandateRules.length <= 20 &&
+    mandateRules.every(
+      (rule) =>
+        isRecord(rule) &&
+        hasOnly(rule, ["id", "text", "mandate"]) &&
+        typeof rule.id === "string" &&
+        /^pr_[a-f0-9]{32}$/u.test(rule.id) &&
+        isText(rule.text, 200) &&
+        (rule.mandate === "create" || rule.mandate === "create_and_delegate"),
     ) &&
     Array.isArray(openItems) &&
     openItems.length <= 1000 &&
