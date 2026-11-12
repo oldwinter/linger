@@ -1196,6 +1196,21 @@ func (e RequestAgentBrowserConnection200JSONResponseBodyStatus) Valid() bool {
 	}
 }
 
+// Defines values for AskAgentHerdrPane200JSONResponseBodyStatus.
+const (
+	Asked AskAgentHerdrPane200JSONResponseBodyStatus = "asked"
+)
+
+// Valid indicates whether the value is a known member of the AskAgentHerdrPane200JSONResponseBodyStatus enum.
+func (e AskAgentHerdrPane200JSONResponseBodyStatus) Valid() bool {
+	switch e {
+	case Asked:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RequestAgentComputerPermissions200JSONResponseBodyStatus.
 const (
 	PermissionRequested RequestAgentComputerPermissions200JSONResponseBodyStatus = "permission_requested"
@@ -3185,6 +3200,20 @@ type RequestAgentBrowserConnectionJSONBody = map[string]interface{}
 // RequestAgentBrowserConnection200JSONResponseBodyStatus defines parameters for RequestAgentBrowserConnection.
 type RequestAgentBrowserConnection200JSONResponseBodyStatus string
 
+// AskAgentHerdrPaneJSONBody defines parameters for AskAgentHerdrPane.
+type AskAgentHerdrPaneJSONBody struct {
+	// Options The choices the coding agent offers; the owner may also write their own answer.
+	Options []string `json:"options"`
+	PaneId  string   `json:"pane_id"`
+
+	// Question What the coding agent asks, as the card shows it.
+	Question       string `json:"question"`
+	StateChangeSeq int64  `json:"state_change_seq"`
+}
+
+// AskAgentHerdrPane200JSONResponseBodyStatus defines parameters for AskAgentHerdrPane.
+type AskAgentHerdrPane200JSONResponseBodyStatus string
+
 // RequestAgentComputerPermissionsJSONBody defines parameters for RequestAgentComputerPermissions.
 type RequestAgentComputerPermissionsJSONBody struct {
 	Permissions []ComputerPermissionId `json:"permissions"`
@@ -3293,6 +3322,9 @@ type ListAvailableAgentsJSONRequestBody = AgentListAvailableAgentsRequest
 
 // RequestAgentBrowserConnectionJSONRequestBody defines body for RequestAgentBrowserConnection for application/json ContentType.
 type RequestAgentBrowserConnectionJSONRequestBody = RequestAgentBrowserConnectionJSONBody
+
+// AskAgentHerdrPaneJSONRequestBody defines body for AskAgentHerdrPane for application/json ContentType.
+type AskAgentHerdrPaneJSONRequestBody AskAgentHerdrPaneJSONBody
 
 // RequestAgentComputerPermissionsJSONRequestBody defines body for RequestAgentComputerPermissions for application/json ContentType.
 type RequestAgentComputerPermissionsJSONRequestBody RequestAgentComputerPermissionsJSONBody

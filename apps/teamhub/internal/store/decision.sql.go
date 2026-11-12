@@ -393,3 +393,59 @@ func (q *Queries) LocateDecision(ctx context.Context, id string) (LocateDecision
 	err := row.Scan(&i.TenantID, &i.RoomID)
 	return i, err
 }
+
+const lockHerdrAnswerDecision = `-- name: LockHerdrAnswerDecision :one
+SELECT decision.kind, decision.tenant_id, decision.decider_actor_id, decision.status,
+       decision.request, decision.view, decision.answer, decision.result,
+       coalesce(registration.agent_management_id, '')::text AS agent_management_id
+FROM decisions decision
+JOIN agent_registrations registration
+  ON registration.actor_id=decision.requested_by_actor_id AND registration.tenant_id=decision.tenant_id
+WHERE decision.id=$1::text
+FOR UPDATE OF decision
+`
+
+type LockHerdrAnswerDecisionRow struct {
+	Kind              string `json:"kind"`
+	TenantID          string `json:"tenant_id"`
+	DeciderActorID    string `json:"decider_actor_id"`
+	Status            string `json:"status"`
+	Request           []byte `json:"request"`
+	View              []byte `json:"view"`
+	Answer            []byte `json:"answer"`
+	Result            []byte `json:"result"`
+	AgentManagementID string `json:"agent_management_id"`
+}
+
+// An answered question card bound to a herdr pane, with what its delivery
+// recorded so far and the Agent that asked.
+func (q *Queries) LockHerdrAnswerDecision(ctx context.Context, id string) (LockHerdrAnswerDecisionRow, error) {
+	row := q.db.QueryRow(ctx, lockHerdrAnswerDecision, id)
+	var i LockHerdrAnswerDecisionRow
+	err := row.Scan(
+		&i.Kind,
+		&i.TenantID,
+		&i.DeciderActorID,
+		&i.Status,
+		&i.Request,
+		&i.View,
+		&i.Answer,
+		&i.Result,
+		&i.AgentManagementID,
+	)
+	return i, err
+}
+
+const recordDecisionResult = `-- name: RecordDecisionResult :exec
+UPDATE decisions SET result=$1::jsonb WHERE id=$2::text
+`
+
+type RecordDecisionResultParams struct {
+	Result []byte `json:"result"`
+	ID     string `json:"id"`
+}
+
+func (q *Queries) RecordDecisionResult(ctx context.Context, arg RecordDecisionResultParams) error {
+	_, err := q.db.Exec(ctx, recordDecisionResult, arg.Result, arg.ID)
+	return err
+}

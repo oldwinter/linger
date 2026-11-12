@@ -39,7 +39,10 @@ func defaultDeps() deps {
 		newClient:        newDaemonClient,
 		probeGateway:     probeGatewayNetwork,
 		productRuntime:   bundledNodeCheck,
-		readLogs:         streamComputerLogs,
+		inspectHerdr: func(ctx context.Context) (doctorCheck, bool) {
+			return inspectHerdr(ctx, environment)
+		},
+		readLogs: streamComputerLogs,
 		startDaemon: func(ctx context.Context, configPath string) error {
 			return startDetachedDaemon(ctx, configPath, environment, commandName)
 		},

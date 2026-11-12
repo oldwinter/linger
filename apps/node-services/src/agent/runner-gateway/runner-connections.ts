@@ -608,6 +608,24 @@ export class RunnerConnections {
       });
       return;
     }
+    if (envelope.type === "runner.herdr_event") {
+      // TeamHub takes the owner from its own Computer record. A lost report
+      // only loses one reminder, so it never closes the Runner connection.
+      try {
+        await this.context.computerRegistry?.reportHerdrEvent(
+          connection.runnerId,
+          envelope.event,
+        );
+      } catch (error) {
+        logAgentEvent("warn", "runner.herdr_event.report_failed", {
+          runnerId: connection.runnerId,
+          kind: envelope.event.kind,
+          status:
+            error instanceof TeamHubRuntimeStateError ? error.status : null,
+        });
+      }
+      return;
+    }
     if (envelope.type === "runtime.registration.observed") {
       if (
         envelope.connection_epoch !== connection.connectionEpoch ||

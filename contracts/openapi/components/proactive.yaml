@@ -341,3 +341,28 @@ components:
         replay:
           type: boolean
           description: True when this rule already acted on this event; the first act's Work Item is returned.
+    HerdrAgentEventReport:
+      type: object
+      additionalProperties: false
+      required: [computer_id, kind, pane_id, state_change_seq]
+      properties:
+        computer_id:
+          type: string
+          pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        kind:
+          type: string
+          enum: [agent_blocked, agent_finished]
+        pane_id: { type: string, minLength: 1, maxLength: 128 }
+        state_change_seq:
+          type: integer
+          format: int64
+          minimum: 0
+          description: herdr's per-pane state change counter; with pane_id it names one state of one pane.
+        agent: { type: string, maxLength: 120 }
+        name: { type: string, maxLength: 120 }
+        cwd: { type: string, maxLength: 4096 }
+        title: { type: string, maxLength: 500 }
+        tail:
+          type: string
+          maxLength: 8000
+          description: The last lines of the pane, with obvious secrets redacted on the Computer.

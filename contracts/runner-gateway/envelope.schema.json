@@ -85,6 +85,9 @@
           "$ref": "#/$defs/RunnerRuntimeDiagnostics"
         },
         {
+          "$ref": "#/$defs/RunnerHerdrEvent"
+        },
+        {
           "$ref": "#/$defs/RuntimeRegistrationObserved"
         },
         {
@@ -2099,6 +2102,69 @@
         },
         "runtime_diagnostics": {
           "$ref": "#/$defs/RuntimeDiagnostics"
+        }
+      }
+    },
+    "RunnerHerdrEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One herdr agent pane that just became blocked, or finished work (working to idle or done), on this Computer. Sent once per pane state change while connected; nothing is resent after a reconnect.",
+      "required": ["type", "protocol_version", "runner_id", "sent_at", "event"],
+      "properties": {
+        "type": {
+          "const": "runner.herdr_event"
+        },
+        "protocol_version": {
+          "$ref": "#/$defs/ProtocolVersion"
+        },
+        "runner_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "sent_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "event": {
+          "$ref": "#/$defs/HerdrAgentEvent"
+        }
+      }
+    },
+    "HerdrAgentEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "pane_id", "state_change_seq"],
+      "properties": {
+        "kind": {
+          "enum": ["agent_blocked", "agent_finished"]
+        },
+        "pane_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "state_change_seq": {
+          "description": "herdr's per-pane state change counter; with pane_id it names one state of one pane.",
+          "$ref": "#/$defs/NonNegativeInteger"
+        },
+        "agent": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "cwd": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "tail": {
+          "description": "The last lines of the pane, with obvious secrets redacted.",
+          "type": "string",
+          "maxLength": 8000
         }
       }
     },
@@ -4600,7 +4666,7 @@
           "$ref": "#/$defs/Id"
         },
         "server": {
-          "enum": ["browser", "playground"]
+          "enum": ["browser", "playground", "herdr"]
         },
         "tool_name": {
           "type": "string",

@@ -576,7 +576,7 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Execute one authorized local browser action or Task file read without a model turn */
+    /** Execute one authorized local browser action, Task file read, or the typing of a Human's answer card into a herdr pane, without a model turn */
     post: operations["callLocalComputerTool"];
     delete?: never;
     options?: never;
@@ -1196,7 +1196,7 @@ export interface components {
       agent_id: string;
       tool_session_id: string;
       /** @enum {string} */
-      server: "browser" | "playground";
+      server: "browser" | "playground" | "herdr";
       tool_name: string;
       arguments: {
         [key: string]: unknown;

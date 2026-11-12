@@ -195,10 +195,10 @@ func (q *Queries) GetRoomLastConversationAt(ctx context.Context, roomID string) 
 
 const insertPendingWake = `-- name: InsertPendingWake :exec
 INSERT INTO proactive_pending_wakes (id, tenant_id, room_id, author_actor_id, agent_actor_id, body, tracking_item_id, source, connection_grant,
-                                     fired_routine_id, fired_routine_instruction)
+                                     local_computer_id, fired_routine_id, fired_routine_instruction)
 VALUES ($1, $2, $3, $4,
         $5, $6, $7, $8, $9,
-        $10, $11)
+        $10, $11, $12)
 `
 
 type InsertPendingWakeParams struct {
@@ -211,6 +211,7 @@ type InsertPendingWakeParams struct {
 	TrackingItemID          pgtype.Text `json:"tracking_item_id"`
 	Source                  string      `json:"source"`
 	ConnectionGrant         []byte      `json:"connection_grant"`
+	LocalComputerID         pgtype.Text `json:"local_computer_id"`
 	FiredRoutineID          pgtype.Text `json:"fired_routine_id"`
 	FiredRoutineInstruction pgtype.Text `json:"fired_routine_instruction"`
 }
@@ -226,6 +227,7 @@ func (q *Queries) InsertPendingWake(ctx context.Context, arg InsertPendingWakePa
 		arg.TrackingItemID,
 		arg.Source,
 		arg.ConnectionGrant,
+		arg.LocalComputerID,
 		arg.FiredRoutineID,
 		arg.FiredRoutineInstruction,
 	)
@@ -329,7 +331,7 @@ func (q *Queries) ListRoomConversationWindow(ctx context.Context, arg ListRoomCo
 }
 
 const listUndeliveredWakes = `-- name: ListUndeliveredWakes :many
-SELECT id, tenant_id, room_id, author_actor_id, agent_actor_id, body, tracking_item_id, created_at, delivered_at, source, message_id, connection_grant, fired_routine_id, fired_routine_instruction FROM proactive_pending_wakes
+SELECT id, tenant_id, room_id, author_actor_id, agent_actor_id, body, tracking_item_id, created_at, delivered_at, source, message_id, connection_grant, fired_routine_id, fired_routine_instruction, local_computer_id FROM proactive_pending_wakes
 WHERE room_id=$1::text AND delivered_at IS NULL
 ORDER BY created_at, id
 `
@@ -358,6 +360,7 @@ func (q *Queries) ListUndeliveredWakes(ctx context.Context, roomID string) ([]Pr
 			&i.ConnectionGrant,
 			&i.FiredRoutineID,
 			&i.FiredRoutineInstruction,
+			&i.LocalComputerID,
 		); err != nil {
 			return nil, err
 		}

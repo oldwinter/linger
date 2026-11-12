@@ -124,6 +124,16 @@ export const commandExamples: Record<string, string[]> = {
   request_browser_connection: [],
   read_computer_permissions: [],
   request_computer_permission: ["--permissions", "screen_recording"],
+  ask_herdr_pane: [
+    "--pane",
+    "w1:p1",
+    "--state",
+    "5",
+    "--question",
+    "Use A or B?",
+    "--option",
+    "A",
+  ],
   list_auto_reminders: [],
   set_auto_reminders: ["connection_one", "--off"],
   act_under_mandate: [

@@ -90,6 +90,8 @@ type fixture struct {
 	stderr     strings.Builder
 	stdin      string
 
+	// herdr is the doctor's herdr line; empty means herdr is not installed.
+	herdr            doctorCheck
 	started          []string
 	inspected        []string
 	stopped          []string
@@ -150,6 +152,7 @@ func newFixture(t *testing.T) *fixture {
 			return doctorCheck{Name: "gateway-network", Category: categoryNetwork, Status: "pass", Detail: "reachable"}
 		},
 		productRuntime: func() doctorCheck { return productRuntimeCheck(productNodeVersion) },
+		inspectHerdr:   func(context.Context) (doctorCheck, bool) { return f.herdr, f.herdr.Name != "" },
 		readLogs: func(_ context.Context, request logRequest, output io.Writer) error {
 			f.logRequests = append(f.logRequests, request)
 			_, err := io.WriteString(output, "redacted log\n")

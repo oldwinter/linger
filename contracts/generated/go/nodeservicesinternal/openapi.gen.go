@@ -713,6 +713,7 @@ func (e InternalErrorCode) Valid() bool {
 // Defines values for LocalComputerToolCallServer.
 const (
 	Browser    LocalComputerToolCallServer = "browser"
+	Herdr      LocalComputerToolCallServer = "herdr"
 	Playground LocalComputerToolCallServer = "playground"
 )
 
@@ -720,6 +721,8 @@ const (
 func (e LocalComputerToolCallServer) Valid() bool {
 	switch e {
 	case Browser:
+		return true
+	case Herdr:
 		return true
 	case Playground:
 		return true

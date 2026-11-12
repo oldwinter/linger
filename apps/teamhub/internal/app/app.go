@@ -619,6 +619,7 @@ func (a *App) registerCollaboration(runtimeState *agentruntimestate.Service) {
 	a.typedCards.SetConnectionAuthorizer(a.externalSources)
 	a.typedCards.SetOnboarding(a.collaboration.WriteOnboardingHandoff, a.onboardingConnections)
 	a.registerDecisionExecutors()
+	a.typedCards.SetHerdrDeliverer(a.deliverHerdrAnswer)
 }
 
 // registerAgentTools builds the Agent CLI tools, each authorized by the

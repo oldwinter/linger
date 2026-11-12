@@ -226,6 +226,31 @@ paths:
     $ref: ../paths/teamhub-agent-runtime-state.yaml#/touchLocalComputer
   /v0/agent-runtime/local-computers/remove:
     $ref: ../paths/teamhub-agent-runtime-state.yaml#/removeLocalComputer
+  /v0/agent-runtime/local-computers/herdr-events:
+    post:
+      tags:
+        - Local Computers
+      operationId: reportLocalComputerHerdrEvent
+      summary: Hand a herdr agent pane event to the proactive judgment of the Computer's owner
+      description:
+        The Agent Service forwards a runner.herdr_event of a connected Computer. TeamHub takes the owner from its own
+        Local Computer record, never from the request, and queues the event for that owner's AnotherMe like an app
+        event. A repeated report of the same pane state is accepted and judged once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ../components/proactive.yaml#/components/schemas/HerdrAgentEventReport
+      responses:
+        "202":
+          description: The event is queued, or was already.
+        "400":
+          $ref: ../components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ../components/common.yaml#/components/responses/Unauthenticated
+        "404":
+          $ref: ../components/common.yaml#/components/responses/NotFound
   /v0/agents/{agentId}/identity:
     parameters:
       - $ref: "#/components/parameters/AgentId"

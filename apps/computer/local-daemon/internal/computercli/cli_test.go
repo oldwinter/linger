@@ -8,10 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/control"
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/herdr"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/transport"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider"
 )
@@ -623,7 +625,8 @@ func TestDoctorReportsEveryCheck(t *testing.T) {
 		names = append(names, check.Name+"="+check.Status)
 	}
 	want := []string{"product-runtime=pass", "config=pass", "credential=pass", "state-directory=pass", "gateway-network=pass", "daemon=pass", "runtime:codex=pass", "runtime:claude=warn", "runtime:pi=warn", "enrollment=pass"}
-	if !report.OK || !reflect.DeepEqual(names[:len(want)], want) || report.Checks[len(want)].Name != "browser" {
+	// Without herdr installed the report has no herdr line.
+	if !report.OK || !reflect.DeepEqual(names[:len(want)], want) || report.Checks[len(want)].Name != "browser" || len(report.Checks) != len(want)+1 {
 		t.Fatalf("checks=%v", names)
 	}
 	if report.Checks[0].Detail != "Bundled Node 26.5.0" || report.Checks[6].Detail != "/usr/local/bin/codex (1.2.3); Runtime preflight passed; remote model access not verified" ||
@@ -634,6 +637,38 @@ func TestDoctorReportsEveryCheck(t *testing.T) {
 	f.run("doctor", "--config", f.configPath)
 	if !strings.HasPrefix(f.stdout.String(), "PASS\tproduct-runtime\tBundled Node 26.5.0\nPASS\tconfig\t"+f.configPath+"\n") {
 		t.Fatalf("text=%q", f.stdout.String())
+	}
+}
+
+func TestDoctorReportsHerdrWhenItIsInstalled(t *testing.T) {
+	f := newFixture(t)
+	f.herdr = herdrCheck(herdr.Installation{Executable: "/opt/homebrew/bin/herdr", Socket: "/Users/a/.config/herdr/herdr.sock"}, "0.9.5", true)
+	if code := f.run("doctor", "--config", f.configPath); code != 0 {
+		t.Fatalf("exit=%d stdout=%s", code, f.stdout.String())
+	}
+	if !strings.HasSuffix(f.stdout.String(), "PASS\therdr\therdr 0.9.5 at /opt/homebrew/bin/herdr; Another Me hears its blocked and finished agents\n") {
+		t.Fatalf("text=%q", f.stdout.String())
+	}
+	stopped := herdrCheck(herdr.Installation{Executable: "/usr/local/bin/herdr", Socket: "/home/a/.config/herdr/herdr.sock"}, "", false)
+	if stopped.Status != "pass" || stopped.Detail != "herdr at /usr/local/bin/herdr; its server is not running at /home/a/.config/herdr/herdr.sock, so there are no agents to hear yet" {
+		t.Fatalf("stopped=%+v", stopped)
+	}
+}
+
+func TestInspectHerdrFindsItOnTheTerminalPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("herdr is not supported on Windows")
+	}
+	bin, home := t.TempDir(), t.TempDir()
+	// The usual install directories follow PATH, so only the found case is
+	// independent of this machine; herdr.Locate covers the missing one.
+	environment := map[string]string{"PATH": bin, "HOME": home}
+	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte("#!/bin/sh\necho herdr 0.9.5\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	check, ok := inspectHerdr(t.Context(), environment)
+	if !ok || check.Name != "herdr" || check.Status != "pass" || !strings.HasPrefix(check.Detail, "herdr 0.9.5 at "+filepath.Join(bin, "herdr")+"; its server is not running at "+filepath.Join(home, ".config", "herdr", "herdr.sock")) {
+		t.Fatalf("check=%+v ok=%v", check, ok)
 	}
 }
 

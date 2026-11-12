@@ -929,6 +929,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/agent/v1/computer/herdr/ask": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Ask the owner of this AnotherMe's Local Computer how to answer a blocked herdr agent pane.
+     * @description Only the Computer owner's AnotherMe may ask, and only about a pane state the Computer reported as blocked. TeamHub posts a question card bound to that pane state for the owner. When the owner answers, TeamHub itself types exactly the picked choice or the owner's written answer into the pane, once, and only while the pane is still blocked on that state; the asking Agent then hears the answer and whether it was delivered. The Agent never supplies the text that is sent. Asking again about the same pane state returns the same card.
+     */
+    post: operations["askAgentHerdrPane"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/agent/v1/apps/tools/bind": {
     parameters: {
       query?: never;
@@ -4447,6 +4467,51 @@ export interface operations {
             room_id?: string;
             message_id?: string;
             interaction_id?: string;
+          };
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      409: components["responses"]["Conflict"];
+      503: components["responses"]["ServiceUnavailable"];
+      default: components["responses"]["InternalError"];
+    };
+  };
+  askAgentHerdrPane: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          pane_id: string;
+          /** Format: int64 */
+          state_change_seq: number;
+          /** @description What the coding agent asks, as the card shows it. */
+          question: string;
+          /** @description The choices the coding agent offers; the owner may also write their own answer. */
+          options: string[];
+        };
+      };
+    };
+    responses: {
+      /** @description The question card, new or the one already asked for this pane state. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** @enum {string} */
+            status: "asked";
+            computer_id: string;
+            room_id: string;
+            message_id: string;
+            interaction_id: string;
           };
         };
       };

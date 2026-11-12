@@ -35,6 +35,7 @@ const (
 	TypeRunnerHello                 = "runner.hello"
 	TypeRunnerHeartbeat             = "runner.heartbeat"
 	TypeRunnerRuntimeDiagnostics    = "runner.runtime_diagnostics"
+	TypeRunnerHerdrEvent            = "runner.herdr_event"
 	TypeRuntimeRegistrationObserved = "runtime.registration.observed"
 	TypeAgentRunnerState            = "agent_runner.state"
 	TypeExecuted                    = "executed"
@@ -105,6 +106,7 @@ var DaemonToAgentMessages = []Message{
 	{Name: "RunnerHello", Type: "runner.hello", Match: nil},
 	{Name: "RunnerHeartbeat", Type: "runner.heartbeat", Match: nil},
 	{Name: "RunnerRuntimeDiagnostics", Type: "runner.runtime_diagnostics", Match: nil},
+	{Name: "RunnerHerdrEvent", Type: "runner.herdr_event", Match: nil},
 	{Name: "RuntimeRegistrationObserved", Type: "runtime.registration.observed", Match: nil},
 	{Name: "AgentRunnerReady", Type: "agent_runner.state", Match: map[string]string{"state": "ready"}},
 	{Name: "AgentRunnerRemoved", Type: "agent_runner.state", Match: map[string]string{"state": "removed"}},
@@ -1130,6 +1132,45 @@ func (RunnerRuntimeDiagnostics) FixedFields() map[string]string {
 // RequiredFields lists the keys a RunnerRuntimeDiagnostics must carry.
 func (RunnerRuntimeDiagnostics) RequiredFields() []string {
 	return []string{"type", "protocol_version", "runner_id", "sent_at", "revision", "runtime_diagnostics"}
+}
+
+// HerdrAgentEvent mirrors the HerdrAgentEvent schema shape.
+type HerdrAgentEvent struct {
+	Kind           string `json:"kind"`
+	PaneID         string `json:"pane_id"`
+	StateChangeSeq uint64 `json:"state_change_seq"`
+	Agent          string `json:"agent,omitempty"`
+	Name           string `json:"name,omitempty"`
+	Cwd            string `json:"cwd,omitempty"`
+	Title          string `json:"title,omitempty"`
+	Tail           string `json:"tail,omitempty"`
+}
+
+// FixedFields lists the keys whose value the schema fixes for a HerdrAgentEvent.
+func (HerdrAgentEvent) FixedFields() map[string]string { return nil }
+
+// RequiredFields lists the keys a HerdrAgentEvent must carry.
+func (HerdrAgentEvent) RequiredFields() []string {
+	return []string{"kind", "pane_id", "state_change_seq"}
+}
+
+// RunnerHerdrEvent mirrors the RunnerHerdrEvent schema shape.
+type RunnerHerdrEvent struct {
+	Type            string          `json:"type"`
+	ProtocolVersion string          `json:"protocol_version"`
+	RunnerID        string          `json:"runner_id"`
+	SentAt          string          `json:"sent_at"`
+	Event           HerdrAgentEvent `json:"event"`
+}
+
+// FixedFields lists the keys whose value the schema fixes for a RunnerHerdrEvent.
+func (RunnerHerdrEvent) FixedFields() map[string]string {
+	return map[string]string{"type": "runner.herdr_event", "protocol_version": "2"}
+}
+
+// RequiredFields lists the keys a RunnerHerdrEvent must carry.
+func (RunnerHerdrEvent) RequiredFields() []string {
+	return []string{"type", "protocol_version", "runner_id", "sent_at", "event"}
 }
 
 // RunnerReconciled mirrors the RunnerReconciled schema shape.

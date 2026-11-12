@@ -14,7 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/herdr"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/platform/privatefs"
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider"
 )
 
 // productNodeVersion is the bundled Node that runs the teamhub CLI and the
@@ -217,6 +219,29 @@ func probeGatewayNetwork(ctx context.Context, encoded string) doctorCheck {
 	}
 	_ = connection.Close()
 	return doctorCheck{Name: "gateway-network", Category: categoryNetwork, Status: "pass", Detail: host + ":" + port + " reachable"}
+}
+
+// inspectHerdr reports herdr, an optional integration: Another Me hears the
+// coding agents it runs and can answer a blocked one. Without herdr on the
+// terminal PATH there is no line at all.
+func inspectHerdr(ctx context.Context, environment map[string]string) (doctorCheck, bool) {
+	installation, ok := herdr.Locate(provider.TerminalEnvironment(ctx, environment))
+	if !ok {
+		return doctorCheck{}, false
+	}
+	return herdrCheck(installation, installation.Version(ctx), installation.Running()), true
+}
+
+func herdrCheck(installation herdr.Installation, version string, running bool) doctorCheck {
+	found := "herdr"
+	if version != "" {
+		found += " " + version
+	}
+	detail := found + " at " + installation.Executable + "; Another Me hears its blocked and finished agents"
+	if !running {
+		detail = found + " at " + installation.Executable + "; its server is not running at " + installation.Socket + ", so there are no agents to hear yet"
+	}
+	return doctorCheck{Name: "herdr", Category: categoryConfiguration, Status: "pass", Detail: detail}
 }
 
 // playwrightExtensionID identifies the Playwright Extension in Chrome profiles.

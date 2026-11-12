@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -16,10 +17,15 @@ import (
 )
 
 // Event is one outside change that may deserve a reminder: a meeting about to
-// start, a new mail, a flight status. Connectors hand events in through
-// EnqueueEventTx; nothing is stored besides the job and the day's records.
+// start, a new mail, a flight status, a coding agent waiting in the Human's
+// terminal. Sources hand events in through EnqueueEventTx; nothing is stored
+// besides the job and the day's records.
 type Event struct {
+	// The authority that admitted the event, exactly one of: Grant, the app
+	// connection grant generation, or ComputerID, the enrolled Local Computer
+	// of OwnerActorID that observed it.
 	Grant        *reminder.GrantReference `json:"grant,omitempty"`
+	ComputerID   string                   `json:"computer_id,omitempty"`
 	TenantID     string                   `json:"tenant_id"`
 	OwnerActorID string                   `json:"owner_actor_id"`
 	// Source and ExternalID name the thing in its own system, e.g. gmail and a
@@ -34,6 +40,8 @@ type Event struct {
 	// Urgent events (a cancellation, a boarding call) pass the quiet hours and
 	// the daily limit.
 	Urgent bool `json:"urgent,omitempty"`
+	// Herdr names the pane of a herdr event, so AnotherMe can answer it.
+	Herdr *HerdrPane `json:"herdr,omitempty"`
 }
 
 const (
@@ -53,10 +61,23 @@ func (e Event) validate() error {
 			return ErrInvalidEvent
 		}
 	}
-	if utf8.RuneCountInString(e.Summary) > maxEventSummaryRunes {
+	if utf8.RuneCountInString(e.Summary) > maxEventSummaryRunes || e.Grant != nil && e.ComputerID != "" {
 		return ErrInvalidEvent
 	}
 	return nil
+}
+
+// authorize returns reminder.ErrGrantRevoked or reminder.ErrComputerRemoved
+// unless the authority that admitted the event still does.
+func (e Event) authorize(ctx context.Context, queries *store.Queries) error {
+	if e.ComputerID != "" {
+		return reminder.CheckComputer(ctx, queries, e.TenantID, e.OwnerActorID, e.ComputerID)
+	}
+	return e.Grant.Check(ctx, queries)
+}
+
+func revoked(err error) bool {
+	return errors.Is(err, reminder.ErrGrantRevoked) || errors.Is(err, reminder.ErrComputerRemoved)
 }
 
 // EventArgs carries one event through River.
@@ -75,7 +96,7 @@ func EnqueueEventTx(ctx context.Context, tx pgx.Tx, event Event) error {
 	if err := event.validate(); err != nil {
 		return err
 	}
-	if event.Grant == nil {
+	if event.Grant == nil && event.ComputerID == "" {
 		return reminder.ErrGrantRevoked
 	}
 	return jobs.InsertTx(ctx, tx, EventArgs{Event: event}, nil)
@@ -130,7 +151,7 @@ func (s *Service) HandleEvent(ctx context.Context, event Event) (Outcome, error)
 		SourceKey: SourceKey("event", event.Source+"\x00"+event.ExternalID+"\x00"+event.State, Day(now)),
 	}
 	queries := store.New(s.pool)
-	if err := event.Grant.Check(ctx, queries); errors.Is(err, reminder.ErrGrantRevoked) {
+	if err := event.authorize(ctx, queries); revoked(err) {
 		return Outcome{Candidate: candidate, Skipped: "authorization_revoked"}, nil
 	} else if err != nil {
 		return Outcome{}, err
@@ -185,8 +206,8 @@ func (s *Service) HandleEvent(ctx context.Context, event Event) (Outcome, error)
 			instructions += "\n" + reminder.Prompt(reminder.EventTrackOnly, nil)
 		}
 	}
-	err = s.wake(ctx, owner, candidate, eventText(instructions, event), outcome.Skipped == "", event.Grant)
-	if errors.Is(err, reminder.ErrGrantRevoked) {
+	err = s.wake(ctx, owner, candidate, eventText(instructions, event), outcome.Skipped == "", event)
+	if revoked(err) {
 		outcome.Skipped = "authorization_revoked"
 		return outcome, nil
 	}
@@ -208,14 +229,14 @@ func quietHour(now time.Time) bool {
 // wake queues a hidden message for the Human's AnotherMe in their direct Room,
 // spoken by the Human so it is not ignored as AnotherMe's own, and records the
 // day's judgment of the event; reminded counts toward the daily limit.
-func (s *Service) wake(ctx context.Context, owner Owner, candidate Candidate, body string, reminded bool, grant *reminder.GrantReference) error {
+func (s *Service) wake(ctx context.Context, owner Owner, candidate Candidate, body string, reminded bool, event Event) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	queries := store.New(s.pool).WithTx(tx)
-	if err := grant.Check(ctx, queries); err != nil {
+	if err := event.authorize(ctx, queries); err != nil {
 		return err
 	}
 	chat, err := queries.GetAnotherMeChat(ctx, store.GetAnotherMeChatParams{
@@ -227,7 +248,7 @@ func (s *Service) wake(ctx context.Context, owner Owner, candidate Candidate, bo
 	if err != nil {
 		return err
 	}
-	if grant.TenantID != owner.TenantID || grant.AgentActorID != chat.AgentActorID {
+	if event.Grant != nil && (event.Grant.TenantID != owner.TenantID || event.Grant.AgentActorID != chat.AgentActorID) {
 		return reminder.ErrGrantRevoked
 	}
 	agent, err := queries.GetActor(ctx, store.GetActorParams{ID: chat.AgentActorID, TenantID: owner.TenantID})
@@ -239,7 +260,8 @@ func (s *Service) wake(ctx context.Context, owner Owner, candidate Candidate, bo
 		return err
 	}
 	if err := reminder.EnqueueTx(ctx, tx, reminder.Wake{
-		Grant: grant, Source: reminder.SourceEvent, TenantID: owner.TenantID, RoomID: chat.RoomID.String, Author: human, Agent: agent, Body: body,
+		Grant: event.Grant, ComputerID: event.ComputerID, Source: reminder.SourceEvent, TenantID: owner.TenantID, RoomID: chat.RoomID.String,
+		Author: human, Agent: agent, Body: body,
 	}); err != nil {
 		return err
 	}
@@ -262,6 +284,12 @@ func eventText(label string, event Event) string {
 	if event.ExternalID != "" {
 		facts = append(facts, "external_id: "+event.ExternalID)
 	}
-	return label + "\n" + strings.Join(facts, "; ") + "\n<event>\n" + strings.TrimSpace(event.Summary) +
+	text := label + "\n" + strings.Join(facts, "; ") + "\n<event>\n" + strings.TrimSpace(event.Summary) +
 		"\n</event>\n" + reminder.Prompt(reminder.EventData, nil)
+	if event.Herdr != nil && event.Kind == HerdrAgentBlocked {
+		text += "\n" + reminder.Prompt(reminder.HerdrBlocked, map[string]string{
+			"pane_id": event.Herdr.PaneID, "state": strconv.FormatInt(event.Herdr.StateChangeSeq, 10),
+		})
+	}
+	return text
 }

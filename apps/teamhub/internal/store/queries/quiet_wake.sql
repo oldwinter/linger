@@ -1,9 +1,9 @@
 -- name: InsertPendingWake :exec
 INSERT INTO proactive_pending_wakes (id, tenant_id, room_id, author_actor_id, agent_actor_id, body, tracking_item_id, source, connection_grant,
-                                     fired_routine_id, fired_routine_instruction)
+                                     local_computer_id, fired_routine_id, fired_routine_instruction)
 VALUES (sqlc.arg(id), sqlc.arg(tenant_id), sqlc.arg(room_id), sqlc.arg(author_actor_id),
         sqlc.arg(agent_actor_id), sqlc.arg(body), sqlc.narg(tracking_item_id), sqlc.arg(source), sqlc.arg(connection_grant),
-        sqlc.narg(fired_routine_id), sqlc.narg(fired_routine_instruction));
+        sqlc.narg(local_computer_id), sqlc.narg(fired_routine_id), sqlc.narg(fired_routine_instruction));
 
 -- name: LockRoomPendingWakes :exec
 -- Serializes delivery for one Room so wakes go out once and in order.

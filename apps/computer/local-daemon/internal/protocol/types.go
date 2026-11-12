@@ -140,6 +140,7 @@ const (
 	EventRunnerHeartbeat                       = wire.TypeRunnerHeartbeat
 	EventRuntimeObserved                       = wire.TypeRuntimeRegistrationObserved
 	EventRuntimeDiagnostics                    = wire.TypeRunnerRuntimeDiagnostics
+	EventHerdrAgent                            = wire.TypeRunnerHerdrEvent
 	EventAgentRunnerReady                      = wire.TypeAgentRunnerState + ":" + wire.StateReady
 	EventAgentRunnerRemoved                    = wire.TypeAgentRunnerState + ":" + wire.StateRemoved
 	EventAgentRunnerFailed                     = wire.TypeAgentRunnerState + ":" + wire.StateFailed

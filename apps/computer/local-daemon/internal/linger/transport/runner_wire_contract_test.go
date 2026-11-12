@@ -204,6 +204,7 @@ func runnerWireDaemonEvents(t *testing.T) []protocol.Event {
 	appendEvent(protocol.EventDaemonHello, nil)
 	appendEvent(protocol.EventRuntimeObserved, map[string]any{"count": 0})
 	appendEvent(protocol.EventRuntimeDiagnostics, runnerWireRuntimeDiagnostics())
+	appendEvent(protocol.EventHerdrAgent, map[string]any{"type": "runner.herdr_event", "protocol_version": "2", "runner_id": "computer-1", "sent_at": "2026-11-13T01:00:00Z", "event": map[string]any{"kind": "agent_blocked", "pane_id": "w1:p1", "state_change_seq": 3, "agent": "codex", "tail": "A or B?"}})
 	appendEvent(protocol.EventRunnerHeartbeat, map[string]any{"active_operation_ids": []string{}})
 	credential := map[string]any{"sha256": strings.Repeat("a", 64), "assignment_revision": 1, "profile": map[string]any{"url": "https://teamhub.example", "tenant_id": "tenant-1", "agent_id": "agent-1"}}
 	appendEvent(protocol.EventAgentRunnerReady, map[string]any{"cli_credential": credential})

@@ -127,8 +127,11 @@ func (command DecisionCommand) draft() (decisionDraft, error) {
 		if err != nil {
 			return decisionDraft{}, err
 		}
+		if herdr := question.Herdr; herdr != nil && (len(question.Runtime) > 0 || command.AlterEgoTaskID != "" || !herdr.valid() || !herdrAnswerQuestions(questions)) {
+			return decisionDraft{}, ErrInvalid
+		}
 		return decisionDraft{kind: DecisionKindQuestion, text: prompt, runtime: question.Runtime,
-			request: decisionRuntimeRequest{Runtime: question.Runtime}, view: questionView{Prompt: prompt, Questions: questions}}, nil
+			request: decisionRuntimeRequest{Runtime: question.Runtime, Herdr: question.Herdr}, view: questionView{Prompt: prompt, Questions: questions}}, nil
 	case command.ConnectionAuth != nil:
 		return command.ConnectionAuth.draft()
 	case command.ProviderKey != nil:
@@ -577,9 +580,9 @@ func (d *decisionAnswerStep) apply(ctx context.Context, tx pgx.Tx, queries *stor
 		// An AnotherMe setup card answers with visible Messages, never a handoff.
 		messages, err := d.service.profileSetupOutcome(ctx, tx, queries, authority, answer, d.accountID, d.id)
 		return decisionOutcome{messages: messages}, err
-	case decisionRuns(authority.Kind) || authority.AlterEgoTaskID != "":
-		// The run job runs the approved request, or hands the answer off to a
-		// delegated Task's AlterEgo.
+	case decisionRuns(authority.Kind) || authority.AlterEgoTaskID != "" || runtime.Herdr != nil:
+		// The run job runs the approved request, hands the answer off to a
+		// delegated Task's AlterEgo, or types a herdr answer into its pane.
 		return decisionOutcome{}, jobs.InsertTx(ctx, tx, jobs.DecisionRunArgs{DecisionID: d.id}, nil)
 	}
 	text, err := decisionNoticeText(d.id, decisionRecord{Kind: authority.Kind, Status: status, View: authority.View, Answer: encoded})
@@ -598,6 +601,9 @@ func (d *decisionAnswerStep) apply(ctx context.Context, tx pgx.Tx, queries *stor
 // result, and hands it off. It returns the notice for a delegated Task's
 // AlterEgo, which the caller delivers.
 func (s *Service) RunDecision(ctx context.Context, decisionID string) (DecisionNotice, error) {
+	if handled, err := s.deliverHerdrAnswer(ctx, decisionID); handled || err != nil {
+		return DecisionNotice{}, err
+	}
 	claim, run, err := s.claimDecision(ctx, decisionID)
 	if errors.Is(err, ErrNotFound) {
 		return DecisionNotice{}, nil
@@ -858,7 +864,21 @@ func decisionNoticeText(decisionID string, decision decisionRecord) (string, err
 		if err := json.Unmarshal(decision.View, &view); err != nil {
 			return "", err
 		}
-		return questionNoticeText(decisionID, view, answer), nil
+		var request decisionRuntimeRequest
+		if len(decision.Request) > 0 {
+			if err := json.Unmarshal(decision.Request, &request); err != nil {
+				return "", err
+			}
+		}
+		if request.Herdr == nil {
+			return questionNoticeText(decisionID, view, answer), nil
+		}
+		// The Agent hears a herdr answer once its delivery is recorded.
+		delivery, err := herdrNoticeText(*request.Herdr, decision.Result)
+		if err != nil || delivery == "" {
+			return "", err
+		}
+		return questionNoticeText(decisionID, view, answer) + delivery, nil
 	case DecisionKindConnectionAuth:
 		var view connectionView
 		if err := json.Unmarshal(decision.View, &view); err != nil {

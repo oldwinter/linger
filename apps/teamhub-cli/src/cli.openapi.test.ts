@@ -327,6 +327,14 @@ async function respond(request: Request): Promise<Response> {
       message_id: "message_card",
       interaction_id: "interaction_one",
     });
+  if (endpoint.endsWith("/computer/herdr/ask"))
+    return Response.json({
+      status: "asked",
+      computer_id: "computer_one",
+      room_id: "room_one",
+      message_id: "message_card",
+      interaction_id: "interaction_one",
+    });
   if (endpoint.endsWith("/computer/permissions/status"))
     return Response.json({
       computer_id: "computer_one",

@@ -120,6 +120,29 @@ describe("TeamHubRuntimeStateClient retries", () => {
       "/v0/agent-runtime/runs/operations",
     ]);
   });
+  it("reports a herdr pane event and accepts TeamHub's empty 202", async () => {
+    const fetchRequest = vi.fn<typeof fetch>(
+      async () => new Response(null, { status: 202 }),
+    );
+    await expect(
+      runtimeStateClient(fetchRequest).reportHerdrEvent({
+        computer_id: "computer-local",
+        kind: "agent_blocked",
+        pane_id: "w1:p1",
+        state_change_seq: 3,
+      }),
+    ).resolves.toBeUndefined();
+    const [input, init] = fetchRequest.mock.calls[0]!;
+    expect(new URL(requestUrlText(input)).pathname).toBe(
+      "/v0/agent-runtime/local-computers/herdr-events",
+    );
+    expect(JSON.parse(init?.body as string)).toEqual({
+      computer_id: "computer-local",
+      kind: "agent_blocked",
+      pane_id: "w1:p1",
+      state_change_seq: 3,
+    });
+  });
   it.each([
     { status: 500, retryable: undefined, expected: true },
     { status: 503, retryable: undefined, expected: true },

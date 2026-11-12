@@ -114,6 +114,30 @@ func TestOwnerProfileActionsNeedAnAnotherMeWithAnOwner(t *testing.T) {
 	}
 }
 
+func TestOnlyAnAnotherMeMetaAsksAboutItsOwnersHerdrAgents(t *testing.T) {
+	principal := func(agentType, owner string) *agentcredential.Principal {
+		return &agentcredential.Principal{AgentType: agentType, UserArtifactOwnerActorID: owner}
+	}
+	if !businessAction("ask_herdr_pane") {
+		t.Fatal("ask_herdr_pane is not exposed")
+	}
+	for _, test := range []struct {
+		name      string
+		authority Authorization
+		want      bool
+	}{
+		{name: "AnotherMe Meta", authority: Authorization{Principal: principal("anotherme", "actor_human")}, want: true},
+		{name: "AnotherMe Task", authority: Authorization{Principal: principal("anotherme", "actor_human"), ParticipantTaskID: "task_1"}},
+		{name: "general Agent", authority: Authorization{Principal: principal("general", "actor_human")}},
+		{name: "document target", authority: Authorization{Principal: principal("anotherme", "actor_human"), Target: Target{Kind: "document", ID: "document_1"}}},
+		{name: "no owner", authority: Authorization{Principal: principal("anotherme", "")}},
+	} {
+		if got := businessCapability(test.authority, "ask_herdr_pane"); got != test.want {
+			t.Errorf("%s: allowed=%v want %v", test.name, got, test.want)
+		}
+	}
+}
+
 // Without a Composio API key the connected app actions that reach Composio
 // leave the allowlist; saving a key brings them back on the next request.
 // Listing grants stays allowed so the Agent can ask for the key.

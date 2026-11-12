@@ -26,6 +26,7 @@ import {
 import { renderBusinessResult } from "./business-render.js";
 import { displayText } from "./display-text.js";
 import { computerPermissionCommandDefinitions } from "./computer-permission-commands.js";
+import { herdrCommandDefinitions } from "./herdr-commands.js";
 
 type Json = Record<string, unknown>;
 const singleLineText = (value: unknown): string =>
@@ -1418,6 +1419,7 @@ export const businessCommandDefinitions: readonly CommandDefinition[] = [
   appsConnect,
   browserConnect,
   ...computerPermissionCommandDefinitions,
+  ...herdrCommandDefinitions,
   appsAutoRemindersList,
   appsAutoRemindersSet,
   appsSearch,
