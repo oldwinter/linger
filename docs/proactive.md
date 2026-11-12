@@ -66,3 +66,23 @@ decided differently. Each change makes a new version of your rules:
 | Pin     | Nightly learning keeps the rule as it is                              |
 | Edit    | The rule becomes yours; nightly learning keeps it as you wrote it     |
 | Delete  | The rule goes, and is not learned again from the replies it came from |
+| Mandate | What Another Me may do beyond reminding when an active rule applies   |
+
+## Acting under your mandate
+
+Another Me only reminds, unless you allow more on an active rule in My Rules.
+Nightly learning never grants or changes this, and never removes or rewrites a
+rule that carries it; a shadow rule carries none until you promote it.
+
+| Mandate             | When an outside event matches the rule                                    |
+| ------------------- | ------------------------------------------------------------------------- |
+| Only remind         | Tell now, follow up later, or stay silent, as above                       |
+| Create a Work Item  | It may also create one Work Item for the event, and tells you             |
+| Create and delegate | It may instead start a Task for its AlterEgo with the work, and tells you |
+
+Each act happens once per rule and event, with `teamhub proactive act`, and
+TeamHub checks your current rules every time. The Work Item keeps an unchangeable
+record of its mandate: the rule and its text then, the version of your rules,
+the event, and the strength. It shows on the Work Item and under the rule in
+My Rules. Lowering the mandate, or deleting the rule, stops later acts; Work
+Items already created stay and show the mandate as revoked.

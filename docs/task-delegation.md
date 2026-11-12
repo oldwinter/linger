@@ -24,6 +24,10 @@ conversation goes on.
 <sub>An AlterEgo never asks you anything; a question goes into its report, and
 the Meta decides whether to ask.</sub>
 
+Another Me also starts a Task on its own, without you asking, when an outside
+event matches one of your rules on which you allowed "Create and delegate" in
+Settings → My Rules; see [Proactive Another Me](proactive.md#acting-under-your-mandate).
+
 ## On the computer
 
 Each AlterEgo belongs to the Meta that started it: only the Meta talks with
