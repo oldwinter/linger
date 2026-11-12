@@ -105,6 +105,13 @@ func permissionReviewInput(input teamhubinternal.CreateRuntimePermissionReviewRe
 				TargetName: text(browser.TargetName), FormFields: text(browser.FormFields),
 			}
 		}
+		if evidence.Delegations != nil {
+			for _, delegation := range *evidence.Delegations {
+				review.Evidence.Delegations = append(review.Evidence.Delegations, permissionreview.DelegationEvidence{
+					Kind: string(delegation.Kind), Target: delegation.Target, Agent: text(delegation.Agent), Text: delegation.Text,
+				})
+			}
+		}
 		if desktop := evidence.Desktop; desktop != nil {
 			review.Evidence.Desktop = &permissionreview.DesktopEvidence{App: text(desktop.App), WindowTitle: text(desktop.WindowTitle)}
 			if desktop.Targets != nil {

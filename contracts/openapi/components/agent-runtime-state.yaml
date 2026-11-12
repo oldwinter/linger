@@ -1832,6 +1832,28 @@ components:
                   token: { type: string, maxLength: 128 }
                   role: { type: string, maxLength: 256 }
                   name: { type: string, maxLength: 1024 }
+        delegations:
+          type: array
+          maxItems: 16
+          description: >-
+            Text a herdr command hands to a terminal pane, where it runs as the
+            user and is not reviewed again.
+          items:
+            type: object
+            additionalProperties: false
+            required: [kind, target, text]
+            properties:
+              kind:
+                type: string
+                enum: [shell_command, terminal_input, agent_prompt, agent_start]
+                description: >-
+                  shell_command runs in the pane's shell; terminal_input is
+                  typed into whatever program the pane runs; agent_prompt is a
+                  task for the coding agent in the pane; agent_start starts a
+                  coding agent there, and text is its native arguments.
+              target: { type: string, maxLength: 1024 }
+              agent: { type: string, maxLength: 256 }
+              text: { type: string, maxLength: 65536 }
         missing:
           type: array
           maxItems: 16

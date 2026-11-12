@@ -21,7 +21,7 @@ var policy string
 
 // PolicyVersion names the policy text so logs can tell which prompt produced
 // a decision. Bump it with every policy.md change.
-const PolicyVersion = "permission-review/v10"
+const PolicyVersion = "permission-review/v11"
 
 // SystemPrompt returns the fixed, cacheable policy.
 func SystemPrompt() string { return policy }
@@ -152,6 +152,15 @@ func renderEvidence(b *strings.Builder, evidence Evidence) {
 			b.WriteString("/>\n")
 		}
 		b.WriteString("  </desktop_state>\n")
+	}
+	for _, delegation := range evidence.Delegations {
+		b.WriteString("  <delegation")
+		attr(b, "kind", delegation.Kind)
+		attr(b, "target", delegation.Target)
+		attr(b, "agent", delegation.Agent)
+		b.WriteString(">")
+		b.WriteString(escape(delegation.Text))
+		b.WriteString("</delegation>\n")
 	}
 	for _, missing := range evidence.Missing {
 		b.WriteString("  <missing>")

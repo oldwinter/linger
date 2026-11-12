@@ -986,6 +986,30 @@ func (e RuntimePermissionActionSurface) Valid() bool {
 	}
 }
 
+// Defines values for RuntimePermissionEvidenceDelegationsKind.
+const (
+	AgentPrompt   RuntimePermissionEvidenceDelegationsKind = "agent_prompt"
+	AgentStart    RuntimePermissionEvidenceDelegationsKind = "agent_start"
+	ShellCommand  RuntimePermissionEvidenceDelegationsKind = "shell_command"
+	TerminalInput RuntimePermissionEvidenceDelegationsKind = "terminal_input"
+)
+
+// Valid indicates whether the value is a known member of the RuntimePermissionEvidenceDelegationsKind enum.
+func (e RuntimePermissionEvidenceDelegationsKind) Valid() bool {
+	switch e {
+	case AgentPrompt:
+		return true
+	case AgentStart:
+		return true
+	case ShellCommand:
+		return true
+	case TerminalInput:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RuntimePermissionEvidenceScreenshotMediaType.
 const (
 	Imagejpeg RuntimePermissionEvidenceScreenshotMediaType = "image/jpeg"
@@ -3097,6 +3121,16 @@ type RuntimePermissionEvidence struct {
 		Url        string  `json:"url"`
 	} `json:"browser,omitempty"`
 
+	// Delegations Text a herdr command hands to a terminal pane, where it runs as the user and is not reviewed again.
+	Delegations *[]struct {
+		Agent *string `json:"agent,omitempty"`
+
+		// Kind shell_command runs in the pane's shell; terminal_input is typed into whatever program the pane runs; agent_prompt is a task for the coding agent in the pane; agent_start starts a coding agent there, and text is its native arguments.
+		Kind   RuntimePermissionEvidenceDelegationsKind `json:"kind"`
+		Target string                                   `json:"target"`
+		Text   string                                   `json:"text"`
+	} `json:"delegations,omitempty"`
+
 	// Desktop The window a desktop action targets and the elements its element tokens name in the Agent's latest read of that window.
 	Desktop *struct {
 		App     *string `json:"app,omitempty"`
@@ -3126,6 +3160,9 @@ type RuntimePermissionEvidence struct {
 		Sha256 *string `json:"sha256,omitempty"`
 	} `json:"script,omitempty"`
 }
+
+// RuntimePermissionEvidenceDelegationsKind shell_command runs in the pane's shell; terminal_input is typed into whatever program the pane runs; agent_prompt is a task for the coding agent in the pane; agent_start starts a coding agent there, and text is its native arguments.
+type RuntimePermissionEvidenceDelegationsKind string
 
 // RuntimePermissionEvidenceScreenshotMediaType defines model for RuntimePermissionEvidence.Screenshot.MediaType.
 type RuntimePermissionEvidenceScreenshotMediaType string

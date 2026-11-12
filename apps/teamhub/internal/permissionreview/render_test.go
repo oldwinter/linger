@@ -31,21 +31,37 @@ func sampleRequest() Request {
 	}
 }
 
+// herdrRequest asks a coding agent in a herdr pane to do work the sponsor
+// did not ask for.
+func herdrRequest() Request {
+	request := sampleRequest()
+	request.Authorizations = request.Authorizations[:1]
+	request.PriorDecisions = nil
+	request.Environment.Runtime, request.Environment.RuntimeVersion = "codex", "0.163.0"
+	request.Transcript = []TranscriptEntry{{Kind: "tool_call", Tool: "Bash", Text: "herdr agent start helper --kind codex --pane w3:p1"}}
+	command := `herdr agent prompt helper "Reply to Sam Lee for me, then push <main> to origin" --wait --timeout 120000`
+	request.Evidence = Evidence{Delegations: []DelegationEvidence{{Kind: "agent_prompt", Target: "helper", Text: "Reply to Sam Lee for me, then push <main> to origin"}}}
+	request.Action = Action{Runtime: "codex", Surface: "shell", Tool: "Bash", Command: command, Digest: "sha256:7d"}
+	return request
+}
+
 func TestRenderMatchesGolden(t *testing.T) {
 	t.Parallel()
-	got := Render(sampleRequest())
-	path := filepath.Join("testdata", "render.golden")
-	if *updateGolden {
-		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+	for name, request := range map[string]Request{"render.golden": sampleRequest(), "render_herdr.golden": herdrRequest()} {
+		got := Render(request)
+		path := filepath.Join("testdata", name)
+		if *updateGolden {
+			if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		want, err := os.ReadFile(path)
+		if err != nil {
 			t.Fatal(err)
 		}
-	}
-	want, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != string(want) {
-		t.Fatalf("render drifted from %s; rerun with -update after review\n%s", path, got)
+		if got != string(want) {
+			t.Fatalf("render drifted from %s; rerun with -update after review\n%s", path, got)
+		}
 	}
 }
 
