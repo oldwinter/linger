@@ -752,6 +752,24 @@ func (e FinishAgentLocalRunRequestTerminalType) Valid() bool {
 	}
 }
 
+// Defines values for HerdrAgentEventReportKind.
+const (
+	AgentBlocked  HerdrAgentEventReportKind = "agent_blocked"
+	AgentFinished HerdrAgentEventReportKind = "agent_finished"
+)
+
+// Valid indicates whether the value is a known member of the HerdrAgentEventReportKind enum.
+func (e HerdrAgentEventReportKind) Valid() bool {
+	switch e {
+	case AgentBlocked:
+		return true
+	case AgentFinished:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for LocalRuntimeType.
 const (
 	LocalRuntimeTypeClaude LocalRuntimeType = "claude"
@@ -2737,6 +2755,26 @@ type GetAgentRuntimeSessionResult struct {
 	Session   *AgentRuntimeSession `json:"session,omitempty"`
 }
 
+// HerdrAgentEventReport defines model for HerdrAgentEventReport.
+type HerdrAgentEventReport struct {
+	Agent      *string                   `json:"agent,omitempty"`
+	ComputerId string                    `json:"computer_id"`
+	Cwd        *string                   `json:"cwd,omitempty"`
+	Kind       HerdrAgentEventReportKind `json:"kind"`
+	Name       *string                   `json:"name,omitempty"`
+	PaneId     string                    `json:"pane_id"`
+
+	// StateChangeSeq herdr's per-pane state change counter; with pane_id it names one state of one pane.
+	StateChangeSeq int64 `json:"state_change_seq"`
+
+	// Tail The last lines of the pane, with obvious secrets redacted on the Computer.
+	Tail  *string `json:"tail,omitempty"`
+	Title *string `json:"title,omitempty"`
+}
+
+// HerdrAgentEventReportKind defines model for HerdrAgentEventReport.Kind.
+type HerdrAgentEventReportKind string
+
 // Id Opaque, case-sensitive identifier. Clients must not infer type or time from it.
 type Id = string
 
@@ -4093,6 +4131,9 @@ type AcceptAgentRuntimeTrustedNotificationJSONRequestBody = AcceptAgentTrustedNo
 
 // ConnectAgentRuntimeLocalComputerJSONRequestBody defines body for ConnectAgentRuntimeLocalComputer for application/json ContentType.
 type ConnectAgentRuntimeLocalComputerJSONRequestBody = ConnectAgentRuntimeLocalComputerRequest
+
+// ReportLocalComputerHerdrEventJSONRequestBody defines body for ReportLocalComputerHerdrEvent for application/json ContentType.
+type ReportLocalComputerHerdrEventJSONRequestBody = HerdrAgentEventReport
 
 // RemoveAgentRuntimeLocalComputerJSONRequestBody defines body for RemoveAgentRuntimeLocalComputer for application/json ContentType.
 type RemoveAgentRuntimeLocalComputerJSONRequestBody = AgentRuntimeLocalComputerCredentialRequest

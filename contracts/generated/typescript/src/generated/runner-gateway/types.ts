@@ -166,6 +166,7 @@ export type DaemonToAgentEnvelope =
   | RunnerHello
   | RunnerHeartbeat
   | RunnerRuntimeDiagnostics
+  | RunnerHerdrEvent
   | RuntimeRegistrationObserved
   | AgentRunnerReady
   | AgentRunnerRemoved
@@ -930,7 +931,7 @@ export interface ComputerToolCall {
   owner_actor_id: Id;
   agent_id: Id;
   tool_session_id: Id;
-  server: "browser" | "playground";
+  server: "browser" | "playground" | "herdr";
   tool_name: string;
   arguments: OpaqueObject;
   deadline_ms: number;
@@ -1077,6 +1078,32 @@ export interface RunnerRuntimeDiagnostics {
   sent_at: Timestamp;
   revision: PositiveInteger;
   runtime_diagnostics: RuntimeDiagnostics;
+}
+/**
+ * One herdr agent pane that just became blocked, or finished work (working to idle or done), on this Computer. Sent once per pane state change while connected; nothing is resent after a reconnect.
+ */
+export interface RunnerHerdrEvent {
+  type: "runner.herdr_event";
+  protocol_version: ProtocolVersion;
+  runner_id: Id;
+  sent_at: Timestamp;
+  event: HerdrAgentEvent;
+}
+export interface HerdrAgentEvent {
+  kind: "agent_blocked" | "agent_finished";
+  pane_id: string;
+  /**
+   * herdr's per-pane state change counter; with pane_id it names one state of one pane.
+   */
+  state_change_seq: number;
+  agent?: string;
+  name?: string;
+  cwd?: string;
+  title?: string;
+  /**
+   * The last lines of the pane, with obvious secrets redacted.
+   */
+  tail?: string;
 }
 export interface RuntimeRegistrationObserved {
   type: "runtime.registration.observed";

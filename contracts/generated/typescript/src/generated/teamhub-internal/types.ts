@@ -722,6 +722,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v0/agent-runtime/local-computers/herdr-events": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Hand a herdr agent pane event to the proactive judgment of the Computer's owner
+     * @description The Agent Service forwards a runner.herdr_event of a connected Computer. TeamHub takes the owner from its own Local Computer record, never from the request, and queues the event for that owner's AnotherMe like an app event. A repeated report of the same pane state is accepted and judged once.
+     */
+    post: operations["reportLocalComputerHerdrEvent"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v0/agents/{agentId}/identity": {
     parameters: {
       query?: never;
@@ -2428,6 +2448,23 @@ export interface components {
     AgentRuntimeLocalComputerRemovalResult: {
       /** @enum {string} */
       status: "removed" | "already_removed" | "not_found" | "has_agents";
+    };
+    HerdrAgentEventReport: {
+      computer_id: string;
+      /** @enum {string} */
+      kind: "agent_blocked" | "agent_finished";
+      pane_id: string;
+      /**
+       * Format: int64
+       * @description herdr's per-pane state change counter; with pane_id it names one state of one pane.
+       */
+      state_change_seq: number;
+      agent?: string;
+      name?: string;
+      cwd?: string;
+      title?: string;
+      /** @description The last lines of the pane, with obvious secrets redacted on the Computer. */
+      tail?: string;
     };
     /**
      * @description Persisted Agent runtime type.
@@ -4374,6 +4411,31 @@ export interface operations {
       401: components["responses"]["Unauthenticated"];
       409: components["responses"]["Conflict"];
       500: components["responses"]["InternalError"];
+    };
+  };
+  reportLocalComputerHerdrEvent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["HerdrAgentEventReport"];
+      };
+    };
+    responses: {
+      /** @description The event is queued, or was already. */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
     };
   };
   getAgentIdentity: {

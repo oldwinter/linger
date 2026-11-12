@@ -1157,6 +1157,30 @@ func (e RequestAgentBrowserConnection200JSONResponseBodyStatus) Valid() bool {
 	}
 }
 
+// Defines values for AnswerAgentHerdrPane200JSONResponseBodyStatus.
+const (
+	OutcomeUnknown AnswerAgentHerdrPane200JSONResponseBodyStatus = "outcome_unknown"
+	PaneClosed     AnswerAgentHerdrPane200JSONResponseBodyStatus = "pane_closed"
+	PaneNotBlocked AnswerAgentHerdrPane200JSONResponseBodyStatus = "pane_not_blocked"
+	Sent           AnswerAgentHerdrPane200JSONResponseBodyStatus = "sent"
+)
+
+// Valid indicates whether the value is a known member of the AnswerAgentHerdrPane200JSONResponseBodyStatus enum.
+func (e AnswerAgentHerdrPane200JSONResponseBodyStatus) Valid() bool {
+	switch e {
+	case OutcomeUnknown:
+		return true
+	case PaneClosed:
+		return true
+	case PaneNotBlocked:
+		return true
+	case Sent:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RequestAgentComputerPermissions200JSONResponseBodyStatus.
 const (
 	PermissionRequested RequestAgentComputerPermissions200JSONResponseBodyStatus = "permission_requested"
@@ -3084,6 +3108,18 @@ type RequestAgentBrowserConnectionJSONBody = map[string]interface{}
 // RequestAgentBrowserConnection200JSONResponseBodyStatus defines parameters for RequestAgentBrowserConnection.
 type RequestAgentBrowserConnection200JSONResponseBodyStatus string
 
+// AnswerAgentHerdrPaneJSONBody defines parameters for AnswerAgentHerdrPane.
+type AnswerAgentHerdrPaneJSONBody struct {
+	PaneId         string `json:"pane_id"`
+	StateChangeSeq int64  `json:"state_change_seq"`
+
+	// Text The owner's answer, typed into the pane as is.
+	Text string `json:"text"`
+}
+
+// AnswerAgentHerdrPane200JSONResponseBodyStatus defines parameters for AnswerAgentHerdrPane.
+type AnswerAgentHerdrPane200JSONResponseBodyStatus string
+
 // RequestAgentComputerPermissionsJSONBody defines parameters for RequestAgentComputerPermissions.
 type RequestAgentComputerPermissionsJSONBody struct {
 	Permissions []ComputerPermissionId `json:"permissions"`
@@ -3192,6 +3228,9 @@ type ListAvailableAgentsJSONRequestBody = AgentListAvailableAgentsRequest
 
 // RequestAgentBrowserConnectionJSONRequestBody defines body for RequestAgentBrowserConnection for application/json ContentType.
 type RequestAgentBrowserConnectionJSONRequestBody = RequestAgentBrowserConnectionJSONBody
+
+// AnswerAgentHerdrPaneJSONRequestBody defines body for AnswerAgentHerdrPane for application/json ContentType.
+type AnswerAgentHerdrPaneJSONRequestBody AnswerAgentHerdrPaneJSONBody
 
 // RequestAgentComputerPermissionsJSONRequestBody defines body for RequestAgentComputerPermissions for application/json ContentType.
 type RequestAgentComputerPermissionsJSONRequestBody RequestAgentComputerPermissionsJSONBody

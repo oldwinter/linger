@@ -1,0 +1,60 @@
+answer:
+  post:
+    operationId: answerAgentHerdrPane
+    tags: [Agent Business API]
+    security: [{ agentBearer: [] }]
+    summary: Answer a blocked herdr agent pane on the owner's Local Computer with the owner's own answer.
+    description: >-
+      Only the Computer owner's AnotherMe may answer, and only with what the
+      owner said. The Computer types the text and Enter into the pane only
+      while it is still blocked in the state named by state_change_seq;
+      otherwise nothing is sent and the status says why. Delivery is never
+      retried: outcome_unknown means the answer may have reached the pane.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [pane_id, state_change_seq, text]
+            properties:
+              pane_id: { type: string, minLength: 1, maxLength: 128 }
+              state_change_seq:
+                type: integer
+                format: int64
+                minimum: 0
+              text:
+                type: string
+                minLength: 1
+                maxLength: 4000
+                description: The owner's answer, typed into the pane as is.
+    responses:
+      "200":
+        description: >-
+          sent: the pane received the text and Enter; pane_closed: the pane or
+          its agent is gone; pane_not_blocked: the pane moved on from that
+          question; outcome_unknown: the Computer did not confirm delivery.
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status, computer_id]
+              properties:
+                status:
+                  type: string
+                  enum: [sent, pane_closed, pane_not_blocked, outcome_unknown]
+                computer_id: { type: string }
+      "400":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/Unauthenticated"
+      "403":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/Forbidden"
+      "409":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/Conflict"
+      "503":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/ServiceUnavailable"
+      default:
+        $ref: "../components/agent-api-errors.yaml#/components/responses/InternalError"

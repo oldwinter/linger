@@ -48,7 +48,12 @@ info:
     current assignment and retained scope. No Meta Context or model turn is
     started. Responses carry the same owner and connection epoch.
     Disconnect/timeout means an unknown outcome; the caller must inspect
-    effects and must not automatically replay actions.
+    effects and must not automatically replay actions. A computer_tool call
+    on the herdr server answers a blocked herdr agent pane on the Computer
+    only while that pane is still in the state the answer was for.
+    runner.herdr_event reports a herdr agent pane on the Computer that just
+    became blocked or finished; the Agent Service hands it to TeamHub, which
+    judges it as a proactive event of the Computer's owner.
 x-frame-limits:
   maxBytes: 4194304
   maxDepth: 32

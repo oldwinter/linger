@@ -889,6 +889,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/agent/v1/computer/herdr/answer": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Answer a blocked herdr agent pane on the owner's Local Computer with the owner's own answer.
+     * @description Only the Computer owner's AnotherMe may answer, and only with what the owner said. The Computer types the text and Enter into the pane only while it is still blocked in the state named by state_change_seq; otherwise nothing is sent and the status says why. Delivery is never retried: outcome_unknown means the answer may have reached the pane.
+     */
+    post: operations["answerAgentHerdrPane"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/agent/v1/apps/tools/bind": {
     parameters: {
       query?: never;
@@ -4313,6 +4333,50 @@ export interface operations {
             room_id?: string;
             message_id?: string;
             interaction_id?: string;
+          };
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      409: components["responses"]["Conflict"];
+      503: components["responses"]["ServiceUnavailable"];
+      default: components["responses"]["InternalError"];
+    };
+  };
+  answerAgentHerdrPane: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          pane_id: string;
+          /** Format: int64 */
+          state_change_seq: number;
+          /** @description The owner's answer, typed into the pane as is. */
+          text: string;
+        };
+      };
+    };
+    responses: {
+      /** @description sent: the pane received the text and Enter; pane_closed: the pane or its agent is gone; pane_not_blocked: the pane moved on from that question; outcome_unknown: the Computer did not confirm delivery. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** @enum {string} */
+            status:
+              | "sent"
+              | "pane_closed"
+              | "pane_not_blocked"
+              | "outcome_unknown";
+            computer_id: string;
           };
         };
       };
