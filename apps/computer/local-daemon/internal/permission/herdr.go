@@ -12,9 +12,13 @@ import (
 // hand text to a pane are reviewed with that text attached, because what the
 // pane runs next is never reviewed again.
 
+// herdrHelpCommands print help or the version only when given exactly; a
+// command group with a subcommand acts.
+var herdrHelpCommands = [][]string{{"--version"}, {"--help"}, {"agent"}, {"pane"}, {"workspace"}, {"tab"}}
+
 // herdrReadOnlyCommands only read the session, whatever their arguments.
 var herdrReadOnlyCommands = [][]string{
-	{"--version"}, {"status"}, {"api", "schema"},
+	{"status"}, {"api", "schema"},
 	{"agent", "list"}, {"agent", "get"}, {"agent", "read"}, {"agent", "wait"},
 	{"pane", "list"}, {"pane", "get"}, {"pane", "current"}, {"pane", "layout"}, {"pane", "read"}, {"pane", "wait-output"},
 	{"workspace", "list"}, {"workspace", "get"},
@@ -25,12 +29,10 @@ var herdrReadOnlyCommands = [][]string{
 // A leading global option such as --session or --machine is reviewed, since
 // --session may start a new server.
 func herdrReadOnly(args []string) bool {
-	return slices.ContainsFunc(herdrReadOnlyCommands, func(command []string) bool {
-		if command[0] == "--version" {
-			return slices.Equal(args, command)
-		}
-		return len(args) >= len(command) && slices.Equal(args[:len(command)], command)
-	})
+	return slices.ContainsFunc(herdrHelpCommands, func(command []string) bool { return slices.Equal(args, command) }) ||
+		slices.ContainsFunc(herdrReadOnlyCommands, func(command []string) bool {
+			return len(args) >= len(command) && slices.Equal(args[:len(command)], command)
+		})
 }
 
 // Delegation kinds name what the pane does with the text.

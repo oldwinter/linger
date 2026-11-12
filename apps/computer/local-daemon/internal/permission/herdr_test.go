@@ -17,6 +17,11 @@ func TestShellClassifiesHerdrCommands(t *testing.T) {
 		want    ShellDecision
 	}{
 		{"herdr --version", ShellAllow},
+		{"herdr --help", ShellAllow},
+		{"herdr agent", ShellAllow},
+		{"herdr workspace", ShellAllow},
+		{"herdr session", ShellReview},
+		{"herdr agent --help --session x", ShellReview},
 		{"herdr status", ShellAllow},
 		{"herdr api schema --json", ShellAllow},
 		{"herdr agent list", ShellAllow},
