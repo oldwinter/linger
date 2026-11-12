@@ -29,4 +29,15 @@ Daemon. A server connection token from the Web app works too:
 `linger-computer runtime check <codex|claude|pi>`, and `linger-computer doctor`;
 `linger-computer --help` lists every command.
 
+## Optional integrations
+
+- herdr: when `herdr` is on your terminal PATH, the Daemon watches the coding
+  agents in its panes through herdr's local socket and reports a pane that
+  becomes blocked or finishes to Another Me (see
+  [Proactive Another Me](../../docs/proactive.md#coding-agents-in-herdr)).
+  Another Me can type your own answer into a pane that still waits on the same
+  question. The Daemon never starts, splits or closes herdr panes or agents.
+  `linger-computer doctor` shows a herdr line only when herdr is installed;
+  restart the Daemon after installing herdr.
+
 Conventions and boundaries are in [AGENTS.md](./AGENTS.md).

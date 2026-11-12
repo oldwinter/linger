@@ -23,7 +23,10 @@
   lifecycle; `internal/process`, `internal/provider`, and `internal/workspace`
   contain local execution mechanics; `internal/linger` contains Linger
   transport, identity, process-instance lease, Registration, Context, Local MCP
-  Relay, and Local Skill adapters.
+  Relay, and Local Skill adapters, and the optional herdr bridge
+  (`internal/linger/herdr`): it watches herdr agent panes over herdr's socket
+  and answers a blocked pane, and it never creates, splits or closes panes.
+  Its tests use a fake herdr socket, never the user's herdr server.
 - `internal/computercli` implements the control commands over
   `internal/computerconfig` (the config parser and process environment shared
   with the Daemon), `internal/platform/privatefs`, `internal/provider`

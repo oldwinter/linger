@@ -21,6 +21,7 @@ result.
 | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Input           | The chat with Another Me in windows of 20 messages; Gmail and Outlook inboxes, Google Calendar changes and Slack mentions, polled every 10 minutes |
 | Apps            | From 22:00 to 08:00, or after five reminders that day, an app event is only recorded; one item in one state is judged once a day                   |
+| Coding agents   | A herdr agent on your computer that waits for an answer or finishes is judged as an app event; your answer to its card goes back to that pane      |
 | Delivery        | Waits until the chat has been quiet for 3 minutes                                                                                                  |
 | Tell now        | Another Me checks the facts that may have changed, then sends one short message: the point, the facts, the next step                               |
 | Follow up later | A follow-up item with scheduled checks, recorded without a message                                                                                 |
@@ -48,3 +49,17 @@ the same kind become a rule.
 
 The learned rules are part of what Another Me reads before it judges a chat
 window or an app event; clues are left out.
+
+## Coding agents in herdr
+
+When [herdr](https://github.com/herdrdev/herdr) is on your computer's PATH, the
+Linger Computer watches the coding agents in its panes. A pane that starts
+waiting on an approval or a question, or an agent that finishes its work,
+reaches Another Me as one event per pane state, with the agent, its folder and
+the pane's last lines, obvious secrets removed. Quiet hours, the daily limit
+and your rules apply as to any app event.
+
+When the agent waits on a choice, Another Me asks you with a question card.
+Your answer is typed into that pane only while it still waits on the same
+question; if the pane closed or moved on, Another Me tells you the answer was
+not delivered. An answer is sent once and never retried.
