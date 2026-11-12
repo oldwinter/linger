@@ -1059,7 +1059,8 @@ type MemorySourceProactiveGuideline struct {
 	TenantID     string `json:"tenant_id"`
 	OwnerActorID string `json:"owner_actor_id"`
 	Version      int32  `json:"version"`
-	Specific     []byte `json:"specific"`
+	Rules        []byte `json:"rules"`
+	DeletedRules []byte `json:"deleted_rules"`
 	Clues        []byte `json:"clues"`
 }
 
@@ -1259,10 +1260,11 @@ type ProactiveGuideline struct {
 	TenantID     string             `json:"tenant_id"`
 	OwnerActorID string             `json:"owner_actor_id"`
 	Version      int32              `json:"version"`
-	Specific     []byte             `json:"specific"`
 	Clues        []byte             `json:"clues"`
 	ChangeNote   string             `json:"change_note"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	Rules        []byte             `json:"rules"`
+	DeletedRules []byte             `json:"deleted_rules"`
 }
 
 type ProactiveOutput struct {
@@ -1301,6 +1303,18 @@ type ProactivePotentialItem struct {
 	SourceKey    string             `json:"source_key"`
 	Reminded     bool               `json:"reminded"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+type ProactiveShadowDivergence struct {
+	ID               string             `json:"id"`
+	TenantID         string             `json:"tenant_id"`
+	OwnerActorID     string             `json:"owner_actor_id"`
+	RuleID           string             `json:"rule_id"`
+	GuidelineVersion int32              `json:"guideline_version"`
+	Matter           string             `json:"matter"`
+	ShadowAction     string             `json:"shadow_action"`
+	TakenAction      string             `json:"taken_action"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 }
 
 type RiverJob struct {

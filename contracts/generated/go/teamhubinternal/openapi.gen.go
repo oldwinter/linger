@@ -2955,11 +2955,14 @@ type PersonalWikiDocumentRevision struct {
 // PersonalWikiDocumentRevisionWikiState The Wiki's refresh state, the same projection as the Personal Wiki state; failed publication must not be reported as completed.
 type PersonalWikiDocumentRevisionWikiState string
 
-// ProactiveGuideline defines model for ProactiveGuideline.
+// ProactiveGuideline What one judgment reads of the Human's own rules.
 type ProactiveGuideline struct {
-	Specific  []string `json:"specific"`
-	Threshold float32  `json:"threshold"`
-	Version   int      `json:"version"`
+	// Rules Active rules; they decide.
+	Rules []string `json:"rules"`
+
+	// ShadowRules Shadow rules; they do not decide, and the Run records where one would have decided differently.
+	ShadowRules []ProactiveShadowRule `json:"shadow_rules"`
+	Version     int                   `json:"version"`
 }
 
 // ProactiveOpenItem defines model for ProactiveOpenItem.
@@ -2970,6 +2973,15 @@ type ProactiveOpenItem struct {
 	Kind    string     `json:"kind"`
 }
 
+// ProactiveRuleId defines model for ProactiveRuleId.
+type ProactiveRuleId = string
+
+// ProactiveShadowRule defines model for ProactiveShadowRule.
+type ProactiveShadowRule struct {
+	Id   ProactiveRuleId `json:"id"`
+	Text string          `json:"text"`
+}
+
 // ProactiveWakeRequest defines model for ProactiveWakeRequest.
 type ProactiveWakeRequest struct {
 	// Body Hidden wake text after the @AnotherMe reference. It goes out once the Room is quiet for three minutes.
@@ -2978,6 +2990,7 @@ type ProactiveWakeRequest struct {
 
 // ProactiveWindow defines model for ProactiveWindow.
 type ProactiveWindow struct {
+	// Guideline What one judgment reads of the Human's own rules.
 	Guideline ProactiveGuideline `json:"guideline"`
 
 	// JudgedCount Ordinary messages judged before this window; pass it back to finish the window. A window holds twenty messages unless TeamHub runs with a smaller test window.

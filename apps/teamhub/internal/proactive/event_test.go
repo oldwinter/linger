@@ -65,13 +65,13 @@ func TestAgentEventJudgeSendsTheHumansRulesAndOpenItems(t *testing.T) {
 	})
 	due := time.Date(2026, 10, 22, 2, 0, 0, 0, time.UTC)
 	got, err := judge(context.Background(), EventJudgeRequest{
-		Specific:  []string{"clients → remind directly"},
+		Rules:     JudgeRules{Rules: []string{"clients → remind directly"}, ShadowRules: []ShadowRule{{ID: "pr_1", Text: "invoices → track for follow-up"}}},
 		OpenItems: []OpenItem{{ID: "ti_1", Kind: "todo", Content: "submit the report", DueAt: &due}, {ID: "ti_2", Kind: "question", Content: "waiting for Lisa's reply"}},
 	})
 	if err != nil || got != "[Proactive event: decide yourself]" {
 		t.Fatalf("instructions=%q err=%v", got, err)
 	}
-	if len(sent.Specific) != 1 || len(sent.OpenItems) != 2 || sent.OpenItems[0].Content != "submit the report" ||
+	if len(sent.Rules) != 1 || len(sent.ShadowRules) != 1 || sent.ShadowRules[0].Id != "pr_1" || len(sent.OpenItems) != 2 || sent.OpenItems[0].Content != "submit the report" ||
 		sent.OpenItems[0].DueAt == nil || !sent.OpenItems[0].DueAt.Equal(due) || sent.OpenItems[1].DueAt != nil {
 		t.Fatalf("sent=%+v", sent)
 	}

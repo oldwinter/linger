@@ -222,7 +222,8 @@ func businessAction(action string) bool {
 	case "apply_document_semantic_mutation", "ask_user", "check_task", "create_document", "create_task", "create_room", "create_routine", "create_team_md", "delete_routine", "enable_routine", "get_document_comment_thread", "list_available_agents", "list_routines", "pause_routine", "replace_document_comment_text", "reply_document_comment", "run_routine", "send_direct_message", "send_emoji", "send_message", "send_message_sequence", "send_task", "show_fragment", "stop_task", "upload_artifact_tree", "upload_artifacts",
 		"add_room_member", "create_agent", "get_agent", "update_agent", "list_connected_apps", "search_app_tools", "execute_app_tool", "manage_auto_reminders",
 		"get_personal_profile", "write_personal_profile", "start_personal_profile_build", "get_account_profile", "update_account_profile",
-		"request_browser_connection", "read_computer_permissions", "request_computer_permission":
+		"request_browser_connection", "read_computer_permissions", "request_computer_permission",
+		"record_shadow_divergence":
 		return true
 	}
 	return knowledgeAction(action)
@@ -256,6 +257,9 @@ func businessCapability(i Authorization, action string) bool {
 		return i.AgentType == "anotherme" && i.UserArtifactOwnerActorID != "" && i.Target.Kind != "document"
 	case "send_message_sequence":
 		return i.AgentType == "anotherme" && i.ParticipantTaskID == "" && i.Target.Kind != "document"
+	case "record_shadow_divergence":
+		// Only an AnotherMe judges proactively, under its owner's rules.
+		return i.AgentType == "anotherme" && i.UserArtifactOwnerActorID != "" && i.ParticipantTaskID == "" && i.Target.Kind != "document"
 	case "create_task", "check_task", "send_task", "stop_task", "create_room", "create_team_md", "show_fragment":
 		return i.ParticipantTaskID == "" && i.Target.Kind != "document"
 	case "get_document_comment_thread", "reply_document_comment", "replace_document_comment_text":

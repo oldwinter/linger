@@ -23,23 +23,9 @@ type Candidate struct {
 	DueAt     *time.Time `json:"due_at,omitempty"`
 }
 
-// Guideline is a Human's reminder prompt: the shared general part lives with
-// the Agent Service; Specific holds what dreaming learned from this Human's
-// replies.
-type Guideline struct {
-	Version  int      `json:"version"`
-	Specific []string `json:"specific"`
-}
-
-// MaxSpecific bounds the learned part so every evaluation stays small.
-const MaxSpecific = 20
-
-// DefaultGuideline is a new Human's guideline: general rules only.
-func DefaultGuideline() Guideline { return Guideline{Version: 1} }
-
 // EventJudgeRequest is what AnotherMe weighs an event against.
 type EventJudgeRequest struct {
-	Specific  []string
+	Rules     JudgeRules
 	OpenItems []OpenItem
 }
 

@@ -2077,13 +2077,25 @@ type ProactiveEventJudgeRequest struct {
 		DueAt   *time.Time `json:"dueAt,omitempty"`
 	} `json:"openItems"`
 
-	// Specific The Human's learned specific rules.
-	Specific []string `json:"specific"`
+	// Rules The Human's own active rules; they decide.
+	Rules []string `json:"rules"`
+
+	// ShadowRules The Human's shadow rules; they do not decide, and the Run records where one would have decided differently.
+	ShadowRules []ProactiveShadowRule `json:"shadowRules"`
 }
 
 // ProactiveEventJudgement The rules Another Me applies when it is woken with the event.
 type ProactiveEventJudgement struct {
 	Instructions string `json:"instructions"`
+}
+
+// ProactiveRuleId defines model for ProactiveRuleId.
+type ProactiveRuleId = string
+
+// ProactiveShadowRule defines model for ProactiveShadowRule.
+type ProactiveShadowRule struct {
+	Id   ProactiveRuleId `json:"id"`
+	Text string          `json:"text"`
 }
 
 // ProfileMemorySyncRequest defines model for ProfileMemorySyncRequest.

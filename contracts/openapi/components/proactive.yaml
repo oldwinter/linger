@@ -12,13 +12,154 @@ components:
     ProactiveGuideline:
       type: object
       additionalProperties: false
-      required: [version, threshold, specific]
+      required: [version, rules, shadow_rules]
+      description: What one judgment reads of the Human's own rules.
       properties:
-        version: { type: integer }
-        threshold: { type: number, minimum: 0, maximum: 1 }
-        specific:
+        version: { type: integer, minimum: 1 }
+        rules:
           type: array
-          items: { type: string }
+          maxItems: 20
+          description: Active rules; they decide.
+          items: { type: string, minLength: 1, maxLength: 200 }
+        shadow_rules:
+          type: array
+          maxItems: 20
+          description: Shadow rules; they do not decide, and the Run records where one would have decided differently.
+          items: { $ref: "#/components/schemas/ProactiveShadowRule" }
+    ProactiveShadowRule:
+      type: object
+      additionalProperties: false
+      required: [id, text]
+      properties:
+        id: { $ref: "#/components/schemas/ProactiveRuleId" }
+        text: { type: string, minLength: 1, maxLength: 200 }
+    ProactiveRuleId:
+      type: string
+      pattern: "^pr_[a-f0-9]{32}$"
+    ProactiveAction:
+      type: string
+      enum: [notify, track, silent]
+      description: notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+    ProactiveRule:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          id,
+          text,
+          status,
+          pinned,
+          source,
+          created_at,
+          promoted_at,
+          guideline_version,
+        ]
+      properties:
+        id: { $ref: "#/components/schemas/ProactiveRuleId" }
+        text: { type: string, minLength: 1, maxLength: 200 }
+        status:
+          type: string
+          enum: [shadow, active]
+          description: Only active rules decide. Newly learned rules start as shadow until the Human promotes them.
+        pinned:
+          type: boolean
+          description: Nightly learning never removes or rewrites a pinned rule.
+        source:
+          type: string
+          enum: [learned, user]
+          description: user once the Human edited the rule; nightly learning never removes or rewrites it.
+        created_at: { type: string, format: date-time }
+        promoted_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the rule became active; null while it is shadow.
+        guideline_version:
+          type: integer
+          minimum: 1
+          description: The guideline version that first held the rule as written.
+    ProactiveClue:
+      type: object
+      additionalProperties: false
+      required: [matter, kind, time, leaning, seen, last_seen]
+      description: An observation nightly learning keeps until it is strong enough to become a rule; clues never decide.
+      properties:
+        matter: { type: string }
+        kind: { type: string }
+        time: { type: string, nullable: true }
+        leaning:
+          {
+            type: string,
+            enum: [remind_directly, track_for_follow_up, stay_silent],
+          }
+        seen: { type: integer, minimum: 1 }
+        last_seen: { type: string, format: date }
+    ProactiveShadowDivergence:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          id,
+          rule_id,
+          guideline_version,
+          matter,
+          shadow_action,
+          taken_action,
+          created_at,
+        ]
+      description: One matter a judgment handled differently from what a shadow rule would have done.
+      properties:
+        id: { type: string, pattern: "^psd_[a-f0-9]{32}$" }
+        rule_id: { $ref: "#/components/schemas/ProactiveRuleId" }
+        guideline_version: { type: integer, minimum: 1 }
+        matter: { type: string, minLength: 1, maxLength: 300 }
+        shadow_action: { $ref: "#/components/schemas/ProactiveAction" }
+        taken_action: { $ref: "#/components/schemas/ProactiveAction" }
+        created_at: { type: string, format: date-time }
+    ProactiveRuleBook:
+      type: object
+      additionalProperties: false
+      required: [version, rules, clues, divergences]
+      properties:
+        version: { type: integer, minimum: 1 }
+        rules:
+          type: array
+          maxItems: 20
+          items: { $ref: "#/components/schemas/ProactiveRule" }
+        clues:
+          type: array
+          maxItems: 20
+          items: { $ref: "#/components/schemas/ProactiveClue" }
+        divergences:
+          type: array
+          maxItems: 50
+          description: The latest shadow divergences, newest first.
+          items: { $ref: "#/components/schemas/ProactiveShadowDivergence" }
+    ProactiveRulePinRequest:
+      type: object
+      additionalProperties: false
+      required: [pinned]
+      properties:
+        pinned: { type: boolean }
+    ProactiveRuleEditRequest:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text: { type: string, minLength: 1, maxLength: 200 }
+    ProactiveShadowDivergenceRecord:
+      type: object
+      additionalProperties: false
+      required: [rule_id, matter, shadow_action, taken_action]
+      properties:
+        rule_id: { $ref: "#/components/schemas/ProactiveRuleId" }
+        matter:
+          type: string
+          minLength: 1
+          maxLength: 300
+          description: The matter in a few words, as the Human would recognize it.
+        shadow_action: { $ref: "#/components/schemas/ProactiveAction" }
+        taken_action: { $ref: "#/components/schemas/ProactiveAction" }
     ProactiveOpenItem:
       type: object
       additionalProperties: false

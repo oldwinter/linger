@@ -3597,6 +3597,98 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v0/tenants/{tenantId}/me/proactive-rules": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+      };
+      cookie?: never;
+    };
+    /**
+     * List the authenticated Human's own Another Me rules, the clues not yet strong enough to be rules, and recent shadow divergences.
+     * @description Only active rules decide what Another Me does. A newly learned rule starts as shadow; judgments record where it would have decided differently until the Human promotes it.
+     */
+    get: operations["listProactiveRules"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v0/tenants/{tenantId}/me/proactive-rules/{ruleId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ruleId: components["schemas"]["ProactiveRuleId"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Delete one rule.
+     * @description Nightly learning does not learn the deleted rule again unless new replies ask for it.
+     */
+    delete: operations["deleteProactiveRule"];
+    options?: never;
+    head?: never;
+    /**
+     * Rewrite one rule's text.
+     * @description The rule becomes the Human's own, so nightly learning never removes or rewrites it. Its status is kept.
+     */
+    patch: operations["editProactiveRule"];
+    trace?: never;
+  };
+  "/v0/tenants/{tenantId}/me/proactive-rules/{ruleId}/pin": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ruleId: components["schemas"]["ProactiveRuleId"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Pin or unpin one rule.
+     * @description Nightly learning never removes or rewrites a pinned rule.
+     */
+    put: operations["updateProactiveRulePin"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v0/tenants/{tenantId}/me/proactive-rules/{ruleId}/promotion": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ruleId: components["schemas"]["ProactiveRuleId"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Promote one shadow rule to active, so it decides from the next judgment on. */
+    post: operations["promoteProactiveRule"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v0/tenants/{tenantId}/me/meetings/{captureSessionId}": {
     parameters: {
       query?: never;
@@ -7266,6 +7358,72 @@ export interface components {
     PocketNoteUpdateRequest: {
       /** @description Replaces today's page; an empty string clears it. */
       text: components["schemas"]["PocketNoteText"];
+    };
+    ProactiveRuleId: string;
+    ProactiveRule: {
+      id: components["schemas"]["ProactiveRuleId"];
+      text: string;
+      /**
+       * @description Only active rules decide. Newly learned rules start as shadow until the Human promotes them.
+       * @enum {string}
+       */
+      status: "shadow" | "active";
+      /** @description Nightly learning never removes or rewrites a pinned rule. */
+      pinned: boolean;
+      /**
+       * @description user once the Human edited the rule; nightly learning never removes or rewrites it.
+       * @enum {string}
+       */
+      source: "learned" | "user";
+      /** Format: date-time */
+      created_at: string;
+      /**
+       * Format: date-time
+       * @description When the rule became active; null while it is shadow.
+       */
+      promoted_at: string | null;
+      /** @description The guideline version that first held the rule as written. */
+      guideline_version: number;
+    };
+    /** @description An observation nightly learning keeps until it is strong enough to become a rule; clues never decide. */
+    ProactiveClue: {
+      matter: string;
+      kind: string;
+      time: string | null;
+      /** @enum {string} */
+      leaning: "remind_directly" | "track_for_follow_up" | "stay_silent";
+      seen: number;
+      /** Format: date */
+      last_seen: string;
+    };
+    /**
+     * @description notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+     * @enum {string}
+     */
+    ProactiveAction: "notify" | "track" | "silent";
+    /** @description One matter a judgment handled differently from what a shadow rule would have done. */
+    ProactiveShadowDivergence: {
+      id: string;
+      rule_id: components["schemas"]["ProactiveRuleId"];
+      guideline_version: number;
+      matter: string;
+      shadow_action: components["schemas"]["ProactiveAction"];
+      taken_action: components["schemas"]["ProactiveAction"];
+      /** Format: date-time */
+      created_at: string;
+    };
+    ProactiveRuleBook: {
+      version: number;
+      rules: components["schemas"]["ProactiveRule"][];
+      clues: components["schemas"]["ProactiveClue"][];
+      /** @description The latest shadow divergences, newest first. */
+      divergences: components["schemas"]["ProactiveShadowDivergence"][];
+    };
+    ProactiveRuleEditRequest: {
+      text: string;
+    };
+    ProactiveRulePinRequest: {
+      pinned: boolean;
     };
     /** @description One topical point of a module; it needs non-empty text or at least one item. */
     PersonalProfilePoint: {
@@ -13870,6 +14028,140 @@ export interface operations {
         content?: never;
       };
       400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  listProactiveRules: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The Human's rules. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProactiveRuleBook"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  deleteProactiveRule: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ruleId: components["schemas"]["ProactiveRuleId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The Human's rules after the change. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProactiveRuleBook"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  editProactiveRule: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ruleId: components["schemas"]["ProactiveRuleId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ProactiveRuleEditRequest"];
+      };
+    };
+    responses: {
+      /** @description The Human's rules after the change. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProactiveRuleBook"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  updateProactiveRulePin: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ruleId: components["schemas"]["ProactiveRuleId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ProactiveRulePinRequest"];
+      };
+    };
+    responses: {
+      /** @description The Human's rules after the change. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProactiveRuleBook"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  promoteProactiveRule: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ruleId: components["schemas"]["ProactiveRuleId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The Human's rules after the change. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProactiveRuleBook"];
+        };
+      };
       401: components["responses"]["Unauthenticated"];
       404: components["responses"]["NotFound"];
     };

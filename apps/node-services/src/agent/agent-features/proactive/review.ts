@@ -36,7 +36,8 @@ export async function reviewRoom(
       agentId,
       renderProactiveDecideWake(
         window.messages,
-        window.guideline.specific,
+        window.guideline.rules,
+        window.guideline.shadow_rules,
         promptOpenItems(window.open_items, now),
       ),
     );

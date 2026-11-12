@@ -55,10 +55,45 @@ SELECT EXISTS(
 )::boolean;
 
 -- name: GetLatestProactiveGuideline :one
-SELECT version,specific FROM proactive_guidelines
+SELECT version,rules,deleted_rules,clues FROM proactive_guidelines
 WHERE tenant_id=sqlc.arg(tenant_id)::text AND owner_actor_id=sqlc.arg(owner_actor_id)::text
 ORDER BY version DESC
 LIMIT 1;
+
+-- name: InsertProactiveGuideline :exec
+-- The next version of a Human's guideline. Versions are consecutive, so a
+-- writer that read an older latest version fails on the primary key.
+INSERT INTO proactive_guidelines(tenant_id,owner_actor_id,version,rules,deleted_rules,clues,change_note)
+VALUES (sqlc.arg(tenant_id)::text,sqlc.arg(owner_actor_id)::text,sqlc.arg(version)::integer,
+        sqlc.arg(rules)::jsonb,sqlc.arg(deleted_rules)::jsonb,sqlc.arg(clues)::jsonb,sqlc.arg(change_note)::text);
+
+-- name: CreateProactiveShadowDivergence :one
+-- A replayed record returns the divergence already kept.
+INSERT INTO proactive_shadow_divergences(id,tenant_id,owner_actor_id,rule_id,guideline_version,matter,shadow_action,taken_action)
+VALUES (sqlc.arg(id)::text,sqlc.arg(tenant_id)::text,sqlc.arg(owner_actor_id)::text,sqlc.arg(rule_id)::text,
+        sqlc.arg(guideline_version)::integer,sqlc.arg(matter)::text,sqlc.arg(shadow_action)::text,sqlc.arg(taken_action)::text)
+ON CONFLICT (tenant_id,owner_actor_id,rule_id,guideline_version,matter,shadow_action,taken_action)
+DO UPDATE SET matter=EXCLUDED.matter
+RETURNING id,created_at;
+
+-- name: PruneProactiveShadowDivergences :exec
+-- Only the latest divergences are shown, so older ones are dropped as new
+-- ones arrive.
+DELETE FROM proactive_shadow_divergences
+WHERE tenant_id=sqlc.arg(tenant_id)::text AND owner_actor_id=sqlc.arg(owner_actor_id)::text
+  AND id NOT IN (
+    SELECT id FROM proactive_shadow_divergences
+    WHERE tenant_id=sqlc.arg(tenant_id)::text AND owner_actor_id=sqlc.arg(owner_actor_id)::text
+    ORDER BY created_at DESC, id DESC
+    LIMIT sqlc.arg(keep)::integer
+  );
+
+-- name: ListProactiveShadowDivergences :many
+SELECT id,rule_id,guideline_version,matter,shadow_action,taken_action,created_at
+FROM proactive_shadow_divergences
+WHERE tenant_id=sqlc.arg(tenant_id)::text AND owner_actor_id=sqlc.arg(owner_actor_id)::text
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg(take)::integer;
 
 -- name: ListProactiveTrackingItems :many
 -- The Human's current Tracking Items, by Memory's rule: current until due, or

@@ -2396,6 +2396,84 @@ func (e PersonalWikiState) Valid() bool {
 	}
 }
 
+// Defines values for ProactiveAction.
+const (
+	Notify ProactiveAction = "notify"
+	Silent ProactiveAction = "silent"
+	Track  ProactiveAction = "track"
+)
+
+// Valid indicates whether the value is a known member of the ProactiveAction enum.
+func (e ProactiveAction) Valid() bool {
+	switch e {
+	case Notify:
+		return true
+	case Silent:
+		return true
+	case Track:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProactiveClueLeaning.
+const (
+	RemindDirectly   ProactiveClueLeaning = "remind_directly"
+	StaySilent       ProactiveClueLeaning = "stay_silent"
+	TrackForFollowUp ProactiveClueLeaning = "track_for_follow_up"
+)
+
+// Valid indicates whether the value is a known member of the ProactiveClueLeaning enum.
+func (e ProactiveClueLeaning) Valid() bool {
+	switch e {
+	case RemindDirectly:
+		return true
+	case StaySilent:
+		return true
+	case TrackForFollowUp:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProactiveRuleSource.
+const (
+	Learned ProactiveRuleSource = "learned"
+	User    ProactiveRuleSource = "user"
+)
+
+// Valid indicates whether the value is a known member of the ProactiveRuleSource enum.
+func (e ProactiveRuleSource) Valid() bool {
+	switch e {
+	case Learned:
+		return true
+	case User:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProactiveRuleStatus.
+const (
+	ProactiveRuleStatusActive ProactiveRuleStatus = "active"
+	ProactiveRuleStatusShadow ProactiveRuleStatus = "shadow"
+)
+
+// Valid indicates whether the value is a known member of the ProactiveRuleStatus enum.
+func (e ProactiveRuleStatus) Valid() bool {
+	switch e {
+	case ProactiveRuleStatusActive:
+		return true
+	case ProactiveRuleStatusShadow:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ReferenceSegmentTargetType.
 const (
 	ReferenceSegmentTargetTypeAgent ReferenceSegmentTargetType = "agent"
@@ -3025,16 +3103,16 @@ func (e UnifiedDocumentFromBindingKind) Valid() bool {
 
 // Defines values for UnifiedDocumentStatus.
 const (
-	UnifiedDocumentStatusActive  UnifiedDocumentStatus = "active"
-	UnifiedDocumentStatusTrashed UnifiedDocumentStatus = "trashed"
+	Active  UnifiedDocumentStatus = "active"
+	Trashed UnifiedDocumentStatus = "trashed"
 )
 
 // Valid indicates whether the value is a known member of the UnifiedDocumentStatus enum.
 func (e UnifiedDocumentStatus) Valid() bool {
 	switch e {
-	case UnifiedDocumentStatusActive:
+	case Active:
 		return true
-	case UnifiedDocumentStatusTrashed:
+	case Trashed:
 		return true
 	default:
 		return false
@@ -6419,6 +6497,88 @@ type PocketNoteUpdateRequest struct {
 	Text PocketNoteText `json:"text"`
 }
 
+// ProactiveAction notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+type ProactiveAction string
+
+// ProactiveClue An observation nightly learning keeps until it is strong enough to become a rule; clues never decide.
+type ProactiveClue struct {
+	Kind     string               `json:"kind"`
+	LastSeen openapi_types.Date   `json:"last_seen"`
+	Leaning  ProactiveClueLeaning `json:"leaning"`
+	Matter   string               `json:"matter"`
+	Seen     int                  `json:"seen"`
+	Time     *string              `json:"time"`
+}
+
+// ProactiveClueLeaning defines model for ProactiveClue.Leaning.
+type ProactiveClueLeaning string
+
+// ProactiveRule defines model for ProactiveRule.
+type ProactiveRule struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// GuidelineVersion The guideline version that first held the rule as written.
+	GuidelineVersion int             `json:"guideline_version"`
+	Id               ProactiveRuleId `json:"id"`
+
+	// Pinned Nightly learning never removes or rewrites a pinned rule.
+	Pinned bool `json:"pinned"`
+
+	// PromotedAt When the rule became active; null while it is shadow.
+	PromotedAt *time.Time `json:"promoted_at"`
+
+	// Source user once the Human edited the rule; nightly learning never removes or rewrites it.
+	Source ProactiveRuleSource `json:"source"`
+
+	// Status Only active rules decide. Newly learned rules start as shadow until the Human promotes them.
+	Status ProactiveRuleStatus `json:"status"`
+	Text   string              `json:"text"`
+}
+
+// ProactiveRuleSource user once the Human edited the rule; nightly learning never removes or rewrites it.
+type ProactiveRuleSource string
+
+// ProactiveRuleStatus Only active rules decide. Newly learned rules start as shadow until the Human promotes them.
+type ProactiveRuleStatus string
+
+// ProactiveRuleBook defines model for ProactiveRuleBook.
+type ProactiveRuleBook struct {
+	Clues []ProactiveClue `json:"clues"`
+
+	// Divergences The latest shadow divergences, newest first.
+	Divergences []ProactiveShadowDivergence `json:"divergences"`
+	Rules       []ProactiveRule             `json:"rules"`
+	Version     int                         `json:"version"`
+}
+
+// ProactiveRuleEditRequest defines model for ProactiveRuleEditRequest.
+type ProactiveRuleEditRequest struct {
+	Text string `json:"text"`
+}
+
+// ProactiveRuleId defines model for ProactiveRuleId.
+type ProactiveRuleId = string
+
+// ProactiveRulePinRequest defines model for ProactiveRulePinRequest.
+type ProactiveRulePinRequest struct {
+	Pinned bool `json:"pinned"`
+}
+
+// ProactiveShadowDivergence One matter a judgment handled differently from what a shadow rule would have done.
+type ProactiveShadowDivergence struct {
+	CreatedAt        time.Time       `json:"created_at"`
+	GuidelineVersion int             `json:"guideline_version"`
+	Id               string          `json:"id"`
+	Matter           string          `json:"matter"`
+	RuleId           ProactiveRuleId `json:"rule_id"`
+
+	// ShadowAction notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+	ShadowAction ProactiveAction `json:"shadow_action"`
+
+	// TakenAction notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+	TakenAction ProactiveAction `json:"taken_action"`
+}
+
 // ProfileSetupDecisionView The view of an AnotherMe setup decision. A profile_setup_apps card lists the Connected App keys it offers; a profile_setup_sources card has no fields.
 type ProfileSetupDecisionView struct {
 	// Apps Connected App keys a profile_setup_apps card offers first.
@@ -8897,6 +9057,12 @@ type UpdateTenantMyDocumentPlacementJSONRequestBody = DocumentPlacementUpdateReq
 
 // PutTodayPocketNoteJSONRequestBody defines body for PutTodayPocketNote for application/json ContentType.
 type PutTodayPocketNoteJSONRequestBody = PocketNoteUpdateRequest
+
+// EditProactiveRuleJSONRequestBody defines body for EditProactiveRule for application/json ContentType.
+type EditProactiveRuleJSONRequestBody = ProactiveRuleEditRequest
+
+// UpdateProactiveRulePinJSONRequestBody defines body for UpdateProactiveRulePin for application/json ContentType.
+type UpdateProactiveRulePinJSONRequestBody = ProactiveRulePinRequest
 
 // CreateMySharedDocumentFolderJSONRequestBody defines body for CreateMySharedDocumentFolder for application/json ContentType.
 type CreateMySharedDocumentFolderJSONRequestBody = DocumentFolderCreateRequest

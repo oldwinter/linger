@@ -157,10 +157,7 @@ func (s *Service) HandleEvent(ctx context.Context, event Event) (Outcome, error)
 	if err != nil {
 		return Outcome{}, err
 	}
-	request := EventJudgeRequest{Specific: guideline.Specific, OpenItems: []OpenItem{}}
-	if request.Specific == nil {
-		request.Specific = []string{}
-	}
+	request := EventJudgeRequest{Rules: guideline.JudgeRules(), OpenItems: []OpenItem{}}
 	for _, item := range items {
 		open := OpenItem{ID: item.ID, Kind: item.Kind, Content: item.Content}
 		if item.DueAt.Valid {

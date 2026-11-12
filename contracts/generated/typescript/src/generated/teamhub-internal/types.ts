@@ -2499,10 +2499,18 @@ export interface components {
       /** Format: date-time */
       created_at: string;
     };
+    ProactiveRuleId: string;
+    ProactiveShadowRule: {
+      id: components["schemas"]["ProactiveRuleId"];
+      text: string;
+    };
+    /** @description What one judgment reads of the Human's own rules. */
     ProactiveGuideline: {
       version: number;
-      threshold: number;
-      specific: string[];
+      /** @description Active rules; they decide. */
+      rules: string[];
+      /** @description Shadow rules; they do not decide, and the Run records where one would have decided differently. */
+      shadow_rules: components["schemas"]["ProactiveShadowRule"][];
     };
     ProactiveOpenItem: {
       id: string;

@@ -53,8 +53,8 @@ paths:
         "Another Me judges the event in its own Run with the same rules as
         its conversation review: tell the Human now, track it for later, or stay
         silent. TeamHub keeps dedupe, daily limits, quiet hours and the wake
-        queue; this only renders the rules with the Human's learned rules and
-        open items."
+        queue; this only renders the rules with the Human's own active and
+        shadow rules and open items."
       operationId: judgeProactiveEvent
       requestBody:
         required: true
@@ -1323,16 +1323,23 @@ components:
       type: object
       additionalProperties: false
       required:
-        - specific
+        - rules
+        - shadowRules
         - openItems
       properties:
-        specific:
-          description: The Human's learned specific rules.
+        rules:
+          description: The Human's own active rules; they decide.
           type: array
           maxItems: 20
           items:
             type: string
             maxLength: 200
+        shadowRules:
+          description: The Human's shadow rules; they do not decide, and the Run records where one would have decided differently.
+          type: array
+          maxItems: 20
+          items:
+            $ref: ../components/proactive.yaml#/components/schemas/ProactiveShadowRule
         openItems:
           description: The Human's open Tracking Items.
           type: array

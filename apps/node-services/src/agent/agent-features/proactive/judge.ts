@@ -1,4 +1,7 @@
-import { renderProactiveEventDecideInstructions } from "./prompt.js";
+import {
+  renderProactiveEventDecideInstructions,
+  type ShadowRule,
+} from "./prompt.js";
 
 interface OpenItem {
   readonly content: string;
@@ -26,13 +29,15 @@ export function promptOpenItems(
 /** What AnotherMe gets to judge an outside event itself. */
 export function eventDecideInstructions(
   input: {
-    readonly specific: readonly string[];
+    readonly rules: readonly string[];
+    readonly shadowRules: readonly ShadowRule[];
     readonly openItems: readonly OpenItem[];
   },
   now: Date,
 ): string {
   return renderProactiveEventDecideInstructions(
-    input.specific,
+    input.rules,
+    input.shadowRules,
     promptOpenItems(
       input.openItems.map(({ content, dueAt }) => ({
         content,

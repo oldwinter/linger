@@ -524,7 +524,7 @@ const createAgentManagerHttpApp = <TRuntimeSettings>(
         throw new RequestError(
           400,
           "invalid_proactive_event",
-          "specific and openItems are required",
+          "rules, shadowRules and openItems are required",
         );
       return writeJson(context, 200, await proactiveEvents.judge(body));
     },
@@ -958,13 +958,26 @@ const hasOnly = (value: Record<string, unknown>, keys: readonly string[]) =>
 const isProactiveEventJudgeRequest = (
   value: unknown,
 ): value is ProactiveEventJudgeRequest => {
-  if (!isRecord(value) || !hasOnly(value, ["specific", "openItems"]))
+  if (
+    !isRecord(value) ||
+    !hasOnly(value, ["rules", "shadowRules", "openItems"])
+  )
     return false;
-  const { specific, openItems } = value;
+  const { rules, shadowRules, openItems } = value;
   return (
-    Array.isArray(specific) &&
-    specific.length <= 20 &&
-    specific.every((rule) => isText(rule, 200, 0)) &&
+    Array.isArray(rules) &&
+    rules.length <= 20 &&
+    rules.every((rule) => isText(rule, 200, 0)) &&
+    Array.isArray(shadowRules) &&
+    shadowRules.length <= 20 &&
+    shadowRules.every(
+      (rule) =>
+        isRecord(rule) &&
+        hasOnly(rule, ["id", "text"]) &&
+        typeof rule.id === "string" &&
+        /^pr_[a-f0-9]{32}$/u.test(rule.id) &&
+        isText(rule.text, 200),
+    ) &&
     Array.isArray(openItems) &&
     openItems.length <= 1000 &&
     openItems.every(

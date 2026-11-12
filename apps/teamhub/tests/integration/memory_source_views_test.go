@@ -178,7 +178,7 @@ func TestMemorySourceViewsCarryMemoryAuthorization(t *testing.T) {
 		INSERT INTO proactive_potential_items(id,tenant_id,owner_actor_id,content,source,source_key,reminded) VALUES
 			('ppi_00000000000000000000000000000001','tenant_document_a','actor_human_a','Reply to Bob','tracking_item','item-a',false),
 			('ppi_00000000000000000000000000000002','tenant_document_a','actor_human_a','Meeting at 3','event','calendar-a',true);
-		SELECT memory_source.record_proactive_guideline('tenant_document_a','actor_human_a',2,'[]','[]','note');
+		SELECT memory_source.record_proactive_guideline('tenant_document_a','actor_human_a',2,'[]','[]','[]','note');
 	`); err != nil {
 		t.Fatal(err)
 	}

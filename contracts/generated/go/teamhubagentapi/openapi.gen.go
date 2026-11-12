@@ -980,6 +980,27 @@ func (e EditNativeDocumentSemanticOperationCommand) Valid() bool {
 	}
 }
 
+// Defines values for ProactiveAction.
+const (
+	Notify ProactiveAction = "notify"
+	Silent ProactiveAction = "silent"
+	Track  ProactiveAction = "track"
+)
+
+// Valid indicates whether the value is a known member of the ProactiveAction enum.
+func (e ProactiveAction) Valid() bool {
+	switch e {
+	case Notify:
+		return true
+	case Silent:
+		return true
+	case Track:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ReferenceSegmentTargetType.
 const (
 	ReferenceSegmentTargetTypeAgent ReferenceSegmentTargetType = "agent"
@@ -2833,6 +2854,40 @@ type PersonalProfileTimelineEntry struct {
 	Role         string   `json:"role"`
 }
 
+// ProactiveAction notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+type ProactiveAction string
+
+// ProactiveRuleId defines model for ProactiveRuleId.
+type ProactiveRuleId = string
+
+// ProactiveShadowDivergence One matter a judgment handled differently from what a shadow rule would have done.
+type ProactiveShadowDivergence struct {
+	CreatedAt        time.Time       `json:"created_at"`
+	GuidelineVersion int             `json:"guideline_version"`
+	Id               string          `json:"id"`
+	Matter           string          `json:"matter"`
+	RuleId           ProactiveRuleId `json:"rule_id"`
+
+	// ShadowAction notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+	ShadowAction ProactiveAction `json:"shadow_action"`
+
+	// TakenAction notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+	TakenAction ProactiveAction `json:"taken_action"`
+}
+
+// ProactiveShadowDivergenceRecord defines model for ProactiveShadowDivergenceRecord.
+type ProactiveShadowDivergenceRecord struct {
+	// Matter The matter in a few words, as the Human would recognize it.
+	Matter string          `json:"matter"`
+	RuleId ProactiveRuleId `json:"rule_id"`
+
+	// ShadowAction notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+	ShadowAction ProactiveAction `json:"shadow_action"`
+
+	// TakenAction notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+	TakenAction ProactiveAction `json:"taken_action"`
+}
+
 // ReferenceSegment defines model for ReferenceSegment.
 type ReferenceSegment struct {
 	Content string `json:"content"`
@@ -3255,6 +3310,9 @@ type WriteAgentPersonalProfileJSONRequestBody = AgentPersonalProfileWriteRequest
 
 // SendAgentPresentationSequenceJSONRequestBody defines body for SendAgentPresentationSequence for application/json ContentType.
 type SendAgentPresentationSequenceJSONRequestBody = AgentSendPresentationSequenceRequest
+
+// RecordProactiveShadowDivergenceJSONRequestBody defines body for RecordProactiveShadowDivergence for application/json ContentType.
+type RecordProactiveShadowDivergenceJSONRequestBody = ProactiveShadowDivergenceRecord
 
 // AddAgentRoomMemberJSONRequestBody defines body for AddAgentRoomMember for application/json ContentType.
 type AddAgentRoomMemberJSONRequestBody = AgentAddRoomMemberRequest
