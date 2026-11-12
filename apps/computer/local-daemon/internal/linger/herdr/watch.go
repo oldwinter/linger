@@ -167,7 +167,7 @@ func Transitions(previous, current map[string]Agent) []Event {
 	for _, pane := range slices.Sorted(maps.Keys(current)) {
 		agent := current[pane]
 		before, seen := previous[pane]
-		kind := ""
+		var kind string
 		switch {
 		case agent.Status == "blocked" && (!seen || before.Status != "blocked" || before.StateChangeSeq != agent.StateChangeSeq):
 			kind = EventBlocked

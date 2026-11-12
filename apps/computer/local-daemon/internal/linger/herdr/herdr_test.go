@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -319,7 +320,7 @@ func TestWatchEmitsOneEventPerPaneStateChange(t *testing.T) {
 	case <-time.After(3 * settle):
 	}
 	cancel()
-	if err := <-done; err != context.Canceled {
+	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("watch ended with %v", err)
 	}
 }

@@ -299,17 +299,28 @@ func (c *Client) Answer(ctx context.Context, paneID string, stateChangeSeq uint6
 		return AnswerInvalid, nil
 	}
 	agent, err := c.Agent(ctx, paneID)
-	var herdrError *Error
-	switch {
-	case errors.As(err, &herdrError):
-		return AnswerPaneClosed, nil
-	case err != nil:
-		return AnswerUnavailable, nil
-	case agent.Status != "blocked" || agent.StateChangeSeq != stateChangeSeq:
+	if status := unread(err); status != "" {
+		return status, nil
+	}
+	if agent.Status != "blocked" || agent.StateChangeSeq != stateChangeSeq {
 		return AnswerPaneNotBlocked, nil
 	}
 	if err := c.SendAnswer(ctx, paneID, text); err != nil {
 		return "", fmt.Errorf("send herdr answer: %w", err)
 	}
 	return AnswerSent, nil
+}
+
+// unread is why a pane could not be read before answering: herdr has no
+// agent in it, or herdr is not reachable. Nothing was typed either way.
+func unread(err error) string {
+	var herdrError *Error
+	switch {
+	case err == nil:
+		return ""
+	case errors.As(err, &herdrError):
+		return AnswerPaneClosed
+	default:
+		return AnswerUnavailable
+	}
 }
