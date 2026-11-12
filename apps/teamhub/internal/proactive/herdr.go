@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
@@ -78,4 +79,22 @@ func HerdrEvent(tenantID, ownerActorID string, report HerdrReport) Event {
 		State: strconv.FormatInt(report.StateChangeSeq, 10), Summary: summary,
 		Herdr: &HerdrPane{PaneID: report.PaneID, StateChangeSeq: report.StateChangeSeq},
 	}
+}
+
+// HerdrStateReported reports whether the owner's Computer reported this pane
+// state as a herdr event that was judged today or yesterday, so a question
+// card can only be bound to a pane state that really asked.
+func (s *Service) HerdrStateReported(ctx context.Context, owner Owner, computerID, paneID string, stateChangeSeq int64) (bool, error) {
+	matter := SourceHerdr + "\x00" + computerID + "/" + paneID + "\x00" + strconv.FormatInt(stateChangeSeq, 10)
+	queries := store.New(s.pool)
+	now := s.now()
+	for _, day := range []time.Time{Day(now), Day(now.Add(-24 * time.Hour))} {
+		seen, err := queries.HasProactiveSignalForSource(ctx, store.HasProactiveSignalForSourceParams{
+			TenantID: owner.TenantID, OwnerActorID: owner.ActorID, Source: "event", SourceKey: SourceKey("event", matter, day),
+		})
+		if err != nil || seen {
+			return seen, err
+		}
+	}
+	return false, nil
 }

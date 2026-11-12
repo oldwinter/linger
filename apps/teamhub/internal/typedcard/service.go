@@ -43,6 +43,8 @@ type Service struct {
 	onboardingConnections OnboardingConnections
 	// executors run approved decisions by kind; the app registers them.
 	executors map[string]DecisionExecutor
+	// herdrDeliverer types herdr answer cards' answers; the app installs it.
+	herdrDeliverer HerdrDeliverer
 }
 
 func New(pool *pgxpool.Pool) *Service {

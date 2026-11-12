@@ -114,12 +114,12 @@ func TestOwnerProfileActionsNeedAnAnotherMeWithAnOwner(t *testing.T) {
 	}
 }
 
-func TestOnlyAnAnotherMeMetaAnswersItsOwnersHerdrAgents(t *testing.T) {
+func TestOnlyAnAnotherMeMetaAsksAboutItsOwnersHerdrAgents(t *testing.T) {
 	principal := func(agentType, owner string) *agentcredential.Principal {
 		return &agentcredential.Principal{AgentType: agentType, UserArtifactOwnerActorID: owner}
 	}
-	if !businessAction("answer_herdr_pane") {
-		t.Fatal("answer_herdr_pane is not exposed")
+	if !businessAction("ask_herdr_pane") {
+		t.Fatal("ask_herdr_pane is not exposed")
 	}
 	for _, test := range []struct {
 		name      string
@@ -132,7 +132,7 @@ func TestOnlyAnAnotherMeMetaAnswersItsOwnersHerdrAgents(t *testing.T) {
 		{name: "document target", authority: Authorization{Principal: principal("anotherme", "actor_human"), Target: Target{Kind: "document", ID: "document_1"}}},
 		{name: "no owner", authority: Authorization{Principal: principal("anotherme", "")}},
 	} {
-		if got := businessCapability(test.authority, "answer_herdr_pane"); got != test.want {
+		if got := businessCapability(test.authority, "ask_herdr_pane"); got != test.want {
 			t.Errorf("%s: allowed=%v want %v", test.name, got, test.want)
 		}
 	}

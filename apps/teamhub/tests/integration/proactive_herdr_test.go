@@ -46,7 +46,7 @@ func TestProactiveHerdrEventsAreJudgedLikeAppEventsUnderTheirComputer(t *testing
 	}
 
 	if outcome, err := day.HandleEvent(t.Context(), blocked(5)); err != nil || outcome.Skipped != "" ||
-		wakes(`body LIKE '%herdr answer --pane w1:p1 --state 5 %' AND body NOT LIKE '%do not tell them now%'`) != 1 {
+		wakes(`body LIKE '%herdr ask --pane w1:p1 --state 5 %' AND body NOT LIKE '%do not tell them now%'`) != 1 {
 		t.Fatalf("first state=%+v err=%v", outcome, err)
 	}
 	if outcome, err := day.HandleEvent(t.Context(), blocked(5)); err != nil || outcome.Skipped != "already_judged" || wakes("true") != 1 {
