@@ -34,3 +34,18 @@ func TestRecordedTextAndSourceKey(t *testing.T) {
 		t.Fatalf("Beijing day=%s", got)
 	}
 }
+
+func TestJudgeRulesDecideOnlyByActiveRules(t *testing.T) {
+	judge := Guideline{Version: 4, Rules: []Rule{
+		{ID: "pr_a", Text: "client replies → remind directly", Status: RuleActive},
+		{ID: "pr_b", Text: "vendor invoices → track for follow-up", Status: RuleShadow},
+		{ID: "pr_c", Text: "news → stay silent", Status: RuleActive, Pinned: true, Source: RuleByHuman},
+	}}.JudgeRules()
+	if judge.Version != 4 || len(judge.Rules) != 2 || judge.Rules[0] != "client replies → remind directly" || judge.Rules[1] != "news → stay silent" ||
+		len(judge.ShadowRules) != 1 || judge.ShadowRules[0] != (ShadowRule{ID: "pr_b", Text: "vendor invoices → track for follow-up"}) {
+		t.Fatalf("judge rules=%+v", judge)
+	}
+	if empty := DefaultGuideline().JudgeRules(); empty.Rules == nil || empty.ShadowRules == nil {
+		t.Fatal("a Human without rules must send empty lists, not null")
+	}
+}

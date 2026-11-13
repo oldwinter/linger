@@ -10,9 +10,25 @@ import {
   type DreamStore,
   type Guideline,
   type ProactiveExchange,
+  type ProactiveRule,
 } from "../../src/memory/proactive-dreaming.js";
 
 const owner = { tenantId: "tenant_acme", ownerActorId: "actor_alice" };
+const now = new Date("2026-10-24T16:00:00Z");
+
+function rule(id: string, text: string): ProactiveRule {
+  return {
+    id,
+    text,
+    status: "active",
+    pinned: false,
+    source: "learned",
+    created_at: "2026-10-01T08:00:00Z",
+    promoted_at: "2026-10-01T08:00:00Z",
+    guideline_version: 2,
+    mandate: "none",
+  };
+}
 
 function memoryStore(
   exchanges: ProactiveExchange[],
@@ -64,6 +80,7 @@ describe("proactive dreaming", () => {
         "project A blocker cleared → remind directly",
       ],
       removed_rules: [],
+      relearned_rules: [],
       clues: [
         {
           matter: " Zoe's prototype quote ",
@@ -86,7 +103,20 @@ describe("proactive dreaming", () => {
       {
         guideline: {
           version: 2,
-          specific: ["project A blocker cleared → remind directly"],
+          rules: [
+            {
+              id: expect.stringMatching(/^pr_[a-f0-9]{32}$/u),
+              text: "project A blocker cleared → remind directly",
+              status: "shadow",
+              pinned: false,
+              source: "learned",
+              created_at: before.toISOString(),
+              promoted_at: null,
+              guideline_version: 2,
+              mandate: "none",
+            },
+          ],
+          deleted_rules: [],
           clues: [
             {
               matter: "Zoe's prototype quote",
@@ -107,6 +137,8 @@ describe("proactive dreaming", () => {
     );
     expect(prompt.today).toBe("2026-10-19");
     expect(prompt.clues).toEqual([]);
+    expect(prompt.specific_rules).toEqual([]);
+    expect(prompt.deleted_rules).toEqual([]);
     expect(prompt.exchanges[0].at).toBe("09:10");
     expect(prompt.exchanges[0].followed_by[0]).toEqual({
       speaker: "user",
@@ -120,6 +152,7 @@ describe("proactive dreaming", () => {
     const request = vi.fn(async () => ({
       specific: ["client contracts → track for follow-up"],
       removed_rules: [],
+      relearned_rules: [],
       clues: [
         {
           matter: "client reply",
@@ -134,7 +167,7 @@ describe("proactive dreaming", () => {
     }));
     await dreamProactiveGuideline(owner, store, { request });
     expect(saved[0]?.guideline).toMatchObject({
-      specific: ["client contracts → track for follow-up"],
+      rules: [{ text: "client contracts → track for follow-up" }],
       clues: [{ leaning: "track_for_follow_up" }],
     });
     const input = request.mock.calls[0] as unknown as [
@@ -181,21 +214,28 @@ describe("proactive dreaming", () => {
   it("bounds the rules", () => {
     const rules = Array.from({ length: 30 }, (_, index) => `rule ${index}`);
     const next = nextGuideline(
-      { version: 3, specific: [], clues: [] },
-      { specific: rules, removed_rules: [], clues: [], change_note: "" },
+      defaultGuideline(),
+      {
+        specific: rules,
+        removed_rules: [],
+        relearned_rules: [],
+        clues: [],
+        change_note: "",
+      },
       "2026-10-19",
+      now,
     );
-    expect(next.version).toBe(4);
-    expect(next.specific).toHaveLength(maxSpecificRules);
+    expect(next.version).toBe(2);
+    expect(next.rules).toHaveLength(maxSpecificRules);
   });
 
   it("drops a rule only when the answer names it as removed", () => {
     const current = {
       ...defaultGuideline(),
-      specific: [
-        "guitar → remind directly",
-        "marketing email → stay silent",
-        "NAS shopping → stay silent",
+      rules: [
+        rule("r1", "guitar → remind directly"),
+        rule("r2", "marketing email → stay silent"),
+        rule("r3", "NAS shopping → stay silent"),
       ],
     };
     const next = nextGuideline(
@@ -203,16 +243,149 @@ describe("proactive dreaming", () => {
       {
         specific: ["home storage → stay silent"],
         removed_rules: ["NAS shopping → stay silent"],
+        relearned_rules: [],
         clues: [],
         change_note: "",
       },
       "2026-10-24",
+      now,
+      () => "r4",
     );
-    expect(next.specific).toEqual([
-      "home storage → stay silent",
-      "guitar → remind directly",
-      "marketing email → stay silent",
+    expect(
+      next.rules.map(({ id, text, status }) => [id, text, status]),
+    ).toEqual([
+      ["r1", "guitar → remind directly", "active"],
+      ["r2", "marketing email → stay silent", "active"],
+      ["r4", "home storage → stay silent", "shadow"],
     ]);
+  });
+
+  it("never removes or rewrites a rule the Human pinned, wrote or granted a mandate on", () => {
+    const pinned = {
+      ...rule("r1", "client replies → remind directly"),
+      pinned: true,
+    };
+    const granted = {
+      ...rule("r5", "contract changes → remind directly"),
+      mandate: "create_and_delegate" as const,
+    };
+    const own = {
+      ...rule("r2", "invoices → track for follow-up"),
+      source: "user" as const,
+    };
+    const shadow = {
+      ...rule("r3", "newsletters → stay silent"),
+      status: "shadow" as const,
+      promoted_at: null,
+    };
+    const next = nextGuideline(
+      {
+        version: 5,
+        rules: [pinned, own, granted, shadow],
+        deleted_rules: [],
+        clues: [],
+      },
+      {
+        specific: ["client matters → remind directly"],
+        removed_rules: [pinned.text, own.text, granted.text, shadow.text],
+        relearned_rules: [],
+        clues: [],
+        change_note: "",
+      },
+      "2026-10-24",
+      now,
+      () => "r4",
+    );
+    expect(next.rules.slice(0, 3)).toEqual([pinned, own, granted]);
+    expect(next.rules[3]).toMatchObject({
+      id: "r4",
+      text: "client matters → remind directly",
+      status: "shadow",
+      guideline_version: 6,
+      mandate: "none",
+    });
+    expect(next.rules).toHaveLength(4);
+  });
+
+  it("does not learn a deleted rule again without new feedback", () => {
+    const deleted = {
+      text: "news → stay silent",
+      deleted_at: "2026-10-20T08:00:00Z",
+    };
+    const current: Guideline = {
+      ...defaultGuideline(),
+      deleted_rules: [deleted],
+    };
+    const answer = {
+      specific: ["news → stay silent", "chores → track for follow-up"],
+      removed_rules: [],
+      relearned_rules: [],
+      clues: [],
+      change_note: "",
+    };
+    const quiet = nextGuideline(current, answer, "2026-10-24", now);
+    expect(quiet.rules.map(({ text }) => text)).toEqual([
+      "chores → track for follow-up",
+    ]);
+    expect(quiet.deleted_rules).toEqual([deleted]);
+    // Naming a rule that was never deleted relearns nothing.
+    expect(
+      nextGuideline(
+        current,
+        { ...answer, relearned_rules: ["chores → track for follow-up"] },
+        "2026-10-24",
+        now,
+      ).deleted_rules,
+    ).toEqual([deleted]);
+    const asked = nextGuideline(
+      current,
+      { ...answer, relearned_rules: [" news → stay silent "] },
+      "2026-10-24",
+      now,
+    );
+    expect(asked.rules.map(({ text, status }) => [text, status])).toEqual([
+      ["news → stay silent", "shadow"],
+      ["chores → track for follow-up", "shadow"],
+    ]);
+    expect(asked.deleted_rules).toEqual([]);
+  });
+
+  it("tells the model which rules are fixed and which were deleted", async () => {
+    const pinned = {
+      ...rule("r1", "client replies → remind directly"),
+      pinned: true,
+    };
+    const shadow = {
+      ...rule("r2", "newsletters → stay silent"),
+      status: "shadow" as const,
+      promoted_at: null,
+    };
+    const { store } = memoryStore([reminder], {
+      version: 4,
+      rules: [pinned, shadow],
+      deleted_rules: [
+        { text: "news → stay silent", deleted_at: "2026-10-18T08:00:00Z" },
+      ],
+      clues: [],
+    });
+    const request = vi.fn(async () => ({
+      specific: [],
+      removed_rules: [],
+      relearned_rules: [],
+      clues: [],
+      change_note: "",
+    }));
+    await dreamProactiveGuideline(owner, store, { request });
+    const input = request.mock.calls[0] as unknown as [
+      { user: string; system: string },
+    ];
+    const prompt = JSON.parse(input[0].user);
+    expect(prompt.specific_rules).toEqual([
+      { text: pinned.text, status: "active", fixed: true },
+      { text: shadow.text, status: "shadow", fixed: false },
+    ]);
+    expect(prompt.deleted_rules).toEqual(["news → stay silent"]);
+    expect(input[0].system).toContain("relearned_rules");
   });
 
   it("keeps one recent clue per matter and drops stale ones", () => {
@@ -235,6 +408,7 @@ describe("proactive dreaming", () => {
       {
         specific: [],
         removed_rules: [],
+        relearned_rules: [],
         clues: [
           clue("prototype quote", "2026-10-01"),
           clue("CNC lead time", "2026-10-18"),
@@ -245,6 +419,7 @@ describe("proactive dreaming", () => {
         change_note: "",
       },
       "2026-10-19",
+      now,
     );
     expect(clues).toHaveLength(maxClues);
     expect(

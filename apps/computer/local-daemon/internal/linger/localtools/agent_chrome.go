@@ -610,7 +610,7 @@ func (c *cuaSession) agentChromeTabsAndTitle(ctx context.Context, pid int, windo
 		slog.Warn("agent_browser.tabs_unread", "pid", pid, "window_id", window, "truncated", state.Structured.Truncated, "error", err)
 		return 0, "", ""
 	}
-	count, close := tabStrip(state.Structured.Tree)
+	count, closeButton := tabStrip(state.Structured.Tree)
 	if count == 0 && strings.Contains(state.Structured.Tree, "id=WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD") {
 		// Safari hides its tab strip while a window has one tab.
 		count = 1
@@ -618,14 +618,14 @@ func (c *cuaSession) agentChromeTabsAndTitle(ctx context.Context, pid int, windo
 	if count == 0 && state.Structured.Degraded != "" {
 		slog.Warn("agent_browser.tabs_unread", "pid", pid, "window_id", window, "reason", state.Structured.Degraded)
 	}
-	return count, state.Structured.Title, close
+	return count, state.Structured.Title, closeButton
 }
 
 // tabStrip counts the tab rows of a browser window's tree, each a radio
 // button outside the page that holds a button, its Close button, and returns
 // the label of that button, which follows the user's language; it is empty
 // for a Safari tab, which has none.
-func tabStrip(tree string) (count int, close string) {
+func tabStrip(tree string) (count int, closeButton string) {
 	rows := strings.Split(tree, "\n")
 	indent := func(row string) int { return len(row) - len(strings.TrimLeft(row, " ")) }
 	// web is the indent of the page being skipped, or -1: a radio button
@@ -658,14 +658,14 @@ func tabStrip(tree string) (count int, close string) {
 			}
 			if trimmed := strings.TrimSpace(next); strings.Contains(trimmed, "] AXButton") && strings.HasSuffix(trimmed, "[actions=[press]]") {
 				count++
-				if _, label, ok := strings.Cut(trimmed, "] AXButton \""); ok && close == "" {
-					close, _, _ = strings.Cut(label, "\"")
+				if _, label, ok := strings.Cut(trimmed, "] AXButton \""); ok && closeButton == "" {
+					closeButton, _, _ = strings.Cut(label, "\"")
 				}
 				break
 			}
 		}
 	}
-	return count, close
+	return count, closeButton
 }
 
 // agentChromeWindowTitle returns the title list_windows gives window, which
@@ -804,7 +804,7 @@ func (c *cuaSession) recordAgentChromeTabs(ctx context.Context, pid, window any,
 	if !ok || before == 0 {
 		return ""
 	}
-	got, front, close := c.settledAgentChromeTabs(ctx, number, id, full, before)
+	got, front, closeButton := c.settledAgentChromeTabs(ctx, number, id, full, before)
 	if got == 0 {
 		return ""
 	}
@@ -817,10 +817,10 @@ func (c *cuaSession) recordAgentChromeTabs(ctx context.Context, pid, window any,
 		// closed behind it may be someone else's, since the check before
 		// the input reads the strip only when the front tab changed.
 		return fmt.Sprintf("The window now has %d tab(s), %d before this input; the tab in front still shows %q.", got, before, front)
-	case got > before && close != "":
+	case got > before && closeButton != "":
 		// The tab strip follows the page in the tree, past the default
 		// walk, so the Agent's search for the button came back empty.
-		return fmt.Sprintf("This input opened %d new tab(s); the one in front shows %q. To go back, close it with the %q button inside its tab: the tab strip follows the page in the tree, so read it with get_window_state query %q and max_elements 6000, or app.getState with the same in a script.", got-before, front, close, close)
+		return fmt.Sprintf("This input opened %d new tab(s); the one in front shows %q. To go back, close it with the %q button inside its tab: the tab strip follows the page in the tree, so read it with get_window_state query %q and max_elements 6000, or app.getState with the same in a script.", got-before, front, closeButton, closeButton)
 	case got > before:
 		return fmt.Sprintf("This input opened %d new tab(s); the one in front shows %q.", got-before, front)
 	case got < before:
@@ -841,24 +841,24 @@ func (c *cuaSession) settledAgentChromeTabs(ctx context.Context, number int, id 
 	if full {
 		depth = 0
 	}
-	got, title, close := c.agentChromeTabsAndTitle(ctx, number, id, depth)
+	got, title, closeButton := c.agentChromeTabsAndTitle(ctx, number, id, depth)
 	if (got == 0 || got < before) && depth > 0 {
 		// A strip deeper than the bound, as in a browser laid out otherwise,
 		// reads as no tabs, and one split across the bound as fewer. A
 		// closed tab is rare, so proving it with a whole read costs little.
 		depth = 0
-		got, title, close = c.agentChromeTabsAndTitle(ctx, number, id, depth)
+		got, title, closeButton = c.agentChromeTabsAndTitle(ctx, number, id, depth)
 	}
 	for range 3 {
 		if got == 0 || sleepContext(ctx, inputSettle) != nil {
 			break
 		}
 		next, nextTitle, nextClose := c.agentChromeTabsAndTitle(ctx, number, id, depth)
-		title, close = nextTitle, nextClose
+		title, closeButton = nextTitle, nextClose
 		if next == got {
 			break
 		}
 		got = next
 	}
-	return got, title, close
+	return got, title, closeButton
 }

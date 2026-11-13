@@ -12,13 +12,181 @@ components:
     ProactiveGuideline:
       type: object
       additionalProperties: false
-      required: [version, threshold, specific]
+      required: [version, rules, shadow_rules, mandate_rules]
+      description: What one judgment reads of the Human's own rules.
       properties:
-        version: { type: integer }
-        threshold: { type: number, minimum: 0, maximum: 1 }
-        specific:
+        version: { type: integer, minimum: 1 }
+        rules:
           type: array
-          items: { type: string }
+          maxItems: 20
+          description: Active rules; they decide.
+          items: { type: string, minLength: 1, maxLength: 200 }
+        shadow_rules:
+          type: array
+          maxItems: 20
+          description: Shadow rules; they do not decide, and the Run records where one would have decided differently.
+          items: { $ref: "#/components/schemas/ProactiveShadowRule" }
+        mandate_rules:
+          type: array
+          maxItems: 20
+          description: Active rules under which the Human allows Another Me to create a Work Item, or create and delegate it.
+          items: { $ref: "#/components/schemas/ProactiveMandateRule" }
+    ProactiveMandate:
+      type: string
+      enum: [none, create, create_and_delegate]
+      description: What the Human allows Another Me to do beyond reminding when a rule applies. Only the Human sets it, on an active rule; nightly learning never does.
+    ProactiveMandateStrength:
+      type: string
+      enum: [create, create_and_delegate]
+    ProactiveMandateRule:
+      type: object
+      additionalProperties: false
+      required: [id, text, mandate]
+      properties:
+        id: { $ref: "#/components/schemas/ProactiveRuleId" }
+        text: { type: string, minLength: 1, maxLength: 200 }
+        mandate: { $ref: "#/components/schemas/ProactiveMandateStrength" }
+    ProactiveShadowRule:
+      type: object
+      additionalProperties: false
+      required: [id, text]
+      properties:
+        id: { $ref: "#/components/schemas/ProactiveRuleId" }
+        text: { type: string, minLength: 1, maxLength: 200 }
+    ProactiveRuleId:
+      type: string
+      pattern: "^pr_[a-f0-9]{32}$"
+    ProactiveAction:
+      type: string
+      enum: [notify, track, silent]
+      description: notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+    ProactiveRule:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          id,
+          text,
+          status,
+          pinned,
+          source,
+          created_at,
+          promoted_at,
+          guideline_version,
+          mandate,
+        ]
+      properties:
+        id: { $ref: "#/components/schemas/ProactiveRuleId" }
+        text: { type: string, minLength: 1, maxLength: 200 }
+        status:
+          type: string
+          enum: [shadow, active]
+          description: Only active rules decide. Newly learned rules start as shadow until the Human promotes them.
+        pinned:
+          type: boolean
+          description: Nightly learning never removes or rewrites a pinned rule.
+        source:
+          type: string
+          enum: [learned, user]
+          description: user once the Human edited the rule; nightly learning never removes or rewrites it.
+        created_at: { type: string, format: date-time }
+        promoted_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the rule became active; null while it is shadow.
+        guideline_version:
+          type: integer
+          minimum: 1
+          description: The guideline version that first held the rule as written.
+        mandate: { $ref: "#/components/schemas/ProactiveMandate" }
+    ProactiveClue:
+      type: object
+      additionalProperties: false
+      required: [matter, kind, time, leaning, seen, last_seen]
+      description: An observation nightly learning keeps until it is strong enough to become a rule; clues never decide.
+      properties:
+        matter: { type: string }
+        kind: { type: string }
+        time: { type: string, nullable: true }
+        leaning:
+          {
+            type: string,
+            enum: [remind_directly, track_for_follow_up, stay_silent],
+          }
+        seen: { type: integer, minimum: 1 }
+        last_seen: { type: string, format: date }
+    ProactiveShadowDivergence:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          id,
+          rule_id,
+          guideline_version,
+          matter,
+          shadow_action,
+          taken_action,
+          created_at,
+        ]
+      description: One matter a judgment handled differently from what a shadow rule would have done.
+      properties:
+        id: { type: string, pattern: "^psd_[a-f0-9]{32}$" }
+        rule_id: { $ref: "#/components/schemas/ProactiveRuleId" }
+        guideline_version: { type: integer, minimum: 1 }
+        matter: { type: string, minLength: 1, maxLength: 300 }
+        shadow_action: { $ref: "#/components/schemas/ProactiveAction" }
+        taken_action: { $ref: "#/components/schemas/ProactiveAction" }
+        created_at: { type: string, format: date-time }
+    ProactiveRuleBook:
+      type: object
+      additionalProperties: false
+      required: [version, rules, clues, divergences, mandates]
+      properties:
+        version: { type: integer, minimum: 1 }
+        rules:
+          type: array
+          maxItems: 20
+          items: { $ref: "#/components/schemas/ProactiveRule" }
+        clues:
+          type: array
+          maxItems: 20
+          items: { $ref: "#/components/schemas/ProactiveClue" }
+        divergences:
+          type: array
+          maxItems: 50
+          description: The latest shadow divergences, newest first.
+          items: { $ref: "#/components/schemas/ProactiveShadowDivergence" }
+        mandates:
+          type: array
+          maxItems: 50
+          description: The latest Work Items Another Me created under the Human's mandates, newest first.
+          items: { $ref: "#/components/schemas/ProactiveRuleMandate" }
+    ProactiveRulePinRequest:
+      type: object
+      additionalProperties: false
+      required: [pinned]
+      properties:
+        pinned: { type: boolean }
+    ProactiveRuleEditRequest:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text: { type: string, minLength: 1, maxLength: 200 }
+    ProactiveShadowDivergenceRecord:
+      type: object
+      additionalProperties: false
+      required: [rule_id, matter, shadow_action, taken_action]
+      properties:
+        rule_id: { $ref: "#/components/schemas/ProactiveRuleId" }
+        matter:
+          type: string
+          minLength: 1
+          maxLength: 300
+          description: The matter in a few words, as the Human would recognize it.
+        shadow_action: { $ref: "#/components/schemas/ProactiveAction" }
+        taken_action: { $ref: "#/components/schemas/ProactiveAction" }
     ProactiveOpenItem:
       type: object
       additionalProperties: false
@@ -70,3 +238,131 @@ components:
           minLength: 1
           maxLength: 20000
           description: Hidden wake text after the @AnotherMe reference. It goes out once the Room is quiet for three minutes.
+    ProactiveRuleMandateRequest:
+      type: object
+      additionalProperties: false
+      required: [mandate]
+      properties:
+        mandate: { $ref: "#/components/schemas/ProactiveMandate" }
+    WorkItemMandate:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          owner_actor_id,
+          rule_id,
+          rule_text,
+          guideline_version,
+          event_source,
+          event_external_id,
+          strength,
+          revoked,
+          recorded_at,
+        ]
+      description: >-
+        The authority under which Another Me created a Work Item: one of its Human's active rules as it
+        stood in the guideline version it judged by, and the outside event it acted on. The record never
+        changes; revoked is true once the Human's current rules no longer grant its strength.
+      properties:
+        owner_actor_id: { type: string }
+        rule_id: { $ref: "#/components/schemas/ProactiveRuleId" }
+        rule_text: { type: string, minLength: 1, maxLength: 200 }
+        guideline_version: { type: integer, minimum: 1 }
+        event_source: { type: string, minLength: 1, maxLength: 100 }
+        event_external_id: { type: string, minLength: 1, maxLength: 500 }
+        strength: { $ref: "#/components/schemas/ProactiveMandateStrength" }
+        revoked: { type: boolean }
+        recorded_at: { type: string, format: date-time }
+    ProactiveRuleMandate:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          owner_actor_id,
+          rule_id,
+          rule_text,
+          guideline_version,
+          event_source,
+          event_external_id,
+          strength,
+          revoked,
+          recorded_at,
+          work_item_id,
+          number,
+          title,
+        ]
+      description: One Work Item Another Me created under a mandate.
+      properties:
+        owner_actor_id: { type: string }
+        rule_id: { $ref: "#/components/schemas/ProactiveRuleId" }
+        rule_text: { type: string, minLength: 1, maxLength: 200 }
+        guideline_version: { type: integer, minimum: 1 }
+        event_source: { type: string, minLength: 1, maxLength: 100 }
+        event_external_id: { type: string, minLength: 1, maxLength: 500 }
+        strength: { $ref: "#/components/schemas/ProactiveMandateStrength" }
+        revoked: { type: boolean }
+        recorded_at: { type: string, format: date-time }
+        work_item_id: { type: string }
+        number: { type: integer, format: int64, minimum: 1 }
+        title: { type: string }
+    ProactiveActRequest:
+      type: object
+      additionalProperties: false
+      required:
+        [rule_id, event_source, event_external_id, title, brief, delegate]
+      properties:
+        rule_id: { $ref: "#/components/schemas/ProactiveRuleId" }
+        event_source:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: The outside event's source, as the wake names it.
+        event_external_id:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: The outside event's ID in its source, as the wake names it.
+        title: { type: string, minLength: 1, maxLength: 120 }
+        brief:
+          type: string
+          minLength: 1
+          maxLength: 20000
+          description: What needs doing; the Work Item description, or the delegated Task's requirement.
+        delegate:
+          type: boolean
+          description: Delegate the work as a Task to the caller's own AlterEgo; needs a create_and_delegate mandate.
+    ProactiveActResult:
+      type: object
+      additionalProperties: false
+      required: [work_item_id, strength, replay]
+      properties:
+        work_item_id: { type: string }
+        strength: { $ref: "#/components/schemas/ProactiveMandateStrength" }
+        replay:
+          type: boolean
+          description: True when this rule already acted on this event; the first act's Work Item is returned.
+    HerdrAgentEventReport:
+      type: object
+      additionalProperties: false
+      required: [computer_id, kind, pane_id, state_change_seq]
+      properties:
+        computer_id:
+          type: string
+          pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        kind:
+          type: string
+          enum: [agent_blocked, agent_finished]
+        pane_id: { type: string, minLength: 1, maxLength: 128 }
+        state_change_seq:
+          type: integer
+          format: int64
+          minimum: 0
+          description: herdr's per-pane state change counter; with pane_id it names one state of one pane.
+        agent: { type: string, maxLength: 120 }
+        name: { type: string, maxLength: 120 }
+        cwd: { type: string, maxLength: 4096 }
+        title: { type: string, maxLength: 500 }
+        tail:
+          type: string
+          maxLength: 8000
+          description: The last lines of the pane, with obvious secrets redacted on the Computer.

@@ -327,6 +327,14 @@ async function respond(request: Request): Promise<Response> {
       message_id: "message_card",
       interaction_id: "interaction_one",
     });
+  if (endpoint.endsWith("/computer/herdr/ask"))
+    return Response.json({
+      status: "asked",
+      computer_id: "computer_one",
+      room_id: "room_one",
+      message_id: "message_card",
+      interaction_id: "interaction_one",
+    });
   if (endpoint.endsWith("/computer/permissions/status"))
     return Response.json({
       computer_id: "computer_one",
@@ -357,6 +365,22 @@ async function respond(request: Request): Promise<Response> {
     return Response.json({ connections: [autoReminders] });
   if (endpoint.endsWith("/apps/auto-reminders/set"))
     return Response.json(autoReminders);
+  if (endpoint.endsWith("/proactive/acts"))
+    return Response.json({
+      work_item_id: "workitem_one",
+      strength: "create",
+      replay: false,
+    });
+  if (endpoint.endsWith("/proactive/shadow-divergences"))
+    return Response.json({
+      id: "psd_0123456789abcdef0123456789abcdef",
+      rule_id: "pr_0123456789abcdef0123456789abcdef",
+      guideline_version: 2,
+      matter: "AWS invoice",
+      shadow_action: "track",
+      taken_action: "notify",
+      created_at: "2026-11-01T08:00:00Z",
+    });
   if (endpoint.endsWith("/apps/tools/search"))
     return Response.json({ tools: [] });
   if (endpoint.endsWith("/apps/tools/execute"))

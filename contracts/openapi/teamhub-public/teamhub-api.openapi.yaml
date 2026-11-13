@@ -43,6 +43,8 @@ tags:
     description: Account-owned provider connections and deterministic imports into product-owned inputs.
   - name: Personal Profile
     description: Human-private Profile revisions and explicit supplement generations.
+  - name: My Rules
+    description: The Human's own Another Me rules, learned from their replies or written by them.
   - name: Pocket Notes
     description: Human-private daily scratch pages opened from the Another Me avatar.
   - name: Work Items
@@ -4679,6 +4681,149 @@ paths:
         '204':
           description: The page no longer shows to its Human, their Agents, or later Daily runs.
         '400': { $ref: '../components/common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: '../components/common.yaml#/components/responses/Unauthenticated' }
+        '404': { $ref: '../components/common.yaml#/components/responses/NotFound' }
+  /v0/tenants/{tenantId}/me/proactive-rules:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    get:
+      tags: [My Rules]
+      operationId: listProactiveRules
+      summary: List the authenticated Human's own Another Me rules, the clues not yet strong enough to be rules, and recent shadow divergences.
+      description: Only active rules decide what Another Me does. A newly learned rule starts as shadow; judgments record where it would have decided differently until the Human promotes it.
+      responses:
+        '200':
+          description: The Human's rules.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/proactive.yaml#/components/schemas/ProactiveRuleBook'
+        '401': { $ref: '../components/common.yaml#/components/responses/Unauthenticated' }
+        '404': { $ref: '../components/common.yaml#/components/responses/NotFound' }
+  /v0/tenants/{tenantId}/me/proactive-rules/{ruleId}:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+      - name: ruleId
+        in: path
+        required: true
+        schema:
+          $ref: '../components/proactive.yaml#/components/schemas/ProactiveRuleId'
+    patch:
+      tags: [My Rules]
+      operationId: editProactiveRule
+      summary: Rewrite one rule's text.
+      description: The rule becomes the Human's own, so nightly learning never removes or rewrites it. Its status is kept.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../components/proactive.yaml#/components/schemas/ProactiveRuleEditRequest'
+      responses:
+        '200':
+          description: The Human's rules after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/proactive.yaml#/components/schemas/ProactiveRuleBook'
+        '400': { $ref: '../components/common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: '../components/common.yaml#/components/responses/Unauthenticated' }
+        '404': { $ref: '../components/common.yaml#/components/responses/NotFound' }
+    delete:
+      tags: [My Rules]
+      operationId: deleteProactiveRule
+      summary: Delete one rule.
+      description: Nightly learning does not learn the deleted rule again unless new replies ask for it.
+      responses:
+        '200':
+          description: The Human's rules after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/proactive.yaml#/components/schemas/ProactiveRuleBook'
+        '401': { $ref: '../components/common.yaml#/components/responses/Unauthenticated' }
+        '404': { $ref: '../components/common.yaml#/components/responses/NotFound' }
+  /v0/tenants/{tenantId}/me/proactive-rules/{ruleId}/pin:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+      - name: ruleId
+        in: path
+        required: true
+        schema:
+          $ref: '../components/proactive.yaml#/components/schemas/ProactiveRuleId'
+    put:
+      tags: [My Rules]
+      operationId: updateProactiveRulePin
+      summary: Pin or unpin one rule.
+      description: Nightly learning never removes or rewrites a pinned rule.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../components/proactive.yaml#/components/schemas/ProactiveRulePinRequest'
+      responses:
+        '200':
+          description: The Human's rules after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/proactive.yaml#/components/schemas/ProactiveRuleBook'
+        '400': { $ref: '../components/common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: '../components/common.yaml#/components/responses/Unauthenticated' }
+        '404': { $ref: '../components/common.yaml#/components/responses/NotFound' }
+  /v0/tenants/{tenantId}/me/proactive-rules/{ruleId}/mandate:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+      - name: ruleId
+        in: path
+        required: true
+        schema:
+          $ref: '../components/proactive.yaml#/components/schemas/ProactiveRuleId'
+    put:
+      tags: [My Rules]
+      operationId: updateProactiveRuleMandate
+      summary: Set what Another Me may do beyond reminding when one active rule applies.
+      description: >-
+        create lets Another Me create a Work Item for a matching outside event; create_and_delegate also
+        lets it delegate that work as a Task to its AlterEgo. Lowering the mandate, or deleting the rule,
+        revokes it for later acts; Work Items already created keep their Mandate record. A shadow rule
+        carries none until it is promoted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../components/proactive.yaml#/components/schemas/ProactiveRuleMandateRequest'
+      responses:
+        '200':
+          description: The Human's rules after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/proactive.yaml#/components/schemas/ProactiveRuleBook'
+        '400': { $ref: '../components/common.yaml#/components/responses/BadRequest' }
+        '401': { $ref: '../components/common.yaml#/components/responses/Unauthenticated' }
+        '404': { $ref: '../components/common.yaml#/components/responses/NotFound' }
+  /v0/tenants/{tenantId}/me/proactive-rules/{ruleId}/promotion:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+      - name: ruleId
+        in: path
+        required: true
+        schema:
+          $ref: '../components/proactive.yaml#/components/schemas/ProactiveRuleId'
+    post:
+      tags: [My Rules]
+      operationId: promoteProactiveRule
+      summary: Promote one shadow rule to active, so it decides from the next judgment on.
+      responses:
+        '200':
+          description: The Human's rules after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/proactive.yaml#/components/schemas/ProactiveRuleBook'
         '401': { $ref: '../components/common.yaml#/components/responses/Unauthenticated' }
         '404': { $ref: '../components/common.yaml#/components/responses/NotFound' }
   /v0/tenants/{tenantId}/me/meetings/{captureSessionId}:

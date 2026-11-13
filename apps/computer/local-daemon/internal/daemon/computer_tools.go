@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/herdr"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/localtools"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/transport"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/protocol"
@@ -69,6 +70,8 @@ func (d *Daemon) handleComputerTool(ctx context.Context, stream transport.Stream
 			}
 		case "playground":
 			result, err = d.callPlayground(callCtx, command.TenantID, command.AgentID, request.Name, request.Arguments)
+		case "herdr":
+			result, err = d.callHerdr(callCtx, request.Name, request.Arguments)
 		}
 		if failure := localtools.BrowserCallNotRun(err); failure != "" {
 			// Nothing ran: the owner's Chrome is not connected or is busy.
@@ -102,4 +105,49 @@ func liveBrowserResult(data json.RawMessage) (map[string]any, error) {
 	}
 	result["status"] = "ok"
 	return result, nil
+}
+
+// callHerdr answers a blocked herdr agent pane. Only TeamHub calls it, with
+// the owner's answer from an answered question card bound to that pane state;
+// no Agent tool reaches it.
+func (d *Daemon) callHerdr(ctx context.Context, name string, arguments json.RawMessage) (map[string]any, error) {
+	var request struct {
+		PaneID         string `json:"pane_id"`
+		StateChangeSeq uint64 `json:"state_change_seq"`
+		Text           string `json:"text"`
+	}
+	if name != "answer" || !decodes(arguments, &request) || request.PaneID == "" {
+		return map[string]any{"status": herdr.AnswerInvalid}, nil
+	}
+	if d.herdrPanes == nil {
+		return map[string]any{"status": herdr.AnswerUnavailable}, nil
+	}
+	status, err := d.herdrPanes.Answer(ctx, request.PaneID, request.StateChangeSeq, request.Text)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"status": status}, nil
+}
+
+// PublishHerdrEvent reports a herdr agent pane event on the live connection.
+// Without one the event is dropped; the next state change is reported anew.
+func (d *Daemon) PublishHerdrEvent(ctx context.Context, event herdr.Event) error {
+	d.connectionMu.Lock()
+	stream := d.diagnosticsStream
+	d.connectionMu.Unlock()
+	if stream == nil {
+		return errors.New("Runner Gateway is not connected")
+	}
+	payload, err := json.Marshal(wire.RunnerHerdrEvent{
+		Type: wire.TypeRunnerHerdrEvent, ProtocolVersion: protocol.Version, RunnerID: d.computerID,
+		SentAt: d.now().UTC().Format(time.RFC3339Nano),
+		Event: wire.HerdrAgentEvent{
+			Kind: event.Kind, PaneID: event.PaneID, StateChangeSeq: event.StateChangeSeq, Agent: event.Agent,
+			Name: event.Name, Cwd: event.Cwd, Title: event.Title, Tail: event.Tail,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	return stream.Send(ctx, protocol.Event{Type: protocol.EventHerdrAgent, ProtocolVersion: protocol.Version, RunnerID: d.computerID, Payload: payload})
 }

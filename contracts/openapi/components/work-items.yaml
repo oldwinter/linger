@@ -158,6 +158,9 @@ components:
         task_execution:
           $ref: "#/components/schemas/WorkItemTaskExecutionSummary"
           description: Current PostgreSQL-authoritative execution projection for a Task.
+        mandate:
+          $ref: "./proactive.yaml#/components/schemas/WorkItemMandate"
+          description: Set when Another Me created the Work Item under one of its Human's rules.
         archived_at:
           $ref: "./common.yaml#/components/schemas/Timestamp"
         created_at:
@@ -438,6 +441,7 @@ components:
         - work_room_created
         - execution_control_requested
         - task_recovery_decision
+        - mandate_recorded
     WorkItemActivity:
       type: object
       additionalProperties: false
@@ -468,7 +472,7 @@ components:
             Restricted activity-specific audit details. execution_control_requested includes
             action, control_revision, source_kind, source_id, and optional reason;
             task_recovery_decision includes action, generation, intervention identity/version, and
-            source_kind.
+            source_kind; mandate_recorded includes the WorkItemMandate fields it was recorded with.
         occurred_at:
           $ref: "./common.yaml#/components/schemas/Timestamp"
     WorkItemCommentTimelineEntry:

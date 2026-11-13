@@ -28,6 +28,7 @@ func (a *App) agentAPIRoutes() []contractRoute {
 		route(http.MethodPost, "/api/agent/v1/apps/tools/search", nil, a.searchAgentConnectedAppTools),
 		route(http.MethodPost, "/api/agent/v1/available-agents", nil, a.listAvailableAgents),
 		route(http.MethodPost, "/api/agent/v1/computer/browser-connection", nil, a.requestAgentBrowserConnection),
+		route(http.MethodPost, "/api/agent/v1/computer/herdr/ask", nil, a.askAgentHerdrPane),
 		route(http.MethodPost, "/api/agent/v1/computer/permissions/request", nil, a.requestAgentComputerPermissions),
 		route(http.MethodPost, "/api/agent/v1/computer/permissions/status", nil, a.getAgentComputerPermissions),
 		route(http.MethodPost, "/api/agent/v1/creation-approval-requests", nil, a.submitAgentCreationApprovalRequest),
@@ -67,6 +68,8 @@ func (a *App) agentAPIRoutes() []contractRoute {
 		route(http.MethodPost, "/api/agent/v1/tracking-items/done", nil, a.completeAgentTrackingItem),
 		route(http.MethodPost, "/api/agent/v1/tracking-items/list", nil, a.listAgentTrackingItems),
 		route(http.MethodPost, "/api/agent/v1/tracking-items/update", nil, a.updateAgentTrackingItem),
+		route(http.MethodPost, "/api/agent/v1/proactive/shadow-divergences", nil, a.recordProactiveShadowDivergence),
+		route(http.MethodPost, "/api/agent/v1/proactive/acts", nil, a.actUnderProactiveMandate),
 		route(http.MethodPost, "/api/agent/v1/user-questions", nil, a.askAgentUser),
 	}
 }

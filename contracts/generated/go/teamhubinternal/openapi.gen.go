@@ -752,6 +752,24 @@ func (e FinishAgentLocalRunRequestTerminalType) Valid() bool {
 	}
 }
 
+// Defines values for HerdrAgentEventReportKind.
+const (
+	AgentBlocked  HerdrAgentEventReportKind = "agent_blocked"
+	AgentFinished HerdrAgentEventReportKind = "agent_finished"
+)
+
+// Valid indicates whether the value is a known member of the HerdrAgentEventReportKind enum.
+func (e HerdrAgentEventReportKind) Valid() bool {
+	switch e {
+	case AgentBlocked:
+		return true
+	case AgentFinished:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for LocalRuntimeType.
 const (
 	LocalRuntimeTypeClaude LocalRuntimeType = "claude"
@@ -902,6 +920,24 @@ func (e PersonalWikiDocumentRevisionWikiState) Valid() bool {
 	}
 }
 
+// Defines values for ProactiveMandateStrength.
+const (
+	Create            ProactiveMandateStrength = "create"
+	CreateAndDelegate ProactiveMandateStrength = "create_and_delegate"
+)
+
+// Valid indicates whether the value is a known member of the ProactiveMandateStrength enum.
+func (e ProactiveMandateStrength) Valid() bool {
+	switch e {
+	case Create:
+		return true
+	case CreateAndDelegate:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ProactiveWindowMessageAuthor.
 const (
 	ProactiveWindowMessageAuthorAgent ProactiveWindowMessageAuthor = "agent"
@@ -980,6 +1016,30 @@ func (e RuntimePermissionActionSurface) Valid() bool {
 	case RuntimePermissionActionSurfaceShell:
 		return true
 	case RuntimePermissionActionSurfaceWeb:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RuntimePermissionEvidenceDelegationsKind.
+const (
+	AgentPrompt   RuntimePermissionEvidenceDelegationsKind = "agent_prompt"
+	AgentStart    RuntimePermissionEvidenceDelegationsKind = "agent_start"
+	ShellCommand  RuntimePermissionEvidenceDelegationsKind = "shell_command"
+	TerminalInput RuntimePermissionEvidenceDelegationsKind = "terminal_input"
+)
+
+// Valid indicates whether the value is a known member of the RuntimePermissionEvidenceDelegationsKind enum.
+func (e RuntimePermissionEvidenceDelegationsKind) Valid() bool {
+	switch e {
+	case AgentPrompt:
+		return true
+	case AgentStart:
+		return true
+	case ShellCommand:
+		return true
+	case TerminalInput:
 		return true
 	default:
 		return false
@@ -2737,6 +2797,26 @@ type GetAgentRuntimeSessionResult struct {
 	Session   *AgentRuntimeSession `json:"session,omitempty"`
 }
 
+// HerdrAgentEventReport defines model for HerdrAgentEventReport.
+type HerdrAgentEventReport struct {
+	Agent      *string                   `json:"agent,omitempty"`
+	ComputerId string                    `json:"computer_id"`
+	Cwd        *string                   `json:"cwd,omitempty"`
+	Kind       HerdrAgentEventReportKind `json:"kind"`
+	Name       *string                   `json:"name,omitempty"`
+	PaneId     string                    `json:"pane_id"`
+
+	// StateChangeSeq herdr's per-pane state change counter; with pane_id it names one state of one pane.
+	StateChangeSeq int64 `json:"state_change_seq"`
+
+	// Tail The last lines of the pane, with obvious secrets redacted on the Computer.
+	Tail  *string `json:"tail,omitempty"`
+	Title *string `json:"title,omitempty"`
+}
+
+// HerdrAgentEventReportKind defines model for HerdrAgentEventReport.Kind.
+type HerdrAgentEventReportKind string
+
 // Id Opaque, case-sensitive identifier. Clients must not infer type or time from it.
 type Id = string
 
@@ -2955,12 +3035,28 @@ type PersonalWikiDocumentRevision struct {
 // PersonalWikiDocumentRevisionWikiState The Wiki's refresh state, the same projection as the Personal Wiki state; failed publication must not be reported as completed.
 type PersonalWikiDocumentRevisionWikiState string
 
-// ProactiveGuideline defines model for ProactiveGuideline.
+// ProactiveGuideline What one judgment reads of the Human's own rules.
 type ProactiveGuideline struct {
-	Specific  []string `json:"specific"`
-	Threshold float32  `json:"threshold"`
-	Version   int      `json:"version"`
+	// MandateRules Active rules under which the Human allows Another Me to create a Work Item, or create and delegate it.
+	MandateRules []ProactiveMandateRule `json:"mandate_rules"`
+
+	// Rules Active rules; they decide.
+	Rules []string `json:"rules"`
+
+	// ShadowRules Shadow rules; they do not decide, and the Run records where one would have decided differently.
+	ShadowRules []ProactiveShadowRule `json:"shadow_rules"`
+	Version     int                   `json:"version"`
 }
+
+// ProactiveMandateRule defines model for ProactiveMandateRule.
+type ProactiveMandateRule struct {
+	Id      ProactiveRuleId          `json:"id"`
+	Mandate ProactiveMandateStrength `json:"mandate"`
+	Text    string                   `json:"text"`
+}
+
+// ProactiveMandateStrength defines model for ProactiveMandateStrength.
+type ProactiveMandateStrength string
 
 // ProactiveOpenItem defines model for ProactiveOpenItem.
 type ProactiveOpenItem struct {
@@ -2968,6 +3064,15 @@ type ProactiveOpenItem struct {
 	DueAt   *time.Time `json:"due_at,omitempty"`
 	Id      string     `json:"id"`
 	Kind    string     `json:"kind"`
+}
+
+// ProactiveRuleId defines model for ProactiveRuleId.
+type ProactiveRuleId = string
+
+// ProactiveShadowRule defines model for ProactiveShadowRule.
+type ProactiveShadowRule struct {
+	Id   ProactiveRuleId `json:"id"`
+	Text string          `json:"text"`
 }
 
 // ProactiveWakeRequest defines model for ProactiveWakeRequest.
@@ -2978,6 +3083,7 @@ type ProactiveWakeRequest struct {
 
 // ProactiveWindow defines model for ProactiveWindow.
 type ProactiveWindow struct {
+	// Guideline What one judgment reads of the Human's own rules.
 	Guideline ProactiveGuideline `json:"guideline"`
 
 	// JudgedCount Ordinary messages judged before this window; pass it back to finish the window. A window holds twenty messages unless TeamHub runs with a smaller test window.
@@ -3097,6 +3203,16 @@ type RuntimePermissionEvidence struct {
 		Url        string  `json:"url"`
 	} `json:"browser,omitempty"`
 
+	// Delegations Text a herdr command hands to a terminal pane, where it runs as the user and is not reviewed again.
+	Delegations *[]struct {
+		Agent *string `json:"agent,omitempty"`
+
+		// Kind shell_command runs in the pane's shell; terminal_input is typed into whatever program the pane runs; agent_prompt is a task for the coding agent in the pane; agent_start starts a coding agent there, and text is its native arguments.
+		Kind   RuntimePermissionEvidenceDelegationsKind `json:"kind"`
+		Target string                                   `json:"target"`
+		Text   string                                   `json:"text"`
+	} `json:"delegations,omitempty"`
+
 	// Desktop The window a desktop action targets and the elements its element tokens name in the Agent's latest read of that window.
 	Desktop *struct {
 		App     *string `json:"app,omitempty"`
@@ -3126,6 +3242,9 @@ type RuntimePermissionEvidence struct {
 		Sha256 *string `json:"sha256,omitempty"`
 	} `json:"script,omitempty"`
 }
+
+// RuntimePermissionEvidenceDelegationsKind shell_command runs in the pane's shell; terminal_input is typed into whatever program the pane runs; agent_prompt is a task for the coding agent in the pane; agent_start starts a coding agent there, and text is its native arguments.
+type RuntimePermissionEvidenceDelegationsKind string
 
 // RuntimePermissionEvidenceScreenshotMediaType defines model for RuntimePermissionEvidence.Screenshot.MediaType.
 type RuntimePermissionEvidenceScreenshotMediaType string
@@ -4093,6 +4212,9 @@ type AcceptAgentRuntimeTrustedNotificationJSONRequestBody = AcceptAgentTrustedNo
 
 // ConnectAgentRuntimeLocalComputerJSONRequestBody defines body for ConnectAgentRuntimeLocalComputer for application/json ContentType.
 type ConnectAgentRuntimeLocalComputerJSONRequestBody = ConnectAgentRuntimeLocalComputerRequest
+
+// ReportLocalComputerHerdrEventJSONRequestBody defines body for ReportLocalComputerHerdrEvent for application/json ContentType.
+type ReportLocalComputerHerdrEventJSONRequestBody = HerdrAgentEventReport
 
 // RemoveAgentRuntimeLocalComputerJSONRequestBody defines body for RemoveAgentRuntimeLocalComputer for application/json ContentType.
 type RemoveAgentRuntimeLocalComputerJSONRequestBody = AgentRuntimeLocalComputerCredentialRequest

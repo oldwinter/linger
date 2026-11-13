@@ -274,3 +274,15 @@ INSERT INTO work_item_activities(
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id, work_item_id, tenant_id, kind, actor_id, from_state, to_state,
           target_actor_id, comment_id, room_id, details, occurred_at;
+
+-- name: CreateWorkItemMandateActivity :exec
+INSERT INTO work_item_activities(id, work_item_id, tenant_id, kind, actor_id, details)
+VALUES (sqlc.arg(id)::text, sqlc.arg(work_item_id)::text, sqlc.arg(tenant_id)::text, 'mandate_recorded',
+        sqlc.arg(actor_id)::text, sqlc.arg(details)::jsonb);
+
+-- name: ListWorkItemMandatesByItems :many
+SELECT activity.work_item_id, activity.details, activity.occurred_at,
+       NOT proactive_mandate_in_force(activity.tenant_id, activity.details->>'owner_actor_id',
+                                      activity.details->>'rule_id', activity.details->>'strength') AS revoked
+FROM work_item_activities activity
+WHERE activity.kind = 'mandate_recorded' AND activity.work_item_id = ANY(sqlc.arg(work_item_ids)::text[]);

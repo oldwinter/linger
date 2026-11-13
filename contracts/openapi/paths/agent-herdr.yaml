@@ -1,0 +1,70 @@
+ask:
+  post:
+    operationId: askAgentHerdrPane
+    tags: [Agent Business API]
+    security: [{ agentBearer: [] }]
+    summary: Ask the owner of this AnotherMe's Local Computer how to answer a blocked herdr agent pane.
+    description: >-
+      Only the Computer owner's AnotherMe may ask, and only about a pane state
+      the Computer reported as blocked. TeamHub posts a question card bound to
+      that pane state for the owner. When the owner answers, TeamHub itself
+      types exactly the picked choice or the owner's written answer into the
+      pane, once, and only while the pane is still blocked on that state; the
+      asking Agent then hears the answer and whether it was delivered. The
+      Agent never supplies the text that is sent. Asking again about the same
+      pane state returns the same card.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [pane_id, state_change_seq, question, options]
+            properties:
+              pane_id: { type: string, minLength: 1, maxLength: 128 }
+              state_change_seq:
+                type: integer
+                format: int64
+                minimum: 0
+              question:
+                type: string
+                minLength: 1
+                maxLength: 2000
+                description: What the coding agent asks, as the card shows it.
+              options:
+                type: array
+                minItems: 1
+                maxItems: 20
+                description: The choices the coding agent offers; the owner may also write their own answer.
+                items: { type: string, minLength: 1, maxLength: 200 }
+    responses:
+      "200":
+        description: The question card, new or the one already asked for this pane state.
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                [status, computer_id, room_id, message_id, interaction_id]
+              properties:
+                status:
+                  type: string
+                  enum: [asked]
+                computer_id: { type: string }
+                room_id: { type: string }
+                message_id: { type: string }
+                interaction_id: { type: string }
+      "400":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/Unauthenticated"
+      "403":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/Forbidden"
+      "409":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/Conflict"
+      "503":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/ServiceUnavailable"
+      default:
+        $ref: "../components/agent-api-errors.yaml#/components/responses/InternalError"

@@ -106,3 +106,18 @@ SELECT EXISTS(
   WHERE room_id=sqlc.arg(room_id)::text AND author_actor_id=sqlc.arg(human_actor_id)::text
     AND message_kind='conversation' AND room_seq IS NOT NULL AND card_context_message_id IS NULL
 )::boolean;
+
+-- name: LockHerdrAnswerDecision :one
+-- An answered question card bound to a herdr pane, with what its delivery
+-- recorded so far and the Agent that asked.
+SELECT decision.kind, decision.tenant_id, decision.decider_actor_id, decision.status,
+       decision.request, decision.view, decision.answer, decision.result,
+       coalesce(registration.agent_management_id, '')::text AS agent_management_id
+FROM decisions decision
+JOIN agent_registrations registration
+  ON registration.actor_id=decision.requested_by_actor_id AND registration.tenant_id=decision.tenant_id
+WHERE decision.id=sqlc.arg(id)::text
+FOR UPDATE OF decision;
+
+-- name: RecordDecisionResult :exec
+UPDATE decisions SET result=sqlc.arg(result)::jsonb WHERE id=sqlc.arg(id)::text;

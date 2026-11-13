@@ -60,4 +60,4 @@ GitHub reads the connected account, its repositories, issues and pull requests a
 
 Other Connected Apps (such as Canva or Linear) have no dedicated commands and are called through `teamhub apps search/execute`.
 
-`teamhub apps connect <app-key>` asks for access to any Connected App that supports Agent tools; without an authorized account it posts an authorization card in the current chat. `teamhub apps auto-reminders list|set` lists or toggles automatic reminders for the Sponsor's own connections.
+`teamhub apps connect <app-key>` asks for access to any Connected App that supports Agent tools; without an authorized account it posts an authorization card in the current chat. `teamhub apps auto-reminders list|set` lists or toggles automatic reminders for the Sponsor's own connections. `teamhub proactive shadow-divergence` lets Another Me record, while judging a proactive wake, where one of its Human's shadow rules would have acted differently; the Human reads these in My Rules. `teamhub proactive act` lets it create a Work Item for an outside event, or delegate it as a Task, only under a mandate the Human granted on one of their rules.

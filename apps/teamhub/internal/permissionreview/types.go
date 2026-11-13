@@ -120,6 +120,9 @@ type Evidence struct {
 	Browser *BrowserEvidence `json:"browser,omitempty"`
 	// Desktop is the target window and the elements its tokens name.
 	Desktop *DesktopEvidence `json:"desktop,omitempty"`
+	// Delegations is the text a herdr command hands to terminal panes, where
+	// it runs as the user without another review.
+	Delegations []DelegationEvidence `json:"delegations,omitempty"`
 	// Missing lists facts the host could not obtain (e.g. the real workdir).
 	Missing []string `json:"missing,omitempty"`
 	// Screenshot is the screen before a GUI action, for the approver only:
@@ -161,6 +164,17 @@ type DesktopTarget struct {
 	Token string `json:"token"`
 	Role  string `json:"role"`
 	Name  string `json:"name,omitempty"`
+}
+
+// DelegationEvidence is the text one herdr command hands to a pane. Kind is
+// shell_command, terminal_input, agent_prompt, or agent_start (whose Text is
+// the started agent's native arguments); Target is the pane ID or agent name;
+// Agent is the agent kind an agent_start launches.
+type DelegationEvidence struct {
+	Kind   string `json:"kind"`
+	Target string `json:"target"`
+	Agent  string `json:"agent,omitempty"`
+	Text   string `json:"text"`
 }
 
 // Environment is small, always-included framing.

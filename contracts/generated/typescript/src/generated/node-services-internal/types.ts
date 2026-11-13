@@ -32,7 +32,7 @@ export interface paths {
     put?: never;
     /**
      * Give the rules Another Me judges one outside event by
-     * @description Another Me judges the event in its own Run with the same rules as its conversation review: tell the Human now, track it for later, or stay silent. TeamHub keeps dedupe, daily limits, quiet hours and the wake queue; this only renders the rules with the Human's learned rules and open items.
+     * @description Another Me judges the event in its own Run with the same rules as its conversation review: tell the Human now, track it for later, or stay silent. TeamHub keeps dedupe, daily limits, quiet hours and the wake queue; this only renders the rules with the Human's own active and shadow rules and open items.
      */
     post: operations["judgeProactiveEvent"];
     delete?: never;
@@ -576,7 +576,7 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Execute one authorized local browser action or Task file read without a model turn */
+    /** Execute one authorized local browser action, Task file read, or the typing of a Human's answer card into a herdr pane, without a model turn */
     post: operations["callLocalComputerTool"];
     delete?: never;
     options?: never;
@@ -629,8 +629,12 @@ export interface components {
       previous_cursor?: string;
     };
     ProactiveEventJudgeRequest: {
-      /** @description The Human's learned specific rules. */
-      specific: string[];
+      /** @description The Human's own active rules; they decide. */
+      rules: string[];
+      /** @description The Human's shadow rules; they do not decide, and the Run records where one would have decided differently. */
+      shadowRules: components["schemas"]["ProactiveShadowRule"][];
+      /** @description The Human's active rules under which Another Me may create a Work Item, or create and delegate it. */
+      mandateRules: components["schemas"]["ProactiveMandateRule"][];
       /** @description The Human's open Tracking Items. */
       openItems: {
         content: string;
@@ -1192,7 +1196,7 @@ export interface components {
       agent_id: string;
       tool_session_id: string;
       /** @enum {string} */
-      server: "browser" | "playground";
+      server: "browser" | "playground" | "herdr";
       tool_name: string;
       arguments: {
         [key: string]: unknown;
@@ -1316,6 +1320,18 @@ export interface components {
     };
     ErrorResponse: {
       error: components["schemas"]["Error"];
+    };
+    ProactiveRuleId: string;
+    ProactiveShadowRule: {
+      id: components["schemas"]["ProactiveRuleId"];
+      text: string;
+    };
+    /** @enum {string} */
+    ProactiveMandateStrength: "create" | "create_and_delegate";
+    ProactiveMandateRule: {
+      id: components["schemas"]["ProactiveRuleId"];
+      text: string;
+      mandate: components["schemas"]["ProactiveMandateStrength"];
     };
     LocalSkillScanCommandRequest: {
       request_id: components["schemas"]["Id"];

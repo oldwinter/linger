@@ -42,7 +42,7 @@ type OpenItem struct {
 type Window struct {
 	JudgedCount int64           `json:"judged_count"`
 	Messages    []WindowMessage `json:"messages"`
-	Guideline   Guideline       `json:"guideline"`
+	Guideline   JudgeRules      `json:"guideline"`
 	OpenItems   []OpenItem      `json:"open_items"`
 }
 
@@ -84,10 +84,7 @@ func (s *Service) NextWindow(ctx context.Context, agentManagementID, roomID stri
 	if err != nil {
 		return nil, err
 	}
-	if guideline.Specific == nil {
-		guideline.Specific = []string{}
-	}
-	window := &Window{JudgedCount: judged, Guideline: guideline, OpenItems: []OpenItem{}}
+	window := &Window{JudgedCount: judged, Guideline: guideline.JudgeRules(), OpenItems: []OpenItem{}}
 	for _, row := range rows {
 		author := "agent"
 		if row.AuthorKind == "human" {
@@ -190,11 +187,12 @@ func (s *Service) QueuePlanWake(ctx context.Context, owner Owner, itemIDs []stri
 	if err != nil {
 		return err
 	}
+	rules := guideline.JudgeRules().Rules
 	lines := []string{reminder.Prompt(reminder.NightlyPlan, nil), "<part-1>"}
-	for _, rule := range guideline.Specific {
+	for _, rule := range rules {
 		lines = append(lines, "- "+rule)
 	}
-	if len(guideline.Specific) == 0 {
+	if len(rules) == 0 {
 		lines = append(lines, "(none learned yet)")
 	}
 	lines = append(lines, "</part-1>", "<items>")

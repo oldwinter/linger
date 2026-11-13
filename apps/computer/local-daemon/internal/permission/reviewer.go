@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"sync"
 	"time"
 )
@@ -53,17 +54,24 @@ type Reviewer struct {
 // what the Agent has seen, the read-only and TeamHub commands the Runtime
 // rules could not match, and a desktop navigation step whose shape the judge
 // allowed earlier in this Run, and asks the permission review for
-// everything else. Every failure answers Unavailable: the Runtime must not
+// everything else, with the text a herdr command hands to a pane attached.
+// A command that changes macOS privacy grants is denied, also when herdr
+// hands it to a pane. Every failure answers Unavailable: the Runtime must not
 // run a call nobody judged.
 func (r *Reviewer) Review(ctx context.Context, request Request) Verdict {
 	if ReadOnlyLocalTool(request.Action.Tool, request.Action.Input) ||
 		r.LocalAllowed != nil && r.LocalAllowed(request.Action.Tool, request.Action.Input) {
 		return Verdict{Decision: Allow}
 	}
-	if request.Action.Tool == "Bash" && SystemPrivacyUI(request.Action.Command) {
-		return Verdict{Decision: Deny, Message: SystemPrivacyUIMessage}
-	}
 	if request.Action.Tool == "Bash" {
+		delegations, unread := HerdrDelegations(request.Action.Command)
+		// Quoting can hide a program name from the raw command, but the pane
+		// receives the delegated text whole.
+		if SystemPrivacyUI(request.Action.Command) || slices.ContainsFunc(delegations, func(delegation Delegation) bool {
+			return SystemPrivacyUI(delegation.Text)
+		}) {
+			return Verdict{Decision: Deny, Message: SystemPrivacyUIMessage}
+		}
 		// Claude runs commands in its workspace; Codex may run one in any
 		// workdir its hook does not report.
 		cwd := r.Environment.Workspace
@@ -76,6 +84,7 @@ func (r *Reviewer) Review(ctx context.Context, request Request) Verdict {
 		case ShellRunAlone:
 			return Verdict{Decision: Deny, Message: RunAloneMessage(confirm)}
 		}
+		request.Evidence = withDelegations(request.Evidence, delegations, unread)
 	}
 	reuseKey, reusable := GUIReuseKey(request.Action.Tool, request.Action.Input)
 	if reusable && r.reused(reuseKey) {
@@ -135,6 +144,24 @@ func (r *Reviewer) Review(ctx context.Context, request Request) Verdict {
 	}
 	r.Requester.Forget(id)
 	return unavailable()
+}
+
+// withDelegations adds what a herdr command hands to its panes to the
+// adapter's evidence, without changing the adapter's copy.
+func withDelegations(evidence *Evidence, delegations []Delegation, unread bool) *Evidence {
+	if len(delegations) == 0 && !unread {
+		return evidence
+	}
+	var combined Evidence
+	if evidence != nil {
+		combined = *evidence
+		combined.Missing = slices.Clone(evidence.Missing)
+	}
+	combined.Delegations = delegations
+	if unread {
+		combined.Missing = append(combined.Missing, HerdrUnreadMissing)
+	}
+	return &combined
 }
 
 func (r *Reviewer) now() time.Time {

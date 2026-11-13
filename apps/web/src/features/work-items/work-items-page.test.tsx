@@ -169,6 +169,34 @@ describe("Dashboard page", () => {
     );
   });
 
+  it("says when Another Me created a Work Item under the Human's rule", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        mandate: {
+          owner_actor_id: human.id,
+          rule_id: "pr_0000000000000000000000000000000a",
+          rule_text: "Client contract changes → remind directly",
+          guideline_version: 3,
+          event_source: "gmail",
+          event_external_id: "thread_1",
+          strength: "create_and_delegate",
+          revoked: true,
+          recorded_at: "2026-07-30T00:00:00Z",
+        },
+      }),
+    ]);
+
+    renderPage(runtime);
+
+    expect(
+      await screen.findByText(
+        "Created and delegated by Another Me under your rule “Client contract changes → remind directly” · mandate revoked",
+      ),
+    ).toBeVisible();
+  });
+
   it("filters the complete board only by Room and preserves that filter in deep links", async () => {
     const runtime = await testRuntime();
     const identity = runtime.seed.identity;

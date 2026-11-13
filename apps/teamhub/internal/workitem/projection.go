@@ -35,6 +35,10 @@ func loadItems(ctx context.Context, queries *store.Queries, records []store.Work
 	if err != nil {
 		return nil, err
 	}
+	mandates, err := loadMandates(ctx, queries, workItemIDs)
+	if err != nil {
+		return nil, err
+	}
 	for _, reference := range references {
 		actorIDs[reference.ActorID] = struct{}{}
 	}
@@ -94,6 +98,7 @@ func loadItems(ctx context.Context, queries *store.Queries, records []store.Work
 			Assignees:            nonNilAssignments(assignmentMap[record.ID]),
 			ExplicitAccessGrants: nonNilAccessGrants(grantMap[record.ID]),
 			CreatedAt:            record.CreatedAt.Time, UpdatedAt: record.UpdatedAt.Time,
+			Mandate: mandates[record.ID],
 		}
 		if record.Resolution.Valid {
 			item.Resolution = &record.Resolution.String

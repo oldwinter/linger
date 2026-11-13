@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"time"
 
@@ -21,30 +20,6 @@ type Owner struct {
 
 // GuidelineSource returns a Human's current reminder guideline.
 type GuidelineSource func(context.Context, Owner) (Guideline, error)
-
-// StoredGuideline reads the Human's latest guideline version, written by
-// Memory's nightly dreaming; a Human without one uses the default.
-func StoredGuideline(pool *pgxpool.Pool) GuidelineSource {
-	return func(ctx context.Context, owner Owner) (Guideline, error) {
-		row, err := store.New(pool).GetLatestProactiveGuideline(ctx, store.GetLatestProactiveGuidelineParams{
-			TenantID: owner.TenantID, OwnerActorID: owner.ActorID,
-		})
-		if errors.Is(err, pgx.ErrNoRows) {
-			return DefaultGuideline(), nil
-		}
-		if err != nil {
-			return Guideline{}, err
-		}
-		guideline := Guideline{Version: int(row.Version)}
-		if err := json.Unmarshal(row.Specific, &guideline.Specific); err != nil {
-			return Guideline{}, err
-		}
-		if len(guideline.Specific) > MaxSpecific {
-			guideline.Specific = guideline.Specific[:MaxSpecific]
-		}
-		return guideline, nil
-	}
-}
 
 type Service struct {
 	pool      *pgxpool.Pool

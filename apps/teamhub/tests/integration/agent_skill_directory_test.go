@@ -54,10 +54,10 @@ func TestAgentSkillDirectoryScopesBindingHistory(t *testing.T) {
 	for n := 1; n <= 6; n++ {
 		ids = append(ids, fmt.Sprintf("actor_directory_%d", n))
 	}
-	// All seven selected General Agents receive the thirteen current catalog
-	// defaults; the official Agent also binds the three explicit-only Skills.
-	const generalDefaultSkills = 13
-	const explicitSkills = 3
+	// All seven selected General Agents receive the fourteen current catalog
+	// defaults; the official Agent also binds the four explicit-only Skills.
+	const generalDefaultSkills = 14
+	const explicitSkills = 4
 	expectedBindings := len(ids)*generalDefaultSkills + explicitSkills
 	recorder := &directoryQueryRecorder{DBTX: env.pool}
 	queries := store.New(recorder)

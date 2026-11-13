@@ -980,6 +980,45 @@ func (e EditNativeDocumentSemanticOperationCommand) Valid() bool {
 	}
 }
 
+// Defines values for ProactiveAction.
+const (
+	Notify ProactiveAction = "notify"
+	Silent ProactiveAction = "silent"
+	Track  ProactiveAction = "track"
+)
+
+// Valid indicates whether the value is a known member of the ProactiveAction enum.
+func (e ProactiveAction) Valid() bool {
+	switch e {
+	case Notify:
+		return true
+	case Silent:
+		return true
+	case Track:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProactiveMandateStrength.
+const (
+	Create            ProactiveMandateStrength = "create"
+	CreateAndDelegate ProactiveMandateStrength = "create_and_delegate"
+)
+
+// Valid indicates whether the value is a known member of the ProactiveMandateStrength enum.
+func (e ProactiveMandateStrength) Valid() bool {
+	switch e {
+	case Create:
+		return true
+	case CreateAndDelegate:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ReferenceSegmentTargetType.
 const (
 	ReferenceSegmentTargetTypeAgent ReferenceSegmentTargetType = "agent"
@@ -1151,6 +1190,21 @@ func (e RequestAgentBrowserConnection200JSONResponseBodyStatus) Valid() bool {
 	case RequestAgentBrowserConnection200JSONResponseBodyStatusConnectionRequested:
 		return true
 	case RequestAgentBrowserConnection200JSONResponseBodyStatusReady:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AskAgentHerdrPane200JSONResponseBodyStatus.
+const (
+	Asked AskAgentHerdrPane200JSONResponseBodyStatus = "asked"
+)
+
+// Valid indicates whether the value is a known member of the AskAgentHerdrPane200JSONResponseBodyStatus enum.
+func (e AskAgentHerdrPane200JSONResponseBodyStatus) Valid() bool {
+	switch e {
+	case Asked:
 		return true
 	default:
 		return false
@@ -2833,6 +2887,68 @@ type PersonalProfileTimelineEntry struct {
 	Role         string   `json:"role"`
 }
 
+// ProactiveActRequest defines model for ProactiveActRequest.
+type ProactiveActRequest struct {
+	// Brief What needs doing; the Work Item description, or the delegated Task's requirement.
+	Brief string `json:"brief"`
+
+	// Delegate Delegate the work as a Task to the caller's own AlterEgo; needs a create_and_delegate mandate.
+	Delegate bool `json:"delegate"`
+
+	// EventExternalId The outside event's ID in its source, as the wake names it.
+	EventExternalId string `json:"event_external_id"`
+
+	// EventSource The outside event's source, as the wake names it.
+	EventSource string          `json:"event_source"`
+	RuleId      ProactiveRuleId `json:"rule_id"`
+	Title       string          `json:"title"`
+}
+
+// ProactiveActResult defines model for ProactiveActResult.
+type ProactiveActResult struct {
+	// Replay True when this rule already acted on this event; the first act's Work Item is returned.
+	Replay     bool                     `json:"replay"`
+	Strength   ProactiveMandateStrength `json:"strength"`
+	WorkItemId string                   `json:"work_item_id"`
+}
+
+// ProactiveAction notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+type ProactiveAction string
+
+// ProactiveMandateStrength defines model for ProactiveMandateStrength.
+type ProactiveMandateStrength string
+
+// ProactiveRuleId defines model for ProactiveRuleId.
+type ProactiveRuleId = string
+
+// ProactiveShadowDivergence One matter a judgment handled differently from what a shadow rule would have done.
+type ProactiveShadowDivergence struct {
+	CreatedAt        time.Time       `json:"created_at"`
+	GuidelineVersion int             `json:"guideline_version"`
+	Id               string          `json:"id"`
+	Matter           string          `json:"matter"`
+	RuleId           ProactiveRuleId `json:"rule_id"`
+
+	// ShadowAction notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+	ShadowAction ProactiveAction `json:"shadow_action"`
+
+	// TakenAction notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+	TakenAction ProactiveAction `json:"taken_action"`
+}
+
+// ProactiveShadowDivergenceRecord defines model for ProactiveShadowDivergenceRecord.
+type ProactiveShadowDivergenceRecord struct {
+	// Matter The matter in a few words, as the Human would recognize it.
+	Matter string          `json:"matter"`
+	RuleId ProactiveRuleId `json:"rule_id"`
+
+	// ShadowAction notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+	ShadowAction ProactiveAction `json:"shadow_action"`
+
+	// TakenAction notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
+	TakenAction ProactiveAction `json:"taken_action"`
+}
+
 // ReferenceSegment defines model for ReferenceSegment.
 type ReferenceSegment struct {
 	Content string `json:"content"`
@@ -3084,6 +3200,20 @@ type RequestAgentBrowserConnectionJSONBody = map[string]interface{}
 // RequestAgentBrowserConnection200JSONResponseBodyStatus defines parameters for RequestAgentBrowserConnection.
 type RequestAgentBrowserConnection200JSONResponseBodyStatus string
 
+// AskAgentHerdrPaneJSONBody defines parameters for AskAgentHerdrPane.
+type AskAgentHerdrPaneJSONBody struct {
+	// Options The choices the coding agent offers; the owner may also write their own answer.
+	Options []string `json:"options"`
+	PaneId  string   `json:"pane_id"`
+
+	// Question What the coding agent asks, as the card shows it.
+	Question       string `json:"question"`
+	StateChangeSeq int64  `json:"state_change_seq"`
+}
+
+// AskAgentHerdrPane200JSONResponseBodyStatus defines parameters for AskAgentHerdrPane.
+type AskAgentHerdrPane200JSONResponseBodyStatus string
+
 // RequestAgentComputerPermissionsJSONBody defines parameters for RequestAgentComputerPermissions.
 type RequestAgentComputerPermissionsJSONBody struct {
 	Permissions []ComputerPermissionId `json:"permissions"`
@@ -3193,6 +3323,9 @@ type ListAvailableAgentsJSONRequestBody = AgentListAvailableAgentsRequest
 // RequestAgentBrowserConnectionJSONRequestBody defines body for RequestAgentBrowserConnection for application/json ContentType.
 type RequestAgentBrowserConnectionJSONRequestBody = RequestAgentBrowserConnectionJSONBody
 
+// AskAgentHerdrPaneJSONRequestBody defines body for AskAgentHerdrPane for application/json ContentType.
+type AskAgentHerdrPaneJSONRequestBody AskAgentHerdrPaneJSONBody
+
 // RequestAgentComputerPermissionsJSONRequestBody defines body for RequestAgentComputerPermissions for application/json ContentType.
 type RequestAgentComputerPermissionsJSONRequestBody RequestAgentComputerPermissionsJSONBody
 
@@ -3255,6 +3388,12 @@ type WriteAgentPersonalProfileJSONRequestBody = AgentPersonalProfileWriteRequest
 
 // SendAgentPresentationSequenceJSONRequestBody defines body for SendAgentPresentationSequence for application/json ContentType.
 type SendAgentPresentationSequenceJSONRequestBody = AgentSendPresentationSequenceRequest
+
+// ActUnderProactiveMandateJSONRequestBody defines body for ActUnderProactiveMandate for application/json ContentType.
+type ActUnderProactiveMandateJSONRequestBody = ProactiveActRequest
+
+// RecordProactiveShadowDivergenceJSONRequestBody defines body for RecordProactiveShadowDivergence for application/json ContentType.
+type RecordProactiveShadowDivergenceJSONRequestBody = ProactiveShadowDivergenceRecord
 
 // AddAgentRoomMemberJSONRequestBody defines body for AddAgentRoomMember for application/json ContentType.
 type AddAgentRoomMemberJSONRequestBody = AgentAddRoomMemberRequest

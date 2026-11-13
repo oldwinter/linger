@@ -22,10 +22,13 @@ type DecisionQuestionOption struct {
 
 // QuestionDecision asks a Human the card's questions. Runtime is set for a
 // Runtime's native question: the binding to the Run that waits for the answer.
+// Herdr is set for a herdr answer card: TeamHub types the answer into that
+// pane state; the card then has exactly one radio question.
 type QuestionDecision struct {
 	Prompt    string
 	Questions []DecisionQuestion
 	Runtime   json.RawMessage
+	Herdr     *HerdrAnswerTarget
 }
 
 // questionView is what a question card stores and shows.
@@ -34,9 +37,11 @@ type questionView struct {
 	Questions []DecisionQuestion `json:"questions"`
 }
 
-// decisionRuntimeRequest is the request of a card a Runtime asked for.
+// decisionRuntimeRequest is the request of a card a Runtime asked for, or of
+// a herdr answer card.
 type decisionRuntimeRequest struct {
-	Runtime json.RawMessage `json:"runtime,omitempty"`
+	Runtime json.RawMessage    `json:"runtime,omitempty"`
+	Herdr   *HerdrAnswerTarget `json:"herdr,omitempty"`
 }
 
 func normalizePrompt(prompt string) (string, error) {

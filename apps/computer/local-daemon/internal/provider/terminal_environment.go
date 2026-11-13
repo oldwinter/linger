@@ -28,6 +28,12 @@ func terminalEnvironment(ctx context.Context, source map[string]string) map[stri
 	return environment
 }
 
+// TerminalEnvironment is source with PATH resolved as the user's terminal
+// would, for finding other tools the user installed, such as herdr.
+func TerminalEnvironment(ctx context.Context, source map[string]string) map[string]string {
+	return terminalEnvironment(ctx, platformEnvironment(source))
+}
+
 // commonRuntimeDirectories are where Runtime installers and package managers
 // put executables when a login shell adds them to PATH.
 func commonRuntimeDirectories(home string) []string {

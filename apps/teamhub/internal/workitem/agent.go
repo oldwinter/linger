@@ -107,6 +107,38 @@ func (s *Service) CreateForAgent(ctx context.Context, agentManagementID, key str
 	} else if found {
 		return replay, commitResult(ctx, tx, replay)
 	}
+	result, err := createAgentItem(ctx, queries, actor, normalized, nil)
+	if err != nil {
+		return Result[Item]{}, err
+	}
+	if err := createReplay(ctx, tx, actor.ID, operation, key, hash, result.Value.ID, http.StatusCreated, result.Value); err != nil {
+		return Result[Item]{}, err
+	}
+	return result, commitResult(ctx, tx, result)
+}
+
+// CreateForAgentInTx creates a Work Item for the Agent in the caller's
+// transaction and records the Mandate it acts under with it, before its Room
+// Events. The caller owns idempotency.
+func CreateForAgentInTx(ctx context.Context, tx pgx.Tx, agentManagementID string, input CreateInput, mandate Mandate) (Item, error) {
+	normalized, err := normalizeCreate(input)
+	if err != nil {
+		return Item{}, err
+	}
+	if normalized.Kind == "task" {
+		return Item{}, ErrUnavailable
+	}
+	queries := store.New(tx)
+	actor, err := agentActor(ctx, queries, agentManagementID)
+	if err != nil {
+		return Item{}, err
+	}
+	result, err := createAgentItem(ctx, queries, actor, normalized, &mandate)
+	return result.Value, err
+}
+
+func createAgentItem(ctx context.Context, queries *store.Queries, actor store.Actor, normalized CreateInput, mandate *Mandate) (Result[Item], error) {
+	tenantID := actor.TenantID
 	if normalized.OriginRoomID != "" {
 		if err := roomcreation.LockMembership(ctx, queries, normalized.OriginRoomID); err != nil {
 			return Result[Item]{}, err
@@ -149,6 +181,11 @@ func (s *Service) CreateForAgent(ctx context.Context, agentManagementID, key str
 	if err := createActivity(ctx, queries, record.ID, tenantID, "created", actor.ID, "", "", ""); err != nil {
 		return Result[Item]{}, err
 	}
+	if mandate != nil {
+		if err := RecordMandateInTx(ctx, queries, record.ID, tenantID, actor.ID, *mandate); err != nil {
+			return Result[Item]{}, err
+		}
+	}
 	items, err := loadItems(ctx, queries, []store.WorkItem{record})
 	if err != nil {
 		return Result[Item]{}, err
@@ -159,10 +196,7 @@ func (s *Service) CreateForAgent(ctx context.Context, agentManagementID, key str
 			return Result[Item]{}, err
 		}
 	}
-	if err := createReplay(ctx, tx, actor.ID, operation, key, hash, record.ID, http.StatusCreated, result.Value); err != nil {
-		return Result[Item]{}, err
-	}
-	return result, commitResult(ctx, tx, result)
+	return result, nil
 }
 
 func resolveAgentCreateAssignees(
