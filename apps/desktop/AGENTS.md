@@ -114,9 +114,20 @@ Gateway and runs Agents. The daemon exits with the app.
   TeamHub and a relay forwards it the same way; a fix needs a check that
   the web port belongs to the web process the installer started. Every
   existing session cookie for the origin has the same exposure.
-  The default AI runtime is the
-  installer's recommendation, or Codex when the installer cannot inspect the
-  computer. It records the install location, source, origin and engine in
+  Quick Install installs the `recommendation` of the localmodels setup
+  report (`installer.js --inspect`, run once as the setup window opens):
+  `local-models` is the planned model served by Pi, shown with the model,
+  GPU, memory and download; otherwise the named runtime, with the tool's
+  reason for no local model. The page adds no host rule of its own; while
+  the check runs the button waits with a spinner and says what it waits for
+  (the first run downloads the localmodels tool, counted by `download`
+  event lines before the report), and Customize marks the
+  recommended runtime and model. While installing, a step that downloads
+  shows its bytes, what remains and the rate from the installer's byte
+  counter (`localmodels.stack-progress/v1` for the local model and
+  engine); a counter of one file (`partial`) shows only that file. When
+  the check fails the installer picks, or Codex when it cannot inspect the
+  computer either. It records the install location, source, origin and engine in
   `desktop/local-server.json` under the default home and, while the window
   still uses that origin, restarts the services on launch with
   `installer.js --resume`, which also restarts them when the instance's
