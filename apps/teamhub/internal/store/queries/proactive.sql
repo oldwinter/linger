@@ -54,6 +54,13 @@ SELECT EXISTS(
     AND source=sqlc.arg(source)::text AND source_key=sqlc.arg(source_key)::text
 )::boolean;
 
+-- name: GetProactiveSignalReminded :one
+-- Whether today's judgment of this source item could remind the Human; one
+-- that quiet hours or the daily limit gated could only track it.
+SELECT reminded FROM proactive_potential_items
+WHERE tenant_id=sqlc.arg(tenant_id)::text AND owner_actor_id=sqlc.arg(owner_actor_id)::text
+  AND source=sqlc.arg(source)::text AND source_key=sqlc.arg(source_key)::text;
+
 -- name: GetLatestProactiveGuideline :one
 SELECT version,rules,deleted_rules,clues FROM proactive_guidelines
 WHERE tenant_id=sqlc.arg(tenant_id)::text AND owner_actor_id=sqlc.arg(owner_actor_id)::text

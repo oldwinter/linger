@@ -49,6 +49,7 @@ const (
 	AgentApiErrorCodeContextIdentityInvalid     AgentApiErrorCode = "context_identity_invalid"
 	AgentApiErrorCodeDependencyUnavailable      AgentApiErrorCode = "dependency_unavailable"
 	AgentApiErrorCodeForbidden                  AgentApiErrorCode = "forbidden"
+	AgentApiErrorCodeHerdrAskGated              AgentApiErrorCode = "herdr_ask_gated"
 	AgentApiErrorCodeIdempotencyConflict        AgentApiErrorCode = "idempotency_conflict"
 	AgentApiErrorCodeIncompleteResponse         AgentApiErrorCode = "incomplete_response"
 	AgentApiErrorCodeInternalError              AgentApiErrorCode = "internal_error"
@@ -100,6 +101,8 @@ func (e AgentApiErrorCode) Valid() bool {
 	case AgentApiErrorCodeDependencyUnavailable:
 		return true
 	case AgentApiErrorCodeForbidden:
+		return true
+	case AgentApiErrorCodeHerdrAskGated:
 		return true
 	case AgentApiErrorCodeIdempotencyConflict:
 		return true

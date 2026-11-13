@@ -75,10 +75,11 @@ func HerdrEvent(tenantID, ownerActorID string, report HerdrReport) Event {
 		[2]string{"Directory", report.Cwd}, [2]string{"Title", report.Title}, [2]string{"Pane", report.PaneID},
 		[2]string{"Last lines of the pane", report.Tail},
 	)
+	state := strconv.FormatInt(report.StateChangeSeq, 10)
 	return Event{
 		ComputerID: report.ComputerID, TenantID: tenantID, OwnerActorID: ownerActorID,
 		Source: SourceHerdr, Kind: report.Kind, ExternalID: herdrExternalID(report.ComputerID, report.PaneID, report.StateChangeSeq),
-		State: strconv.FormatInt(report.StateChangeSeq, 10), Summary: summary,
+		State: state, Summary: summary,
 		Herdr: &HerdrPane{PaneID: report.PaneID, StateChangeSeq: report.StateChangeSeq},
 	}
 }
@@ -87,20 +88,52 @@ func herdrExternalID(computerID, paneID string, stateChangeSeq int64) string {
 	return computerID + "/" + paneID + "/" + strconv.FormatInt(stateChangeSeq, 10)
 }
 
-// HerdrStateReported reports whether the owner's Computer reported this pane
-// state as a herdr event that was judged today or yesterday, so a question
-// card can only be bound to a pane state that really asked.
-func (s *Service) HerdrStateReported(ctx context.Context, owner Owner, computerID, paneID string, stateChangeSeq int64) (bool, error) {
-	matter := SourceHerdr + "\x00" + herdrExternalID(computerID, paneID, stateChangeSeq) + "\x00" + strconv.FormatInt(stateChangeSeq, 10)
+// HerdrAsk is whether AnotherMe may ask its Human about one herdr pane state.
+type HerdrAsk int
+
+const (
+	// HerdrAskUnreported means the Computer did not report this pane state as a
+	// herdr event judged today or yesterday.
+	HerdrAskUnreported HerdrAsk = iota
+	// HerdrAskGated means quiet hours or the daily limit gated the event to
+	// tracking, and that gate still holds; it is followed up later.
+	HerdrAskGated
+	// HerdrAskAllowed means the event could remind, or its gate has lifted.
+	HerdrAskAllowed
+)
+
+// HerdrAskable reports whether a question card may be bound to this pane
+// state now. A card can only be bound to a pane state that really asked, and
+// a gated event is told only once its gate lifts, by the same rule that gated
+// it: the card is how AnotherMe tells the Human about a blocked pane.
+func (s *Service) HerdrAskable(ctx context.Context, owner Owner, computerID, paneID string, stateChangeSeq int64) (HerdrAsk, error) {
+	state := strconv.FormatInt(stateChangeSeq, 10)
+	matter := eventMatter(SourceHerdr, herdrExternalID(computerID, paneID, stateChangeSeq), state)
 	queries := store.New(s.pool)
 	now := s.now()
 	for _, day := range []time.Time{Day(now), Day(now.Add(-24 * time.Hour))} {
-		seen, err := queries.HasProactiveSignalForSource(ctx, store.HasProactiveSignalForSourceParams{
+		reminded, err := queries.GetProactiveSignalReminded(ctx, store.GetProactiveSignalRemindedParams{
 			TenantID: owner.TenantID, OwnerActorID: owner.ActorID, Source: "event", SourceKey: SourceKey("event", matter, day),
 		})
-		if err != nil || seen {
-			return seen, err
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
 		}
+		if err != nil {
+			return HerdrAskUnreported, err
+		}
+		if reminded {
+			return HerdrAskAllowed, nil
+		}
+		woken, err := queries.CountProactiveRemindedEvents(ctx, store.CountProactiveRemindedEventsParams{
+			TenantID: owner.TenantID, OwnerActorID: owner.ActorID,
+		})
+		if err != nil {
+			return HerdrAskUnreported, err
+		}
+		if gated(now, woken) {
+			return HerdrAskGated, nil
+		}
+		return HerdrAskAllowed, nil
 	}
-	return false, nil
+	return HerdrAskUnreported, nil
 }

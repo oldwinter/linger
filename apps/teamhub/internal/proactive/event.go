@@ -148,7 +148,7 @@ func (s *Service) HandleEvent(ctx context.Context, event Event) (Outcome, error)
 	now := s.now()
 	candidate := Candidate{
 		Source: "event", Kind: event.Kind, Content: strings.TrimSpace(event.Summary), DueAt: event.OccursAt,
-		SourceKey: SourceKey("event", event.Source+"\x00"+event.ExternalID+"\x00"+event.State, Day(now)),
+		SourceKey: SourceKey("event", eventMatter(event.Source, event.ExternalID, event.State), Day(now)),
 	}
 	queries := store.New(s.pool)
 	if err := event.authorize(ctx, queries); revoked(err) {
@@ -212,6 +212,11 @@ func (s *Service) HandleEvent(ctx context.Context, event Event) (Outcome, error)
 		return outcome, nil
 	}
 	return outcome, err
+}
+
+// eventMatter names one state of one outside item; it is judged once a day.
+func eventMatter(source, externalID, state string) string {
+	return source + "\x00" + externalID + "\x00" + state
 }
 
 // gated reports whether a non-urgent event may only be tracked: during quiet

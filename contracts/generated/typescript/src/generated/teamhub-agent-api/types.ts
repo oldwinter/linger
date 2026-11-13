@@ -1646,6 +1646,7 @@ export interface components {
       | "artifact_version_conflict"
       | "agent_credential_invalid"
       | "operation_forbidden"
+      | "herdr_ask_gated"
       | "agent_limit_reached"
       | "context_identity_invalid"
       | "agent_configuration_updating"
