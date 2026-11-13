@@ -163,7 +163,7 @@ func TestDatabaseBareTemplateClonesHaveNoPlatformSkills(t *testing.T) {
 	defer connection.Close(ctx)
 	var builtinCount int
 	if err := connection.QueryRow(ctx, `
-		select count(*) from skills where skill_id like 'linger_builtin_%'
+		select count(*) from skills where owner_kind = 'platform'
 	`).Scan(&builtinCount); err != nil {
 		t.Fatalf("count Skill-free clone catalog Skills: %v", err)
 	}

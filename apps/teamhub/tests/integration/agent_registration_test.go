@@ -785,7 +785,7 @@ func TestTenantAgentDirectoryPaginatesActiveRegistrations(t *testing.T) {
 		}
 		if item.Actor.ID == expected[1].id {
 			skills := agentSkillRegistrationsByID(item.SkillBindings)
-			if len(item.SkillBindings) != 14 || !hasOfficeDefaultSkillRegistrations(skills) || !lacksLev8SearchSkillRegistration(skills) || skills["simplexai_collaborate"].Name != "collaborate" || skills["simplexai_collaborate"].ManifestVersion != "1.0.0" || skills[skillID].Name != skillName || skills[skillID].ManifestVersion != "1.0.0" || skills["simplexai_teamhub_files"].Name != "teamhub-files" || skills["simplexai_teamhub_files"].ManifestVersion != "1.0.3" {
+			if len(item.SkillBindings) != 15 || !hasOfficeDefaultSkillRegistrations(skills) || !lacksLev8SearchSkillRegistration(skills) || skills["simplexai_collaborate"].Name != "collaborate" || skills["simplexai_collaborate"].ManifestVersion != "1.0.0" || skills[skillID].Name != skillName || skills[skillID].ManifestVersion != "1.0.0" || skills["simplexai_teamhub_files"].Name != "teamhub-files" || skills["simplexai_teamhub_files"].ManifestVersion != "1.0.3" {
 				t.Fatalf("active Agent %q Skill bindings=%+v", item.Actor.ID, item.SkillBindings)
 			}
 		}
@@ -842,7 +842,7 @@ func TestTenantHumanRegistersAgentWithInitialSkillBindings(t *testing.T) {
 		SkillBindings []agentSkillRegistrationResponse `json:"skill_bindings"`
 	}
 	decode(t, body, &registered)
-	if registered.Actor.ID == "" || len(registered.SkillBindings) != 14 || containsJSONText(body, "mcp_bindings") {
+	if registered.Actor.ID == "" || len(registered.SkillBindings) != 15 || containsJSONText(body, "mcp_bindings") {
 		t.Fatalf("unexpected registered bindings: %+v", registered)
 	}
 	registeredSkills := agentSkillRegistrationsByID(registered.SkillBindings)
