@@ -128,10 +128,17 @@ Gateway and runs Agents. The daemon exits with the app.
   engine); a counter of one file (`partial`) shows only that file. When
   the check fails the installer picks, or Codex when it cannot inspect the
   computer either. It records the install location, source, origin and engine in
-  `desktop/local-server.json` under the default home and, while the window
-  still uses that origin, restarts the services on launch with
-  `installer.js --resume`, which also restarts them when the instance's
-  `user.env` changed. Before installing or resuming it moves the
+  `desktop/local-server.json` under the default home (written to a temporary
+  file and renamed, so a power loss leaves the old record or none) and, while
+  the window still uses that origin and the computer is enrolled, restarts the
+  services on launch with `installer.js --resume`, which also restarts them
+  when the instance's `user.env` changed. A source folder removed since is
+  unpacked again from the app's package first. A Quick Install that stopped
+  before the computer enrolled is not resumed: setup shows again and Install
+  finishes it, reusing a finished job only while its origin answers (a stopped
+  server gets a new job, which starts the services again). The start failure
+  page's Set Up Again forgets the record, unenrolls the computer, clears the
+  server address and shows setup; the instance and its data stay. Before installing or resuming it moves the
   `COMPOSIO_API_KEY`, `SONIOX_API_KEY`, `XAI_API_KEY` and `TZ` of an unpacked
   source package's `.env` into `<home>/instances/desktop/user.env` once and
   deletes that `.env` (never a `LINGER_CHECKOUT`'s), logging only the names
@@ -166,7 +173,11 @@ Gateway and runs Agents. The daemon exits with the app.
 - `src/main/window-manager.ts`: one `BaseWindow` with two views, the title bar
   (`app://shell/titlebar`) and the SPA. macOS keeps native traffic lights,
   Windows uses `titleBarOverlay`, Linux draws its own controls. Closing hides
-  the window to the tray.
+  the window to the tray. Closing the setup window does not quit either: an
+  installation keeps running, and opening Linger again (a second launch, the
+  Dock, the tray) shows setup until the computer is enrolled
+  (`app-window.ts`), the main window after. The main window's server form
+  without a server says Back to Setup instead of Cancel.
 - `src/shell/*.html`: app-owned pages (title bar, offline/setup page). They
   have no network access and talk to the main process via `src/preload/shell.ts`.
 - `src/preload/index.ts`: the only SPA API, `window.lingerDesktop`.
@@ -212,6 +223,30 @@ Gateway and runs Agents. The daemon exits with the app.
   Windows setup installs into `%LOCALAPPDATA%\Programs\Linger`; on upgrade it
   closes and removes `%LOCALAPPDATA%\Programs\Simplex` and moves the
   "Open at login" Run value from `ai.simplex.desktop.preview` to the new id.
+  The uninstaller (per-user, like the setup) first runs `Linger.exe --quit`,
+  which a running Linger obeys without asking, then the bundled
+  `installer.js --instance desktop --stop` under `ELECTRON_RUN_AS_NODE`. That
+  stops the installation manager the desktop started (cancelling a running
+  job) and the `desktop` instance's services in the default home and in the
+  location `desktop/local-server.json` names; services already stopped are
+  left alone and it gives up after about two minutes. It keeps
+  `%APPDATA%\Linger` and the Linger home with all their data and asks nothing;
+  a later install starts the services again (resume, or setup's Install).
+  Setup over an installed release stops it the same way before it replaces
+  the files, since the services run on `Linger.exe` and hold it open. Each
+  install writes `resources\stops-services`; a release without it would start
+  on `--quit` and has no `--stop`, so setup skips `--quit` (CloseLinger asks
+  the person to quit a running app) and runs its own `installer.js`, copied to
+  the plugins folder, on the old `Linger.exe`. Retry in that prompt runs the
+  stop again. Nothing running: the stop finds nothing and setup goes on. The
+  stop also asks the pinned localmodels kit, when that kit is installed in the
+  home, to end its foundations controller under `runtime/model-services`
+  (`foundations stop`) and the stack's processes (`stack down`); it downloads
+  nothing, and Linger does not end the tool's processes itself.
+  Setup over a release runs that release's script, so a release from before
+  this stop leaves its controller running; on Windows the tool cannot prove
+  and end a controller from a kit that has no stop command either.
+  The tool refuses the chat stack on Windows, so no engine runs there.
 - `src/main/legacy-migration.ts`: on start, stops a bridge an older version
   left running and moves its credential and the Desktop 0.16 daemon identity
   into the daemon layout, so the computer keeps its id.

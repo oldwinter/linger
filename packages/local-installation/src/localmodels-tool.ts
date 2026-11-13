@@ -269,19 +269,15 @@ async function prepareLocalmodelsTool(
   options: Options = {},
   dependencies: { source?: LocalmodelsToolSource; fetcher?: typeof fetch } = {},
 ) {
-  let source = dependencies.source;
-  if (!source) {
-    const raw = process.env.LINGER_LOCALMODELS_TOOL_JSON;
-    if (!raw)
-      throw new Error(
-        "Upstream tool distribution metadata is unavailable. Download the current Linger installer.",
-      );
-    source = validateToolSource(JSON.parse(raw));
-  }
-  source = validateToolSource(source);
-  const base = path.join(path.resolve(home), "tools", "localmodels");
+  const pinned = dependencies.source ?? pinnedToolSource();
+  if (!pinned)
+    throw new Error(
+      "Upstream tool distribution metadata is unavailable. Download the current Linger installer.",
+    );
+  const source = validateToolSource(pinned);
+  const directory = kitDirectory(home, source);
+  const base = path.dirname(directory);
   await privateDirectory(base);
-  const directory = path.join(base, source.sha256);
   // Published kits are immutable and renamed into place only after validation.
   // Readers must not compete for the cross-process installation lock.
   try {
@@ -499,6 +495,70 @@ export async function runLocalmodels(
     message: `localmodels ${args.slice(0, 2).join(" ")}: tool checked in ${seconds(checkedAt - startedAt)}s, ran in ${seconds(Date.now() - checkedAt)}s.\n`,
   });
   return result;
+}
+/**
+ * For an uninstall, or an install over this release: stops the model
+ * controller under <home>/runtime/model-services and the processes the stack
+ * started, through the pinned kit. Nothing is downloaded: a home without that
+ * kit has nothing it started. Both requests are made even when one fails; the
+ * error names each that did not stop.
+ */
+export async function stopLocalmodels(
+  home: string,
+  options: { signal: AbortSignal; log?: (message: string) => void },
+  dependencies: {
+    run?: typeof runLocalmodels;
+    installed?: (home: string) => Promise<boolean>;
+  } = {},
+): Promise<void> {
+  if (!(await (dependencies.installed ?? hasPinnedTool)(home))) return;
+  const root = modelServicesRoot(home);
+  const failed: string[] = [];
+  for (const args of [
+    ["foundations", "stop", "--root", root, "--json"],
+    ["stack", "down", "--json"],
+  ]) {
+    options.signal.throwIfAborted();
+    options.log?.(
+      `Stopping the local models (localmodels ${args[0]} ${args[1]}).`,
+    );
+    const result = await (dependencies.run ?? runLocalmodels)(home, args, {
+      signal: options.signal,
+      timeoutMs: 30_000,
+    }).catch((error: unknown) => {
+      options.signal.throwIfAborted();
+      return { code: 1, stdout: "", stderr: String(error) };
+    });
+    if (result.code === 0) continue;
+    let reason = `exit ${result.code}`;
+    try {
+      const error = (JSON.parse(result.stdout) as { error?: unknown }).error;
+      if (typeof error === "string" && error) reason = error;
+    } catch {
+      // No report: the exit status is all there is.
+    }
+    failed.push(`localmodels ${args[0]} ${args[1]}: ${reason}`);
+  }
+  if (failed.length) throw new Error(failed.join("; "));
+}
+async function hasPinnedTool(home: string): Promise<boolean> {
+  const source = pinnedToolSource();
+  if (!source) return false;
+  return !!(await installedKit(kitDirectory(home, source), source).catch(
+    () => undefined,
+  ));
+}
+/** The kit this release pins, from the installer's published metadata. */
+function pinnedToolSource(): LocalmodelsToolSource | undefined {
+  const raw = process.env.LINGER_LOCALMODELS_TOOL_JSON;
+  return raw ? validateToolSource(JSON.parse(raw)) : undefined;
+}
+function kitDirectory(home: string, source: LocalmodelsToolSource): string {
+  return path.join(path.resolve(home), "tools", "localmodels", source.sha256);
+}
+/** Where the foundations controller of a home keeps its state. */
+export function modelServicesRoot(home: string): string {
+  return path.join(path.resolve(home), "runtime", "model-services");
 }
 export async function readPublishedTool(
   file: string,
