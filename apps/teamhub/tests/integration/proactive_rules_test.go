@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -220,10 +221,10 @@ func TestProactiveMandatesActOnlyWhileTheHumanGrantsThem(t *testing.T) {
 		t.Fatal(err)
 	}
 	roomID := anotherMeRoomID(t, pool, "actor_acme_alice")
-	act := func(externalID string, delegate bool) (int, proactive.ActResult) {
+	actOn := func(source, externalID string, delegate bool) (int, proactive.ActResult) {
 		t.Helper()
 		code, _, body := taskWorkerJSONRequest(t, env, http.MethodPost, "/api/agent/v1/proactive/acts", issued.AccessToken, map[string]any{
-			"rule_id": proactiveActiveRuleID, "event_source": "gmail", "event_external_id": externalID,
+			"rule_id": proactiveActiveRuleID, "event_source": source, "event_external_id": externalID,
 			"title": "Review the Acme contract change", "brief": "Acme changed the payment terms; compare them with the signed contract.",
 			"delegate": delegate,
 		}, taskDelegationRoomContext(roomID))
@@ -232,6 +233,10 @@ func TestProactiveMandatesActOnlyWhileTheHumanGrantsThem(t *testing.T) {
 			decode(t, body, &result)
 		}
 		return code, result
+	}
+	act := func(externalID string, delegate bool) (int, proactive.ActResult) {
+		t.Helper()
+		return actOn("gmail", externalID, delegate)
 	}
 	if code, _ := act("thread_1", true); code != http.StatusForbidden {
 		t.Fatalf("delegating under a create mandate=%d", code)
@@ -263,8 +268,26 @@ func TestProactiveMandatesActOnlyWhileTheHumanGrantsThem(t *testing.T) {
 		mandate["event_external_id"] != "thread_1" || mandate["strength"] != "create" || mandate["revoked"] != false {
 		t.Fatalf("Work Item mandate=%v", mandate)
 	}
-	if countRows(t, env, `SELECT count(*) FROM work_items WHERE created_by_actor_id=(SELECT actor_id FROM agent_registrations WHERE agent_management_id=$1)`, managementID) != 1 {
-		t.Fatal("the act created more than one Work Item")
+	// Each completion of a herdr pane is an outside event of its own: the
+	// pane's next completion acts again, a retried act for one does not.
+	completion := func(seq int64) string {
+		return proactive.HerdrEvent(acmeTenant, "actor_acme_alice", proactive.HerdrReport{
+			ComputerID: "computer_alice", Kind: proactive.HerdrAgentFinished, PaneID: "w1:p1", StateChangeSeq: seq,
+		}).ExternalID
+	}
+	code, firstDone := actOn(proactive.SourceHerdr, completion(12), false)
+	if code != http.StatusOK || firstDone.Replay || firstDone.WorkItemID == created.WorkItemID {
+		t.Fatalf("first completion act=%d %+v", code, firstDone)
+	}
+	code, nextDone := actOn(proactive.SourceHerdr, completion(14), false)
+	if code != http.StatusOK || nextDone.Replay || nextDone.WorkItemID == firstDone.WorkItemID {
+		t.Fatalf("next completion act=%d %+v", code, nextDone)
+	}
+	if code, again := actOn(proactive.SourceHerdr, completion(12), false); code != http.StatusOK || !again.Replay || again.WorkItemID != firstDone.WorkItemID {
+		t.Fatalf("replayed completion act=%d %+v", code, again)
+	}
+	if countRows(t, env, `SELECT count(*) FROM work_items WHERE created_by_actor_id=(SELECT actor_id FROM agent_registrations WHERE agent_management_id=$1)`, managementID) != 3 {
+		t.Fatal("acts for three outside events did not create exactly three Work Items")
 	}
 
 	// Lowering the mandate is the revocation: later acts stop, the record stays.
@@ -279,7 +302,8 @@ func TestProactiveMandatesActOnlyWhileTheHumanGrantsThem(t *testing.T) {
 	}
 
 	status, book = setMandate(proactiveActiveRuleID, "create_and_delegate")
-	if status != http.StatusOK || len(book.Mandates) != 1 || book.Mandates[0].WorkItemID != created.WorkItemID || book.Mandates[0].Revoked {
+	if status != http.StatusOK || len(book.Mandates) != 3 || !slices.ContainsFunc(book.Mandates, func(m proactive.RuleMandate) bool { return m.WorkItemID == created.WorkItemID }) ||
+		slices.ContainsFunc(book.Mandates, func(m proactive.RuleMandate) bool { return m.Revoked }) {
 		t.Fatalf("My Rules mandates=%+v", book.Mandates)
 	}
 	code, delegated := act("thread_3", true)

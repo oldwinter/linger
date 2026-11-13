@@ -59,9 +59,12 @@ func TestHerdrAnswerReachesAPaneOnlyFromItsOwnersCard(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The Computer reported pane w1:p1 blocked at state 5; that event was judged.
-	matter := proactive.SourceHerdr + "\x00" + computerID + "/w1:p1\x00" + "5"
+	matter := func(seq int64) string {
+		event := proactive.HerdrEvent("tenant_acme", "actor_acme_alice", proactive.HerdrReport{ComputerID: computerID, Kind: proactive.HerdrAgentBlocked, PaneID: "w1:p1", StateChangeSeq: seq})
+		return event.Source + "\x00" + event.ExternalID + "\x00" + event.State
+	}
 	if _, err := env.pool.Exec(t.Context(), `INSERT INTO proactive_potential_items(id,tenant_id,owner_actor_id,content,source,source_key,reminded)
- VALUES('ppi_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','tenant_acme','actor_acme_alice','A coding agent waits','event',$1,true)`, proactive.SourceKey("event", matter, proactive.Day(time.Now()))); err != nil {
+ VALUES('ppi_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','tenant_acme','actor_acme_alice','A coding agent waits','event',$1,true)`, proactive.SourceKey("event", matter(5), proactive.Day(time.Now()))); err != nil {
 		t.Fatal(err)
 	}
 	ask := func(pane string, seq int, options ...string) (int, string) {
@@ -153,7 +156,7 @@ func TestHerdrAnswerReachesAPaneOnlyFromItsOwnersCard(t *testing.T) {
 	// it ends unknown and is not sent again.
 	if _, err := env.pool.Exec(t.Context(), `INSERT INTO proactive_potential_items(id,tenant_id,owner_actor_id,content,source,source_key,reminded)
  VALUES('ppi_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','tenant_acme','actor_acme_alice','A coding agent waits','event',$1,true)`,
-		proactive.SourceKey("event", proactive.SourceHerdr+"\x00"+computerID+"/w1:p1\x00"+"7", proactive.Day(time.Now()))); err != nil {
+		proactive.SourceKey("event", matter(7), proactive.Day(time.Now()))); err != nil {
 		t.Fatal(err)
 	}
 	status, body = ask("w1:p1", 7, "A")
@@ -172,6 +175,7 @@ func TestHerdrAnswerReachesAPaneOnlyFromItsOwnersCard(t *testing.T) {
 	if calls := computers.recorded(); len(calls) != 1 {
 		t.Fatalf("a stopped delivery was sent again: %+v", calls)
 	}
+
 }
 
 func assertHerdrResult(t *testing.T, env *testEnv, decisionID, want string) {

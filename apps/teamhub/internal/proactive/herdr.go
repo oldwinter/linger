@@ -60,9 +60,11 @@ func (s *Service) EnqueueHerdrEvent(ctx context.Context, report HerdrReport) err
 	return tx.Commit(ctx)
 }
 
-// HerdrEvent is the proactive event of a herdr report. The pane is the matter
-// and herdr's state counter its state; pane IDs are per herdr server, so the
-// Computer is part of the matter.
+// HerdrEvent is the proactive event of a herdr report. Each pane state is its
+// own outside event: a later block or completion of the same pane is a new
+// one, so a mandate act for one never stands in for the next. The external ID
+// therefore carries herdr's state counter; pane IDs are per herdr server, so
+// it carries the Computer too.
 func HerdrEvent(tenantID, ownerActorID string, report HerdrReport) Event {
 	what := "A coding agent is waiting for an answer"
 	if report.Kind == HerdrAgentFinished {
@@ -75,17 +77,21 @@ func HerdrEvent(tenantID, ownerActorID string, report HerdrReport) Event {
 	)
 	return Event{
 		ComputerID: report.ComputerID, TenantID: tenantID, OwnerActorID: ownerActorID,
-		Source: SourceHerdr, Kind: report.Kind, ExternalID: report.ComputerID + "/" + report.PaneID,
+		Source: SourceHerdr, Kind: report.Kind, ExternalID: herdrExternalID(report.ComputerID, report.PaneID, report.StateChangeSeq),
 		State: strconv.FormatInt(report.StateChangeSeq, 10), Summary: summary,
 		Herdr: &HerdrPane{PaneID: report.PaneID, StateChangeSeq: report.StateChangeSeq},
 	}
+}
+
+func herdrExternalID(computerID, paneID string, stateChangeSeq int64) string {
+	return computerID + "/" + paneID + "/" + strconv.FormatInt(stateChangeSeq, 10)
 }
 
 // HerdrStateReported reports whether the owner's Computer reported this pane
 // state as a herdr event that was judged today or yesterday, so a question
 // card can only be bound to a pane state that really asked.
 func (s *Service) HerdrStateReported(ctx context.Context, owner Owner, computerID, paneID string, stateChangeSeq int64) (bool, error) {
-	matter := SourceHerdr + "\x00" + computerID + "/" + paneID + "\x00" + strconv.FormatInt(stateChangeSeq, 10)
+	matter := SourceHerdr + "\x00" + herdrExternalID(computerID, paneID, stateChangeSeq) + "\x00" + strconv.FormatInt(stateChangeSeq, 10)
 	queries := store.New(s.pool)
 	now := s.now()
 	for _, day := range []time.Time{Day(now), Day(now.Add(-24 * time.Hour))} {

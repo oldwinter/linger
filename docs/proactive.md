@@ -105,3 +105,6 @@ question. Another Me has no way to type into a pane itself. Afterwards it
 tells you whether your answer arrived, the pane had closed, or the agent had
 already moved on; an answer whose delivery the computer did not confirm is
 never sent again.
+
+Each pane state is its own event, so under a mandate a later block or
+completion of the same pane may lead to a Work Item of its own.

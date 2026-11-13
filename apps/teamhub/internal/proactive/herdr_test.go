@@ -22,7 +22,7 @@ func TestHerdrEventIsTheOwnersEventAdmittedByTheirComputer(t *testing.T) {
 		t.Fatal(err)
 	}
 	if event.ComputerID != "computer-1" || event.Grant != nil || event.TenantID != "tenant" || event.OwnerActorID != "owner" ||
-		event.Source != SourceHerdr || event.Kind != HerdrAgentBlocked || event.ExternalID != "computer-1/w1:p1" || event.State != "5" ||
+		event.Source != SourceHerdr || event.Kind != HerdrAgentBlocked || event.ExternalID != "computer-1/w1:p1/5" || event.State != "5" ||
 		event.Urgent || event.Herdr == nil || event.Herdr.PaneID != "w1:p1" || event.Herdr.StateChangeSeq != 5 {
 		t.Fatalf("event=%+v", event)
 	}
@@ -53,6 +53,11 @@ func TestHerdrPaneStatesAreDedupedAndGatedLikeAppEvents(t *testing.T) {
 	first, repeated, next := HerdrEvent("t", "o", blockedReport(5)), HerdrEvent("t", "o", blockedReport(5)), HerdrEvent("t", "o", blockedReport(6))
 	if key(first) != key(repeated) || key(first) == key(next) {
 		t.Fatal("a pane state must be one matter state")
+	}
+	// A mandate act is once per rule and event: each pane state is an event
+	// of its own, so the pane's next completion may act again.
+	if first.ExternalID != repeated.ExternalID || first.ExternalID == next.ExternalID {
+		t.Fatalf("external IDs %q %q %q", first.ExternalID, repeated.ExternalID, next.ExternalID)
 	}
 	other := blockedReport(5)
 	other.ComputerID = "computer-2"
