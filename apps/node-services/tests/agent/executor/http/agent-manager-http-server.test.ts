@@ -462,6 +462,48 @@ describe("AgentManager HTTP adapter", () => {
     expect(judge).toHaveBeenCalledTimes(2);
   });
 
+  it("forwards a herdr answer to the owner's Computer tools", async () => {
+    const gateway = createTestRunnerGateway();
+    const callComputerTool = vi
+      .spyOn(gateway, "callComputerTool")
+      .mockResolvedValue({ status: "ok" });
+    const server = createAgentManagerHttpServer({
+      api: new RecordingApi(),
+      serviceToken,
+      port: 0,
+      runnerGateway: gateway,
+    });
+    servers.push(server);
+    const { url } = await server.start();
+    const call = {
+      tenant_id: "tenant-test",
+      owner_actor_id: "actor-owner",
+      computer_id: "computer-test",
+      agent_id: "agent-test",
+      tool_session_id: "herdr-answer",
+      server: "herdr",
+      tool_name: "answer",
+      arguments: { pane_id: "w1:p1", state_change_seq: 4, text: "A" },
+    };
+    const response = await authorizedFetch(
+      `${url}/v1/local-computer-tools:call`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(call),
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ result: { status: "ok" } });
+    expect(callComputerTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        server: "herdr",
+        toolName: "answer",
+        arguments: call.arguments,
+      }),
+    );
+  });
+
   it("cancels the exact Room Context Run and rejects invalid or unauthenticated targets", async () => {
     const api = new RecordingApi();
     const cancel = vi.fn().mockResolvedValue("cancel_requested");
