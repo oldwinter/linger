@@ -646,7 +646,7 @@ func TestDoctorReportsHerdrWhenItIsInstalled(t *testing.T) {
 	if code := f.run("doctor", "--config", f.configPath); code != 0 {
 		t.Fatalf("exit=%d stdout=%s", code, f.stdout.String())
 	}
-	if !strings.HasSuffix(f.stdout.String(), "PASS\therdr\therdr 0.9.5 at /opt/homebrew/bin/herdr; Another Me hears its blocked and finished agents\n") {
+	if !strings.HasSuffix(f.stdout.String(), "PASS\therdr\therdr 0.9.5 at /opt/homebrew/bin/herdr; Another Me hears its blocked and finished agents through /Users/a/.config/herdr/herdr.sock\n") {
 		t.Fatalf("text=%q", f.stdout.String())
 	}
 	stopped := herdrCheck(herdr.Installation{Executable: "/usr/local/bin/herdr", Socket: "/home/a/.config/herdr/herdr.sock"}, "", false)
