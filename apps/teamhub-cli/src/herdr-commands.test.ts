@@ -76,6 +76,27 @@ describe("computer herdr ask", () => {
     expect(f.errors.join("")).toContain("one line");
   });
 
+  it("tells the Agent to follow a gated question up later", async () => {
+    const f = fixture();
+    f.deps.fetch = vi.fn<typeof fetch>(async () =>
+      Response.json(
+        {
+          error: {
+            code: "herdr_ask_gated",
+            message: "backend prose is never shown",
+            request_id: "request_one",
+          },
+        },
+        { status: 409 },
+      ),
+    );
+    expect(await runCli(ask, f.deps)).not.toBe(0);
+    const error = f.errors.join("");
+    expect(error).toContain("herdr_ask_gated");
+    expect(error).toContain("Tracking Item");
+    expect(error).not.toContain("backend prose");
+  });
+
   it("has no command that types into a pane", () => {
     const herdr = commandDefinitions.filter(
       (definition) =>
