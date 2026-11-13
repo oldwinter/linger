@@ -38,6 +38,7 @@ const herdrAsk: CommandDefinition = {
   notes: [
     "Only for a herdr event in your owner's chat. Asking again about the same pane state returns the same card.",
     "You never type into the pane. When your owner answers, TeamHub types exactly their answer into the pane, once, and then tells you whether it arrived; pass that on.",
+    "An event that came in during quiet hours or after today's reminders is refused with herdr_ask_gated while that still holds: do not tell your owner now; keep the pane and state in a Tracking Item and ask when its follow-up comes.",
   ],
   inputSchema: {
     type: "object",

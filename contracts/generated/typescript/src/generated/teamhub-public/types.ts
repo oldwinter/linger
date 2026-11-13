@@ -739,6 +739,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v0/rooms/{roomId}/background-tasks/{taskId}/cancel": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Cancel one background Task's current turn
+     * @description Stops the Task as its Meta's task stop does: the current turn ends and its approval cards expire, but its session and playground stay, so the Meta can resume it later. The Room's Meta is told who canceled it; a task a Live call started is canceled as Live's own cancel does instead. Canceling a Task that is not running for this Room changes nothing.
+     */
+    post: operations["cancelRoomBackgroundTask"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v0/rooms/{roomId}/runs/{runId}/cancel": {
     parameters: {
       query?: never;
@@ -5299,6 +5319,14 @@ export interface components {
       /** @description Oldest first. Waiting for an approval counts as running; a Task leaves the list once it is idle, failed or canceled. */
       items: components["schemas"]["RoomBackgroundTask"][];
     };
+    RoomBackgroundTaskCancelResult: {
+      task_id: string;
+      /**
+       * @description canceled when this request stopped the Task; not_running when it was no longer running, so nothing changed.
+       * @enum {string}
+       */
+      status: "canceled" | "not_running";
+    };
     RoomRunCancelRequest: {
       request_id: components["schemas"]["IdempotencyKey"];
     };
@@ -9149,6 +9177,32 @@ export interface operations {
       };
       401: components["responses"]["Unauthenticated"];
       404: components["responses"]["NotFound"];
+    };
+  };
+  cancelRoomBackgroundTask: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        roomId: string;
+        taskId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The Task's state after the request. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RoomBackgroundTaskCancelResult"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
     };
   };
   cancelRoomRun: {

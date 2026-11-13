@@ -104,4 +104,9 @@ line you wrote, once, and only while the pane still waits on the same
 question. Another Me has no way to type into a pane itself. Afterwards it
 tells you whether your answer arrived, the pane had closed, or the agent had
 already moved on; an answer whose delivery the computer did not confirm is
-never sent again.
+never sent again. A question that came in during quiet hours or past the
+daily limit gets no card while that still holds, whatever Another Me tries;
+it is followed up once that limit lifts.
+
+Each pane state is its own event, so under a mandate a later block or
+completion of the same pane may lead to a Work Item of its own.

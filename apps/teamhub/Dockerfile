@@ -13,7 +13,10 @@ FROM dependencies AS build
 COPY contracts/generated/go /src/contracts/generated/go
 COPY skills /src/skills
 COPY apps/teamhub .
-RUN CGO_ENABLED=0 go build -trimpath -o /out/teamhub ./cmd/teamhub && \
+# The runtime image has no zoneinfo, and the package-level time/tzdata imports
+# do not reach time.Local there; the tag embeds the database in the time
+# package so TZ sets the zone of quiet hours and day boundaries.
+RUN CGO_ENABLED=0 go build -tags timetzdata -trimpath -o /out/teamhub ./cmd/teamhub && \
 	CGO_ENABLED=0 go build -trimpath -o /out/teamhub-migrate ./cmd/migrate && \
 	CGO_ENABLED=0 go build -trimpath -o /out/teamhub-account ./cmd/account && \
 	CGO_ENABLED=0 go build -trimpath -o /out/teamhub-skill-package-audit ./cmd/skill-package-audit

@@ -150,6 +150,33 @@ func (q *Queries) GetLatestProactiveGuideline(ctx context.Context, arg GetLatest
 	return i, err
 }
 
+const getProactiveSignalReminded = `-- name: GetProactiveSignalReminded :one
+SELECT reminded FROM proactive_potential_items
+WHERE tenant_id=$1::text AND owner_actor_id=$2::text
+  AND source=$3::text AND source_key=$4::text
+`
+
+type GetProactiveSignalRemindedParams struct {
+	TenantID     string `json:"tenant_id"`
+	OwnerActorID string `json:"owner_actor_id"`
+	Source       string `json:"source"`
+	SourceKey    string `json:"source_key"`
+}
+
+// Whether today's judgment of this source item could remind the Human; one
+// that quiet hours or the daily limit gated could only track it.
+func (q *Queries) GetProactiveSignalReminded(ctx context.Context, arg GetProactiveSignalRemindedParams) (bool, error) {
+	row := q.db.QueryRow(ctx, getProactiveSignalReminded,
+		arg.TenantID,
+		arg.OwnerActorID,
+		arg.Source,
+		arg.SourceKey,
+	)
+	var reminded bool
+	err := row.Scan(&reminded)
+	return reminded, err
+}
+
 const getRunProactiveWakeSource = `-- name: GetRunProactiveWakeSource :one
 SELECT wake.source FROM agent_local_run_inputs relation
 JOIN agent_runtime_inputs input

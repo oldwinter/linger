@@ -92,14 +92,18 @@ func (a *App) askAgentHerdrPane(c *gin.Context) {
 		a.writeAgentAPIError(c, http.StatusServiceUnavailable, agentapi.AgentApiErrorCodeDependencyUnavailable, "Asking about herdr agents is temporarily unavailable")
 		return
 	}
-	reported, err := a.proactive.HerdrStateReported(ctx, proactive.Owner{TenantID: auth.TenantID, ActorID: ownerID}, computerID, request.PaneId, request.StateChangeSeq)
+	askable, err := a.proactive.HerdrAskable(ctx, proactive.Owner{TenantID: auth.TenantID, ActorID: ownerID}, computerID, request.PaneId, request.StateChangeSeq)
 	if err != nil {
 		a.logger.Error("read herdr pane state", "error", err)
 		a.writeAgentAPIError(c, http.StatusServiceUnavailable, agentapi.AgentApiErrorCodeDependencyUnavailable, "Asking about herdr agents is temporarily unavailable")
 		return
 	}
-	if !reported {
+	switch askable {
+	case proactive.HerdrAskUnreported:
 		a.writeAgentAPIError(c, http.StatusConflict, agentapi.AgentApiErrorCodeOperationForbidden, "The Computer did not report this herdr pane state; ask only about the pane and state of a herdr event")
+		return
+	case proactive.HerdrAskGated:
+		a.writeAgentAPIError(c, http.StatusConflict, agentapi.AgentApiErrorCodeHerdrAskGated, "Not now: it is quiet hours or the Human has had today's reminders. Do not tell them; follow this pane state up later in a Tracking Item with its pane and state, and ask when that follow-up comes")
 		return
 	}
 	roomID, err := a.humanConfirmationRoom(ctx, auth, ownerID)

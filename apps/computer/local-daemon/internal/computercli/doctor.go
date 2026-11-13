@@ -237,7 +237,7 @@ func herdrCheck(installation herdr.Installation, version string, running bool) d
 	if version != "" {
 		found += " " + version
 	}
-	detail := found + " at " + installation.Executable + "; Another Me hears its blocked and finished agents"
+	detail := found + " at " + installation.Executable + "; Another Me hears its blocked and finished agents through " + installation.Socket
 	if !running {
 		detail = found + " at " + installation.Executable + "; its server is not running at " + installation.Socket + ", so there are no agents to hear yet"
 	}

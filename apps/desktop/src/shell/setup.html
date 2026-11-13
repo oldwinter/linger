@@ -574,6 +574,14 @@
       .primary.large:hover:not(:disabled) svg {
         transform: translateX(2px);
       }
+      /* Checking this computer: the button waits with what it is doing. */
+      .primary.large[data-busy="true"] {
+        opacity: 0.8;
+        cursor: progress;
+      }
+      .primary.large[data-busy="true"] svg {
+        display: none;
+      }
       /* What Quick Install does, and the way to change it. */
       .plan-line {
         display: flex;
@@ -583,6 +591,31 @@
         margin-top: 14px;
         color: var(--faint);
         font-size: 12px;
+      }
+      .plan-why {
+        max-width: 440px;
+        margin-top: 4px;
+        color: var(--faint);
+        font-size: 11.5px;
+        line-height: 1.45;
+        font-variant-numeric: tabular-nums;
+      }
+      /* What downloads now, under the installing bar. */
+      .transfer {
+        display: grid;
+        gap: 2px;
+        margin: 10px 0 0;
+        color: var(--faint);
+        font-size: 11.5px;
+        line-height: 1.45;
+        font-variant-numeric: tabular-nums;
+      }
+      .transfer span span {
+        white-space: nowrap;
+      }
+      .transfer strong {
+        color: var(--ink);
+        font-weight: 500;
       }
       .plan-line .sep {
         width: 3px;
@@ -692,6 +725,17 @@
       }
       .seg button:hover:not(:disabled) {
         color: var(--ink);
+      }
+      /* The localmodels tool's pick for this computer. */
+      .seg button[data-recommended="true"]::after {
+        content: "";
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: #d9822b;
       }
       .seg button[aria-checked="true"] {
         color: var(--ink);
@@ -1418,6 +1462,7 @@
               Customize
             </button>
           </p>
+          <p class="plan-why" id="plan-why" hidden></p>
         </div>
         <p class="error" id="local-error" role="alert"></p>
         <p class="team" id="team">
@@ -1443,6 +1488,10 @@
             ><span class="pct" id="installing-count"></span>
           </div>
           <div class="track"><div class="fill" id="installing-fill"></div></div>
+          <p class="transfer" id="installing-transfer" hidden>
+            <strong id="installing-transfer-label"></strong
+            ><span id="installing-transfer-bytes"></span>
+          </p>
           <ol class="checks" id="installing-checks"></ol>
         </div>
         <div
@@ -1838,17 +1887,61 @@
         ["agents", () => "Preparing your agents"],
       ];
       const gigabytes = (bytes) => Math.round(bytes / 1024 ** 3) + " GB";
+      // Download sizes: MB below a gigabyte, one decimal GB above.
+      const size = (bytes) =>
+        bytes < 1024 ** 3
+          ? Math.max(0, Math.round(bytes / 1024 ** 2)) + " MB"
+          : (bytes / 1024 ** 3).toFixed(1) + " GB";
+      const duration = (seconds) => {
+        const minutes = Math.round(seconds / 60);
+        if (minutes < 1) return "less than a minute left";
+        if (minutes < 60) return "about " + minutes + " min left";
+        const hours = Math.floor(minutes / 60);
+        return (
+          "about " +
+          hours +
+          " h" +
+          (minutes % 60 ? " " + (minutes % 60) + " min" : "") +
+          " left"
+        );
+      };
+      // A download as the localmodels tool or the installer counts it: how
+      // much of how much, what remains, and the rate and time left when the
+      // source reports a rate. A count of one file of several says only
+      // that file's bytes, since nothing says what remains after it.
+      const transferParts = (transfer) => {
+        const { completed, total, bytesPerSecond: rate, partial } = transfer;
+        const left = total && !partial ? total - completed : undefined;
+        return [
+          (partial ? "This file: " : "") +
+            size(completed) +
+            (total ? " of " + size(total) : ""),
+          left !== undefined && size(left) + " left",
+          rate > 0 && size(rate) + "/s",
+          rate > 0 && left !== undefined && duration(left / rate),
+        ].filter(Boolean);
+      };
       // Long folders keep their start and their end.
       const shortPath = (value) =>
         value.length <= 46
           ? value
           : value.slice(0, 18) + "…" + value.slice(-27);
-      // The local model runs tasks through Pi, so choosing it chooses Pi.
-      const defaults = () => ({
-        runtime: "recommended",
-        localModel: false,
-      });
+      // Quick Install installs what the localmodels tool recommends for this
+      // computer once it has checked; until then (or when it cannot check)
+      // the installer picks. The local model runs tasks through Pi, so
+      // choosing it chooses Pi.
+      const defaults = () => {
+        const models = state.localServer.localModels;
+        const pick = models.state === "checked" && models.recommendation;
+        if (pick === "local-models" && models.eligible && models.model)
+          return { runtime: "pi", localModel: true };
+        if (pick && pick !== "local-models" && RUNTIMES[pick])
+          return { runtime: pick, localModel: false };
+        return { runtime: "recommended", localModel: false };
+      };
       let plan;
+      // Whether the person changed the plan; until then it follows defaults().
+      let picked = false;
       let customizing = false;
       // Provider keys typed or removed here ("" removes the saved one); kept
       // only in the inputs and sent once with Install.
@@ -2088,7 +2181,16 @@
 
       const renderLocal = (busy) => {
         const local = state.localServer;
-        plan ??= defaults();
+        const recommended = defaults();
+        // Auto, picked before the check named a pick, means that pick; once
+        // it is known Auto no longer shows.
+        if (
+          picked &&
+          plan.runtime === "recommended" &&
+          recommended.runtime !== "recommended"
+        )
+          picked = false;
+        if (!picked) plan = recommended;
         // The local model is offered only once this computer is known to
         // serve it; until then its row does not show.
         const models = local.localModels;
@@ -2096,6 +2198,12 @@
           models.state === "checked" && models.eligible && models.model;
         if (!model) plan.localModel = false;
         const custom = !isDefaultPlan(local);
+        // Quick Install waits for the check, so it installs what it shows.
+        const checking = models.state === "checking";
+        const known = recommended.runtime !== "recommended";
+        const following = JSON.stringify(plan) === JSON.stringify(recommended);
+        const named = (choice) =>
+          choice.localModel ? "Local model + Pi" : RUNTIMES[choice.runtime];
         $("welcome-lead").textContent = local.available
           ? "Runs on this computer, just for you. Takes a few minutes."
           : "Connect this computer to your team's Linger.";
@@ -2109,17 +2217,57 @@
         $("local-customize").textContent = customizing
           ? "Use the defaults"
           : "Customize";
-        $("local-install-label").textContent = custom
-          ? "Install"
-          : "Quick Install";
+        // Until the check ends the button says what it waits for: the first
+        // run downloads the localmodels tool, then the check runs. The label
+        // changes only when it differs, so the spinner keeps turning.
+        const fetching = checking ? models.download : undefined;
+        const label = checking
+          ? '<span class="spinner"></span>' +
+            (fetching ? "Downloading setup tools…" : "Checking this computer…")
+          : custom
+            ? "Install"
+            : "Quick Install";
+        if ($("local-install-label").innerHTML !== label)
+          $("local-install-label").innerHTML = label;
         document.querySelector('[data-step="welcome"]').dataset.customizing =
           String(customizing && local.available);
-        $("plan-summary").textContent = [
-          RUNTIMES[plan.runtime] || "Best AI runtime",
-          plan.localModel && "Local model",
-        ]
-          .filter(Boolean)
-          .join(" · ");
+        $("local-install").disabled ||= checking;
+        $("local-install").dataset.busy = String(checking);
+        $("local-install").setAttribute("aria-busy", String(checking));
+        $("plan-summary").textContent = checking
+          ? "Finding the best setup for this computer"
+          : following && known
+            ? "Recommended for this computer: " + named(plan)
+            : [
+                RUNTIMES[plan.runtime] || "Best AI runtime",
+                plan.localModel && "Local model",
+              ]
+                .filter(Boolean)
+                .join(" · ");
+        // Why, in the localmodels tool's facts and words.
+        $("plan-why").textContent = fetching
+          ? transferParts(fetching).join(" · ")
+          : !following || checking
+            ? ""
+            : plan.localModel
+              ? [
+                  model.name,
+                  "fits " + (models.gpu || "this computer"),
+                  gigabytes(models.memoryBytes) + " memory",
+                  model.downloadBytes != null &&
+                    gigabytes(model.downloadBytes) + " download",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              : models.state === "checked" && !models.eligible
+                ? "No local model: " +
+                  (models.reasons?.[0]?.message ||
+                    "this computer can't run one.")
+                : models.state === "unavailable"
+                  ? "Couldn't check this computer for a local model."
+                  : "";
+        $("plan-why").hidden =
+          !local.available || customizing || !$("plan-why").textContent;
         $("plan-line").hidden = !local.available;
         $("welcome-eyebrow").hidden = !local.available;
         const location = local.location;
@@ -2147,7 +2295,9 @@
         $("local-model").hidden = !model;
         if (model) {
           $("local-sub").textContent = [
-            "Runs your tasks on this computer",
+            recommended.localModel
+              ? "Recommended for this computer"
+              : "Runs your tasks on this computer",
             models.gpu,
           ]
             .filter(Boolean)
@@ -2168,14 +2318,23 @@
           );
           $("local-model").disabled = busy;
         }
-        $("runtime-sub").textContent = plan.localModel
-          ? "Pi + local model."
-          : "Runs your tasks.";
+        $("runtime-sub").textContent = known
+          ? "Recommended: " + RUNTIMES[recommended.runtime] + "."
+          : plan.localModel
+            ? "Pi + local model."
+            : "Runs your tasks.";
         for (const seg of document.querySelectorAll("[data-plan]"))
           for (const option of seg.querySelectorAll("button")) {
+            const value = option.dataset.value;
             option.setAttribute(
               "aria-checked",
-              String(plan[seg.dataset.plan] === option.dataset.value),
+              String(plan[seg.dataset.plan] === value),
+            );
+            // With the tool's pick known, it is marked and Auto is not
+            // needed.
+            option.hidden = known && value === "recommended";
+            option.dataset.recommended = String(
+              known && value === recommended.runtime,
             );
             option.disabled = busy;
           }
@@ -2210,6 +2369,21 @@
             ? local.message
             : steps[at][1]() + "…";
         $("installing-count").textContent = starting ? "" : percent + "%";
+        // A download under way: what it is and how far, in the counts the
+        // installer passes on from the localmodels tool.
+        const transfer = !failed && !starting ? local.transfer : undefined;
+        $("installing-transfer").hidden = !transfer;
+        $("installing-transfer-label").textContent = transfer
+          ? transfer.label
+          : "";
+        // Each part stays on one line, so a wrap falls between parts.
+        $("installing-transfer-bytes").replaceChildren(
+          ...(transfer ? transferParts(transfer) : []).flatMap((text, i) => {
+            const part = document.createElement("span");
+            part.textContent = text;
+            return i ? [" · ", part] : [part];
+          }),
+        );
         $("installing-checks").hidden = starting;
         const checks = $("installing-checks");
         if (checks.children.length !== steps.length)
@@ -2493,7 +2667,7 @@
       $("local-customize").addEventListener("click", () => {
         customizing = !customizing;
         if (!customizing) {
-          plan = defaults();
+          picked = false;
           clearKeys();
           const location = state.localServer.location;
           if (location.custom || location.error)
@@ -2504,6 +2678,7 @@
       for (const seg of document.querySelectorAll("[data-plan]"))
         for (const option of seg.querySelectorAll("button"))
           option.addEventListener("click", () => {
+            picked = true;
             plan = { ...plan, [seg.dataset.plan]: option.dataset.value };
             // Another runtime than Pi does not run the local model.
             if (plan.runtime !== "pi") plan.localModel = false;
@@ -2513,6 +2688,7 @@
         run({ op: "local.location.pick" }),
       );
       $("local-model").addEventListener("click", () => {
+        picked = true;
         plan = plan.localModel
           ? { ...plan, localModel: false }
           : { ...plan, runtime: "pi", localModel: true };

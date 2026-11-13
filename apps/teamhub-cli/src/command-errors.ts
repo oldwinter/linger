@@ -48,6 +48,8 @@ const templates: Record<string, string> = {
     "This Agent already has 10 running Tasks. Check them with teamhub task check, send to an idle one, or stop one before creating another.",
   invalid_input:
     "The operation input is invalid. Check this command's help and schema.",
+  herdr_ask_gated:
+    "Not now: quiet hours or today's reminders still hold for this herdr event. Do not tell your owner; keep the pane and state in a Tracking Item and ask when its follow-up comes.",
   outcome_unknown:
     "The operation outcome is unknown. Run the same command again with --operation-id set to this Operation ID: TeamHub returns the original result instead of submitting it twice.",
 };

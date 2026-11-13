@@ -57,6 +57,30 @@ func TestProactiveHerdrEventsAreJudgedLikeAppEventsUnderTheirComputer(t *testing
 		wakes(`body LIKE '%do not tell them now%--state 6 %'`) != 1 {
 		t.Fatalf("quiet hours=%+v err=%v", outcome, err)
 	}
+	// A card is how AnotherMe tells the Human about a blocked pane, so TeamHub
+	// refuses one for a gated question until its gate lifts; one that could
+	// remind may be asked any time.
+	owner := proactive.Owner{TenantID: acmeTenant, ActorID: "actor_acme_alice"}
+	askable := func(service *proactive.Service, seq int64) proactive.HerdrAsk {
+		t.Helper()
+		ask, err := service.HerdrAskable(t.Context(), owner, computerID, "w1:p1", seq)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ask
+	}
+	if got := askable(night, 6); got != proactive.HerdrAskGated {
+		t.Fatalf("gated question in quiet hours=%v", got)
+	}
+	if got := askable(day, 6); got != proactive.HerdrAskAllowed {
+		t.Fatalf("gated question after the quiet hours=%v", got)
+	}
+	if got := askable(night, 5); got != proactive.HerdrAskAllowed {
+		t.Fatalf("question that could remind=%v", got)
+	}
+	if got := askable(day, 99); got != proactive.HerdrAskUnreported {
+		t.Fatalf("unreported pane state=%v", got)
+	}
 	// Five reminders a day: the four after the first are told, the sixth only recorded.
 	for seq := int64(7); seq <= 10; seq++ {
 		if outcome, err := day.HandleEvent(t.Context(), blocked(seq)); err != nil || outcome.Skipped != "" {
@@ -65,6 +89,10 @@ func TestProactiveHerdrEventsAreJudgedLikeAppEventsUnderTheirComputer(t *testing
 	}
 	if outcome, err := day.HandleEvent(t.Context(), blocked(11)); err != nil || outcome.Skipped != "gated_to_tracking" {
 		t.Fatalf("daily limit=%+v err=%v", outcome, err)
+	}
+	// The daily limit holds for the rest of the day, quiet hours or not.
+	if got, held, told := askable(day, 11), askable(day, 6), askable(day, 7); got != proactive.HerdrAskGated || held != proactive.HerdrAskGated || told != proactive.HerdrAskAllowed {
+		t.Fatalf("past the daily limit: gated=%v earlier gated=%v reminded=%v", got, held, told)
 	}
 
 	// A report is queued for the Computer's owner from TeamHub's record.
