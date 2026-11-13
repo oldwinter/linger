@@ -2,6 +2,8 @@
 // The setup window walks a new install through server, sign-in, connecting
 // this computer and the system permissions it needs.
 
+import type { SetupChoice } from "@linger/local-installation/setup-plan";
+
 export interface SetupFolder {
   readonly grantId: string;
   readonly label: string;
@@ -22,6 +24,10 @@ export interface SetupLocalServer {
   readonly steps: readonly SetupLocalStep[];
   readonly step: SetupLocalStep;
   readonly progress: number;
+  // While the current step downloads: what (label), the bytes so far and
+  // in all, and the rate when the source reports one. partial: the counts
+  // cover only the file downloading now, so nothing says what remains.
+  readonly transfer?: SetupTransfer & { readonly label: string };
   // Which installation this is; timers and the bar start over with each.
   readonly attempt: number;
   // Whether this computer can serve a local model; checked as the setup
@@ -37,8 +43,6 @@ export interface SetupLocalServer {
   // Which provider keys are saved there; the page never sees them.
   readonly keys: {
     readonly composio: boolean;
-    readonly soniox: boolean;
-    readonly xai: boolean;
   };
   // While the "signin" step shows: the AI runtime's own sign-in.
   readonly signIn?: SetupRuntimeSignIn;
@@ -81,8 +85,17 @@ export interface SetupRuntimeSignIn {
   readonly message?: string;
 }
 
+export interface SetupTransfer {
+  readonly completed: number;
+  readonly total?: number;
+  readonly bytesPerSecond?: number;
+  readonly partial?: boolean;
+}
+
 export type SetupLocalModelsCheck =
-  | { readonly state: "unchecked" | "checking" | "unavailable" }
+  | { readonly state: "unchecked" | "unavailable" }
+  // While the check first downloads the localmodels tool: its bytes.
+  | { readonly state: "checking"; readonly download?: SetupTransfer }
   | {
       readonly state: "checked";
       readonly eligible: boolean;
@@ -96,8 +109,15 @@ export type SetupLocalModelsCheck =
         readonly diskBytes: number | null;
         readonly memoryBytes: number | null;
       };
-      // Why not, in the localmodels tool's words; when not eligible.
-      readonly reasons?: readonly string[];
+      // Why not, as the localmodels tool's code and words; when not
+      // eligible.
+      readonly reasons?: readonly {
+        readonly code: string;
+        readonly message?: string;
+      }[];
+      // The localmodels tool's pick, which Quick Install installs:
+      // "local-models" is the model above served by Pi.
+      readonly recommendation?: SetupChoice;
     };
 
 // The AI runtime the installer sets up; "recommended" lets it pick and
@@ -113,8 +133,6 @@ export type SetupLocalRuntime =
 // removes it and an absent provider keeps it.
 export interface SetupProviderKeys {
   readonly composio?: string;
-  readonly soniox?: string;
-  readonly xai?: string;
 }
 
 export interface SetupState {

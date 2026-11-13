@@ -739,6 +739,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v0/rooms/{roomId}/background-tasks/{taskId}/cancel": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Cancel one background Task's current turn
+     * @description Stops the Task as its Meta's task stop does: the current turn ends and its approval cards expire, but its session and playground stay, so the Meta can resume it later. The Room's Meta is told who canceled it; a task a Live call started is canceled as Live's own cancel does instead. Canceling a Task that is not running for this Room changes nothing.
+     */
+    post: operations["cancelRoomBackgroundTask"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v0/rooms/{roomId}/runs/{runId}/cancel": {
     parameters: {
       query?: never;
@@ -1422,6 +1442,28 @@ export interface paths {
      */
     get: operations["getVoiceMediaPolicy"];
     put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v0/voice-provider-keys/{provider}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        provider: components["schemas"]["VoiceProvider"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Save the deployment's API key for one voice provider.
+     * @description For deployments without the provider's environment key. TeamHub checks the key with the provider, then stores it encrypted with TEAMHUB_SECRET_ENCRYPTION_KEY. Any signed-in Human may save it; the key is never returned. 400 carries INVALID_REQUEST or VOICE_KEY_REJECTED, 409 VOICE_KEY_FROM_ENVIRONMENT, and 503 VOICE_KEY_STORAGE_UNAVAILABLE, VOICE_PROVIDER_UNAVAILABLE or VOICE_MEDIA_OFF.
+     */
+    put: operations["saveVoiceProviderKey"];
     post?: never;
     delete?: never;
     options?: never;
@@ -5162,6 +5204,14 @@ export interface components {
       /** @description Oldest first. Waiting for an approval counts as running; a Task leaves the list once it is idle, failed or canceled. */
       items: components["schemas"]["RoomBackgroundTask"][];
     };
+    RoomBackgroundTaskCancelResult: {
+      task_id: string;
+      /**
+       * @description canceled when this request stopped the Task; not_running when it was no longer running, so nothing changed.
+       * @enum {string}
+       */
+      status: "canceled" | "not_running";
+    };
     RoomRunCancelRequest: {
       request_id: components["schemas"]["IdempotencyKey"];
     };
@@ -5919,6 +5969,15 @@ export interface components {
     VoiceSessionCreateRequest: {
       purpose: components["schemas"]["VoiceSessionPurpose"];
     };
+    VoiceProviderKeyStatus: {
+      /**
+       * @description Where the effective key comes from; the environment wins over a stored key.
+       * @enum {string}
+       */
+      source: "none" | "environment" | "stored";
+      /** @description False when the provider's environment variable is set, no secret encryption key is configured, or voice media is off. */
+      can_save: boolean;
+    };
     VoiceMediaPolicy: {
       /** @description Soniox ASR is configured, so Recording, Pocket notes dictation and Voice Mode dictation are available. */
       voice_media_supported: boolean;
@@ -5927,6 +5986,15 @@ export interface components {
       live_supported?: boolean;
       /** @description Whether this tenant may enter live voice mode. */
       live_enabled?: boolean;
+      /** @description The deployment can run voice (TEAMHUB_VOICE_MEDIA=on); clients show voice entries only when true. */
+      voice_available?: boolean;
+      soniox_key?: components["schemas"]["VoiceProviderKeyStatus"];
+      xai_key?: components["schemas"]["VoiceProviderKeyStatus"];
+    };
+    /** @enum {string} */
+    VoiceProvider: "soniox" | "xai";
+    SaveVoiceProviderKeyRequest: {
+      api_key: string;
     };
     VoiceConnectionCredential: {
       /** Format: uri */
@@ -8884,6 +8952,32 @@ export interface operations {
       404: components["responses"]["NotFound"];
     };
   };
+  cancelRoomBackgroundTask: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        roomId: string;
+        taskId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The Task's state after the request. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RoomBackgroundTaskCancelResult"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+    };
+  };
   cancelRoomRun: {
     parameters: {
       query?: never;
@@ -9986,6 +10080,36 @@ export interface operations {
       };
       401: components["responses"]["Unauthenticated"];
       404: components["responses"]["NotFound"];
+    };
+  };
+  saveVoiceProviderKey: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        provider: components["schemas"]["VoiceProvider"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SaveVoiceProviderKeyRequest"];
+      };
+    };
+    responses: {
+      /** @description Key status after saving. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VoiceProviderKeyStatus"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      409: components["responses"]["Conflict"];
+      503: components["responses"]["ServiceUnavailable"];
     };
   };
   getVoiceSession: {

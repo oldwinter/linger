@@ -306,11 +306,17 @@ func (p *codexProcess) stopTree() bool {
 	p.mu.Unlock()
 	p.reapWithGrace()
 	gone := p.groupGone()
-	p.mu.Lock()
-	external := p.external
-	p.mu.Unlock()
-	excused := cleanupErr == nil || (external && errors.Is(cleanupErr, errCodexChildGone))
-	return p.confirmIf(p.isReaped() && gone && excused, logger)
+	return p.confirmIf(p.isReaped() && gone && codexCleanupExcused(cleanupErr), logger)
+}
+
+// codexCleanupExcused reports whether a turn cleanup leaves the stop
+// confirmable once the leader is reaped and its group is empty. A cleanup
+// that failed because the process had gone needs no other excuse: nothing is
+// left to run the turn or its terminals. Who ended the process does not
+// matter, and cannot be told reliably: the leader can exit just before the
+// stop closes its stdin, which then counts the exit as the stop's.
+func codexCleanupExcused(cleanupErr error) bool {
+	return cleanupErr == nil || errors.Is(cleanupErr, errCodexChildGone)
 }
 
 func (p *codexProcess) reapWithGrace() {

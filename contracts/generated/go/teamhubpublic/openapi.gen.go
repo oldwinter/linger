@@ -2414,6 +2414,24 @@ func (e ReferenceSegmentTargetType) Valid() bool {
 	}
 }
 
+// Defines values for RoomBackgroundTaskCancelResultStatus.
+const (
+	RoomBackgroundTaskCancelResultStatusCanceled   RoomBackgroundTaskCancelResultStatus = "canceled"
+	RoomBackgroundTaskCancelResultStatusNotRunning RoomBackgroundTaskCancelResultStatus = "not_running"
+)
+
+// Valid indicates whether the value is a known member of the RoomBackgroundTaskCancelResultStatus enum.
+func (e RoomBackgroundTaskCancelResultStatus) Valid() bool {
+	switch e {
+	case RoomBackgroundTaskCancelResultStatusCanceled:
+		return true
+	case RoomBackgroundTaskCancelResultStatusNotRunning:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RoomDocumentChangedPayloadKind.
 const (
 	RoomDocumentChangedPayloadKindDocumentCreated RoomDocumentChangedPayloadKind = "document.created"
@@ -2887,19 +2905,19 @@ func (e SlackConversationKind) Valid() bool {
 
 // Defines values for TaskAttemptSummaryStatus.
 const (
-	Passed  TaskAttemptSummaryStatus = "passed"
-	Running TaskAttemptSummaryStatus = "running"
-	Stopped TaskAttemptSummaryStatus = "stopped"
+	TaskAttemptSummaryStatusPassed  TaskAttemptSummaryStatus = "passed"
+	TaskAttemptSummaryStatusRunning TaskAttemptSummaryStatus = "running"
+	TaskAttemptSummaryStatusStopped TaskAttemptSummaryStatus = "stopped"
 )
 
 // Valid indicates whether the value is a known member of the TaskAttemptSummaryStatus enum.
 func (e TaskAttemptSummaryStatus) Valid() bool {
 	switch e {
-	case Passed:
+	case TaskAttemptSummaryStatusPassed:
 		return true
-	case Running:
+	case TaskAttemptSummaryStatusRunning:
 		return true
-	case Stopped:
+	case TaskAttemptSummaryStatusStopped:
 		return true
 	default:
 		return false
@@ -3143,6 +3161,45 @@ func (e VoiceEventKind) Valid() bool {
 	case VoiceEventKindSession:
 		return true
 	case VoiceEventKindTranscript:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceProvider.
+const (
+	Soniox VoiceProvider = "soniox"
+	Xai    VoiceProvider = "xai"
+)
+
+// Valid indicates whether the value is a known member of the VoiceProvider enum.
+func (e VoiceProvider) Valid() bool {
+	switch e {
+	case Soniox:
+		return true
+	case Xai:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceProviderKeyStatusSource.
+const (
+	Environment VoiceProviderKeyStatusSource = "environment"
+	None        VoiceProviderKeyStatusSource = "none"
+	Stored      VoiceProviderKeyStatusSource = "stored"
+)
+
+// Valid indicates whether the value is a known member of the VoiceProviderKeyStatusSource enum.
+func (e VoiceProviderKeyStatusSource) Valid() bool {
+	switch e {
+	case Environment:
+		return true
+	case None:
+		return true
+	case Stored:
 		return true
 	default:
 		return false
@@ -6476,6 +6533,16 @@ type RoomBackgroundTask struct {
 	Title       string `json:"title"`
 }
 
+// RoomBackgroundTaskCancelResult defines model for RoomBackgroundTaskCancelResult.
+type RoomBackgroundTaskCancelResult struct {
+	// Status canceled when this request stopped the Task; not_running when it was no longer running, so nothing changed.
+	Status RoomBackgroundTaskCancelResultStatus `json:"status"`
+	TaskId string                               `json:"task_id"`
+}
+
+// RoomBackgroundTaskCancelResultStatus canceled when this request stopped the Task; not_running when it was no longer running, so nothing changed.
+type RoomBackgroundTaskCancelResultStatus string
+
 // RoomBackgroundTaskList defines model for RoomBackgroundTaskList.
 type RoomBackgroundTaskList struct {
 	// Items Oldest first. Waiting for an approval counts as running; a Task leaves the list once it is idle, failed or canceled.
@@ -7067,6 +7134,11 @@ type RuntimePresentationEventRecord struct {
 
 // SaveExternalProviderKeyRequest defines model for SaveExternalProviderKeyRequest.
 type SaveExternalProviderKeyRequest struct {
+	ApiKey string `json:"api_key"`
+}
+
+// SaveVoiceProviderKeyRequest defines model for SaveVoiceProviderKeyRequest.
+type SaveVoiceProviderKeyRequest struct {
 	ApiKey string `json:"api_key"`
 }
 
@@ -7730,11 +7802,31 @@ type VoiceMediaPolicy struct {
 	LiveEnabled *bool `json:"live_enabled,omitempty"`
 
 	// LiveSupported Whether the xAI live voice provider is configured; Live does not need Soniox.
-	LiveSupported *bool `json:"live_supported,omitempty"`
+	LiveSupported *bool                   `json:"live_supported,omitempty"`
+	SonioxKey     *VoiceProviderKeyStatus `json:"soniox_key,omitempty"`
+
+	// VoiceAvailable The deployment can run voice (TEAMHUB_VOICE_MEDIA=on); clients show voice entries only when true.
+	VoiceAvailable *bool `json:"voice_available,omitempty"`
 
 	// VoiceMediaSupported Soniox ASR is configured, so Recording, Pocket notes dictation and Voice Mode dictation are available.
-	VoiceMediaSupported bool `json:"voice_media_supported"`
+	VoiceMediaSupported bool                    `json:"voice_media_supported"`
+	XaiKey              *VoiceProviderKeyStatus `json:"xai_key,omitempty"`
 }
+
+// VoiceProvider defines model for VoiceProvider.
+type VoiceProvider string
+
+// VoiceProviderKeyStatus defines model for VoiceProviderKeyStatus.
+type VoiceProviderKeyStatus struct {
+	// CanSave False when the provider's environment variable is set, no secret encryption key is configured, or voice media is off.
+	CanSave bool `json:"can_save"`
+
+	// Source Where the effective key comes from; the environment wins over a stored key.
+	Source VoiceProviderKeyStatusSource `json:"source"`
+}
+
+// VoiceProviderKeyStatusSource Where the effective key comes from; the environment wins over a stored key.
+type VoiceProviderKeyStatusSource string
 
 // VoiceSession defines model for VoiceSession.
 type VoiceSession struct {
@@ -8860,6 +8952,9 @@ type CreateWorkItemJSONRequestBody = WorkItemCreateRequest
 
 // AskVoiceCaptureQuestionJSONRequestBody defines body for AskVoiceCaptureQuestion for application/json ContentType.
 type AskVoiceCaptureQuestionJSONRequestBody = VoiceCaptureQuestionRequest
+
+// SaveVoiceProviderKeyJSONRequestBody defines body for SaveVoiceProviderKey for application/json ContentType.
+type SaveVoiceProviderKeyJSONRequestBody = SaveVoiceProviderKeyRequest
 
 // StartVoiceCaptureJSONRequestBody defines body for StartVoiceCapture for application/json ContentType.
 type StartVoiceCaptureJSONRequestBody = VoiceCaptureStartRequest

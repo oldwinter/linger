@@ -70,9 +70,13 @@ Gateway and runs Agents. The daemon exits with the app.
   that `setupChoice`). No secret passes through the page. Then it saves the
   installed runtime's executable and profile paths
   (`GET /api/instances/desktop/runtime`) as `runtimeEnvironment` in the
-  Desktop config, signs in with the local owner account, switches the window
-  to the server and enrolls this computer, so setup ends on "Linger is
-  ready". That screen shows the owner account from the instance's
+  Desktop config, and the runtime its `setupChoice` runs (`local-models` runs
+  on Pi) as `preferredRuntime`. The daemon config carries that as
+  `preferred_runtime`, and the daemon marks that runtime's diagnostic
+  `preferred`, so TeamHub creates Another Me and the starter Agents on it
+  while it is ready instead of on the first ready runtime. Then it signs in
+  with the local owner account, switches the window to the server and
+  enrolls this computer, so setup ends on "Linger is ready". That screen shows the owner account from the instance's
   owner-only `local-account.json` (`setup-account.ts`): the email, the
   password masked until Show, Copy (the main process writes the clipboard
   and clears it after 60 s if it still holds the password) and "Open account
@@ -110,13 +114,31 @@ Gateway and runs Agents. The daemon exits with the app.
   TeamHub and a relay forwards it the same way; a fix needs a check that
   the web port belongs to the web process the installer started. Every
   existing session cookie for the origin has the same exposure.
-  The default AI runtime is the
-  installer's recommendation, or Codex when the installer cannot inspect the
-  computer. It records the install location, source, origin and engine in
-  `desktop/local-server.json` under the default home and, while the window
-  still uses that origin, restarts the services on launch with
-  `installer.js --resume`, which also restarts them when the instance's
-  `user.env` changed. Before installing or resuming it moves the
+  Quick Install installs the `recommendation` of the localmodels setup
+  report (`installer.js --inspect`, run once as the setup window opens):
+  `local-models` is the planned model served by Pi, shown with the model,
+  GPU, memory and download; otherwise the named runtime, with the tool's
+  reason for no local model. The page adds no host rule of its own; while
+  the check runs the button waits with a spinner and says what it waits for
+  (the first run downloads the localmodels tool, counted by `download`
+  event lines before the report), and Customize marks the
+  recommended runtime and model. While installing, a step that downloads
+  shows its bytes, what remains and the rate from the installer's byte
+  counter (`localmodels.stack-progress/v1` for the local model and
+  engine); a counter of one file (`partial`) shows only that file. When
+  the check fails the installer picks, or Codex when it cannot inspect the
+  computer either. It records the install location, source, origin and engine in
+  `desktop/local-server.json` under the default home (written to a temporary
+  file and renamed, so a power loss leaves the old record or none) and, while
+  the window still uses that origin and the computer is enrolled, restarts the
+  services on launch with `installer.js --resume`, which also restarts them
+  when the instance's `user.env` changed. A source folder removed since is
+  unpacked again from the app's package first. A Quick Install that stopped
+  before the computer enrolled is not resumed: setup shows again and Install
+  finishes it, reusing a finished job only while its origin answers (a stopped
+  server gets a new job, which starts the services again). The start failure
+  page's Set Up Again forgets the record, unenrolls the computer, clears the
+  server address and shows setup; the instance and its data stay. Before installing or resuming it moves the
   `COMPOSIO_API_KEY`, `SONIOX_API_KEY`, `XAI_API_KEY` and `TZ` of an unpacked
   source package's `.env` into `<home>/instances/desktop/user.env` once and
   deletes that `.env` (never a `LINGER_CHECKOUT`'s), logging only the names
@@ -126,13 +148,16 @@ Gateway and runs Agents. The daemon exits with the app.
   says what is missing (offline computer, no writable folder, or no signed-in
   runtime with each runtime's reported state) and logs
   `local_server.another_me_missing`. Customize → API keys takes the
-  Composio, Soniox and xAI keys (`provider-keys.ts`); Install saves the edits
+  Composio key only (`provider-keys.ts`); voice keys are saved in the app,
+  and a `SONIOX_API_KEY` or `XAI_API_KEY` written into `user.env` by hand
+  still reaches the services and overrides the app's. Install saves the edits
   before the installer starts (`installer.js --instance desktop --user-keys`,
   the keys on stdin) into the owner-only `instances/desktop/user.env` of the
   install location, and the page only learns which keys are saved. Both
   engines pass them to the services whenever they are configured (an edit
   runs a new job even after a finished one); Native also starts its bundled
-  LiveKit when a voice key is set (see Release). There is no settings page
+  LiveKit whenever this computer has voice tools, with or without a voice
+  key (see Source Package and Release). There is no settings page
   after setup yet: keys change on the next Install or Try Again.
 - `src/main/diagnostics.ts`: Diagnostics, "Show Logs" (opens
   `<userData>/logs`) and "Save Diagnostics" (a redacted
@@ -148,7 +173,11 @@ Gateway and runs Agents. The daemon exits with the app.
 - `src/main/window-manager.ts`: one `BaseWindow` with two views, the title bar
   (`app://shell/titlebar`) and the SPA. macOS keeps native traffic lights,
   Windows uses `titleBarOverlay`, Linux draws its own controls. Closing hides
-  the window to the tray.
+  the window to the tray. Closing the setup window does not quit either: an
+  installation keeps running, and opening Linger again (a second launch, the
+  Dock, the tray) shows setup until the computer is enrolled
+  (`app-window.ts`), the main window after. The main window's server form
+  without a server says Back to Setup instead of Cancel.
 - `src/shell/*.html`: app-owned pages (title bar, offline/setup page). They
   have no network access and talk to the main process via `src/preload/shell.ts`.
 - `src/preload/index.ts`: the only SPA API, `window.lingerDesktop`.
@@ -194,6 +223,26 @@ Gateway and runs Agents. The daemon exits with the app.
   Windows setup installs into `%LOCALAPPDATA%\Programs\Linger`; on upgrade it
   closes and removes `%LOCALAPPDATA%\Programs\Simplex` and moves the
   "Open at login" Run value from `ai.simplex.desktop.preview` to the new id.
+  The uninstaller (per-user, like the setup) first runs `Linger.exe --quit`,
+  which a running Linger obeys without asking, then the bundled
+  `installer.js --instance desktop --stop` under `ELECTRON_RUN_AS_NODE`. That
+  stops the installation manager the desktop started (cancelling a running
+  job) and the `desktop` instance's services in the default home and in the
+  location `desktop/local-server.json` names; services already stopped are
+  left alone and it gives up after about two minutes. It keeps
+  `%APPDATA%\Linger` and the Linger home with all their data and asks nothing;
+  a later install starts the services again (resume, or setup's Install).
+  Setup over an installed release stops it the same way before it replaces
+  the files, since the services run on `Linger.exe` and hold it open. Each
+  install writes `resources\stops-services`; a release without it would start
+  on `--quit` and has no `--stop`, so setup skips `--quit` (CloseLinger asks
+  the person to quit a running app) and runs its own `installer.js`, copied to
+  the plugins folder, on the old `Linger.exe`. Retry in that prompt runs the
+  stop again. Nothing running: the stop finds nothing and setup goes on. The
+  localmodels tool's foundations controller (`foundations run`, which
+  `foundations ensure` starts detached on Windows) keeps running: the tool has
+  no command to stop it, and Linger does not end the tool's processes itself.
+  The tool refuses the chat stack on Windows, so no engine runs there.
 - `src/main/legacy-migration.ts`: on start, stops a bridge an older version
   left running and moves its credential and the Desktop 0.16 daemon identity
   into the daemon layout, so the computer keeps its id.
@@ -237,170 +286,12 @@ Gateway and runs Agents. The daemon exits with the app.
    the app's own Node (`ELECTRON_RUN_AS_NODE`) in packaged builds and on the
    `node` in PATH from source.
 
-## Source Package
+## Source Package and Release
 
-Release builds set `LINGER_SOURCE_ARCHIVE_URL` (https) and
-`LINGER_SOURCE_ARCHIVE_SHA256` before `node build.mjs`. Produce them from the
-release tag in the repository root:
-
-```sh
-SOURCE_ARCHIVE_REF=v1.2.3 \
-SOURCE_ARCHIVE_URL_BASE=https://github.com/simplexai-labs/linger/releases/download/v1.2.3 \
-  make source-archive
-```
-
-Upload `.linger-runtime/source-archive/linger-v1.2.3.tar.gz` to that release
-and take both values from `source-archive.json` next to it. One commit always
-gives the same digest. To ship the package inside the app instead (about
-45 MB more, no hosting needed), set `LINGER_SOURCE_ARCHIVE_FILE` to the
-archive; the build copies it beside the installer and pins its digest. Without
-either (and without `LINGER_CHECKOUT`) the build does not offer a
-local install.
-
-A downloaded source package can have a dependency store for each platform
-beside it, so the native install of its packages needs no registry. Build it
-from the same tag, on the platform it serves, and set
-`LINGER_SOURCE_DEPENDENCIES_URL` and `LINGER_SOURCE_DEPENDENCIES_SHA256` from
-`source-dependencies-<target>.json` for that platform's build:
-
-```sh
-SOURCE_ARCHIVE_REF=v1.2.3 \
-SOURCE_ARCHIVE_URL_BASE=https://github.com/simplexai-labs/linger/releases/download/v1.2.3 \
-  make source-dependencies
-```
-
-`SOURCE_DEPENDENCIES_TARGET` builds another platform's store instead (the
-`source-dependencies` CI job does this on Linux). Such a store skips install
-scripts, so the install still compiles or downloads native modules such as
-better-sqlite3. The desktop downloads the store after the source package
-(resuming an interrupted download) and unpacks it into
-`.linger-runtime/pnpm-store` of the source; when that fails it logs
-`local_server.dependencies_failed` and the installer downloads the packages
-itself.
-
-`LINGER_SOURCE_ARCHIVE_MIRRORS` and `LINGER_SOURCE_DEPENDENCIES_MIRRORS` list
-other https hosts serving the same files, separated by spaces. The desktop moves
-to the next one when a host fails or stalls, and the SHA-256 still decides.
-
-Native installs also need the publisher's pinned localmodels tool and native
-PostgreSQL package for the target. They are pinned in
-`distribution/<target>.json`, in the shape `packages/local-installation/src/native-dependencies.ts` reads
-(`platform`, `arch`, `localmodelsTool`, `nativeSources`, `voiceTools`, each
-source with an optional `mirrors` list of https URLs for the same file). The build copies the
-file of its target (`LINGER_DESKTOP_DAEMON_TARGETS`, else this machine) beside
-the bundled installer, which reads it at start; `LINGER_DESKTOP_DISTRIBUTION`
-names another file instead. A source with `file` (Windows) instead of `url`
-names an archive the app ships: the build copies it from
-`LINGER_NATIVE_POSTGRES_DIR` (default `~/.cache/linger-desktop`) to
-`dist/installer/native/` after checking its size and sha256, and the installer
-checks them again before extracting it, as it does for a download. Where the
-file has no PostgreSQL for the computer, or the bundled archive is missing,
-the setup page does not offer installing on this computer. `src/main/distribution.test.ts` checks that each file holds its
-target's PostgreSQL and the localmodels release `scripts/installs/stack.sh`
-pins.
-
-## Release
-
-Each desktop target (`darwin-arm64`, `linux-x64`) gets its own distribution
-file and build. For one release:
-
-1. Make the source package as above and upload it. On a host of each target,
-   make its dependency store and upload it beside the package.
-2. On a host of each target, build the PostgreSQL package with
-   `node scripts/prepare-native-postgres.mjs --output DIR --base-url URL`; it
-   refuses to cross-build. Before uploading, check `initdb`, a connection and
-   `CREATE EXTENSION vector` against a private data directory. Upload the
-   `.tar.gz` to `URL` and keep `postgres-<target>.json` from `DIR`. Windows
-   repackages the pinned EDB binaries, builds only pgvector and adds the
-   Visual C++ runtime the EDB zip leaves out, so run it there from an x64
-   Native Tools Command Prompt for Visual Studio. The installer accepts only
-   credential-free HTTPS URLs, so `URL` must be the HTTPS CDN.
-3. For a new PostgreSQL or localmodels release, update
-   `distribution/<target>.json`: `localmodelsTool` for the localmodels
-   release `scripts/installs/stack.sh` pins, and `nativeSources` holding that target's
-   `postgres-<target>.json` object.
-4. Build with `LINGER_DESKTOP_DAEMON_TARGETS` set to the target and the source package
-   (`LINGER_SOURCE_ARCHIVE_FILE`, or the URL and SHA256, plus the target's
-   `LINGER_SOURCE_DEPENDENCIES_URL` and SHA256) set, then package (`packaging/mac/package.py
---arch arm64` for macOS, `packaging/linux/package.py` for Linux).
-5. Check the package on a clean computer: Quick Install with the default
-   source ends on "Linger is ready" and Open Linger shows the local server,
-   signed in, with this computer connected.
-
-Official releases come from the public simplexai-labs/linger repository: a
-`desktop-v<version>` tag pushed there runs steps 4 and the packaging for
-`darwin-arm64`, `linux-x64` and `win32-x64` in GitHub Actions and publishes a
-linger GitHub Release with `SHA256SUMS.txt`; see
-[`docs/desktop-release.md`](../../docs/desktop-release.md). The workflow
-fetches the bundled archives from the assets of the `native-deps` prerelease
-there, so upload a new pinned archive to it before tagging.
-
-Windows, Linux x64 and Apple silicon bundle PostgreSQL in the app instead
-(`file` in `distribution/<target>.json`; 35 MB on Windows, 10–12 MB
-elsewhere), so Native works without the CDN. Put the pinned archives in
-`LINGER_NATIVE_POSTGRES_DIR` before `node build.mjs`; the build fails without
-them. To download it instead, replace `file` with the HTTPS `url` once it is on
-the CDN. Native PostgreSQL refuses an elevated Linger ("Run as
-administrator"), as it refuses root elsewhere.
-
-Every target also bundles the voice tools (`voiceTools`, about 40 MB each):
-the official LiveKit server release (Apple silicon: built from the tagged
-source with the pinned Go, since LiveKit publishes no macOS binary; without
-cgo, so its vendored go-osstat reports an idle CPU, which only matters when
-LiveKit spreads rooms over several servers) and a
-static LGPL ffmpeg/ffprobe (Linux and Windows: built from the FFmpeg release
-in the pinned Alpine image, Windows with MinGW-w64; Apple silicon: the
-pinned serversideup LGPL build, which links OpenSSL statically). Make them on
-Linux with `node scripts/prepare-native-voice-tools.mjs --target <target>
---output DIR` (Docker; Go for Apple silicon), copy the archive to
-`LINGER_NATIVE_POSTGRES_DIR` and `voice-tools-<target>.json` from `DIR` into
-`voiceTools`. The build is reproducible except for the Go toolchain download,
-and it checks the versions, the ffmpeg components the voice workers use,
-static linking and the Mach-O signatures. Licenses ship in `licenses/` of the
-archive. When a voice key is saved, Native extracts the archive into
-`tools/native/components`, puts its `bin` first on the services' `PATH`
-(TeamHub and the voice workers run `ffmpeg`/`ffprobe` from it) and runs
-`livekit-server` as the `livekit` Native service: loopback only, HTTP and
-WebSocket on one free port and media on one free UDP port, both kept with
-the generated API key and secret in the owner-only `livekit.env` of the
-instance, logs in `native/logs/livekit.log`. ICE over TCP stays off because
-LiveKit binds it on every interface. Without the tools for the computer
-Native keeps voice off. The macOS tools are ad-hoc signed by their linker and
-live in the archive, outside the app's signature, like PostgreSQL.
-
-A build with a source package for `win32-x64`, `linux-x64` or `darwin-arm64`
-also ships TeamHub prebuilt (`scripts/build-teamhub.mjs`): build.mjs
-cross-compiles `teamhub`, `migrate` and `account` from that package (`go` in
-PATH, `CGO_ENABLED=0`) into `dist/installer/native/teamhub-<target>/` with a
-`manifest.json` of their sha256, the package's sha256 and the commit
-`git archive` recorded in it; a downloaded package
-(`LINGER_SOURCE_ARCHIVE_URL`) is fetched for this. The package scripts
-refuse binaries that do not match the manifest or the bundled package
-(`packaging/native_bundle.py`). The desktop copies them into the unpacked source
-(`.simplexai-runtime/prebuilt/`), the installer checks them again and then
-skips the Go download, and `scripts/source-native.mjs` runs them (checking the
-sha256 before each start) instead of `go run` / `go build`. Without them, or
-when they do not verify, Native downloads Go and compiles as before.
-
-The same targets ship the services Native runs, built from that package
-(`scripts/build-native-runtime.mjs`): Web's production files, Node
-Services bundled with esbuild beside the node_modules it loads at runtime,
-and the pinned Node.js, in `dist/installer/native/runtime-<target>/` with a
-`manifest.json` (schema 1). Windows and Linux ship `runtime.tar.zst` beside
-the Node.js release archive. Apple silicon ships the `runtime/` folder and
-`node/bin/node` unpacked instead, because the app's signature must cover
-every Mach-O file: `packaging/mac/package.py` signs them with the app (Node.js
-with `node-entitlements.plist`: JIT, and native modules under the hardened
-runtime its release signature keeps), records the signed bytes in the
-manifests and seals them with a shallow signature. The desktop unpacks or
-copies the services into `.simplexai-runtime/offline/` of the source and
-Node.js into its own folder, removing `com.apple.quarantine` on macOS;
-`checkNativeRuntime` then verifies every file, and Native installs no
-packages and needs no registry. On Linux the services need glibc 2.35
-(Ubuntu 22.04, Debian 12), like the PostgreSQL build; with an older glibc the
-desktop leaves them out and Native installs from the network. Model data
-(OCR, Voice) is not bundled: Node Services downloads it on first use.
-Intel Macs have none of this and install from the network.
+Read [Packaging Details](../../docs/desktop-release.md#packaging-details) before
+changing `build.mjs`, `packaging/`, `distribution/`, the source package, or the
+bundled native PostgreSQL, voice tools, TeamHub, or services, and before
+building a package.
 
 ## Development Environment
 

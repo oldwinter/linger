@@ -40,7 +40,7 @@ import {
   type LocalServerOptions,
 } from "./local-server.js";
 import type { DesktopConfig } from "./config.js";
-import { EventBus } from "./modules.js";
+import { EventBus, type ModuleContext } from "./modules.js";
 import {
   silentLog,
   stubModule,
@@ -58,7 +58,7 @@ if (args.includes("--user-keys")) {
   const changes = JSON.parse(fs.readFileSync(0, "utf8"));
   fs.writeFileSync(path.join(home, "keys-args.json"), JSON.stringify(args));
   if (Object.values(changes).includes("bad")) {
-    process.stdout.write(JSON.stringify({ error: "XAI_API_KEY is not a valid key" }) + "\n");
+    process.stdout.write(JSON.stringify({ error: "COMPOSIO_API_KEY is not a valid key" }) + "\n");
     process.exit(1);
   }
   const directory = path.join(home, "instances", "desktop");
@@ -76,12 +76,19 @@ if (args.includes("--inspect")) {
   const hardware = { totalMemoryBytes: 64 * 1024 ** 3, diskFreeBytes: 200 * 1024 ** 3, gpus: [{ name: "RTX 4090" }] };
   const eligible = !fs.existsSync(path.join(home, "small-computer"));
   const estimate = eligible
-    ? { model: "qwen3-8b", downloadBytes: 6 * 1024 ** 3, diskBytes: 8 * 1024 ** 3, memoryBytes: 12 * 1024 ** 3 }
+    ? { model: fs.existsSync(path.join(home, "unnamed-model")) ? "" : "qwen3-8b", downloadBytes: 6 * 1024 ** 3, diskBytes: 8 * 1024 ** 3, memoryBytes: 12 * 1024 ** 3 }
     : { model: "", downloadBytes: null, diskBytes: null, memoryBytes: null };
+  if (fs.existsSync(path.join(home, "tool-download"))) {
+    // The first check downloads the localmodels tool, counted before the report.
+    process.stdout.write(JSON.stringify({ event: "download", completed: 5, total: 10 }) + "\n");
+    while (!fs.existsSync(path.join(home, "tool-ready")))
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+  }
   process.stderr.write("Checked this computer in 1.5s.\n");
   const reasons = eligible ? [] : ["facts-unavailable"];
   const reasonMessages = eligible ? [] : ["nvidia-smi was not found"];
-  process.stdout.write(JSON.stringify({ hardware, localModels: { eligible, reasons, reasonMessages, estimate } }) + "\n");
+  const recommendation = eligible ? "local-models" : "codex";
+  process.stdout.write(JSON.stringify({ hardware, localModels: { eligible, reasons, reasonMessages, estimate }, recommendation }) + "\n");
   process.exit(0);
 }
 if (args.includes("--resume")) {
@@ -284,6 +291,8 @@ const fixture = (
   const showStartFailed = vi.fn();
   const loadServer = vi.fn();
   const enroll = vi.fn(async () => {});
+  const unenroll = vi.fn(async () => {});
+  let context: ModuleContext | undefined;
   const signIn = vi.fn(async () => {});
   // The installed server proves itself unless a test says otherwise.
   const proveServer = vi.fn(async (_server: LocalServerIdentity) => {});
@@ -325,7 +334,14 @@ const fixture = (
         showStartFailed,
         loadServer,
       } as never,
-      { ...stubModule("Enrollment"), enroll } as never,
+      {
+        ...stubModule("Enrollment"),
+        enroll,
+        unenroll,
+        start: async (ctx: ModuleContext) => {
+          context = ctx;
+        },
+      } as never,
       module,
     ],
     config,
@@ -343,6 +359,8 @@ const fixture = (
     loadServer,
     bus,
     enroll,
+    unenroll,
+    config: () => context!.config.get(),
     signIn,
     proveServer,
     api,
@@ -718,6 +736,7 @@ describe("LocalServerModule", () => {
     expect(f.host.ctx.config.get().runtimeEnvironment).toEqual({
       LINGER_CODEX_PATH: "/opt/codex/codex",
     });
+    expect(f.host.ctx.config.get().preferredRuntime).toBe("codex");
     await f.host.stop("quit");
   });
 
@@ -1257,6 +1276,7 @@ describe("LocalServerModule", () => {
           diskBytes: 8 * 1024 ** 3,
           memoryBytes: 12 * 1024 ** 3,
         },
+        recommendation: "local-models",
       }),
     );
     expect(installerArgs(f.home)).toEqual(["--home", f.home, "--inspect"]);
@@ -1265,6 +1285,44 @@ describe("LocalServerModule", () => {
       line: "Checked this computer in 1.5s.",
     });
     info.mockRestore();
+  });
+
+  it("counts the localmodels tool download while checking", async () => {
+    const f = fixture({ checkout: "/src" }, {}, (home) => {
+      mkdirSync(home, { recursive: true });
+      writeFileSync(path.join(home, "tool-download"), "");
+    });
+    await f.host.start();
+    f.module.inspect();
+    await vi.waitFor(() =>
+      expect(f.module.status().localModels).toEqual({
+        state: "checking",
+        download: { completed: 5, total: 10 },
+      }),
+    );
+    writeFileSync(path.join(f.home, "tool-ready"), "");
+    await vi.waitFor(() =>
+      expect(f.module.status().localModels).toMatchObject({
+        state: "checked",
+        recommendation: "local-models",
+      }),
+    );
+  });
+
+  it("does not recommend a local model it cannot name", async () => {
+    const f = fixture({ checkout: "/src" }, {}, (home) => {
+      mkdirSync(home, { recursive: true });
+      writeFileSync(path.join(home, "unnamed-model"), "");
+    });
+    await f.host.start();
+    f.module.inspect();
+    await vi.waitFor(() =>
+      expect(f.module.status().localModels).toMatchObject({
+        state: "checked",
+        eligible: false,
+      }),
+    );
+    expect(f.module.status().localModels).not.toHaveProperty("recommendation");
   });
 
   it("reports a computer too small for a local model", async () => {
@@ -1279,7 +1337,10 @@ describe("LocalServerModule", () => {
       expect(f.module.status().localModels).toMatchObject({
         state: "checked",
         eligible: false,
-        reasons: ["facts-unavailable: nvidia-smi was not found"],
+        reasons: [
+          { code: "facts-unavailable", message: "nvidia-smi was not found" },
+        ],
+        recommendation: "codex",
       }),
     );
     expect(f.module.status().localModels).not.toHaveProperty("model");
@@ -1295,16 +1356,13 @@ describe("LocalServerModule", () => {
   });
 
   it("approves the deployment of the chosen local model", async () => {
-    const f = fixture(
-      withCheckout,
-      {},
-      checkout,
-      installerApi([], {
-        state: "waiting_user",
-        errorCode: "LOCAL_MODELS_APPROVAL_REQUIRED",
-        localModelsPlan: { planId: "a".repeat(64) },
-      }),
-    );
+    const api = installerApi([], {
+      state: "waiting_user",
+      errorCode: "LOCAL_MODELS_APPROVAL_REQUIRED",
+      localModelsPlan: { planId: "a".repeat(64) },
+    });
+    api.runtime.setupChoice = "local-models";
+    const f = fixture(withCheckout, {}, checkout, api);
     await f.host.start();
     await f.module.begin({ runtime: "local" });
     expect(f.api.created).toEqual([
@@ -1314,6 +1372,8 @@ describe("LocalServerModule", () => {
     ]);
     expect(f.api.retried).toEqual([{ localModelsApproval: "a".repeat(64) }]);
     expect(f.module.status().phase).toBe("ready");
+    // The local model runs on Pi, so the Computer prefers Pi.
+    expect(f.host.ctx.config.get().preferredRuntime).toBe("pi");
     await f.host.stop("quit");
   });
 
@@ -1449,6 +1509,48 @@ describe("LocalServerModule", () => {
     await f.host.stop("quit");
   });
 
+  it("shows the local model download the installer counts", async () => {
+    const f = fixture(
+      withCheckout,
+      {},
+      checkout,
+      installerApi([], undefined, undefined, {
+        state: "running",
+        stage: "runtime",
+        message: "Downloading the local model…",
+        stages: [
+          {
+            id: "runtime",
+            state: "running",
+            progress: {
+              completed: 4,
+              total: 10,
+              unit: "bytes",
+              bytesPerSecond: 2,
+              partial: true,
+            },
+          },
+        ],
+      }),
+    );
+    await f.host.start();
+    const seen: unknown[] = [];
+    f.host.ctx.bus.on("local-server.changed", () =>
+      seen.push(f.module.status().transfer),
+    );
+    await f.module.begin();
+    expect(seen).toContainEqual({
+      label: "Downloading the local model…",
+      completed: 4,
+      total: 10,
+      bytesPerSecond: 2,
+      partial: true,
+    });
+    // Done, nothing downloads.
+    expect(f.module.status().transfer).toBeUndefined();
+    await f.host.stop("quit");
+  });
+
   it("never steps back while the runtime prepares beside the checkout", async () => {
     const f = fixture(
       withCheckout,
@@ -1533,6 +1635,32 @@ describe("LocalServerModule", () => {
     await f.host.stop("quit");
   });
 
+  it("installs again when a finished installation's services are not running", async () => {
+    // The app or the computer stopped after the installation finished and
+    // before this computer connected; nothing answers at its origin.
+    const f = fixture(
+      withCheckout,
+      {},
+      checkout,
+      installerApi([
+        {
+          id: "old",
+          instance: LOCAL_INSTANCE,
+          state: "succeeded",
+          origin: "http://localhost:3000",
+          createdAt: "2026-11-03T00:00:00Z",
+          stages: [],
+        },
+      ]),
+    );
+    await f.host.start();
+    await f.module.begin();
+    expect(f.api.created).toHaveLength(1);
+    expect(f.enroll).toHaveBeenCalledOnce();
+    expect(f.module.status().phase).toBe("ready");
+    await f.host.stop("quit");
+  });
+
   it("saves provider keys in user.env before the installation runs again with them", async () => {
     const finishedJob = {
       id: "old",
@@ -1544,16 +1672,12 @@ describe("LocalServerModule", () => {
     };
     const f = fixture(withCheckout, {}, checkout, installerApi([finishedJob]));
     await f.host.start();
-    expect(f.module.status().keys).toEqual({
-      composio: false,
-      soniox: false,
-      xai: false,
-    });
+    expect(f.module.status().keys).toEqual({ composio: false });
     const info = vi.spyOn(silentLog, "info");
     const warn = vi.spyOn(silentLog, "warn");
     await f.module.begin({
       runtime: "claude",
-      keys: { composio: "composio-1", soniox: "soniox-1", xai: "xai-1" },
+      keys: { composio: "composio-1" },
     });
     // The keys go over stdin, never in the arguments.
     const keysArgs = readFileSync(path.join(f.home, "keys-args.json"), "utf8");
@@ -1569,29 +1693,22 @@ describe("LocalServerModule", () => {
         path.join(f.home, "instances", LOCAL_INSTANCE, "user.env"),
         "utf8",
       ),
-    ).toBe(
-      "COMPOSIO_API_KEY=composio-1\nSONIOX_API_KEY=soniox-1\nXAI_API_KEY=xai-1\n",
-    );
-    expect(f.module.status().keys).toEqual({
-      composio: true,
-      soniox: true,
-      xai: true,
-    });
+    ).toBe("COMPOSIO_API_KEY=composio-1\n");
+    expect(f.module.status().keys).toEqual({ composio: true });
     // The finished installation does not carry them, so a new one runs.
     expect(f.api.created).toHaveLength(1);
     expect(f.module.status().phase).toBe("ready");
     expect(info).toHaveBeenCalledWith("local_server.keys_saved", {
-      saved: ["COMPOSIO_API_KEY", "SONIOX_API_KEY", "XAI_API_KEY"],
+      saved: ["COMPOSIO_API_KEY"],
     });
     const logged = JSON.stringify([info.mock.calls, warn.mock.calls]);
     expect(logged).not.toContain("composio-1");
-    expect(logged).not.toContain("soniox-1");
-    expect(logged).not.toContain("xai-1");
     info.mockRestore();
     warn.mockRestore();
     await f.host.stop("quit");
 
-    // Removing one key keeps the other; without changes the finished
+    // Removing the Composio key keeps the voice keys a person put in
+    // user.env by hand; without changes the finished
     // installation is followed as before.
     const again = fixture(
       withCheckout,
@@ -1603,7 +1720,7 @@ describe("LocalServerModule", () => {
         });
         writeFileSync(
           path.join(home, "instances", LOCAL_INSTANCE, "user.env"),
-          "SONIOX_API_KEY=soniox-1\nXAI_API_KEY=xai-1\n",
+          "COMPOSIO_API_KEY=composio-1\nSONIOX_API_KEY=soniox-1\n",
         );
       },
       installerApi([finishedJob]),
@@ -1611,16 +1728,22 @@ describe("LocalServerModule", () => {
     await again.host.start();
     await again.module.begin({
       runtime: "claude",
-      keys: { xai: "" },
+      keys: { composio: "" },
     });
-    expect(again.module.status().keys).toEqual({
-      composio: false,
-      soniox: true,
-      xai: false,
-    });
+    expect(again.module.status().keys).toEqual({ composio: false });
+    expect(
+      readFileSync(
+        path.join(again.home, "instances", LOCAL_INSTANCE, "user.env"),
+        "utf8",
+      ),
+    ).toBe("SONIOX_API_KEY=soniox-1\n");
     await again.host.stop("quit");
+    // Its services still answer.
     const plain = fixture(
-      withCheckout,
+      (home) => ({
+        ...withCheckout(home),
+        fetch: (async () => new Response(null)) as typeof fetch,
+      }),
       {},
       checkout,
       installerApi([finishedJob]),
@@ -1638,10 +1761,10 @@ describe("LocalServerModule", () => {
     await expect(
       f.module.begin({
         runtime: "claude",
-        keys: { xai: "bad" },
+        keys: { composio: "bad" },
       }),
     ).rejects.toThrow(
-      "Keys could not be saved: XAI_API_KEY is not a valid key",
+      "Keys could not be saved: COMPOSIO_API_KEY is not a valid key",
     );
     expect(existsSync(path.join(f.home, "installer", "args.json"))).toBe(false);
     expect(f.module.status().phase).toBe("failed");
@@ -1756,6 +1879,11 @@ describe("LocalServerModule install location", () => {
 });
 
 describe("LocalServerModule after a restart", () => {
+  // This computer connected to the installed server, so setup finished.
+  const enrolled = {
+    serverUrl: "http://localhost:3000",
+    computerId: "cmp_1",
+  };
   const record = (home: string) => {
     mkdirSync(path.join(home, "desktop"), { recursive: true });
     writeFileSync(
@@ -1765,7 +1893,7 @@ describe("LocalServerModule after a restart", () => {
   };
 
   it("starts the installed services again for the local server", async () => {
-    const f = fixture({}, { serverUrl: "http://localhost:3000" }, record);
+    const f = fixture({}, enrolled, record);
     await f.host.start();
     await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
     expect(f.setServer).toHaveBeenCalledWith("http://localhost:3000");
@@ -1784,7 +1912,7 @@ describe("LocalServerModule after a restart", () => {
   });
 
   it("moves the keys of the unpacked source's .env into the instance's user.env once", async () => {
-    const f = fixture({}, { serverUrl: "http://localhost:3000" }, (home) => {
+    const f = fixture({}, enrolled, (home) => {
       const source = path.join(home, "desktop", "source", "previous");
       mkdirSync(source, { recursive: true });
       writeFileSync(
@@ -1810,29 +1938,25 @@ describe("LocalServerModule after a restart", () => {
   });
 
   it("leaves a developer checkout's .env alone", async () => {
-    const f = fixture(
-      withCheckout,
-      { serverUrl: "http://localhost:3000" },
-      (home) => {
-        checkout(home);
-        writeFileSync(path.join(home, "src", ".env"), "XAI_API_KEY=xai\n");
-        mkdirSync(path.join(home, "desktop", "source", "src"), {
-          recursive: true,
-        });
-        writeFileSync(
-          path.join(home, "desktop", "source", "src", ".env"),
-          "XAI_API_KEY=xai\n",
-        );
-        writeFileSync(
-          path.join(home, "desktop", "local-server.json"),
-          JSON.stringify({
-            home,
-            repo: path.join(home, "src"),
-            origin: "http://localhost:3000",
-          }),
-        );
-      },
-    );
+    const f = fixture(withCheckout, enrolled, (home) => {
+      checkout(home);
+      writeFileSync(path.join(home, "src", ".env"), "XAI_API_KEY=xai\n");
+      mkdirSync(path.join(home, "desktop", "source", "src"), {
+        recursive: true,
+      });
+      writeFileSync(
+        path.join(home, "desktop", "source", "src", ".env"),
+        "XAI_API_KEY=xai\n",
+      );
+      writeFileSync(
+        path.join(home, "desktop", "local-server.json"),
+        JSON.stringify({
+          home,
+          repo: path.join(home, "src"),
+          origin: "http://localhost:3000",
+        }),
+      );
+    });
     await f.host.start();
     await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
     expect(existsSync(path.join(f.home, "src", ".env"))).toBe(true);
@@ -1844,7 +1968,7 @@ describe("LocalServerModule after a restart", () => {
 
   it("starts the services again in the folder they were installed in", async () => {
     const elsewhere = path.join(tempDirectory(), "Linger");
-    const f = fixture({}, { serverUrl: "http://localhost:3000" }, (home) => {
+    const f = fixture({}, enrolled, (home) => {
       mkdirSync(path.join(home, "desktop"), { recursive: true });
       writeFileSync(
         path.join(home, "desktop", "local-server.json"),
@@ -1878,7 +2002,7 @@ describe("LocalServerModule after a restart", () => {
         },
         fetch: (async () => new Response(archive.bytes)) as typeof fetch,
       },
-      { serverUrl: "http://localhost:3000" },
+      enrolled,
       (home) => {
         const sources = path.join(home, "desktop", "source");
         mkdirSync(path.join(sources, "previous"), { recursive: true });
@@ -1917,7 +2041,7 @@ describe("LocalServerModule after a restart", () => {
   });
 
   it("reports a failed restart", async () => {
-    const f = fixture({}, { serverUrl: "http://localhost:3000" }, (home) => {
+    const f = fixture({}, enrolled, (home) => {
       record(home);
       writeFileSync(path.join(home, "resume-fails"), "");
     });
@@ -1930,7 +2054,7 @@ describe("LocalServerModule after a restart", () => {
   });
 
   it("starts the services again when the person tries again", async () => {
-    const f = fixture({}, { serverUrl: "http://localhost:3000" }, (home) => {
+    const f = fixture({}, enrolled, (home) => {
       record(home);
       writeFileSync(path.join(home, "resume-fails"), "");
     });
@@ -1949,12 +2073,136 @@ describe("LocalServerModule after a restart", () => {
         fetch: (async () =>
           new Response(null, { status: 200 })) as typeof fetch,
       },
-      { serverUrl: "http://localhost:3000" },
+      enrolled,
       record,
     );
     await f.host.start();
     await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
     expect(f.showStarting).not.toHaveBeenCalled();
+    await f.host.stop("quit");
+  });
+
+  it("shows setup instead of resuming a Quick Install that stopped before this computer connected", async () => {
+    // The record is written once the server runs, before this computer
+    // connects; the app quit or the computer went off in between.
+    const f = fixture(
+      withCheckout,
+      { serverUrl: "http://localhost:3000" },
+      (home) => {
+        checkout(home);
+        mkdirSync(path.join(home, "desktop"), { recursive: true });
+        writeFileSync(
+          path.join(home, "desktop", "local-server.json"),
+          JSON.stringify({
+            home,
+            repo: path.join(home, "src"),
+            origin: "http://localhost:3000",
+          }),
+        );
+      },
+    );
+    await f.host.start();
+    expect(f.module.status().phase).toBe("idle");
+    expect(existsSync(path.join(f.home, "installer", "args.json"))).toBe(false);
+    expect(f.showStarting).not.toHaveBeenCalled();
+    // Install on the setup page finishes it in the same place.
+    await f.module.begin();
+    expect(f.module.status().phase).toBe("ready");
+    expect(installerArgs(f.home)).not.toContain("--resume");
+    expect(f.signIn).toHaveBeenCalledOnce();
+    expect(f.enroll).toHaveBeenCalledOnce();
+    await f.host.stop("quit");
+  });
+
+  it("unpacks the source package again when its folder is gone", async () => {
+    const root = tempDirectory();
+    const archive = sourceArchive(root);
+    const repo = (home: string) =>
+      path.join(home, "desktop", "source", archive.sha256.slice(0, 16));
+    const f = fixture(
+      {
+        sourceArchive: {
+          url: "https://cdn.example/linger.tar.gz",
+          sha256: archive.sha256,
+        },
+        fetch: (async () => new Response(archive.bytes)) as typeof fetch,
+      },
+      enrolled,
+      (home) => {
+        mkdirSync(path.join(home, "desktop"), { recursive: true });
+        writeFileSync(
+          path.join(home, "desktop", "local-server.json"),
+          JSON.stringify({
+            home,
+            repo: repo(home),
+            origin: "http://localhost:3000",
+          }),
+        );
+      },
+    );
+    await f.host.start();
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
+    const args = installerArgs(f.home);
+    expect(args[args.indexOf("--source-repo") + 1]).toBe(repo(f.home));
+    expect(
+      existsSync(path.join(repo(f.home), "scripts/source-native.mjs")),
+    ).toBe(true);
+    expect(f.module.sourceUpdateAvailable()).toBe(false);
+    await f.host.stop("quit");
+  });
+
+  it("forgets the installation and its enrollment when the person sets up again", async () => {
+    const f = fixture({}, enrolled, (home) => {
+      record(home);
+      writeFileSync(path.join(home, "resume-fails"), "");
+    });
+    const opened = vi.fn();
+    f.bus.on("setup.open", opened);
+    await f.host.start();
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("failed"));
+    f.bus.emit("local-server.reset");
+    await vi.waitFor(() => expect(opened).toHaveBeenCalledOnce());
+    expect(f.module.status().phase).toBe("idle");
+    expect(existsSync(path.join(f.home, "desktop", "local-server.json"))).toBe(
+      false,
+    );
+    expect(f.unenroll).toHaveBeenCalledOnce();
+    expect(f.config().serverUrl).toBeUndefined();
+    expect(f.loadServer).toHaveBeenCalledOnce();
+    // Try Again has nothing left to start.
+    rmSync(path.join(f.home, "installer", "args.json"));
+    f.bus.emit("local-server.retry");
+    await delay(50);
+    expect(existsSync(path.join(f.home, "installer", "args.json"))).toBe(false);
+    await f.host.stop("quit");
+  });
+
+  it("writes its record in one piece", async () => {
+    const f = fixture(withCheckout, {}, checkout);
+    await f.host.start();
+    await f.module.begin();
+    expect(readdirSync(path.join(f.home, "desktop")).sort()).toEqual(
+      expect.not.arrayContaining([expect.stringMatching(/\.tmp$/)]),
+    );
+    expect(
+      JSON.parse(
+        readFileSync(path.join(f.home, "desktop", "local-server.json"), "utf8"),
+      ),
+    ).toMatchObject({ origin: "http://localhost:3000" });
+    await f.host.stop("quit");
+  });
+
+  it("leaves no staged record behind when the record cannot be moved into place", async () => {
+    const f = fixture(withCheckout, {}, checkout);
+    // A folder where the record goes: the rename fails.
+    mkdirSync(path.join(f.home, "desktop", "local-server.json", "x"), {
+      recursive: true,
+    });
+    await f.host.start();
+    await f.module.begin().catch(() => {});
+    expect(readdirSync(path.join(f.home, "desktop"))).toEqual(
+      expect.not.arrayContaining([expect.stringMatching(/\.tmp$/)]),
+    );
     await f.host.stop("quit");
   });
 
@@ -2355,6 +2603,7 @@ describe("LocalServerModule on Windows", () => {
 
 describe("LocalServerModule owner account", () => {
   const ORIGIN = "http://localhost:3000";
+  const enrolled = { serverUrl: ORIGIN, computerId: "cmp_1" };
   const installed =
     (account?: Record<string, unknown>, mode = 0o600) =>
     (home: string) => {
@@ -2377,7 +2626,7 @@ describe("LocalServerModule owner account", () => {
   };
 
   it("signs the window in to the installed server with the account file", async () => {
-    const f = fixture({}, { serverUrl: ORIGIN }, installed(OWNER));
+    const f = fixture({}, enrolled, installed(OWNER));
     await f.host.start();
     await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
     expect(await f.module.servesWindow()).toBe(true);
@@ -2401,7 +2650,7 @@ describe("LocalServerModule owner account", () => {
   });
 
   it("does not offer the account while the services are not running", async () => {
-    const f = fixture({}, { serverUrl: ORIGIN }, (home) => {
+    const f = fixture({}, enrolled, (home) => {
       installed(OWNER)(home);
       writeFileSync(path.join(home, "resume-fails"), "");
     });
@@ -2431,7 +2680,7 @@ describe("LocalServerModule owner account", () => {
       "Linger on this computer is not responding.",
     ],
   ])("says what to do when signing in fails (%s)", async (error, message) => {
-    const f = fixture({}, { serverUrl: ORIGIN }, installed(OWNER));
+    const f = fixture({}, enrolled, installed(OWNER));
     f.signIn.mockRejectedValueOnce(error);
     await f.host.start();
     await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
@@ -2443,7 +2692,7 @@ describe("LocalServerModule owner account", () => {
     let now = Date.now();
     const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
     try {
-      const f = fixture({}, { serverUrl: ORIGIN }, installed(OWNER));
+      const f = fixture({}, enrolled, installed(OWNER));
       await f.host.start();
       await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
       expect(await f.module.servesWindow()).toBe(true);
@@ -2477,7 +2726,7 @@ describe("LocalServerModule owner account", () => {
           );
         },
       },
-      { serverUrl: ORIGIN },
+      enrolled,
       installed(OWNER),
     );
     await f.host.start();
@@ -2506,7 +2755,7 @@ describe("LocalServerModule owner account", () => {
   });
 
   it("does not offer it before Linger is installed here", async () => {
-    const f = fixture({}, { serverUrl: ORIGIN });
+    const f = fixture({}, enrolled);
     await f.host.start();
     expect(await f.module.servesWindow()).toBe(false);
     await expect(f.module.account()).rejects.toThrow(
@@ -2534,7 +2783,7 @@ describe("LocalServerModule owner account", () => {
   ])(
     "says why a %s account file cannot sign in",
     async (_case, prepare, message) => {
-      const f = fixture({}, { serverUrl: ORIGIN }, prepare);
+      const f = fixture({}, enrolled, prepare);
       await f.host.start();
       await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
       const failure = f.module.signInWithAccount();

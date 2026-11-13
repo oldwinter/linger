@@ -142,6 +142,10 @@ class FakeSession {
   respond = vi.fn();
   truncate = vi.fn();
   tell = vi.fn();
+  repeatUpdate = vi.fn();
+  abandon = vi.fn((code: string) =>
+    this.fail(new LiveSessionError(code, true)),
+  );
   note = vi.fn();
   sendToolResults = vi.fn();
   setSpeed = vi.fn((speed: number) => speed <= 1.5);
@@ -412,7 +416,12 @@ describe("afterCall", () => {
     expect(
       afterCall("Switching everything to English.", "All English now"),
     ).toBe(" All English now");
-    expect(afterCall("改好了。", "主题是周五会议")).toBe("主题是周五会议");
+    expect(
+      afterCall(
+        "\u6539\u597d\u4e86\u3002",
+        "\u4e3b\u9898\u662f\u5468\u4e94\u4f1a\u8bae",
+      ),
+    ).toBe("\u4e3b\u9898\u662f\u5468\u4e94\u4f1a\u8bae");
     expect(afterCall("", "Done.")).toBe("Done.");
     expect(afterCall("Done. ", "Next")).toBe("Next");
   });
@@ -1116,10 +1125,12 @@ describe("LiveVoiceWorker", () => {
     await test.shutdown();
   });
 
-  it("reconnects once on a transient loss and fails the session after that", async () => {
+  it("reconnects on a transient loss three times and fails the session after that", async () => {
     const test = await harness();
-    test.session().fail(new LiveSessionError("live_socket_closed", true));
-    await vi.waitFor(() => expect(test.sessions).toHaveLength(2));
+    for (const count of [2, 3, 4]) {
+      test.session().fail(new LiveSessionError("live_socket_closed", true));
+      await vi.waitFor(() => expect(test.sessions).toHaveLength(count));
+    }
     test.session().fail(new LiveSessionError("live_socket_closed", true));
     await vi.waitFor(() =>
       expect(test.ofType("session_failure")).toEqual([
@@ -1218,7 +1229,7 @@ describe("LiveVoiceWorker background work", () => {
     );
     await vi.waitFor(() => expect(test.session().tell).toHaveBeenCalledOnce());
     expect(test.session().tell.mock.calls[0]![0]).toContain(
-      "ask them that plainly",
+      "ask them for it plainly",
     );
     expect(test.session().tell.mock.calls[0]![0]).toContain(
       "You finished saying something else a moment ago",
@@ -1266,9 +1277,7 @@ describe("LiveVoiceWorker background work", () => {
       {
         type: "function_calls",
         update: true,
-        calls: [
-          { callId: "publish", name: "publish_task_result", arguments: "{}" },
-        ],
+        calls: [{ callId: "publish", name: "send_card", arguments: "{}" }],
       },
       { type: "response_finished", canceled: false },
     );
@@ -1408,17 +1417,70 @@ describe("LiveVoiceWorker background work", () => {
     await test.shutdown();
   });
 
-  it("tells an update again when the provider never started it, then gives it up", async () => {
+  it("replaces a session that never took up an update and tells it there", async () => {
     const test = await harness();
     test.setAlerts([{ alert_id: "a1", text: "Lisa @you" }]);
-    await vi.waitFor(
-      () => expect(test.session().tell).toHaveBeenCalledTimes(3),
-      {
-        timeout: 3_000,
-      },
+    await vi.waitFor(() => expect(test.session().tell).toHaveBeenCalledOnce());
+    const first = test.session();
+    // The cue is never taken up: telling it again on the same connection
+    // would only queue behind it.
+    await vi.waitFor(() =>
+      expect(first.abandon).toHaveBeenCalledWith("live_update_stalled"),
     );
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    expect(test.session().tell).toHaveBeenCalledTimes(3);
+    expect(first.tell).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(test.sessions).toHaveLength(2));
+    await vi.waitFor(() => expect(test.session().tell).toHaveBeenCalledOnce());
+    await test.shutdown();
+  });
+
+  it("asks again for an update whose response said nothing, then gives it up", async () => {
+    const test = await harness();
+    test.setAlerts([{ alert_id: "a1", text: "Lisa @you" }]);
+    await vi.waitFor(() => expect(test.session().tell).toHaveBeenCalledOnce());
+    const id = test.session().tell.mock.calls[0]![2] as string;
+    for (const repeats of [1, 2]) {
+      test
+        .session()
+        .emit(
+          { type: "update_accepted", id },
+          { type: "response_finished", canceled: false, updateId: id },
+        );
+      await vi.waitFor(() =>
+        expect(test.session().repeatUpdate).toHaveBeenCalledTimes(repeats),
+      );
+    }
+    expect(test.session().repeatUpdate).toHaveBeenCalledWith(id, false);
+    test
+      .session()
+      .emit(
+        { type: "update_accepted", id },
+        { type: "response_finished", canceled: false, updateId: id },
+      );
+    // Once it is given up the next update is told, and nothing more of it.
+    test.setAlerts([{ alert_id: "a2", text: "Max @you" }]);
+    await vi.waitFor(() =>
+      expect(test.session().tell).toHaveBeenCalledTimes(2),
+    );
+    expect(test.session().tell.mock.calls[1]![2]).not.toBe(id);
+    expect(test.session().repeatUpdate).toHaveBeenCalledTimes(2);
+    expect(test.session().abandon).not.toHaveBeenCalled();
+    await test.shutdown();
+  });
+
+  it("cancels an update's response that started but says nothing", async () => {
+    const test = await harness();
+    test.setAlerts([{ alert_id: "a1", text: "Lisa @you" }]);
+    await vi.waitFor(() => expect(test.session().tell).toHaveBeenCalledOnce());
+    const id = test.session().tell.mock.calls[0]![2] as string;
+    test.session().emit({ type: "update_accepted", id });
+    await vi.waitFor(() => expect(test.session().cancel).toHaveBeenCalled());
+    test
+      .session()
+      .emit({ type: "response_finished", canceled: true, updateId: id });
+    await vi.waitFor(() =>
+      expect(test.session().repeatUpdate).toHaveBeenCalledOnce(),
+    );
+    expect(test.session().abandon).not.toHaveBeenCalled();
     await test.shutdown();
   });
 

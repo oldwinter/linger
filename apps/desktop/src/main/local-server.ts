@@ -33,6 +33,10 @@ import {
 import { downloadVerified } from "@linger/local-installation/download";
 import { legacyMigrationPending } from "@linger/local-installation/home";
 import {
+  type SetupChoice,
+  setupChoices,
+} from "@linger/local-installation/setup-plan";
+import {
   removeRetrying,
   renameRetrying,
 } from "@linger/local-installation/fs-retry";
@@ -95,7 +99,9 @@ export interface LocalModel {
 
 // What the installer found on this computer, for the optional local model.
 export type LocalModelsCheck =
-  | { readonly state: "unchecked" | "checking" | "unavailable" }
+  | { readonly state: "unchecked" | "unavailable" }
+  // While the check first downloads the localmodels tool: its bytes.
+  | { readonly state: "checking"; readonly download?: Transfer }
   | {
       readonly state: "checked";
       // Whether this computer can serve a local model at all.
@@ -105,10 +111,28 @@ export type LocalModelsCheck =
       readonly gpu?: string;
       // Present only when eligible.
       readonly model?: LocalModel;
-      // Why not, in the localmodels tool's words; present only when not
-      // eligible.
-      readonly reasons?: readonly string[];
+      // Why not, as the localmodels tool's code and words; present only
+      // when not eligible.
+      readonly reasons?: readonly SetupReason[];
+      // The localmodels tool's pick for this computer, which Quick Install
+      // installs; the page adds no rule of its own.
+      readonly recommendation?: SetupChoice;
     };
+
+export interface SetupReason {
+  readonly code: string;
+  readonly message?: string;
+}
+
+// A download under way: its bytes so far and in all, and the rate when the
+// source reports one. partial: the counts cover only the file downloading
+// now, so nothing says what remains.
+export interface Transfer {
+  readonly completed: number;
+  readonly total?: number;
+  readonly bytesPerSecond?: number;
+  readonly partial?: boolean;
+}
 
 // What to install, chosen on the setup page; the installer applies it at once.
 export interface LocalServerPlan {
@@ -225,6 +249,8 @@ export interface LocalServerStatus {
   readonly steps: readonly LocalServerStep[];
   readonly step: LocalServerStep;
   readonly progress: number;
+  // While the current step downloads: what and how far.
+  readonly transfer?: Transfer & { readonly label: string };
   // Which installation this is; each Install or Try Again starts a new one.
   readonly attempt: number;
   readonly localModels: LocalModelsCheck;
@@ -233,8 +259,6 @@ export interface LocalServerStatus {
   // keys themselves.
   readonly keys: {
     readonly composio: boolean;
-    readonly soniox: boolean;
-    readonly xai: boolean;
   };
   readonly origin?: string;
   // While the "signin" step waits for the person.
@@ -319,6 +343,7 @@ export class LocalServerModule implements Module {
   #message = "";
   #step: LocalServerStep = "prepare";
   #progress = 0;
+  #transfer: LocalServerStatus["transfer"];
   // Counts installations started, so the setup page restarts its timers.
   #attempt = 0;
   #origin: string | undefined;
@@ -338,6 +363,7 @@ export class LocalServerModule implements Module {
   #outdated: LocalRecord | undefined;
   #updating: Promise<void> | undefined;
   #offRetry: (() => void) | undefined;
+  #offReset: (() => void) | undefined;
   #offDaemon: (() => void) | undefined;
   #daemonFailure: string | undefined;
   #signIn: RuntimeSignIn | undefined;
@@ -361,19 +387,24 @@ export class LocalServerModule implements Module {
     this.#ctx = ctx;
     const migrationFailure = await this.#migrateLegacyHome(ctx);
     // After a reboot the local services are gone; start them again while the
-    // window still points at them.
-    const record = await this.#readRecord();
+    // window still points at them. A record of a Quick Install that stopped
+    // before this computer connected (the app quit or the computer went off
+    // during its last steps) is not resumed: setup shows instead, and its
+    // Install finishes that installation.
+    let record = await this.#readRecord();
     if (record) this.#home = record.home;
+    const config = ctx.config.get();
+    const resumes =
+      !!record && config.serverUrl === record.origin && !!config.computerId;
     if (migrationFailure) {
       // Resume would fail on the legacy record with a less useful error;
       // Retry resumes, and the installer migrates again first.
       this.#set("failed", migrationFailure);
-      if (record && ctx.config.get().serverUrl === record.origin)
+      if (resumes)
         ctx
           .get<WindowManagerModule>("WindowManager")
           ?.showStartFailed(migrationFailure);
-    } else if (record && ctx.config.get().serverUrl === record.origin)
-      void this.#resume(record, this.#abort.signal);
+    } else if (record && resumes) void this.#resume(record, this.#abort.signal);
     this.#offDaemon = ctx.bus.on("computer.failed", (reason) => {
       this.#daemonFailure = reason;
     });
@@ -382,10 +413,15 @@ export class LocalServerModule implements Module {
         void this.#resume(record, this.#abort.signal);
       }
     });
+    this.#offReset = ctx.bus.on("local-server.reset", () => {
+      record = undefined;
+      void this.#reset();
+    });
   }
 
   async stop(): Promise<void> {
     this.#offRetry?.();
+    this.#offReset?.();
     this.#offDaemon?.();
     // The installer manager keeps running a started installation; it exits
     // by itself once idle.
@@ -415,6 +451,7 @@ export class LocalServerModule implements Module {
       steps: this.#steps(),
       step: this.#step,
       progress: this.#progress,
+      ...(this.#transfer ? { transfer: this.#transfer } : {}),
       attempt: this.#attempt,
       localModels: this.#check,
       location: {
@@ -424,8 +461,6 @@ export class LocalServerModule implements Module {
       },
       keys: {
         composio: !!keys.composio,
-        soniox: !!keys.soniox,
-        xai: !!keys.xai,
       },
       ...(this.#origin ? { origin: this.#origin } : {}),
       ...(this.#signIn ? { signIn: this.#signIn } : {}),
@@ -471,14 +506,25 @@ export class LocalServerModule implements Module {
     this.#ctx?.bus.emit("local-server.changed");
     const started = Date.now();
     const signal = this.#abort.signal;
-    void this.#inspect(signal)
+    void this.#inspect(signal, (download) => {
+      if (this.#check.state !== "checking") return;
+      this.#check = { state: "checking", download };
+      this.#ctx?.bus.emit("local-server.changed");
+    })
       .then(
         (check) => {
           this.#ctx?.log.info("local_server.inspected", {
             ms: Date.now() - started,
             eligible: check.state === "checked" && check.eligible,
+            ...(check.state === "checked" && check.recommendation
+              ? { recommendation: check.recommendation }
+              : {}),
             ...(check.state === "checked" && check.reasons
-              ? { reasons: check.reasons }
+              ? {
+                  reasons: check.reasons.map(({ code, message }) =>
+                    message ? `${code}: ${message}` : code,
+                  ),
+                }
               : {}),
           });
           this.#check = check;
@@ -498,7 +544,10 @@ export class LocalServerModule implements Module {
       });
   }
 
-  async #inspect(signal: AbortSignal): Promise<LocalModelsCheck> {
+  async #inspect(
+    signal: AbortSignal,
+    onDownload: (download: Transfer) => void,
+  ): Promise<LocalModelsCheck> {
     // The app's own Node runs the check, so it needs no download of its own;
     // installing still uses the pinned Node runtime.
     const output = await new Promise<string>((resolve, reject) => {
@@ -524,14 +573,32 @@ export class LocalServerModule implements Module {
           line: line.slice(0, 300),
         });
       });
-      let text = "";
-      child.stdout.on("data", (chunk: Buffer) => {
-        text += chunk.toString("utf8");
+      // The report is the last line; lines before it count the bytes of the
+      // localmodels tool while the check first downloads it.
+      let last = "";
+      createInterface({ input: child.stdout }).on("line", (line) => {
+        if (!line.trim()) return;
+        last = line;
+        let event: { event?: unknown; completed?: unknown; total?: unknown };
+        try {
+          event = JSON.parse(line);
+        } catch {
+          return;
+        }
+        const count = (value: unknown) =>
+          typeof value === "number" && Number.isFinite(value) && value >= 0
+            ? value
+            : undefined;
+        const completed = count(event?.completed);
+        const total = count(event?.total);
+        if (event?.event === "download" && completed !== undefined)
+          onDownload({ completed, ...(total ? { total } : {}) });
       });
       child.once("error", reject);
-      child.once("close", () => resolve(text));
+      child.once("close", () => resolve(last));
     });
-    const report = JSON.parse(output.trim().split("\n").at(-1) ?? "") as {
+    const report = JSON.parse(output) as {
+      recommendation?: unknown;
       localModels?: {
         eligible?: unknown;
         reasons?: unknown;
@@ -568,9 +635,18 @@ export class LocalServerModule implements Module {
     const strings = (value: unknown) =>
       Array.isArray(value) ? value.map(String) : [];
     const messages = strings(report.localModels.reasonMessages);
-    const reasons = strings(report.localModels.reasons).map((code, index) =>
-      messages[index] ? `${code}: ${messages[index]}` : code,
+    const reasons = strings(report.localModels.reasons).map(
+      (code, index): SetupReason =>
+        messages[index] ? { code, message: messages[index] } : { code },
     );
+    const pick = report.recommendation;
+    // The local model is recommended only with a model the page can show.
+    const recommendation =
+      typeof pick === "string" &&
+      (setupChoices as readonly string[]).includes(pick) &&
+      (pick !== "local-models" || eligible)
+        ? (pick as SetupChoice)
+        : undefined;
     return {
       state: "checked",
       eligible,
@@ -591,6 +667,7 @@ export class LocalServerModule implements Module {
           }
         : {}),
       ...(!eligible && reasons.length ? { reasons } : {}),
+      ...(recommendation ? { recommendation } : {}),
     };
   }
 
@@ -665,7 +742,8 @@ export class LocalServerModule implements Module {
         installer.run(
           next,
           signal,
-          (stage, share, text) => this.#advance(stage, share, text),
+          (stage, share, text, transfer) =>
+            this.#advance(stage, share, text, transfer),
           fresh,
         );
       // Changed keys reach the services only when the installation runs
@@ -686,7 +764,11 @@ export class LocalServerModule implements Module {
       // The desktop's Computer runs the runtime this installer set up, with
       // its profile, rather than whatever its PATH finds.
       const runtime = await installer.runtime();
-      this.#ctx?.config.update({ runtimeEnvironment: runtime.environment });
+      const preferredRuntime = setupRuntime(runtime.setupChoice);
+      this.#ctx?.config.update({
+        runtimeEnvironment: runtime.environment,
+        ...(preferredRuntime ? { preferredRuntime } : {}),
+      });
       this.#ctx?.log.info("local_server.runtime", {
         runtime: runtime.setupChoice,
         keys: Object.keys(runtime.environment),
@@ -720,7 +802,12 @@ export class LocalServerModule implements Module {
     }
   }
 
-  #advance(step: LocalServerStep, share: number, message: string): void {
+  #advance(
+    step: LocalServerStep,
+    share: number,
+    message: string,
+    transfer?: Transfer,
+  ): void {
     const steps = this.#steps();
     share = Math.min(1, Math.max(0, share));
     // Without a download, its stages finish preparing instead.
@@ -735,6 +822,7 @@ export class LocalServerModule implements Module {
       this.#progress,
       (steps.indexOf(step) + share) / steps.length,
     );
+    this.#transfer = transfer && { ...transfer, label: message };
     this.#set("installing", message);
   }
 
@@ -745,9 +833,8 @@ export class LocalServerModule implements Module {
     installer: InstallerApi,
     signal: AbortSignal,
   ): Promise<LocalRuntime | undefined> {
-    const choice = (await installer.runtime()).setupChoice;
-    const runtime: LocalRuntime =
-      choice === "codex" || choice === "claude" ? choice : "pi";
+    const runtime =
+      setupRuntime((await installer.runtime()).setupChoice) ?? "pi";
     this.#signInInstaller = installer;
     this.#switchTo = undefined;
     try {
@@ -1015,6 +1102,7 @@ export class LocalServerModule implements Module {
       this.#step = "prepare";
     }
     if (phase === "ready") this.#progress = 1;
+    if (phase !== "installing") this.#transfer = undefined;
     this.#phase = phase;
     this.#message = message;
     this.#ctx?.bus.emit("local-server.changed");
@@ -1188,8 +1276,13 @@ export class LocalServerModule implements Module {
         SOURCE_MARKER,
         path.join(home, "desktop", "downloads"),
         signal,
-        (share) =>
-          this.#advance("download", share * 0.05, "Downloading Linger…"),
+        (bytes) =>
+          this.#advance(
+            "download",
+            (bytes.completed / bytes.total) * 0.05,
+            "Downloading Linger…",
+            bytes,
+          ),
       );
     if (!(await isFile(path.join(directory, SOURCE_MARKER))))
       throw new Error("The source package is not a Linger source tree");
@@ -1397,7 +1490,13 @@ export class LocalServerModule implements Module {
         ".",
         path.join(path.dirname(path.dirname(repo)), "downloads"),
         signal,
-        (share) => this.#advance("download", 0.05 + share * 0.05, message),
+        (bytes) =>
+          this.#advance(
+            "download",
+            0.05 + (bytes.completed / bytes.total) * 0.05,
+            message,
+            bytes,
+          ),
       );
     } catch (error) {
       if (signal.aborted) throw error;
@@ -1457,7 +1556,7 @@ export class LocalServerModule implements Module {
     marker: string,
     downloads: string,
     signal: AbortSignal,
-    onShare?: (share: number) => void,
+    onBytes?: (bytes: { completed: number; total: number }) => void,
   ): Promise<void> {
     await mkdir(downloads, { recursive: true, mode: 0o700 });
     const file = path.join(
@@ -1478,7 +1577,7 @@ export class LocalServerModule implements Module {
           // A retry continues a large download where it stopped.
           resumable: true,
           onProgress: (completed, total) =>
-            total && onShare?.(completed / total),
+            total && onBytes?.({ completed, total }),
         },
         followHttps(this.#options.fetch ?? fetch),
       );
@@ -1796,8 +1895,12 @@ export class LocalServerModule implements Module {
       // The window would show the server as unreachable until it is back.
       if (!(await this.#reachable(record.origin))) windows?.showStarting();
       const newer = this.#newerSource(record);
+      // A source folder removed since (by hand, or a cleanup that an uninstall
+      // left half done) is unpacked again from this app's package.
       const repo =
-        newer && !existsSync(record.repo)
+        this.#options.sourceArchive &&
+        !this.#options.checkout &&
+        !existsSync(record.repo)
           ? await this.#ensureSource(record.home, signal)
           : record.repo;
       await this.#runResume(record, repo, signal);
@@ -1814,18 +1917,31 @@ export class LocalServerModule implements Module {
     }
   }
 
-  // Whether the services already answer, such as after only the app quit.
-  async #reachable(origin: string): Promise<boolean> {
+  // The person gave up on the installation the window used, whose services
+  // do not start (it may have been removed or left broken by an uninstall):
+  // forget it and this computer's enrollment with it, and show setup. Its
+  // Install sets this computer up again in the same location, keeping what
+  // is left of that instance.
+  async #reset(): Promise<void> {
+    const ctx = this.#ctx!;
     try {
-      await (this.#options.fetch ?? fetch)(origin, {
-        method: "HEAD",
-        redirect: "manual",
-        signal: AbortSignal.timeout(1_000),
-      });
-      return true;
-    } catch {
-      return false;
+      await rm(this.#recordFile(), { force: true });
+      this.#origin = undefined;
+      this.#outdated = undefined;
+      this.#set("idle", "");
+      ctx.log.info("local_server.reset");
+      await ctx.get<EnrollmentModule>("Enrollment").unenroll();
+      ctx.config.update({ serverUrl: undefined });
+      ctx.get<WindowManagerModule>("WindowManager").loadServer();
+    } catch (error) {
+      ctx.log.warn("local_server.reset_failed", { error: String(error) });
     }
+    ctx.bus.emit("setup.open");
+  }
+
+  // Whether the services already answer, such as after only the app quit.
+  #reachable(origin: string): Promise<boolean> {
+    return answers(this.#options.fetch ?? fetch, origin);
   }
 
   // Whether the window's server is the one this app runs.
@@ -1971,9 +2087,17 @@ export class LocalServerModule implements Module {
 
   async #writeRecord(record: LocalRecord): Promise<void> {
     await mkdir(this.#desktopDirectory(), { recursive: true, mode: 0o700 });
-    await writeFile(this.#recordFile(), JSON.stringify(record), {
-      mode: 0o600,
-    });
+    // Written aside and moved into place: a record cut short by a power loss
+    // would read as no installation while the window still points at it.
+    const staged = `${this.#recordFile()}.${randomBytes(4).toString("hex")}.tmp`;
+    try {
+      await writeFile(staged, JSON.stringify(record), { mode: 0o600 });
+      await renameRetrying(staged, this.#recordFile());
+    } catch (error) {
+      // Each failed write would otherwise leave one more staged file.
+      await rm(staged, { force: true });
+      throw error;
+    }
   }
 }
 
@@ -2104,7 +2228,13 @@ interface Job {
   readonly stages: readonly {
     readonly id: string;
     readonly state: string;
-    readonly progress?: { readonly completed: number; readonly total?: number };
+    readonly progress?: {
+      readonly completed: number;
+      readonly total?: number;
+      readonly unit?: string;
+      readonly bytesPerSecond?: number;
+      readonly partial?: boolean;
+    };
   }[];
 }
 
@@ -2119,6 +2249,23 @@ const STAGES: Record<string, readonly [LocalServerStep, number, number]> = {
   account: ["workspace", 0, 1],
   computer: ["workspace", 1, 1],
 };
+
+// Whether a server answers at an origin at all.
+async function answers(
+  fetcher: typeof fetch,
+  origin: string,
+): Promise<boolean> {
+  try {
+    await fetcher(origin, {
+      method: "HEAD",
+      redirect: "manual",
+      signal: AbortSignal.timeout(1_000),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // Done: services run and the owner exists. A runtime sign-in still missing
 // is the setup page's own step.
@@ -2188,7 +2335,12 @@ export class InstallerApi {
   async run(
     plan: LocalServerPlan,
     signal: AbortSignal,
-    onStep: (step: LocalServerStep, share: number, message: string) => void,
+    onStep: (
+      step: LocalServerStep,
+      share: number,
+      message: string,
+      transfer?: Transfer,
+    ) => void,
     fresh = false,
   ): Promise<{ readonly origin: string; readonly signInRequired: boolean }> {
     const { items } = await this.#json<{ items: Job[] }>("/api/jobs");
@@ -2201,9 +2353,12 @@ export class InstallerApi {
       latest &&
       (["queued", "running"].includes(latest.state) ||
         // A finished one only while its instance is still there; its data
-        // may have been removed since.
+        // may have been removed since. Its services must still run too: after
+        // the app or the computer stopped part way through setup, a new job
+        // starts them again.
         (finished(latest) &&
-          (await this.#call(`/api/instances/${LOCAL_INSTANCE}/login`)).ok))
+          (await this.#call(`/api/instances/${LOCAL_INSTANCE}/login`)).ok &&
+          (await answers(this.#fetch, latest.origin!))))
     )
       job = latest;
     else {
@@ -2245,7 +2400,26 @@ export class InstallerApi {
               : ready
                 ? Number(ready[1]) / Math.max(1, Number(ready[2]))
                 : 0;
-        onStep(at[0], at[1] + (at[2] - at[1]) * part, job.message ?? "");
+        // A byte counter on the running step is a download to show.
+        const bytes =
+          stage?.state === "running" &&
+          counter?.unit === "bytes" &&
+          counter.total
+            ? counter
+            : undefined;
+        onStep(
+          at[0],
+          at[1] + (at[2] - at[1]) * part,
+          job.message ?? "",
+          bytes && {
+            completed: bytes.completed,
+            total: bytes.total,
+            ...(bytes.bytesPerSecond !== undefined
+              ? { bytesPerSecond: bytes.bytesPerSecond }
+              : {}),
+            ...(bytes.partial ? { partial: true } : {}),
+          },
+        );
       }
       if (finished(job))
         return { origin: job.origin!, signInRequired: signInRequired(job) };
@@ -2370,6 +2544,14 @@ interface RuntimeLogin {
   readonly acceptsCode?: boolean;
   readonly message?: string;
 }
+
+// The runtime an installation's setup choice runs; local models run on pi.
+const setupRuntime = (choice: string | undefined): LocalRuntime | undefined =>
+  choice === "local-models"
+    ? "pi"
+    : choice === "codex" || choice === "claude" || choice === "pi"
+      ? choice
+      : undefined;
 
 // The installer's own pick; local models stand for the pi runtime.
 const recommended = (report: { recommendation?: string }) =>

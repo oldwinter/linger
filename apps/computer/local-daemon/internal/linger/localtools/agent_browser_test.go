@@ -3,6 +3,7 @@ package localtools
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCountTabsReadsChromeEdgeAndFirefoxStrips(t *testing.T) {
@@ -15,12 +16,13 @@ func TestCountTabsReadsChromeEdgeAndFirefoxStrips(t *testing.T) {
 		"safari": "    - [17] AXRadioButton \"Trail checklist - Pinboard\" [id=TabBarTab?isPinned=false&isNarrow=false&isActive=false actions=[press,name:close tab]]\n" +
 			"    - [18] AXRadioButton \"Start Page\" [id=TabBarTab?isPinned=false&isNarrow=false&isActive=true actions=[press,name:close tab]]",
 	} {
-		if got := countTabs(tree); got != 2 {
-			t.Errorf("%s: %d tabs, want 2", name, got)
+		want := map[string]string{"chrome": "Close", "edge": "Close tab", "firefox": "Close tab"}[name]
+		if got, close := tabStrip(tree); got != 2 || close != want {
+			t.Errorf("%s: %d tabs closed by %q, want 2 closed by %q", name, got, close, want)
 		}
 	}
 	// A page's own radio buttons are not tabs.
-	if got := countTabs("- [9] AXRadioButton \"Small\"\n- [10] AXRadioButton \"Large\"\n- [11] AXButton \"Close\" [actions=[press]]"); got != 1 {
+	if got, _ := tabStrip("- [9] AXRadioButton \"Small\"\n- [10] AXRadioButton \"Large\"\n- [11] AXButton \"Close\" [actions=[press]]"); got != 1 {
 		t.Errorf("page radios: %d tabs, want 1", got)
 	}
 }
@@ -44,5 +46,84 @@ func TestPickAgentBrowserTakesTheFirstInstalledOrTheNamedOne(t *testing.T) {
 	}
 	if !agentBrowserApp("", "Firefox") || !agentBrowserApp("com.google.Chrome", "") || !agentBrowserApp("com.apple.Safari", "Safari") || agentBrowserApp("com.apple.TextEdit", "TextEdit") {
 		t.Fatal("agentBrowserApp misread an app")
+	}
+}
+
+func TestEverydayChromeProcessFindsChromeInAnyFolder(t *testing.T) {
+	for _, tc := range []struct {
+		path, args string
+		want       bool
+	}{
+		{"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", true},
+		{"/Users/a/Applications/Work - Apps/Google Chrome.app/Contents/MacOS/Google Chrome", "/Users/a/Applications/Work - Apps/Google Chrome.app/Contents/MacOS/Google Chrome --disable-backgrounding-occluded-windows", true},
+		{"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --user-data-dir=/tmp/test", false},
+		{"/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper", "Google Chrome Helper --type=renderer", false},
+		{"/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary", "", false},
+		{"/usr/bin/tail", "/usr/bin/tail -f /Applications/Google Chrome.app/Contents/MacOS/Google Chrome", false},
+	} {
+		if got := everydayChromeProcess(tc.path, tc.args); got != tc.want {
+			t.Errorf("%q %q: %v, want %v", tc.path, tc.args, got, tc.want)
+		}
+	}
+}
+
+func TestSharedWindowsKeepEveryWindowOfTheBrowser(t *testing.T) {
+	m := &Manager{}
+	m.setSharedWindow("com.google.Chrome", 42, 11)
+	m.setSharedWindow("com.google.Chrome", 42, 12)
+	m.setSharedWindow("com.apple.Safari", 7, 3)
+	shared, ok := m.sharedWindowOf(42)
+	if !ok || len(shared.Windows) != 2 || shared.latest() != 12 {
+		t.Fatalf("shared=%+v ok=%v, want windows 11 and 12 with 12 latest", shared, ok)
+	}
+	// A restarted Chrome has a new pid, and none of the old windows.
+	m.setSharedWindow("com.google.Chrome", 43, 20)
+	if shared, _ := m.sharedWindowOf(43); len(shared.Windows) != 1 || shared.latest() != 20 {
+		t.Fatalf("shared=%+v, want only window 20 after the restart", shared)
+	}
+	if safari, ok := m.sharedWindowOf(7); !ok || safari.latest() != 3 {
+		t.Fatalf("safari=%+v ok=%v, want Safari's window kept apart", safari, ok)
+	}
+}
+
+// Each window a task opened stays held to its own tabs after it opens
+// another, and an input that names no window goes to the latest one.
+func TestAgentChromeHoldsEachWindowTheTaskOpened(t *testing.T) {
+	c := &cuaSession{op: &operation{}}
+	c.holdAgentChromeWindow(42, 9, 2, "Shop")
+	c.holdAgentChromeWindow(42, 13, 1, "News")
+	if _, id, held, ok := c.agentChromeTabWindow(float64(42), float64(9)); !ok || id != 9 || held != (heldTabs{count: 2, title: "Shop"}) {
+		t.Fatalf("first window id=%v held=%+v ok=%v, want its own tabs", id, held, ok)
+	}
+	if _, id, held, ok := c.agentChromeTabWindow(float64(42), nil); !ok || id != 13 || held.count != 1 {
+		t.Fatalf("no window id=%v held=%+v ok=%v, want the latest", id, held, ok)
+	}
+	if _, _, _, ok := c.agentChromeTabWindow(float64(42), float64(5)); ok {
+		t.Fatal("a window the task did not open is held")
+	}
+	// A browser started again runs as another pid: no earlier window is held.
+	c.holdAgentChromeWindow(77, 3, 1, "Home")
+	if _, _, _, ok := c.agentChromeTabWindow(float64(42), float64(9)); ok {
+		t.Fatal("a window of the earlier browser is still held")
+	}
+}
+
+// A window that showed briefly lends no time to the one that takes its
+// place: the settle wait counts from when the lone candidate showed.
+func TestWindowSettleCountsFromTheCandidate(t *testing.T) {
+	start := time.Unix(1000, 0)
+	a, b := []listedWindow{{WindowID: 21}}, []listedWindow{{WindowID: 22}}
+	var wait windowSettle
+	if wait.settled(a, start) {
+		t.Fatal("window A settled when it showed")
+	}
+	if wait.settled(b, start.Add(everydayChromeSettle)) {
+		t.Fatal("window B took the time window A stood")
+	}
+	if !wait.settled(b, start.Add(2*everydayChromeSettle)) {
+		t.Fatal("window B did not settle after standing the settle time")
+	}
+	if wait.settled(nil, start.Add(3*everydayChromeSettle)) || wait.settled(b, start.Add(3*everydayChromeSettle)) {
+		t.Fatal("window B settled again at once after it left and came back")
 	}
 }

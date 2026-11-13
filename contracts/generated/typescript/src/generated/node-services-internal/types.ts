@@ -547,6 +547,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/voice/workers:reconcile": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Reconcile the voice workers against TeamHub's effective provider keys and wait for them
+     * @description Runs a reconcile, or joins the one in flight, then waits until every worker the effective keys require is registered and ready, up to a bounded wait. It never carries keys; workers read keys from TeamHub. `ready=false` means the wait ended first or the keys could not be read.
+     */
+    post: operations["reconcileVoiceWorkers"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/local-computer-tools:call": {
     parameters: {
       query?: never;
@@ -775,21 +795,37 @@ export interface components {
        * @description Optional inclusive end of the asked event time; see event_from.
        */
       event_to?: string;
+      /**
+       * @description Search only one list and give it the whole result size; omitted returns both lists.
+       * @enum {string}
+       */
+      scope?: "originals" | "summaries";
+      /** @description Result page of the same search; a response with nextPage has more. */
+      page?: number;
     };
+    /** @description One search returns two separately ranked lists, so long derived reports never crowd out original evidence. Items are original sources and summaries are derived Wiki pages and Daily/Weekly reports. The top entries of each list carry content around their best match; the rest carry a snippet and sections to read. */
     PersonalKnowledgeQueryResponse: {
       /** @constant */
-      schemaVersion: 1;
+      schemaVersion: 2;
       /**
-       * @description Candidate retrieval status. partial with evidence_sections_not_read requires reading relevant candidate sections before judging whether information is insufficient; it is not a failed search.
+       * @description grounded has entries and no gaps, partial has entries and at least one gap, and empty has no entries.
        * @enum {string}
        */
       status: "grounded" | "partial" | "empty";
-      items: components["schemas"]["PersonalKnowledgeEvidenceItem"][];
+      /** @description Original sources: room, recording, mail, my_pages, pocket_note and profile. */
+      items: components["schemas"]["PersonalKnowledgeSearchEntry"][];
+      /** @description Derived Wiki pages and Daily/Weekly reports. */
+      summaries: components["schemas"]["PersonalKnowledgeSearchEntry"][];
       gaps: components["schemas"]["PersonalKnowledgeEvidenceGap"][];
       /** Format: date-time */
       indexedAt: string | null;
-      /** @description Session facts extracted from Room conversations that matched the query, ranked separately from items so they never displace Raw candidates. Each names the Raw chunk that states it; that chunk remains the original evidence. */
+      /** @description Session facts extracted from conversations, recordings, Pocket Notes and personal mail that matched the query, ranked separately from the lists so they never displace them. Each names the Raw chunk that states it; that chunk remains the original evidence. */
       facts?: components["schemas"]["PersonalKnowledgeSessionFact"][];
+      /** @enum {string} */
+      scope?: "originals" | "summaries";
+      page: number;
+      /** @description Present when the same search has more entries on that page. */
+      nextPage?: number;
       requestId?: string;
     };
     /** @description A Session fact in Hindsight's stored shape: what | When | Involving | why as one text, world or assistant, plain entities and the event time. */
@@ -808,23 +844,33 @@ export interface components {
       /** @description Raw section to read for the fact's original wording. */
       sectionId: string;
     };
-    PersonalKnowledgeEvidenceItem: {
-      id: components["schemas"]["PersonalKnowledgeEvidenceId"];
+    PersonalKnowledgeSearchEntry: {
+      /** @description S<n> for items, W<n> for summaries. */
       citeAs: string;
-      title: string;
-      /** @description Full matched chunk text for top-ranked candidates, bounded by the response budget. Lower-ranked candidates carry only the excerpt. */
-      content?: string;
-      excerpt: string;
-      source: components["schemas"]["PersonalKnowledgeEvidenceSource"];
+      evidenceId: components["schemas"]["PersonalKnowledgeEvidenceId"];
       /** @enum {string} */
-      representation: "source_excerpt" | "derived_summary" | "structured_fact";
-      facet?: string;
+      kind:
+        | "room"
+        | "recording"
+        | "mail"
+        | "my_pages"
+        | "pocket_note"
+        | "profile"
+        | "wiki"
+        | "period_summary";
+      title: string;
       timeHint?: string;
-      metadata?: {
-        [key: string]: (string | number | boolean) | null;
-      };
-      /** @description Actual Markdown headings available for a follow-up evidence read. This is omitted when the candidate has no readable directory. */
-      directory?: components["schemas"]["PersonalKnowledgeSectionDirectoryEntry"][];
+      /** @description Text around the entry's best match, for the top entries of a list. */
+      content?: string;
+      /** @description A short window around the best match, for entries without content. */
+      snippet?: string;
+      /** @description Matched and neighboring sections to read next. */
+      sections: {
+        sectionId: string;
+        title: string;
+      }[];
+      /** @description The Room a room entry's conversation belongs to. */
+      roomId?: string;
     };
     /** @description Opaque Raw source identifier returned by candidate query and passed unchanged to evidence read. It names a source ID and immutable content hash and grants no access outside the authenticated Tenant and represented Human scope. */
     PersonalKnowledgeEvidenceId: string;
@@ -1161,6 +1207,10 @@ export interface components {
         | "durability_invariant_failed";
       document_id: components["schemas"]["DocumentInternalId"];
     };
+    VoiceWorkersReconcileResult: {
+      /** @description Every worker the effective keys require is ready to take a job. */
+      ready: boolean;
+    };
     LocalComputerToolCall: {
       tenant_id: string;
       owner_actor_id: string;
@@ -1168,17 +1218,13 @@ export interface components {
       agent_id: string;
       tool_session_id: string;
       /** @enum {string} */
-      server: "browser" | "task_files";
+      server: "browser" | "playground";
       tool_name: string;
       arguments: {
         [key: string]: unknown;
       };
-      task_scope?: {
-        tenant_id: string;
-        agent_id: string;
-        origin_room_id: string;
-        task_id: string;
-      };
+      /** @description How long the Computer may take; 60000 when omitted. */
+      deadline_ms?: number;
     };
     LocalComputerToolResult: {
       result: {
@@ -2837,6 +2883,27 @@ export interface operations {
         };
       };
       default: components["responses"]["DocumentInternalError"];
+    };
+  };
+  reconcileVoiceWorkers: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Reconcile ran; whether the required workers are ready. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VoiceWorkersReconcileResult"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
     };
   };
   callLocalComputerTool: {

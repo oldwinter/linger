@@ -2,6 +2,7 @@ package localtools
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -56,23 +57,33 @@ func TestSnapshotRowsCarriesTokensOverTheComputersOwnReads(t *testing.T) {
 		t.Fatalf("script = %v, want %s", script["script"], want)
 	}
 
+	// The Agent's own read is no input: its tokens still carry over the
+	// tab check that follows it.
+	s.sent("get_window_state")
+	s.observe(readCall(nil), readResult(t, map[string]any{"snapshot_id": "s00000005", "pid": 7, "window_id": 9, "tree_markdown": ownTree}))
+	read := map[string]any{"element_token": "s00000004:4"}
+	s.remap(read)
+	if read["element_token"] != "s00000005:4" {
+		t.Fatalf("token of the Agent's read = %v, want s00000005:4", read["element_token"])
+	}
+
 	// After an input, an older read is never carried over: the page may
 	// have changed under a row that reads the same.
-	s.sent()
-	s.observe(readCall(nil), readResult(t, map[string]any{"snapshot_id": "s00000005", "pid": 7, "window_id": 9, "tree_markdown": agentTree}))
-	before := map[string]any{"element_token": "s00000004:4"}
+	s.sent("click")
+	s.observe(readCall(nil), readResult(t, map[string]any{"snapshot_id": "s00000006", "pid": 7, "window_id": 9, "tree_markdown": agentTree}))
+	before := map[string]any{"element_token": "s00000005:4"}
 	s.remap(before)
-	if before["element_token"] != "s00000004:4" {
+	if before["element_token"] != "s00000005:4" {
 		t.Fatalf("read before an input = %v, want its own stale token", before["element_token"])
 	}
 
 	// A diff that says the indices shifted keeps only the rows it lists.
-	s.observe(readCall(nil), readResult(t, map[string]any{"snapshot_id": "s00000006", "pid": 7, "window_id": 9, "since": "s00000005", "since_status": "diff",
-		"tree_diff": "since s00000005: 1 added.\nreindexed: rows after 3 moved by 1\n+ [5] AXLink \"Kettle\" [actions=[press]]"}))
-	s.observe(readCall(nil), readResult(t, map[string]any{"snapshot_id": "s00000007", "pid": 7, "window_id": 9, "tree_markdown": agentTree}))
-	shifted := map[string]any{"element_token": "s00000006:4"}
+	s.observe(readCall(nil), readResult(t, map[string]any{"snapshot_id": "s00000007", "pid": 7, "window_id": 9, "since": "s00000006", "since_status": "diff",
+		"tree_diff": "since s00000006: 1 added.\nreindexed: rows after 3 moved by 1\n+ [5] AXLink \"Kettle\" [actions=[press]]"}))
+	s.observe(readCall(nil), readResult(t, map[string]any{"snapshot_id": "s00000008", "pid": 7, "window_id": 9, "tree_markdown": agentTree}))
+	shifted := map[string]any{"element_token": "s00000007:4"}
 	s.remap(shifted)
-	if shifted["element_token"] != "s00000006:4" {
+	if shifted["element_token"] != "s00000007:4" {
 		t.Fatalf("row of a reindexed diff = %v, want its own stale token", shifted["element_token"])
 	}
 
@@ -82,5 +93,79 @@ func TestSnapshotRowsCarriesTokensOverTheComputersOwnReads(t *testing.T) {
 	s.remap(after)
 	if after["element_token"] != "s00000001:4" {
 		t.Fatalf("after a script = %v, want the token unchanged", after["element_token"])
+	}
+}
+
+// A script's reads after its last input come back in its result, so a token
+// it returned carries over the Computer's own reads into the next script.
+func TestSnapshotRowsCarriesAScriptsTokensIntoTheNextScript(t *testing.T) {
+	tree := "- [0] AXWindow \"Shop\"\n  - [4] AXLink \"Kettle\" [actions=[press]]"
+	value := map[string]any{scriptReadsKey: []any{map[string]any{"snapshot_id": "s00000011", "pid": 7, "window_id": 9, "tree_markdown": tree}}, "value": map[string]any{"z": 1, "a": "s00000011:4"}}
+	encodedValue, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := "run_script: ok in 5 ms, 2 driver call(s)\nreturn value: " + string(encodedValue)[:40] + "…\nconsole (1 line(s)):\n  hi\ncalls:\n  1. line 1 get_window_state ok (3 ms): window_id=9"
+	result, err := json.Marshal(map[string]any{"content": []any{map[string]any{"type": "text", "text": text}},
+		"structuredContent": map[string]any{"ok": true, "value": json.RawMessage(`{"__computer_reads":` + string(mustJSON(t, value[scriptReadsKey])) + `,"value":{"z":1,"a":"s00000011:4"}}`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unwrapped, reads := scriptResultReads(result)
+	var reply struct {
+		Content    []struct{ Text string } `json:"content"`
+		Structured struct {
+			Value json.RawMessage `json:"value"`
+		} `json:"structuredContent"`
+	}
+	if err := json.Unmarshal(unwrapped, &reply); err != nil || len(reads) != 1 {
+		t.Fatalf("reply = %s, reads = %v, error = %v", unwrapped, reads, err)
+	}
+	if want := "return value: {\"z\":1,\"a\":\"s00000011:4\"}\nconsole (1 line(s)):\n  hi\ncalls:\n"; !strings.Contains(reply.Content[0].Text, want) {
+		t.Fatalf("text = %q, want it to hold %q", reply.Content[0].Text, want)
+	}
+	if string(reply.Structured.Value) != `{"z":1,"a":"s00000011:4"}` {
+		t.Fatalf("structured value = %s", reply.Structured.Value)
+	}
+
+	s := newSnapshotRows()
+	s.observe(map[string]any{"name": "run_script"}, unwrapped)
+	s.sent("run_script")
+	for _, read := range reads {
+		s.record(read)
+	}
+	// The Computer counts the tabs after the script and checks the tab
+	// before the next one; each read replaces the script's snapshot.
+	s.observe(readCall(nil), readResult(t, map[string]any{"snapshot_id": "s00000012", "pid": 7, "window_id": 9, "tree_markdown": tree}))
+	next := map[string]any{"script": `await app.click("s00000011:4")`}
+	s.remap(next)
+	if want := `await app.click("s00000012:4")`; next["script"] != want {
+		t.Fatalf("next script = %v, want %s", next["script"], want)
+	}
+
+	plain := json.RawMessage(`{"content":[{"type":"text","text":"run_script: ok\nreturn value: 1"}],"structuredContent":{"value":1}}`)
+	if same, reads := scriptResultReads(plain); string(same) != string(plain) || reads != nil {
+		t.Fatalf("a result without reads = %s, %v; want it unchanged", same, reads)
+	}
+}
+
+func mustJSON(t *testing.T, value any) []byte {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
+}
+
+// A row that lists no press, such as a page's static text, is told apart
+// from a link that lists one; a token the Computer does not remember is not.
+func TestSnapshotRowsTellsTextFromAPressableRow(t *testing.T) {
+	rows := newSnapshotRows()
+	rows.record(windowRead{Snapshot: "s00000001", PID: 42, Window: 9, Tree: "- [2] AXWebArea \"Shop\"\n  - [3] AXStaticText = \"Sort by time\"\n  - [4] AXLink \"Kettle\" [actions=[press]]\n  - [5] AXGroup [actions=[show_menu]]"})
+	for token, want := range map[string]bool{"s00000001:3": true, "s00000001:5": true, "s00000001:4": false, "s00000001:9": false, "s00000002:3": false, "bad": false} {
+		if got := rows.unpressable(token); got != want {
+			t.Fatalf("unpressable(%s)=%v, want %v", token, got, want)
+		}
 	}
 }

@@ -850,8 +850,6 @@ func jsonText(value any) string {
 
 func TestCodexCancelledStartOnResidentKeepsHomeUsable(t *testing.T) {
 	fake := newCodexFake(t, []codexFakeTurn{{Status: "completed", Items: []map[string]any{codexAgentMessage("m", "ok", nil)}}}, nil)
-	previous := codexCleanupBudget.set(2 * time.Second)
-	t.Cleanup(func() { codexCleanupBudget.set(previous) })
 	rt := fake.runtime(nil)
 	spec := fake.spec()
 	out, _ := codexDrain(t, rt, "park", spec)
@@ -951,8 +949,8 @@ func TestCodexThreadToolOutputLimitFollowsContextWindow(t *testing.T) {
 		window        int
 		want          any
 	}{
-		{"small window", "0.165.0", 64896, float64(4056)},
-		{"large window", "0.165.0", 272000, nil},
+		{"small window", "0.165.0", 64896, float64(9734)},
+		{"large window", "0.165.0", 272000, float64(25000)},
 		{"unknown window", "0.165.0", 0, nil},
 		{"Codex without the setting", "0.100.0", 64896, nil},
 	}

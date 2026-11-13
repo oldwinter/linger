@@ -1,7 +1,10 @@
 name: CI
 
 # The repository gate runs on every pull request and merge-queue build; each
-# app's fast check runs only when its paths change. A merge-queue build
+# app's fast check runs only when its paths change; the web check is split
+# into a static job and sharded test jobs. An unchanged app's job is skipped,
+# which GitHub reports as success for its required check; a failed path
+# filter makes every app check fail instead of skipping. A merge-queue build
 # checks the paths its whole group changes, on top of the latest main. Pushes
 # to main run every check. CI runs the
 # computer daemon's Go unit tests; the rest of check-computer (TS and process
@@ -80,56 +83,170 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup
+        with:
+          go: false
       - run: make check-repository-gate BASE="$BASE"
 
-  check:
+  web-static:
     needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+        with:
+          go: false
+      - run: make check-web-static BASE="$BASE"
+
+  web-tests:
+    name: web tests (${{ matrix.shard }}/3)
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        app:
-          [
-            web,
-            packages,
-            teamhub-cli,
-            installer,
-            desktop,
-            contracts,
-            teamhub,
-            computer-go,
-          ]
+        shard: [1, 2, 3]
     steps:
-      - name: Skip unchanged app
-        if: needs.changes.outputs[matrix.app] != 'true'
-        run: echo "No ${{ matrix.app }} paths changed."
       - uses: actions/checkout@v4
-        if: needs.changes.outputs[matrix.app] == 'true'
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup
-        if: needs.changes.outputs[matrix.app] == 'true'
-      # Pinned golangci-lint and sqlc binaries; building them takes about 60 s
-      # each. Their file names carry the tool and Go versions, and the key
-      # hashes the files that pin both, so a version bump misses and rebuilds.
-      - uses: actions/cache@v4
-        if: matrix.app == 'teamhub' && needs.changes.outputs[matrix.app] == 'true'
         with:
-          path: apps/teamhub/.tools/bin
-          key: teamhub-tools-${{ runner.os }}-${{ hashFiles('apps/teamhub/Makefile', 'apps/teamhub/go.mod') }}
-      # A cold golangci-lint analysis cache costs about 115 s. Pull requests
-      # restore main's latest entry; only pushes save, so they never write one.
-      - uses: actions/cache/restore@v4
-        if: matrix.app == 'teamhub' && needs.changes.outputs[matrix.app] == 'true'
+          go: false
+      - run: make check-web-tests SHARD=${{ matrix.shard }}/3
+
+  # Reports the required `check (web)` context from the split web jobs. When
+  # web paths changed, every web job must succeed (an unexpected skip fails);
+  # otherwise they must have been skipped. A failed path filter always fails.
+  web:
+    name: check (web)
+    needs: [changes, web-static, web-tests]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - shell: bash
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          WEB_CHANGED: ${{ needs.changes.outputs.web }}
+          WEB_STATIC_RESULT: ${{ needs.web-static.result }}
+          WEB_TESTS_RESULT: ${{ needs.web-tests.result }}
+        run: |
+          set -euo pipefail
+          if [ "$CHANGES_RESULT" != success ]; then
+            echo "changes job result: $CHANGES_RESULT" >&2
+            exit 1
+          fi
+          status=0
+          for job in web-static:"$WEB_STATIC_RESULT" web-tests:"$WEB_TESTS_RESULT"; do
+            name=${job%%:*}
+            result=${job#*:}
+            if [ "$WEB_CHANGED" = true ]; then
+              [ "$result" = success ] && continue
+            else
+              [ "$result" = success ] || [ "$result" = skipped ] && continue
+            fi
+            echo "$name job result: $result (web changed: $WEB_CHANGED)" >&2
+            status=1
+          done
+          exit "$status"
+
+  packages:
+    name: check (packages)
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.packages == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
         with:
-          path: ~/.cache/golangci-lint
-          key: golangci-lint-${{ runner.os }}-${{ hashFiles('apps/teamhub/go.sum', '.golangci.yml') }}-${{ github.sha }}
-          restore-keys: |
-            golangci-lint-${{ runner.os }}-${{ hashFiles('apps/teamhub/go.sum', '.golangci.yml') }}-
-      - if: needs.changes.outputs[matrix.app] == 'true'
-        run: make check-${{ matrix.app }} BASE="$BASE"
-      - uses: actions/cache/save@v4
-        if: always() && github.event_name == 'push' && matrix.app == 'teamhub' && needs.changes.outputs[matrix.app] == 'true'
+          fetch-depth: 0
+      - uses: ./.github/actions/check
         with:
-          path: ~/.cache/golangci-lint
-          key: golangci-lint-${{ runner.os }}-${{ hashFiles('apps/teamhub/go.sum', '.golangci.yml') }}-${{ github.sha }}
+          app: packages
+          changes-result: ${{ needs.changes.result }}
+
+  teamhub_cli:
+    name: check (teamhub-cli)
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs['teamhub-cli'] == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/check
+        with:
+          app: teamhub-cli
+          changes-result: ${{ needs.changes.result }}
+
+  installer:
+    name: check (installer)
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.installer == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/check
+        with:
+          app: installer
+          changes-result: ${{ needs.changes.result }}
+
+  desktop:
+    name: check (desktop)
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.desktop == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/check
+        with:
+          app: desktop
+          changes-result: ${{ needs.changes.result }}
+
+  contracts:
+    name: check (contracts)
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.contracts == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/check
+        with:
+          app: contracts
+          changes-result: ${{ needs.changes.result }}
+
+  teamhub:
+    name: check (teamhub)
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.teamhub == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/check
+        with:
+          app: teamhub
+          changes-result: ${{ needs.changes.result }}
+
+  computer_go:
+    name: check (computer-go)
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs['computer-go'] == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/check
+        with:
+          app: computer-go
+          changes-result: ${{ needs.changes.result }}

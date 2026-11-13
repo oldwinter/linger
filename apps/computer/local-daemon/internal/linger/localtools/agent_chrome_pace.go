@@ -20,7 +20,7 @@ import (
 
 // The Computer's own browser is where Agents use sites that watch for
 // automated browsing. Every input it receives, from a tool call, a batch step,
-// a script or a paged text read, passes the same pace: a pause like a person's
+// or a script, passes the same pace: a pause like a person's
 // between inputs, a budget per task and per day, and a stop once the Agent
 // reports a check that only the user may pass. The model decides what a page
 // shows; the Computer only enforces what follows from that decision.
@@ -36,6 +36,27 @@ const (
 	// off that site in that browser.
 	agentChromeCooldown = time.Hour
 )
+
+// scriptInputsSent counts the inputs in a script result's call log; known is
+// false when the result holds no call log to count.
+func scriptInputsSent(result json.RawMessage) (sent int, known bool) {
+	var reply struct {
+		Structured struct {
+			Calls *[]struct {
+				Op string `json:"op"`
+			} `json:"calls"`
+		} `json:"structuredContent"`
+	}
+	if json.Unmarshal(result, &reply) != nil || reply.Structured.Calls == nil {
+		return 0, false
+	}
+	for _, call := range *reply.Structured.Calls {
+		if inputTools[call.Op] || call.Op == "set_value" {
+			sent++
+		}
+	}
+	return sent, true
+}
 
 // agentChromePause is the gap kept between two inputs to the Computer's own
 // browser; a test replaces it.
@@ -203,22 +224,7 @@ func (c *cuaSession) paceAgentChrome(ctx context.Context, reserve int) (int, err
 // lists them, to both budgets. A failed call may still have taken effect, so
 // every listed input counts.
 func (c *cuaSession) countScriptInputs(result json.RawMessage) {
-	var reply struct {
-		Structured struct {
-			Calls []struct {
-				Op string `json:"op"`
-			} `json:"calls"`
-		} `json:"structuredContent"`
-	}
-	if json.Unmarshal(result, &reply) != nil {
-		return
-	}
-	sent := 0
-	for _, call := range reply.Structured.Calls {
-		if inputTools[call.Op] || call.Op == "set_value" {
-			sent++
-		}
-	}
+	sent, _ := scriptInputsSent(result)
 	if sent == 0 {
 		return
 	}

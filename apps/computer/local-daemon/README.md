@@ -312,7 +312,7 @@ changes in the same result. By default it reads the last step's window, or the
 application's focused window when that step gave no `window_id`; pass `read` to
 read another window or add a `query`. When a step is refused or its result is
 unknown, the result lists the completed, unsent and possibly applied steps.
-An `element_token` from an older read is refused, never rebound to another element with the same role and label. A step can name its target by role and name instead; the Daemon finds it when the step runs.
+An `element_token` from an older read is refused, never rebound to another element with the same role and label. A step can name its target by role and name instead; the Daemon finds it when the step runs, and white space in a label, such as a no-break space, matches any white space.
 On Windows, after a successful input the Daemon waits 100 ms before reading the
 window diff, because Cua already waits for its own read-back after input. The MCP
 initialize result carries no usage instructions, because Codex prepends them to
@@ -323,13 +323,48 @@ profile directory, stored under `computer-tools/browser-profiles/` in the state
 directory. Cua can observe the native Chrome window that Playwright connects to.
 
 On macOS, `launch_app` with `agent_browser: true` opens the Computer's own
-browser for a site that watches for automated browsers. The Agent drives it
-only with the computer tools, never through Playwright or a debugging port.
-Chrome, Edge and Firefox each run as a separate instance with their own
-profile under `computer-tools/agent-<browser>` in the state directory, so the
-user signs in there once. Safari cannot run a second profile; the Computer
-uses its own window in the user's Safari. Without a `bundle_id`, the Daemon
-picks the first installed of Chrome, Edge, Firefox and Safari.
+browser window for a site that watches for automated browsers. The Agent drives
+it only with the computer tools, never through Playwright or a debugging port.
+In Chrome it is a window of the Computer's own in the user's everyday Chrome,
+with the user's sign-ins, history and device trust. The window opens through
+Chrome's command line, one site per call, so no key reaches the user's other
+windows. A covered window keeps working only when Chrome runs with
+`--disable-backgrounding-occluded-windows`: a Chrome that is not running
+starts with it, and one running without it returns
+`COMPUTER_BROWSER_RESTART_REQUIRED`. The Daemon never quits the user's Chrome,
+because a quit loses text typed into a page and not yet sent: the Agent asks
+the user to quit Chrome, and the next `launch_app` starts it with the flag and
+`--restore-last-session`. The Daemon records that question in
+`computer-tools/everyday-chrome-quit` in the state directory, so a Daemon
+restart keeps it, and removes the record once Chrome started. Before the
+Computer opens its window, it waits until the list of Chrome windows stops
+changing, so every restored window is there. The Computer's window is the new
+window with one tab: the one whose address bar shows the site just opened, or
+the only new window when the home page moved to another site. Two or more new
+one-tab windows that the site does not tell apart are refused with
+`COMPUTER_WINDOW_AMBIGUOUS`. Every window the Computer opened there stays its
+own for pacing and the key rule, until Chrome restarts. The address bar and
+the tabs are found by role and place in the window, not by their names, which
+follow the user's language. The Daemon finds the running Chrome by its
+executable wherever the app is installed. The user's Chrome takes no keys from
+the Computer (`COMPUTER_KEYS_REFUSED`), in any of its windows, in tool calls,
+`run_actions` steps and scripts: a shortcut
+runs as a menu command in the Chrome window that has the keyboard, and Cua
+types text as keys that all read as the A key. A key named by its
+`element_token` goes to the app the token was read from, and a key that names
+no app is refused while that Chrome runs. Not even Return bound to a search
+box goes: Cua refuses a background key while its app has another window, and
+the user's Chrome always has one. A script's guard refuses a key whose
+arguments name an app or window of their own, and no script opens an app or
+URL, so the key rule knows every app a script reaches. The Agent fills fields
+with `set_value`, presses the page's buttons and goes back through its links.
+The Daemon removes the separate Chrome profile `computer-tools/agent-chrome`
+when it starts, after quitting the Chrome that still runs on it.
+Edge and Firefox each run as a separate instance with their own profile under
+`computer-tools/agent-<browser>` in the state directory, so the user signs in
+there once. Safari cannot run a second profile; the Computer uses its own
+window in the user's Safari. Without a `bundle_id`, the Daemon picks the first
+installed of Chrome, Edge, Firefox and Safari.
 It opens a site only at its home page and refuses any other web address with
 `COMPUTER_HOME_PAGE_ONLY`: the Agent reaches a search, listing or item through
 the site's own search box, menus and links, as a person does.
@@ -340,18 +375,38 @@ the task; `rate_limited` also puts the site (its registrable domain) in a
 60-minute cooldown. The record lives in `computer-tools/agent-chrome-pace.json`.
 Once a task opens a site there, the browser tools refuse that site for the
 rest of the task, and `launch_app` refuses to open it in another browser.
-A change in the number of tabs between the task's inputs stops the task with
-`COMPUTER_TAB_CHANGED`, because the next input could reach another page. A
+A change of the front tab between the task's inputs that also changed the
+number of tabs refuses inputs there with `COMPUTER_TAB_CHANGED`, because they
+could reach another page, until the Agent reads the window with
+`get_window_state`; it goes on only when the front tab is its page. A tab its
+own input opened late, after the reads that followed the input, looks the
+same, so the task is not stopped, and the next input is held to the tabs the
+window shows then. The Daemon reads the tab strip before an input
+only when the window's title in `list_windows` differs from the front tab's
+title after the last input, so a tab opened or closed behind the front tab
+does not stop the task: the input still reaches the task's page, and its
+result reports the new count without saying the input changed it; after
+an input it reads the strip only to its depth, unless a script returned reads
+the Agent may act on, and not at all after a script that sent no input. A
+bounded read that shows no tabs or fewer than before is read again in full. A
 tab that the task's own input or script opens or closes is the task's: the
 task holds the browser's input lease, and the count is kept once the tab strip
-settles, since the browser shows such a tab a moment later. Reading the tab
+settles, since the browser shows such a tab a moment later. The input's
+result then says, from that same read, when it opened or closed a tab or
+changed the title of the tab in front. A click there on an element whose row
+lists no press notes that the press reaches it anyway, since Cua warns that
+such a press may have done nothing; a repeat by x,y waits for a read that
+shows no effect. Reading the tab
 strip replaces Cua's snapshot of the window, so the Daemon remembers the rows
 of recent reads and moves an Agent's element token, in an input or written
 into a script, to the current snapshot when its row reads the same there.
-Only the window
-the task opened with `launch_app` is held. A script that names no window in
+A script's reads after its last input count too: the script guard returns
+them beside the script's value, and the Daemon takes them out of the result.
+A read that started before an input finished, such as one beside an input
+the script did not await, does not count. Only the windows
+the task opened with `launch_app` are held, each to its own tab count. A script that names no window in
 its `args` is taken to drive that window; a script to another app is neither
-paced nor held, and a paced script may not call `launch_app`. The browser
+paced nor held, and no script may open an app or URL. The browser
 window is the largest window whose tab strip reads: a starting Chrome can list
 a larger surface without an accessibility window, which is skipped. The
 `launch_app` result tells the Agent to move between pages through the site's

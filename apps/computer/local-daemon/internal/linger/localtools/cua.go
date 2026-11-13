@@ -160,7 +160,7 @@ func (m *Manager) openCua(ctx context.Context, op *operation) (*cuaSession, []to
 		if item.Name == "launch_app" && runtime.GOOS == "darwin" {
 			item.Description = "Open a macOS app in the background through Launch Services, as `open -g` does, and return its pid and windows. Optional urls are handed to the app; for Finder, pass a folder to open it in a window."
 			item.InputSchema = schema(map[string]any{"bundle_id": map[string]string{"type": "string", "description": "Preferred, for example com.apple.TextEdit."}, "name": map[string]string{"type": "string", "description": "App name, when the bundle id is unknown."}, "urls": map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Files or folders to open in the app."},
-				"agent_browser": map[string]string{"type": "boolean", "description": "Open the URLs in the Computer's own browser, which keeps working while other windows cover it on the user's desktop and has its own sign-ins, instead of the user's everyday browser. Only a site's home page opens there, such as https://www.example.com/. With no bundle_id it is the first installed of Chrome, Edge, Firefox and Safari; a bundle_id of com.google.Chrome, com.microsoft.edgemac, org.mozilla.firefox or com.apple.Safari picks one. Safari has no separate profile, so there it is a window of its own in the user's Safari, with the user's sign-ins."}})
+				"agent_browser": map[string]string{"type": "boolean", "description": "Open the URLs in the Computer's own browser window, which keeps working while other windows cover it on the user's desktop. Only a site's home page opens there, such as https://www.example.com/. With no bundle_id it is the first installed of Chrome, Edge, Firefox and Safari; a bundle_id of com.google.Chrome, com.microsoft.edgemac, org.mozilla.firefox or com.apple.Safari picks one. In Chrome and Safari it is a window of the Computer's own in the user's everyday browser, with the user's sign-ins; in Chrome it opens one site per call. Edge and Firefox run as separate instances with their own sign-ins."}})
 		}
 		if item.Name == "get_desktop_state" {
 			item.Description += " Read-only whole-screen view; act through the window tools with a pid and window_id. A system privacy prompt about CuaDriver belongs to the user: never answer it, and keep working through the window tools."
@@ -190,7 +190,6 @@ func (m *Manager) openCua(ctx context.Context, op *operation) (*cuaSession, []to
 	}
 	tools = append(tools, tool{Name: "run_actions", Description: batchDescription, InputSchema: schema(batchProperties, "actions")})
 	if runtime.GOOS == "darwin" {
-		tools = append(tools, tool{Name: "recognize_text", Description: recognizeTextDescription, InputSchema: recognizeTextSchema()})
 		tools = append(tools, tool{Name: "report_blocker", Description: reportBlockerDescription, InputSchema: reportBlockerSchema()})
 	}
 	tools = append(tools, tool{Name: checkPermissionsTool, Description: "Read Cua application permissions without prompting. Also reports an unresolved prior action.", InputSchema: schema(map[string]any{})})
@@ -216,14 +215,13 @@ const MacToolGuide = `Computer tools on this Mac (MCP server "computer"):
   {tool: "click" | "double_click" | "right_click", pid, window_id, element_token, modifier?: ["cmd"]} on a row of the latest read; cmd-clicks add rows to a selection, so one cmd+c copies several files;
   {tool: "hotkey", pid, keys: ["cmd", "s"]}, {tool: "press_key", pid, key: "return"}, {tool: "type_text", pid, text} go to the app's focused field, such as a sheet, panel or rename field; a new Save sheet's name field already has focus with its text selected, so type the name without clicking, and text fields refuse click;
   {tool: "scroll", pid, window_id, direction}.
-  A click, scroll or type_text, in a step or alone, can name its target with role and name instead of element_token: the one element with that role whose label or value is exactly name, or nth (from 0) when several match. It is found when it runs, so one batch can cross pages; finding it reads the window, which stales the tokens of your earlier read, so later steps name their targets the same way.
+  A click, scroll or type_text, in a step or alone, can name its target with role and name instead of element_token: the one element with that role whose label or value is exactly name, apart from white space, or nth (from 0) when several match. It is found when it runs, so one batch can cross pages; finding it reads the window, which stales the tokens of your earlier read, so later steps name their targets the same way.
 - run_script({script}) runs JavaScript that loops, waits and reads between inputs and returns only what you extract. Use it to repeat a flow over several items, such as open each result, read it and close it, in one call instead of a turn per item.
 - bring_to_front({pid, window_id}) raises one window.
-- recognize_text({pid, window_id, region?, pages?, next_key?}) reads the text in a window's pixels, such as words inside a picture, in any language; it types nothing. pages with next_key reads a picture viewer page by page in one call.
 - report_blocker({kind, url}) as soon as a page in the Computer's own browser shows a check only the user may pass (captcha, verification, login_required, rate_limited) or one item that cannot be viewed (content_unavailable). Never try to pass the check.
 The Computer's own browser takes input at a person's pace, within a budget per task and per day, and a script there sends at most 20 inputs: return what you have and look at the window before the next script. A tab that a link in the script opens is the task's and is in front afterwards. The browser tools stay off every site a task opened in that browser.
 Plan as many steps as you can in one run_actions call, as in one script; its read shows their effect, so do not read again before the next input unless you need another window. Keys are often shorter than clicks: in Finder, cmd+shift+g then a path and Return opens a folder, cmd+down opens the selected item, and in the Trash cmd+delete puts the selected item back.
-In Chrome, launch_app({bundle_id: "com.google.Chrome", urls: [url]}) opens a URL in a new tab without bringing Chrome forward; its pages read as empty while the window is covered or on another Space. Add agent_browser: true to use the Computer's own browser instead: it keeps working while covered and has its own sign-ins, but not on another desktop (Space). Chrome's own toolbar, such as Back and the address bar, refuses background input: press escape to close a page overlay, or hotkey cmd+[ to go back. A web control that ignores a background click, such as an option in a menu that opens on hover, takes one click with delivery_mode "foreground" at x,y of a screenshot.
+In Chrome, launch_app({bundle_id: "com.google.Chrome", urls: [url]}) opens a URL in a new tab without bringing Chrome forward; its pages read as empty while the window is covered or on another Space. Add agent_browser: true to use the Computer's own browser window instead: it keeps working while covered, but not on another desktop (Space). Chrome's own toolbar, such as Back and the address bar, refuses background input. The user's everyday Chrome takes no key in any window, not even Return in a search box. Fill fields with set_value, press the page's buttons, and go back through its links. In Safari, Edge or Firefox press escape to close a page overlay, or hotkey cmd+[ to go back. A web control that ignores a background click, such as an option in a menu that opens on hover, takes one click with delivery_mode "foreground" at x,y of a screenshot.
 A menu item in the read, such as File > Put Back, can be clicked directly; do not click a menu bar title first, because an open menu holds the app until it closes. A right_click menu does not show in the read, so select the row with click and use the menu bar item or its keyboard shortcut.
 Before the first shell screenshot, or when one fails or comes back blank, run ` + "`teamhub computer permissions status`" + `; if Screen Recording is missing for Linger, run ` + "`teamhub computer permissions request --permissions screen_recording`" + ` and end your turn — the card wakes you. Never operate System Settings or privacy prompts yourself.
 ` + browserToolGuide
@@ -270,7 +268,7 @@ var macCompactTools = map[string]macCompactTool{
 	"double_click": {"Double-click an element by element_token, by role and name, or a point x,y of the window's latest screenshot." + macInputResult, macPointer, []string{"pid"}},
 	"right_click":  {"Right-click an element by element_token, by role and name, or a point x,y, to open its context menu; read the window to see the menu." + macInputResult, macPointer, []string{"pid"}},
 	"hotkey":       {macKeyDescriptions["hotkey"] + macKeyRouting + macInputResult, map[string]any{"pid": macPID, "keys": map[string]any{"type": "array", "items": macString}, "window_id": macWindowID}, []string{"pid", "keys"}},
-	"press_key":    {macKeyDescriptions["press_key"] + macKeyRouting + macInputResult, map[string]any{"pid": macPID, "key": macString, "modifiers": map[string]any{"type": "array", "items": macString}, "window_id": macWindowID}, []string{"pid", "key"}},
+	"press_key":    {macKeyDescriptions["press_key"] + macKeyRouting + macInputResult, map[string]any{"pid": macPID, "key": macString, "modifiers": map[string]any{"type": "array", "items": macString}, "window_id": macWindowID, "element_token": macToken}, []string{"pid", "key"}},
 	"type_text":    {macKeyDescriptions["type_text"] + macKeyRouting + macInputResult, map[string]any{"pid": macPID, "text": macString, "window_id": macWindowID, "element_token": macToken, "role": macRole, "name": macLabel, "nth": macNth}, []string{"pid", "text"}},
 	"scroll":       {"Scroll a window, or the element element_token, by amount lines in direction." + macInputResult, map[string]any{"pid": macPID, "window_id": macWindowID, "element_token": macToken, "role": macRole, "name": macLabel, "nth": macNth, "direction": map[string]any{"type": "string", "enum": []string{"up", "down", "left", "right"}}, "amount": map[string]any{"type": "integer"}}, []string{"pid", "direction"}},
 	"get_window_state": {macWindowStateDescription, map[string]any{
@@ -374,12 +372,6 @@ func (c *cuaSession) call(ctx context.Context, name string, args json.RawMessage
 			return c.reportBlocker(args)
 		}
 	}
-	// A one-page read sends nothing. A paged read presses keys, so it takes
-	// the lease and the action journal below as other input does.
-	paged := name == "recognize_text" && runtime.GOOS == "darwin" && pagedRead(args)
-	if name == "recognize_text" && runtime.GOOS == "darwin" && !paged {
-		return c.recognizeText(ctx, args, false)
-	}
 	arguments, err := cuaCallArguments(args)
 	if err != nil {
 		return nil, err
@@ -395,7 +387,14 @@ func (c *cuaSession) call(ctx context.Context, name string, args json.RawMessage
 			}
 		}
 	}
-	agentChrome, err := c.claimAgentChromeInput(ctx, name, arguments, paged)
+	// A key to the user's Chrome reaches the window that has the keyboard,
+	// whichever window it names, so it is refused before anything is taken.
+	if name == "hotkey" || name == "type_text" || name == "press_key" {
+		if err := c.userChromeKeys(ctx, arguments); err != nil {
+			return nil, err
+		}
+	}
+	agentChrome, err := c.claimAgentChromeInput(ctx, name, arguments)
 	if err != nil {
 		return nil, err
 	}
@@ -413,7 +412,7 @@ func (c *cuaSession) call(ctx context.Context, name string, args json.RawMessage
 			return nil, err
 		}
 	}
-	paced := agentChrome && (inputTools[name] || paged || ownScript)
+	paced := agentChrome && (inputTools[name] || ownScript)
 	scriptInputs := 0
 	if paced {
 		// A script reserves nothing: its own pause runs inside it, and its
@@ -439,7 +438,13 @@ func (c *cuaSession) call(ctx context.Context, name string, args json.RawMessage
 		}
 	}
 	if name == "run_script" {
-		if err := scriptArguments(ctx, arguments, c.reviewScope(), scriptInputs); err != nil {
+		// A script's body may reach any app, so its guard checks every key
+		// against the user's Chrome, whatever window args names.
+		chrome, err := userChromePID(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if err := scriptArguments(ctx, arguments, c.reviewScope(), scriptInputs, chrome); err != nil {
 			return nil, err
 		}
 	}
@@ -482,12 +487,6 @@ func (c *cuaSession) call(ctx context.Context, name string, args json.RawMessage
 	if err := c.requirePermissions(ctx); err != nil {
 		return nil, err
 	}
-	if paged {
-		result, err := c.recognizeText(ctx, args, agentChrome)
-		confirmed = !errors.Is(err, errOutcomeUnknown)
-		c.stampInput(arguments["pid"])
-		return result, err
-	}
 	// Only a script to the Computer's own browser wakes it first.
 	wake := scriptTarget
 	if !ownScript {
@@ -527,10 +526,27 @@ func (c *cuaSession) call(ctx context.Context, name string, args json.RawMessage
 		// check, replaced the snapshot the Agent's token names.
 		c.snapshots.remap(arguments)
 	}
+	token, _ := arguments["element_token"].(string)
+	pagePress := agentChrome && name == "click" && c.snapshots != nil && c.snapshots.unpressable(token)
 	driverStarted := time.Now()
 	result, err := c.sendInput(ctx, name, arguments, appKeys, agentChrome)
+	if err == nil && pagePress && !failed(result) {
+		// Chrome clicks a page element on a press even where the element
+		// lists no press, as the sort menu of a review list did; the Agent
+		// took Cua's warning as a miss and clicked by x,y, which missed.
+		result = withNote(result, "In the Computer's own browser, a press goes to the element as a person's click would, even where its row lists no press. Check its effect in the next read; repeat it by x,y only if that read shows no effect.")
+	}
+	var scriptReads []windowRead
+	if err == nil && name == "run_script" {
+		result, scriptReads = scriptResultReads(result)
+	}
 	if c.snapshots != nil {
-		c.snapshots.sent()
+		c.snapshots.sent(name)
+		// The script's reads after its last input come after the fence, so
+		// their tokens carry over the Computer's reads before the next call.
+		for _, read := range scriptReads {
+			c.snapshots.record(read)
+		}
 	}
 	driverMs = time.Since(driverStarted).Milliseconds()
 	if err == nil {
@@ -541,9 +557,18 @@ func (c *cuaSession) call(ctx context.Context, name string, args json.RawMessage
 	if paced && name == "run_script" && err == nil {
 		c.countScriptInputs(result)
 	}
-	// A script that throws has still sent the inputs before the throw.
-	if paced && (err == nil || name == "run_script") {
-		c.recordAgentChromeTabs(ctx, target["pid"], target["window_id"])
+	// A script that throws has still sent the inputs before the throw. One
+	// that sent none changed no tab, and a read of the strip after it would
+	// stale the tokens its queries returned, which the Daemon keeps no rows of.
+	sentNone := false
+	if name == "run_script" {
+		sent, known := scriptInputsSent(result)
+		sentNone = known && sent == 0
+	}
+	if paced && (err == nil || name == "run_script") && !sentNone {
+		if note := c.recordAgentChromeTabs(ctx, target["pid"], target["window_id"], len(scriptReads) > 0); note != "" && result != nil {
+			result = withNote(result, note)
+		}
 	}
 	return c.finishInput(ctx, name, arguments, appKeys, result, err)
 }
@@ -567,9 +592,6 @@ func (c *cuaSession) needsFocus(ctx context.Context, name string, args json.RawM
 	switch {
 	case cuaReadTools[name]:
 		return false
-	case name == "recognize_text":
-		// A paged read presses keys in the window.
-		return runtime.GOOS != "darwin" || pagedRead(args)
 	case runtime.GOOS != "darwin" || !backgroundTools[name]:
 		return true
 	}
@@ -630,13 +652,13 @@ func cuaCallArguments(args json.RawMessage) (map[string]any, error) {
 
 // claimAgentChromeInput reports whether the call reaches the Computer's own
 // Chrome and, if so, claims it for this Operation.
-func (c *cuaSession) claimAgentChromeInput(ctx context.Context, name string, arguments map[string]any, paged bool) (bool, error) {
+func (c *cuaSession) claimAgentChromeInput(ctx context.Context, name string, arguments map[string]any) (bool, error) {
 	// The Computer's own browser takes input and window changes from one
 	// Operation at a time. A script may reach any app from its body, and an
 	// input without a pid may reach it by its element_token alone, so both
 	// take the lease while that Chrome runs.
 	agentChrome := false
-	leased := inputTools[name] || windowTools[name] || paged
+	leased := inputTools[name] || windowTools[name]
 	if _, pid := arguments["pid"]; runtime.GOOS == "darwin" && (name == "run_script" || leased && !pid) {
 		own, err := c.agentChromeRunning(ctx)
 		if err != nil {
@@ -924,6 +946,7 @@ func (c *cuaSession) finishInput(ctx context.Context, name string, arguments map
 	}
 	if err == nil && name == "get_window_state" && arguments["include_accessibility_tree"] != false {
 		c.op.reads.observe(result)
+		c.readAgentChromeWindow(arguments["pid"], arguments["window_id"])
 	}
 	if err == nil && inputTools[name] && ctx.Value(cuaInternalInput{}) == nil && runtime.GOOS != "darwin" {
 		result = c.withWindowState(ctx, arguments, result)
@@ -1298,12 +1321,14 @@ func (c *cuaSession) locate(ctx context.Context, name string, arguments map[stri
 	}
 	role, _ := arguments["role"].(string)
 	label, _ := arguments["name"].(string)
+	// A name of only white space would match every element without a label.
+	label = sameSpaces(label)
 	if role == "" || label == "" || arguments["pid"] == nil || arguments["window_id"] == nil {
 		return fmt.Errorf("COMPUTER_TARGET_REQUIRED: a role and name target needs pid, window_id, role and name: %w", errNotSent)
 	}
 	read, err := c.client.request(ctx, "tools/call", map[string]any{"name": "get_window_state", "arguments": map[string]any{
 		"pid": arguments["pid"], "window_id": arguments["window_id"], "tree_format": "elements", "include_screenshot": false,
-		"max_elements": 3000, "timeout_ms": float64(windowReadTimeoutMs), "session": arguments["session"]}})
+		"max_elements": 6000, "timeout_ms": float64(windowReadTimeoutMs), "session": arguments["session"]}})
 	if err != nil {
 		return err
 	}
@@ -1329,7 +1354,8 @@ func (c *cuaSession) locate(ctx context.Context, name string, arguments map[stri
 	}
 	var matches []string
 	for _, element := range state.Structured.Elements {
-		if element.Role == role && (element.Label == label || element.Value == label) {
+		value, _ := element.Value.(string)
+		if element.Role == role && (sameSpaces(element.Label) == label || sameSpaces(value) == label) {
 			matches = append(matches, element.Token)
 		}
 	}
@@ -1347,6 +1373,12 @@ func (c *cuaSession) locate(ctx context.Context, name string, arguments map[stri
 	delete(arguments, "name")
 	delete(arguments, "nth")
 	return nil
+}
+
+// sameSpaces writes every run of white space as one space: a page label may
+// hold a no-break space, which reads the same as the space the Agent writes.
+func sameSpaces(text string) string {
+	return strings.Join(strings.Fields(text), " ")
 }
 
 // listedWindow is one window from Cua list_windows.
