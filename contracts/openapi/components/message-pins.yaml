@@ -1,0 +1,24 @@
+components:
+  schemas:
+    MessagePin:
+      type: object
+      additionalProperties: false
+      required: [message, pinned_by_actor_id, pinned_at]
+      properties:
+        message:
+          $ref: "./messages.yaml#/components/schemas/Message"
+        pinned_by_actor_id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        pinned_at:
+          $ref: "./common.yaml#/components/schemas/Timestamp"
+    MessagePinList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          description: The Room's pinned Messages, newest pin first.
+          items:
+            $ref: "#/components/schemas/MessagePin"

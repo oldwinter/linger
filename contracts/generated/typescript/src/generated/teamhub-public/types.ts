@@ -1245,6 +1245,46 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v0/rooms/{roomId}/messages/{messageId}/pin": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        roomId: components["parameters"]["RoomId"];
+        messageId: components["parameters"]["MessageId"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    /** Idempotently pin a conversation Message for the whole Room. */
+    put: operations["putMessagePin"];
+    post?: never;
+    /** Idempotently remove a Message from the Room's Pinned list. */
+    delete: operations["deleteMessagePin"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v0/rooms/{roomId}/pins": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        roomId: components["parameters"]["RoomId"];
+      };
+      cookie?: never;
+    };
+    /** List the Room's pinned Messages, newest pin first, capped at 50. */
+    get: operations["listMessagePins"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v0/decisions/{decisionId}": {
     parameters: {
       query?: never;
@@ -5619,6 +5659,15 @@ export interface components {
     };
     ThreadRoom: {
       room: components["schemas"]["Room"];
+    };
+    MessagePin: {
+      message: components["schemas"]["Message"];
+      pinned_by_actor_id: components["schemas"]["Id"];
+      pinned_at: components["schemas"]["Timestamp"];
+    };
+    MessagePinList: {
+      /** @description The Room's pinned Messages, newest pin first. */
+      items: components["schemas"]["MessagePin"][];
     };
     /** @description The answer the card's kind takes, with the fields DecisionAnswer describes for it. */
     DecisionRequest: {
@@ -10074,6 +10123,76 @@ export interface operations {
         content?: never;
       };
       400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  putMessagePin: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        roomId: components["parameters"]["RoomId"];
+        messageId: components["parameters"]["MessageId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The Message is pinned in this Room; repeating the request changes nothing. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  deleteMessagePin: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        roomId: components["parameters"]["RoomId"];
+        messageId: components["parameters"]["MessageId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The Message is not pinned in this Room; repeating the request changes nothing. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  listMessagePins: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        roomId: components["parameters"]["RoomId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The Room's pinned Messages. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MessagePinList"];
+        };
+      };
       401: components["responses"]["Unauthenticated"];
       404: components["responses"]["NotFound"];
     };

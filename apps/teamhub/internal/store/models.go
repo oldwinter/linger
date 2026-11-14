@@ -1156,6 +1156,14 @@ type MessageCard struct {
 	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
 }
 
+type MessagePin struct {
+	TenantID        string             `json:"tenant_id"`
+	RoomID          string             `json:"room_id"`
+	MessageID       string             `json:"message_id"`
+	PinnedByActorID string             `json:"pinned_by_actor_id"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
 type MessageReaction struct {
 	MessageID  string             `json:"message_id"`
 	TenantID   string             `json:"tenant_id"`

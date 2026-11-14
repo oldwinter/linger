@@ -50,6 +50,7 @@ import {
 } from "./chat/voice-mode/voice-materials-context";
 import { useOptionalVoiceModeSession } from "./chat/voice-mode/voice-mode-session";
 import { RoomRealtimeSync } from "./chat/room-realtime-sync";
+import { PinnedMessagesControl } from "./chat/message-pins/pinned-messages-control";
 import { AgentStatusDot } from "./members/agent-status";
 import { RoomAvatar } from "./members/room-avatar";
 import { ActorAvatar } from "./members/actor-avatar";
@@ -433,6 +434,12 @@ function RoomSurfaceContent({
     setSearchParams(roomProfileSearchParams(searchParams));
   }
 
+  function openPinnedMessage(messageId: string) {
+    const next = new URLSearchParams(searchParams);
+    next.set("message", messageId);
+    setSearchParams(next);
+  }
+
   return (
     <RoomChromeProvider value={roomOutletContext}>
       <RoomCollaborationScope
@@ -467,6 +474,7 @@ function RoomSurfaceContent({
                 onAppliedRoomSeq={setLastAppliedRoomSeq}
                 onMessageCreated={openCanvasMessage}
                 onTeamMdPublished={openCollaboration}
+                onJumpToPinnedMessage={openPinnedMessage}
                 onOpenAgent={openProfile}
                 onOpenDelete={() => setDeleteOpen(true)}
                 onOpenSettings={() =>
@@ -724,6 +732,7 @@ function RoomHeader({
   onAppliedRoomSeq,
   onMessageCreated,
   onTeamMdPublished,
+  onJumpToPinnedMessage,
   onOpenAgent,
   onOpenDelete,
   onOpenSettings,
@@ -745,6 +754,7 @@ function RoomHeader({
   onAppliedRoomSeq: (roomSeq: number) => void;
   onMessageCreated: (message: TeamHubMessage) => void;
   onTeamMdPublished: () => void;
+  onJumpToPinnedMessage: (messageId: string) => void;
   onOpenAgent: (actorId: string) => void;
   onOpenDelete: () => void;
   onOpenSettings: () => void;
@@ -842,6 +852,11 @@ function RoomHeader({
             }
           </Await>
         </Suspense>
+        <PinnedMessagesControl
+          onJump={onJumpToPinnedMessage}
+          roomId={roomId}
+          tenantId={tenantId}
+        />
         {canDeleteDeletedAgentRoom ? (
           <Button
             aria-label="Delete Room"

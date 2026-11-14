@@ -6186,6 +6186,23 @@ type MessagePage struct {
 	SnapshotRoomSeq int64 `json:"snapshot_room_seq"`
 }
 
+// MessagePin defines model for MessagePin.
+type MessagePin struct {
+	Message Message `json:"message"`
+
+	// PinnedAt UTC timestamp in RFC 3339 format with an explicit offset.
+	PinnedAt Timestamp `json:"pinned_at"`
+
+	// PinnedByActorId Opaque, case-sensitive identifier. Clients must not infer type or time from it.
+	PinnedByActorId Id `json:"pinned_by_actor_id"`
+}
+
+// MessagePinList defines model for MessagePinList.
+type MessagePinList struct {
+	// Items The Room's pinned Messages, newest pin first.
+	Items []MessagePin `json:"items"`
+}
+
 // MessageReaction defines model for MessageReaction.
 type MessageReaction struct {
 	// ActorIds Human and Agent Actors with this Reaction, in reaction order; the count is the array length.
