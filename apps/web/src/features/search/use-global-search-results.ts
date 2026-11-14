@@ -20,15 +20,14 @@ import {
   readGlobalSearchStore,
   type GlobalSearchStore,
 } from "./global-search-recent";
+import { resultKindSections } from "./global-search-kind-filter";
 import {
-  ALL_TAB_GROUP_LIMIT,
   BACKEND_PAGE_LIMIT,
   byName,
   GROUP_ORDER,
   matchRank,
   MIN_BACKEND_QUERY_LENGTH,
   SCOPE_ORDER,
-  SCOPES,
   type GlobalSearchTab,
   type GroupTab,
   type ResultGroup,
@@ -278,11 +277,13 @@ export function useSearchGroups({
   };
 }
 
-/** The sections drawn for the current scope and the flat row order keys walk. */
+/** The sections drawn for the current scope and kind, and the flat row order
+ * keys walk. */
 export function useResultSections({
   debouncedQuery,
   docsLoading,
   groups,
+  kind,
   messagesLoading,
   setStore,
   store,
@@ -292,6 +293,7 @@ export function useResultSections({
   debouncedQuery: string;
   docsLoading: boolean;
   groups: ResultGroup[];
+  kind: GlobalSearchTab;
   messagesLoading: boolean;
   setStore: Dispatch<SetStateAction<GlobalSearchStore>>;
   store: GlobalSearchStore;
@@ -335,37 +337,17 @@ export function useResultSections({
       }
       return startSections;
     }
-    const visible =
-      tab === "all" ? groups : groups.filter((g) => g.tab === tab);
-    return visible.flatMap((group): ResultSection[] => {
-      const label = SCOPES[group.tab].label;
-      const loading =
-        (group.tab === "messages" && messagesLoading) ||
-        (group.tab === "docs" && docsLoading);
-      if (loading) {
-        return [
-          { items: [], key: group.tab, label, layout: "rows", loading: true },
-        ];
-      }
-      if (group.items.length === 0) return [];
-      if (tab !== "all") {
-        return [{ items: group.items, key: group.tab, label, layout: "rows" }];
-      }
-      return [
-        {
-          items: group.items.slice(0, ALL_TAB_GROUP_LIMIT),
-          key: group.tab,
-          label,
-          layout: "rows",
-          ...(group.items.length > ALL_TAB_GROUP_LIMIT || group.hasMore
-            ? { seeAll: group.tab }
-            : {}),
-        },
-      ];
+    return resultKindSections({
+      docsLoading,
+      groups,
+      kind,
+      messagesLoading,
+      tab,
     });
   }, [
     docsLoading,
     groups,
+    kind,
     messagesLoading,
     setStore,
     showingStart,
