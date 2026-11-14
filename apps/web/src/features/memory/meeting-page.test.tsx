@@ -293,6 +293,12 @@ describe("MeetingPage", () => {
     expect(
       within(summaryPanel).getByRole("region", { name: "Meeting recording" }),
     ).toBeInTheDocument();
+    // The recording carries its own playback speed, named as a speed.
+    expect(
+      within(summaryPanel).getByRole("combobox", {
+        name: /Playback speed/,
+      }),
+    ).toBeInTheDocument();
     expect(
       within(reader)
         .getByRole("tablist", { name: "Meeting views" })
