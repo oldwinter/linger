@@ -41,6 +41,7 @@ import {
 import { RoomAvatar } from "./members/room-avatar";
 import { PocketNoteLauncher } from "./pocket-notes/pocket-note-launcher";
 import { RecordingEntry } from "./voice-control/recording-entry";
+import { useRoomDraftPreviews } from "./room-drafts";
 import { useNavReorderFlip } from "./use-nav-reorder-flip";
 
 import {
@@ -84,6 +85,7 @@ function usePrefetchTemplateFlow() {
 }
 
 export function RoomSecondaryNavigation({
+  accountId,
   activeRoomId,
   anotherMeRoomId,
   navigationStatus,
@@ -96,6 +98,7 @@ export function RoomSecondaryNavigation({
   runningRoomIds = [],
   tenant,
 }: {
+  accountId?: string;
   activeRoomId?: string;
   anotherMeRoomId?: string;
   navigationStatus?: ReactNode;
@@ -117,6 +120,11 @@ export function RoomSecondaryNavigation({
   const [templateAgentOpen, setTemplateAgentOpen] = useState(false);
   const runningRooms = new Set(runningRoomIds);
   const failedRooms = new Set(failedRoomIds);
+  const drafts = useRoomDraftPreviews(
+    accountId,
+    tenant.id,
+    rooms.map((room) => room.id),
+  );
   const visibleRoomIds = new Set(
     rooms.flatMap((room) =>
       room.parent_room_id ? [room.parent_room_id] : [room.id],
@@ -306,6 +314,7 @@ export function RoomSecondaryNavigation({
             {visibleAnotherMeRoom ? (
               <AnotherMeCard
                 active={visibleAnotherMeRoom.id === activeRoomId}
+                draft={drafts[visibleAnotherMeRoom.id]}
                 failed={failedRooms.has(visibleAnotherMeRoom.id)}
                 onNavigate={(event) =>
                   completeNavigation(event, visibleAnotherMeRoom.id)
@@ -356,13 +365,16 @@ export function RoomSecondaryNavigation({
                           <RoomRowTitle pinned={Boolean(room.pinned_at)}>
                             {room.name}
                           </RoomRowTitle>
-                          <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">
-                            {room.latest_message
-                              ? markdownPlainText(
-                                  room.latest_message.raw_message,
-                                )
-                              : (room.description ?? "No messages yet")}
-                          </span>
+                          <RoomRowPreview
+                            draft={drafts[room.id]}
+                            fallback={
+                              room.latest_message
+                                ? markdownPlainText(
+                                    room.latest_message.raw_message,
+                                  )
+                                : (room.description ?? "No messages yet")
+                            }
+                          />
                         </span>
                         <RoomRowStatus
                           failed={failedRooms.has(room.id)}
@@ -401,6 +413,7 @@ export function RoomSecondaryNavigation({
                   >
                     <DirectRoomLink
                       active={room.id === activeRoomId}
+                      draft={drafts[room.id]}
                       onNavigate={(event) => completeNavigation(event, room.id)}
                       room={room}
                       failed={failedRooms.has(room.id)}
@@ -518,6 +531,7 @@ function RoomRowTitle({
 
 function DirectRoomLink({
   active,
+  draft,
   failed,
   working,
   onNavigate,
@@ -525,6 +539,7 @@ function DirectRoomLink({
   tenantId,
 }: {
   active: boolean;
+  draft?: string;
   failed?: boolean;
   working: boolean;
   onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
@@ -558,13 +573,16 @@ function DirectRoomLink({
         <RoomRowTitle pinned={Boolean(room.pinned_at)}>
           {displayName}
         </RoomRowTitle>
-        <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">
-          {inactive
-            ? "Deleted"
-            : room.latest_message
-              ? markdownPlainText(room.latest_message.raw_message)
-              : "No messages yet"}
-        </span>
+        <RoomRowPreview
+          draft={inactive ? undefined : draft}
+          fallback={
+            inactive
+              ? "Deleted"
+              : room.latest_message
+                ? markdownPlainText(room.latest_message.raw_message)
+                : "No messages yet"
+          }
+        />
       </span>
       <RoomRowStatus failed={failed} room={room} working={working} />
     </Link>
@@ -601,8 +619,29 @@ function RoomAttentionBadge({ room }: { room: TeamHubRoomListItem }) {
  * The card takes its colour from the Agent's avatar background: a glow of it
  * follows the pointer, and the open card fills with it.
  */
+function RoomRowPreview({
+  draft,
+  fallback,
+}: {
+  draft?: string;
+  fallback: string;
+}) {
+  return (
+    <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">
+      {draft ? (
+        <>
+          <span className="font-medium text-app-ink">Draft</span> {draft}
+        </>
+      ) : (
+        fallback
+      )}
+    </span>
+  );
+}
+
 function AnotherMeCard({
   active,
+  draft,
   failed,
   onNavigate,
   room,
@@ -610,6 +649,7 @@ function AnotherMeCard({
   working,
 }: {
   active: boolean;
+  draft?: string;
   failed: boolean;
   onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
   room: TeamHubRoomListItem;
@@ -717,9 +757,15 @@ function AnotherMeCard({
             {name}
           </span>
           <span className="another-me-card-sub mt-0.5 block truncate text-xs leading-4 text-app-muted">
-            {room.latest_message
-              ? markdownPlainText(room.latest_message.raw_message)
-              : "Your personal agent"}
+            {draft ? (
+              <>
+                <span className="font-medium text-app-ink">Draft</span> {draft}
+              </>
+            ) : room.latest_message ? (
+              markdownPlainText(room.latest_message.raw_message)
+            ) : (
+              "Your personal agent"
+            )}
           </span>
         </span>
         <RoomRowStatus failed={failed} room={room} working={working} />

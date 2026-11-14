@@ -334,6 +334,7 @@ function RoomShellContent({
           inert={inert}
         >
           <RoomNavigation
+            accountId={identity.account.id}
             username={spaceOwnerNameFor(identity, tenantId)}
             accountMenu={
               <AccountMenu

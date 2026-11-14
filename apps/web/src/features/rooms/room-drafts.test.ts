@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearRoomDrafts,
   readRoomComposerDraft,
+  roomDraftPreview,
   subscribeRoomComposerDrafts,
   writeRoomComposerDraft,
 } from "./room-drafts";
@@ -47,6 +48,32 @@ describe("Room drafts", () => {
     expect(
       readRoomComposerDraft({ ...firstRoom, threadId: "message-1" }).body,
     ).toBe("Thread reply");
+  });
+
+  it("previews the Room composer and ignores a Thread draft", () => {
+    writeRoomComposerDraft(firstRoom, textDraft("  Finish\nthe launch note  "));
+    writeRoomComposerDraft(
+      { ...firstRoom, threadId: "message-1" },
+      textDraft("Thread only"),
+    );
+    expect(roomDraftPreview(firstRoom)).toBe("Finish the launch note");
+    expect(
+      roomDraftPreview({ ...firstRoom, roomId: "room-empty" }),
+    ).toBeUndefined();
+    writeRoomComposerDraft(firstRoom, {
+      ...textDraft(""),
+      documentContexts: [
+        {
+          documentId: "doc-1",
+          documentVersionId: "ver-1",
+          filename: "launch.md",
+          sourceRoomId: "room-1",
+          sourceRoomName: "Room",
+          versionNumber: 1,
+        },
+      ],
+    });
+    expect(roomDraftPreview(firstRoom)).toBe("launch.md");
   });
 
   it("tells subscribers about every write and clear", () => {

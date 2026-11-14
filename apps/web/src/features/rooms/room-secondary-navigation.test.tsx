@@ -22,6 +22,7 @@ import { createHttpTeamHubClient } from "@/features/teamhub/teamhub-client";
 import { TeamHubTestServer } from "@/test/teamhub-test-server";
 
 import * as avatarImages from "./members/actor-avatar-image";
+import { clearRoomDrafts, writeRoomComposerDraft } from "./room-drafts";
 import { RoomSecondaryNavigation } from "./room-secondary-navigation";
 
 /** Row actions read the Room list cache and the runtime client. */
@@ -917,5 +918,54 @@ describe("Room navigation composer focus", () => {
       "/t/tenant-a/rooms/room-other/chat|null",
     );
     matchMedia.mockRestore();
+  });
+});
+
+describe("unsent composer drafts", () => {
+  it("shows the draft on the Room row instead of the latest message", () => {
+    const listed = room("room-draft", 0, 0);
+    listed.latest_message = {
+      author: listed.created_by,
+      created_at: "2026-07-24T10:00:00Z",
+      id: "message-1",
+      raw_message: "Already sent",
+      room_seq: 1,
+    };
+    writeRoomComposerDraft(
+      {
+        accountId: "account-jenny",
+        roomId: listed.id,
+        tenantId: "tenant-a",
+      },
+      {
+        body: "Finish the launch note",
+        documentContexts: [],
+        documentReferences: [],
+        mentions: [],
+        skillReferences: [],
+      },
+    );
+    try {
+      render(
+        <MemoryRouter>
+          <RoomSecondaryNavigation
+            accountId="account-jenny"
+            onCloseMobile={() => undefined}
+            onCreateRoom={() => undefined}
+            rooms={[listed]}
+            tenant={{
+              created_at: "2026-07-24T09:00:00Z",
+              id: "tenant-a",
+              name: "Northstar",
+            }}
+          />
+        </MemoryRouter>,
+      );
+      const row = screen.getByRole("link", { name: "room-draft" });
+      expect(row).toHaveTextContent("Draft Finish the launch note");
+      expect(row).not.toHaveTextContent("Already sent");
+    } finally {
+      clearRoomDrafts();
+    }
   });
 });

@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from "react";
+
 import type {
   TeamHubMessageDocumentReference,
   TeamHubMessageSkillReference,
@@ -50,6 +52,7 @@ export type RoomComposerDocumentReference =
   TeamHubMessageDocumentReference & {};
 
 const draftListeners = new Set<() => void>();
+let draftGeneration = 0;
 
 /** Calls `listener` after any Room composer draft in this tab changes. */
 export function subscribeRoomComposerDrafts(listener: () => void) {
@@ -60,7 +63,54 @@ export function subscribeRoomComposerDrafts(listener: () => void) {
 }
 
 function notifyDraftListeners() {
+  draftGeneration += 1;
   for (const listener of draftListeners) listener();
+}
+
+function roomDraftGeneration() {
+  return draftGeneration;
+}
+
+const DRAFT_PREVIEW_LIMIT = 72;
+
+/** The Room composer's unsent words, for the Room list. Thread drafts stay in the Thread. */
+export function roomDraftPreview(scope: RoomDraftScope): string | undefined {
+  const draft = readRoomComposerDraft(scope);
+  const body = draft.body.replace(/\s+/gu, " ").trim();
+  if (body) return clipDraftPreview(body);
+  const attachment =
+    draft.documentContexts[0]?.filename ?? draft.voiceMaterials?.[0]?.title;
+  return attachment ? clipDraftPreview(attachment) : undefined;
+}
+
+function clipDraftPreview(text: string) {
+  return text.length > DRAFT_PREVIEW_LIMIT
+    ? `${text.slice(0, DRAFT_PREVIEW_LIMIT - 1)}…`
+    : text;
+}
+
+/**
+ * Unsent Room composer drafts for this Account. A write in this tab updates
+ * the list; the snapshot is the generation so storage is read while rendering.
+ */
+export function useRoomDraftPreviews(
+  accountId: string | undefined,
+  tenantId: string,
+  roomIds: readonly string[],
+) {
+  const generation = useSyncExternalStore(
+    subscribeRoomComposerDrafts,
+    roomDraftGeneration,
+    () => 0,
+  );
+  void generation;
+  const previews: Record<string, string> = {};
+  if (!accountId) return previews;
+  for (const roomId of roomIds) {
+    const preview = roomDraftPreview({ accountId, roomId, tenantId });
+    if (preview) previews[roomId] = preview;
+  }
+  return previews;
 }
 
 export function readRoomComposerDraft(
