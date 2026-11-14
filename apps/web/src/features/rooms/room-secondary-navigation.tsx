@@ -428,6 +428,7 @@ export function RoomSecondaryNavigation({
                           name={name}
                           onTogglePin={() => togglePin(room)}
                           pinned={Boolean(room.pinned_at)}
+                          roomId={room.id}
                           tenantId={tenant.id}
                         />
                       </>
