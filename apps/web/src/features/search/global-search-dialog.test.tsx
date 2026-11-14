@@ -969,6 +969,76 @@ describe("Global search dialog", () => {
     expect(results().getByRole("option", { name: "freeze" })).toBeVisible();
   });
 
+  it("keeps every recent option owned by the listbox and reports its Delete shortcut", async () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seededStore()));
+    await renderDialog();
+    const listbox = screen.getByRole("listbox");
+    const recent = results().getByRole("option", { name: "deploy" });
+
+    expect(recent).toHaveAttribute("aria-selected", "false");
+    expect(recent.parentElement).toHaveAttribute("role", "presentation");
+    expect(recent.closest('[role="listbox"]')).toBe(listbox);
+    expect(
+      screen.getByRole("button", { name: "Remove recent search deploy" }),
+    ).toHaveAttribute("aria-keyshortcuts", "Delete");
+  });
+
+  it("keeps the highlight on the next recent after a removal and runs it on Enter", async () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seededStore()));
+    await renderDialog();
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    for (let step = 0; step < 4; step += 1) {
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+    }
+    expect(results().getAllByRole("option")[4]).toHaveTextContent("deploy");
+
+    fireEvent.keyDown(input, { key: "Delete" });
+
+    const options = results().getAllByRole("option");
+    expect(options[4]).toHaveTextContent("freeze");
+    // The highlight follows the row that moved up, rather than resetting to the
+    // first scope card.
+    expect(input).toHaveAttribute("aria-activedescendant", options[4]!.id);
+    expect(options[4]).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(input).toHaveValue("freeze");
+  });
+
+  it("forgets the next recent with a second Delete", async () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seededStore()));
+    await renderDialog();
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    for (let step = 0; step < 4; step += 1) {
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+    }
+
+    fireEvent.keyDown(input, { key: "Delete" });
+    fireEvent.keyDown(input, { key: "Delete" });
+
+    expect(readGlobalSearchStore(TENANT).queries).toEqual([]);
+    expect(screen.queryByText("Recent")).toBeNull();
+    const options = results().getAllByRole("option");
+    expect(options).toHaveLength(4);
+    // The highlight clamps to the last remaining row.
+    expect(input).toHaveAttribute("aria-activedescendant", options[3]!.id);
+  });
+
+  it("leaves Delete to the field while it holds text", async () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seededStore()));
+    await renderDialog();
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    for (let step = 0; step < 4; step += 1) {
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+    }
+
+    // Recent rows stay on screen while the typed query is still settling.
+    fireEvent.change(input, { target: { value: "deploy" } });
+    expect(screen.getByText("Recent")).toBeVisible();
+    expect(fireEvent.keyDown(input, { key: "Delete" })).toBe(true);
+    expect(readGlobalSearchStore(TENANT).queries).toEqual(["deploy", "freeze"]);
+  });
+
   it("accepts Cmd/Ctrl+K anywhere, including editors, but not mid-composition", () => {
     expect(
       isGlobalSearchShortcut(

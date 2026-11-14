@@ -44,6 +44,7 @@ export function useActiveRow({
   const [activeIndex, setActiveIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
   const scrollFromKeyboard = useRef(false);
+  const keepActiveIndexRef = useRef(false);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
@@ -52,9 +53,27 @@ export function useActiveRow({
   const [highlightShown, setHighlightShown] = useState(true);
 
   useEffect(() => {
+    // Forgetting a recent search shifts the rows up under the highlight; a
+    // new set of results starts from the top instead.
+    if (keepActiveIndexRef.current) {
+      keepActiveIndexRef.current = false;
+      setActiveIndex((current) =>
+        Math.max(0, Math.min(current, rows.length - 1)),
+      );
+      return;
+    }
     setActiveIndex(0);
     if (listRef.current) listRef.current.scrollTop = 0;
-  }, [rowsKey]);
+  }, [rows.length, rowsKey]);
+
+  /**
+   * Forgets a recent query; the highlight stays on the row that follows it, so
+   * repeated Delete removes the next one and Enter runs what is now selected.
+   */
+  function removeRecentQuery(text: string) {
+    keepActiveIndexRef.current = true;
+    onRemoveRecentQuery(text);
+  }
 
   function onInputKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
@@ -68,11 +87,11 @@ export function useActiveRow({
       setTab("all");
       return;
     }
-    if (event.key === "Delete") {
+    if (event.key === "Delete" && query === "") {
       const row = rows[activeIndex];
       if (row?.kind === "query") {
         event.preventDefault();
-        onRemoveRecentQuery(row.text);
+        removeRecentQuery(row.text);
         return;
       }
     }
@@ -132,6 +151,7 @@ export function useActiveRow({
     indicatorRef,
     listRef,
     onInputKeyDown,
+    removeRecentQuery,
     scrollFromKeyboard,
     setActiveIndex,
     setHighlightShown,
