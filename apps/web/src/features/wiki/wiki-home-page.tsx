@@ -14,6 +14,7 @@ import type { TeamHubDocument } from "@/features/teamhub/teamhub-types";
 import { documentFileName } from "@/features/library/document-display-name";
 import { useWikiDocuments } from "./knowledge-sidebar-trees";
 import { useWikiGraphNodes } from "./wiki-graph-queries";
+import { RecentWikiPagesStrip } from "./recent-wiki-pages-strip";
 import { WikiDailyCard } from "./wiki-daily-card";
 import {
   wikiEntries,
@@ -274,6 +275,7 @@ function WikiOverview({
       <div className="landing-notices">
         <WikiRefreshBanner {...refresh} agentActorId={anotherMe} />
       </div>
+      <RecentWikiPagesStrip />
       <div className="landing-grid">
         <div className="landing-col landing-col-left">
           <section className="landing-section landing-daily">

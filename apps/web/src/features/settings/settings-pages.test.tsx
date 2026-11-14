@@ -419,6 +419,7 @@ describe("Browser preferences", () => {
     "global-search-recent.v2:tenant-a",
     "library-recent-documents.v1:account-a",
     "meeting-resume.v1:account-a",
+    "wiki-recent-pages.v1:account-a",
   ];
 
   it("lists every registered preference and disables Clear when nothing is stored", async () => {
@@ -442,6 +443,7 @@ describe("Browser preferences", () => {
       "Recent searches",
       "Recently opened documents",
       "Meeting listening positions",
+      "Recently opened Wiki pages",
     ]);
     expect(
       within(section).getByRole("button", { name: "Clear" }),
