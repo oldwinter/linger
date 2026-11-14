@@ -2,6 +2,8 @@
 
 - Own the authenticated Human's Tenant-scoped Memory views: the Timeline graph
   with its Daily and Weekly reports, and Meetings (calendar, reader, audio).
+  Shape of today draws one calendar day as open stretches and the meetings
+  that sit in them.
   Personal Wiki navigation in `features/wiki` links here.
 - Call TeamHub through the generated client (`client.api`) and generated
   Memory types; do not handwrite URLs or wire DTOs in components.

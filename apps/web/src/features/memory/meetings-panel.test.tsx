@@ -140,6 +140,12 @@ describe("Meetings panel", () => {
     expect(
       screen.getByRole("link", { name: "Meeting Oct 1, 09:05" }),
     ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "Shape of today" }),
+    ).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/library/day-shape?date=2026-10-01",
+    );
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(
