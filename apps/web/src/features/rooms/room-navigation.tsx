@@ -33,6 +33,7 @@ const RoomSecondaryNavigation = lazy(async () => ({
 const RAIL_TOGGLE_MS = 450;
 
 export function RoomNavigation({
+  accountId,
   accountMenu,
   username,
   anotherMeRoomId,
@@ -45,6 +46,8 @@ export function RoomNavigation({
   rooms,
   tenant,
 }: {
+  /** Scopes the away recap's dismissal to this Account in this Tenant. */
+  accountId?: string;
   accountMenu?: ReactNode;
   username: string;
   anotherMeRoomId?: string;
@@ -235,6 +238,7 @@ export function RoomNavigation({
         {secondaryNavigationVisible ? (
           <Suspense fallback={null}>
             <RoomSecondaryNavigation
+              accountId={accountId}
               activeRoomId={effectiveRoomId}
               onCloseMobile={onCloseMobile}
               onCreateRoom={onCreateRoom}
