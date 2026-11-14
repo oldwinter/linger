@@ -26,7 +26,7 @@ describe("Copy message link", () => {
 
     await waitFor(() =>
       expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-        "/t/tenant-1/rooms/room-all/chat?message=message-alpha",
+        `${window.location.origin}/t/tenant-1/rooms/room-all/chat?message=message-alpha`,
       ),
     );
     await waitFor(() =>
@@ -46,7 +46,7 @@ describe("Copy message link", () => {
 
     await waitFor(() =>
       expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-        "/t/tenant-1/rooms/room-thread-7/chat?message=message-reply",
+        `${window.location.origin}/t/tenant-1/rooms/room-thread-7/chat?message=message-reply`,
       ),
     );
   });

@@ -1,7 +1,7 @@
 import { preloadDocumentEditor } from "../documents/document-editor-preload";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { useSearchParams } from "react-router";
+import { useLocation, useSearchParams } from "react-router";
 
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import {
@@ -19,6 +19,7 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 
 import { useRoomOutletContext } from "../room-connectivity";
+import { messageLinkId } from "../message-link";
 import { artifactPreviewCache } from "../files/artifact-preview-cache";
 import { prefetchArtifactPreview } from "../files/artifact-preview-loader";
 import { documentCardVersionQueryKey } from "../files/use-document-card-metadata";
@@ -43,6 +44,7 @@ export function useRoomChatNavigation(
   roomId: string,
 ) {
   const queryClient = useQueryClient();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { openPanelTab } = useRoomOutletContext();
 
@@ -115,7 +117,7 @@ export function useRoomChatNavigation(
         next.delete("highlight");
         setSearchParams(next);
       },
-      linkedMessageId: searchParams.get("message"),
+      linkedMessageId: messageLinkId(location.search),
       // Global search hands over the keyword it matched so the linked Message
       // can show it as selected text.
       linkedMessageHighlight: searchParams.get("highlight"),
@@ -268,6 +270,7 @@ export function useRoomChatNavigation(
     tenantId,
     roomId,
     queryClient,
+    location.search,
     searchParams,
     setSearchParams,
     openPanelTab,

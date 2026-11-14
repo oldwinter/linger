@@ -905,7 +905,14 @@ function ConversationMessageActions({
   overflowItems.push({
     icon: <Icon icon={Link01Icon} size={14} />,
     label: "Copy link",
-    onSelect: () => copyText(roomMessagePath(tenantId, message)),
+    // Absolute, so the link opens from a document or another app.
+    onSelect: () =>
+      copyText(
+        new URL(
+          roomMessagePath(tenantId, message),
+          window.location.origin,
+        ).toString(),
+      ),
   });
   overflowItems.push({
     icon: <Icon icon={Copy01Icon} size={14} />,

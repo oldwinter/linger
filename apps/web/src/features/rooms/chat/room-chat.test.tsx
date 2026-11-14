@@ -1860,6 +1860,119 @@ describe("Room Chat", () => {
     }
   });
 
+  it("focuses and highlights the Message a link names", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      renderRoomChat(
+        runtime,
+        testQueryClient(),
+        "/t/tenant-northstar/rooms/room-all/chat?message=message-2",
+      );
+
+      const target = (await screen.findAllByRole("article")).find(
+        (article) => article.dataset.messageId === "message-2",
+      );
+      expect(target).toBeDefined();
+      expect(target).toHaveAttribute("data-focused-message", "true");
+      expect(target).toHaveClass("message-row-focused");
+      expect(
+        screen
+          .getAllByRole("article")
+          .filter((article) => article.hasAttribute("data-focused-message")),
+      ).toHaveLength(1);
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: originalScrollIntoView,
+      });
+    }
+  });
+
+  it("leaves the timeline unfocused when the location names no Message", async () => {
+    const runtime = createTestTeamHubRuntime();
+
+    renderRoomChat(runtime, testQueryClient());
+
+    await screen.findByText(/Reviewed the checklist/);
+    expect(
+      screen
+        .getByLabelText("Room timeline")
+        .querySelector("[data-focused-message]"),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("region", { name: "Linked source Message" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("drops the highlight when the location no longer names the Message", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      const router = renderRoomChat(
+        runtime,
+        testQueryClient(),
+        "/t/tenant-northstar/rooms/room-all/chat?message=message-2",
+      );
+      await waitFor(() =>
+        expect(
+          screen
+            .getByLabelText("Room timeline")
+            .querySelector("[data-focused-message]"),
+        ).not.toBeNull(),
+      );
+
+      await act(async () => {
+        await router.navigate("/t/tenant-northstar/rooms/room-all/chat");
+      });
+
+      expect(
+        screen
+          .getByLabelText("Room timeline")
+          .querySelector("[data-focused-message]"),
+      ).toBeNull();
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: originalScrollIntoView,
+      });
+    }
+  });
+
+  it("says a linked Message is unavailable instead of failing the Room", async () => {
+    const runtime = createTestTeamHubRuntime();
+    runtime.server.on("GET", "/v0/rooms/{roomId}/messages/{messageId}", () =>
+      teamHubErrorResponse(
+        404,
+        "MESSAGE_NOT_FOUND",
+        "The Message was not found.",
+      ),
+    );
+
+    renderRoomChat(
+      runtime,
+      testQueryClient(),
+      "/t/tenant-northstar/rooms/room-all/chat?message=message-deleted",
+    );
+
+    expect(
+      await screen.findByText("Source Message is unavailable."),
+    ).toBeVisible();
+    expect(await screen.findByText(/Reviewed the checklist/)).toBeVisible();
+  });
+
   it("retries the accepted contextual composition without restoring it over the next draft", async () => {
     const runtime = createTestTeamHubRuntime();
 
