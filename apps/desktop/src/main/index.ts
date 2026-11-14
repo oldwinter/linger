@@ -28,6 +28,7 @@ import { ConfigStore } from "./config.js";
 import { DesktopIpcModule } from "./desktop-ipc.js";
 import { DiagnosticsModule } from "./diagnostics.js";
 import { EnrollmentModule } from "./enrollment.js";
+import { GlobalShortcutModule } from "./global-shortcut.js";
 import {
   LocalServerModule,
   signInWithPassword,
@@ -313,6 +314,7 @@ async function main(): Promise<void> {
       preload: path.join(here, "../preload/quick-note.cjs"),
       sessionCookie: webSessionCookie,
     }),
+    new GlobalShortcutModule(),
     updater,
     new TrayModule({ quit: () => void quit() }),
     new DesktopIpcModule({
