@@ -113,6 +113,24 @@ export function hasWorkItemDashboardFilters(
 }
 
 /**
+ * Whether anything besides the Room scope narrows the board, which is what
+ * "Clear filters" offers to undo. Room is the board's scope, and sort only
+ * reorders the same cards, so neither one counts.
+ */
+export function hasWorkItemDashboardNarrowingFilters(
+  filters: WorkItemDashboardFilters,
+): boolean {
+  return workItemDashboardFiltersSearch({ ...filters, room: "" }) !== "";
+}
+
+/** Every filter back at its default, keeping the Room scope. */
+export function clearWorkItemDashboardFilters(
+  filters: WorkItemDashboardFilters,
+): WorkItemDashboardFilters {
+  return { ...EMPTY_WORK_ITEM_DASHBOARD_FILTERS, room: filters.room };
+}
+
+/**
  * The Work Items whose title holds every word of the query, case-insensitively.
  * Descriptions, comments, and Room names stay out, so the board never matches
  * text the card does not show.

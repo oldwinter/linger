@@ -531,6 +531,132 @@ describe("Dashboard page", () => {
     expect(screen.getByTestId("location")).toHaveTextContent("q=plan");
   });
 
+  it("offers Clear filters only when a filter departs from its default", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, { id: "workitem-plan", title: "Plan release" }),
+    ]);
+    renderPage(runtime);
+    await screen.findByText("Plan release");
+
+    expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
+
+    fireEvent.click(screen.getByLabelText("Priority"));
+    fireEvent.click(await screen.findByRole("option", { name: "High" }));
+    expect(
+      await screen.findByRole("button", { name: "Clear filters" }),
+    ).toBeVisible();
+
+    fireEvent.change(
+      screen.getByRole("searchbox", { name: "Filter by title" }),
+      { target: { value: "plan" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Archived" }));
+
+    expect(screen.getByRole("button", { name: "Clear filters" })).toBeVisible();
+  });
+
+  it("clears every filter back to the default board", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, { id: "workitem-plan", title: "Plan release" }),
+      workItem(human, {
+        id: "workitem-build",
+        priority: "low",
+        title: "Build the release",
+      }),
+    ]);
+    renderPage(
+      runtime,
+      "/t/tenant-northstar/dashboard?q=release&priority=high&archived=true",
+    );
+    await screen.findByRole("button", { name: "Clear filters" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/t/tenant-northstar/dashboard",
+      ),
+    );
+    expect(
+      screen.getByRole("searchbox", { name: "Filter by title" }),
+    ).toHaveValue("");
+    expect(screen.getByLabelText("Priority")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Archived" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
+  });
+
+  it("keeps the Room scope while clearing filters", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        id: "workitem-plan",
+        origin_room_id: "room-gtm-launch",
+        title: "Plan release",
+      }),
+    ]);
+    renderPage(
+      runtime,
+      "/t/tenant-northstar/dashboard?room=room-gtm-launch&priority=high",
+    );
+    await screen.findByRole("button", { name: "Clear filters" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/t/tenant-northstar/dashboard?room=room-gtm-launch",
+      ),
+    );
+    expect(screen.getByLabelText("Room")).toHaveValue("room-gtm-launch");
+  });
+
+  it("replaces history so Back steps past the cleared filters", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, { id: "workitem-plan", title: "Plan release" }),
+    ]);
+    renderPage(runtime, "/t/tenant-northstar/dashboard", <BackProbe />);
+    await screen.findByText("Plan release");
+
+    const input = screen.getByRole("searchbox", { name: "Filter by title" });
+    fireEvent.change(input, { target: { value: "release" } });
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent("q=release"),
+    );
+    fireEvent.click(screen.getByLabelText("Sort"));
+    fireEvent.click(
+      await screen.findByRole("option", { name: "Newest first" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Sort")).toHaveValue("newest"),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+
+    // The sort is not a filter, so clearing leaves it and its pushed entry.
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/t/tenant-northstar/dashboard?sort=newest",
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/t/tenant-northstar/dashboard?q=release",
+      ),
+    );
+  });
+
   it("keeps Dashboard filters in Work Item deep links", async () => {
     const runtime = await testRuntime();
     const identity = runtime.seed.identity;
