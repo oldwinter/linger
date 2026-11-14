@@ -101,6 +101,8 @@ function RuleBook({
   busy: boolean;
   onCommand: (input: MyRulesCommand) => Promise<unknown>;
 }) {
+  const [armedRuleId, setArmedRuleId] = useState<string | null>(null);
+
   return (
     <>
       <section aria-labelledby="my-rules-rules" className="flex flex-col gap-3">
@@ -116,6 +118,7 @@ function RuleBook({
           <ul className="flex flex-col divide-y divide-border rounded-2xl border border-border bg-background">
             {book.rules.map((rule) => (
               <RuleRow
+                armed={armedRuleId === rule.id}
                 busy={busy}
                 divergences={book.divergences.filter(
                   (divergence) => divergence.rule_id === rule.id,
@@ -124,7 +127,13 @@ function RuleBook({
                 mandates={book.mandates.filter(
                   (mandate) => mandate.rule_id === rule.id,
                 )}
+                onArm={() => setArmedRuleId(rule.id)}
                 onCommand={onCommand}
+                onDisarm={() =>
+                  setArmedRuleId((current) =>
+                    current === rule.id ? null : current,
+                  )
+                }
                 rule={rule}
               />
             ))}
@@ -167,16 +176,22 @@ function RuleBook({
 }
 
 function RuleRow({
+  armed,
   busy,
   divergences,
   mandates,
+  onArm,
   onCommand,
+  onDisarm,
   rule,
 }: {
+  armed: boolean;
   busy: boolean;
   divergences: TeamHubProactiveRuleBook["divergences"];
   mandates: TeamHubProactiveRuleBook["mandates"];
+  onArm: () => void;
   onCommand: (input: MyRulesCommand) => Promise<unknown>;
+  onDisarm: () => void;
   rule: TeamHubProactiveRule;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
@@ -186,6 +201,13 @@ function RuleRow({
     if (!text) return;
     await onCommand({ kind: "edit", ruleId: rule.id, text });
     setDraft(null);
+  };
+  // The page reports a failed command, so the confirmation closes either way.
+  const confirmDelete = () => {
+    void onCommand({ kind: "delete", ruleId: rule.id }).then(
+      onDisarm,
+      onDisarm,
+    );
   };
 
   return (
@@ -243,9 +265,7 @@ function RuleRow({
             <Button
               aria-label="Delete rule"
               disabled={busy}
-              onClick={() =>
-                void onCommand({ kind: "delete", ruleId: rule.id })
-              }
+              onClick={onArm}
               size="compactIcon"
               tone="ghost"
             >
@@ -282,6 +302,27 @@ function RuleRow({
           </div>
         </form>
       )}
+      {armed && draft === null ? (
+        <div
+          aria-label="Confirm rule deletion"
+          className="flex flex-wrap items-center gap-2"
+          role="group"
+        >
+          <span className="text-sm text-foreground">Delete rule?</span>
+          <Button
+            aria-label="Confirm delete rule"
+            disabled={busy}
+            onClick={confirmDelete}
+            size="compact"
+            tone="danger"
+          >
+            Confirm
+          </Button>
+          <Button onClick={onDisarm} size="compact" tone="ghost">
+            Cancel
+          </Button>
+        </div>
+      ) : null}
       {shadow ? null : (
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span>When this rule applies, Another Me may</span>
