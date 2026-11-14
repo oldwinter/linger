@@ -227,6 +227,11 @@ export function createAppRoutes(
               : defaultShouldRevalidate,
           children: [
             {
+              ErrorBoundary: PanelRouteErrorSurface,
+              lazy: loadHandOffPage,
+              path: "hand-off",
+            },
+            {
               loader: ({ params }) => {
                 const tenantId = requireRoomRouteParam(
                   params.tenantId,
@@ -662,6 +667,11 @@ async function loadUnifiedDocumentPage() {
     await import("@/features/rooms/documents/document-route-preload");
   const { UnifiedDocumentPage } = await preloadUnifiedDocumentPage();
   return { Component: UnifiedDocumentPage };
+}
+
+async function loadHandOffPage() {
+  const { HandOffPage } = await import("@/features/rooms/hand-off-page");
+  return { Component: HandOffPage };
 }
 
 async function loadConnectedAppsPage() {
