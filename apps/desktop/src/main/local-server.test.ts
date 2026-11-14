@@ -71,6 +71,13 @@ if (args.includes("--user-keys")) {
   process.stdout.write(JSON.stringify({ saved: names }) + "\n");
   process.exit(0);
 }
+if (args.includes("--migrate")) {
+  if (fs.existsSync(path.join(home, "migration-fails"))) {
+    process.stderr.write(fs.readFileSync(path.join(home, "migration-detail.txt"), "utf8"));
+    process.exit(1);
+  }
+  process.exit(0);
+}
 fs.mkdirSync(path.join(home, "installer"), { recursive: true });
 fs.writeFileSync(path.join(home, "installer", "args.json"), JSON.stringify(args));
 if (args.includes("--inspect")) {
@@ -2106,6 +2113,28 @@ describe("LocalServerModule after a restart", () => {
       ),
     ).toMatchObject({ repo: current });
     expect(readdirSync(sources)).toEqual([path.basename(current)]);
+    await f.host.stop("quit");
+  });
+
+  it("keeps the whole migration failure for the start-failure page", async () => {
+    const detail = `Could not convert these instances to Linger names. ${"x".repeat(900)}\nEND OF DETAIL`;
+    const f = fixture({}, enrolled, (home) => {
+      record(home);
+      mkdirSync(path.join(home, "instances", "default"), { recursive: true });
+      writeFileSync(
+        path.join(home, "instances", "default", "instance.json"),
+        JSON.stringify({ project: "simplex-default-000000000000" }),
+      );
+      writeFileSync(path.join(home, "migration-fails"), "");
+      writeFileSync(path.join(home, "migration-detail.txt"), detail);
+    });
+
+    await f.host.start();
+
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("failed"));
+    expect(detail.length).toBeGreaterThan(500);
+    expect(f.module.status().message).toBe(detail);
+    expect(f.showStartFailed).toHaveBeenCalledWith(detail);
     await f.host.stop("quit");
   });
 

@@ -44,6 +44,15 @@ async function configured(instance: Instance): Promise<boolean> {
     throw error;
   }
 }
+async function absent(target: string): Promise<boolean> {
+  try {
+    await lstat(target);
+    return false;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return true;
+    throw error;
+  }
+}
 async function runtimePath(instance: Instance): Promise<string> {
   const directories = [path.dirname(process.execPath)];
   const bundled = path.join(
@@ -430,6 +439,16 @@ export async function stopComputer(
   options: { signal?: AbortSignal } = {},
 ): Promise<void> {
   if (!(await configured(instance))) return;
+  // The record can outlive the release that ran the Computer, as an upgrade
+  // from before the rename can leave it. With no executable or release
+  // folder there is nothing to stop, and the status query below would only
+  // report a Computer that cannot exist.
+  if (
+    (path.isAbsolute(instance.computerExecutable) &&
+      (await absent(instance.computerExecutable))) ||
+    (instance.releaseDir !== "" && (await absent(instance.releaseDir)))
+  )
+    return;
   const observed = await inspectComputer(instance, { signal: options.signal });
   if (observed.activeOperations !== 0)
     throw new Error(
