@@ -1,5 +1,21 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
+
+import { setDesktopNotificationPause } from "@/features/rooms/desktop-notification-pause";
 
 import { DesktopNotificationsSettings } from "./desktop-notifications-settings";
 
@@ -9,6 +25,10 @@ function stubNotification(
 ) {
   vi.stubGlobal("Notification", { permission, requestPermission });
 }
+
+beforeEach(() => {
+  localStorage.clear();
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -82,5 +102,65 @@ describe("Desktop notifications setting", () => {
     await waitFor(() => expect(requestPermission).toHaveBeenCalledTimes(1));
     expect(screen.getByRole("button", { name: "Enable" })).toBeVisible();
     expect(screen.getByText(/Notifications are off/u)).toBeVisible();
+  });
+});
+
+const pauseEnd = (iso: string) =>
+  new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+  }).format(new Date(iso));
+
+describe("Desktop notifications pause", () => {
+  it("pauses for an hour and says when the pause ends", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 10, 15, 9, 30));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    stubNotification("granted");
+
+    render(<DesktopNotificationsSettings accountId="account-a" />);
+    expect(
+      screen.getByRole("button", { name: "Pause until tomorrow morning" }),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Pause for 1 hour" }));
+
+    const until = new Date(2026, 10, 15, 10, 30).toISOString();
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent(`Paused until ${pauseEnd(until)}.`);
+    expect(within(status).getByText(pauseEnd(until))).toHaveAttribute(
+      "datetime",
+      until,
+    );
+    expect(screen.getByRole("button", { name: "Resume now" })).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Pause for 1 hour" }),
+    ).toBeNull();
+  });
+
+  it("shows a stored pause on open and resumes it", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 10, 15, 9, 30));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    stubNotification("granted");
+    setDesktopNotificationPause("account-a", new Date(2026, 10, 15, 10, 30));
+
+    render(<DesktopNotificationsSettings accountId="account-a" />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("Paused until");
+    fireEvent.click(screen.getByRole("button", { name: "Resume now" }));
+
+    expect(
+      screen.getByRole("button", { name: "Pause for 1 hour" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Resume now" })).toBeNull();
+    expect(
+      localStorage.getItem("desktop-notification-pause.v1:account-a"),
+    ).toBeNull();
   });
 });

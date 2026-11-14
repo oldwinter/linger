@@ -4,6 +4,10 @@ import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
 
 import {
+  isDesktopNotificationPaused,
+  useDesktopNotificationPause,
+} from "./desktop-notification-pause";
+import {
   quietRoomIds,
   useRoomMentionMute,
   useRoomMentionSnooze,
@@ -95,7 +99,9 @@ function desktopBadge(): DesktopBadge | undefined {
  * notice names one. Mentions read while focused are dropped rather than shown
  * late, because the Room list already showed them. A Room whose mentions are
  * snoozed or muted raises neither a notification nor a badge count, while the
- * Room list keeps its own unread numbers.
+ * Room list keeps its own unread numbers. While paused nothing is shown and
+ * the badge stays empty, and the mention that arrives during it shows once the
+ * pause ends.
  */
 export function useRoomMentionNotifications({
   accountId,
@@ -113,9 +119,16 @@ export function useRoomMentionNotifications({
   const badge = useRef<number | null>(null);
   const snooze = useRoomMentionSnooze(accountId);
   const mute = useRoomMentionMute(accountId);
+  const paused = isDesktopNotificationPaused(
+    useDesktopNotificationPause(accountId),
+    new Date(),
+  );
 
   useEffect(() => {
     if (!rooms) return;
+    // A pause holds notices back without losing them: the first reading still
+    // records where to start, and later readings wait for the pause to end.
+    if (paused && seen.current !== undefined) return;
     const notices = roomMentionNotices(
       rooms,
       roomId,
@@ -123,6 +136,7 @@ export function useRoomMentionNotifications({
       quietRoomIds(snooze, mute, new Date()),
     );
     seen.current = roomMentionMessages(rooms);
+    if (paused) return;
     if (
       notices.length === 0 ||
       typeof Notification === "undefined" ||
@@ -141,20 +155,22 @@ export function useRoomMentionNotifications({
         notification.close();
       };
     }
-  }, [mute, open, roomId, rooms, snooze]);
+  }, [mute, open, paused, roomId, rooms, snooze]);
 
   useEffect(() => {
     if (!rooms) return;
     const quiet = quietRoomIds(snooze, mute, new Date());
-    const total = rooms.reduce(
-      (sum, room) =>
-        quiet.has(room.id) ? sum : sum + room.unread_mention_count,
-      0,
-    );
+    const total = paused
+      ? 0
+      : rooms.reduce(
+          (sum, room) =>
+            quiet.has(room.id) ? sum : sum + room.unread_mention_count,
+          0,
+        );
     // The Room list updates on every Message; the badge only changes when a
     // mention arrives, is read, or its Room turns quiet.
     if (badge.current === total) return;
     badge.current = total;
     void desktopBadge()?.setBadgeCount(total);
-  }, [mute, rooms, snooze]);
+  }, [mute, paused, rooms, snooze]);
 }
