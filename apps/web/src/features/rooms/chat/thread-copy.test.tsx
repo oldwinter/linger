@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TeamHubMessage } from "@/features/teamhub/teamhub-types";
 
-import { ThreadCopyAction } from "./thread-copy";
+import { ThreadCopyAction, ThreadLinkCopyAction } from "./thread-copy";
 
 const tenantId = "tenant-1";
 
@@ -78,6 +78,56 @@ describe("ThreadCopyAction", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Copy thread" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Copy failed"),
+    );
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+});
+
+describe("ThreadLinkCopyAction", () => {
+  beforeEach(() => {
+    stubClipboard(() => Promise.resolve());
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("copies the Thread's absolute link", async () => {
+    const writeText = stubClipboard(() => Promise.resolve());
+    render(<ThreadLinkCopyAction path="/t/tenant-1/rooms/room-thread/chat" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        `${window.location.origin}/t/tenant-1/rooms/room-thread/chat`,
+      ),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent("Copied");
+  });
+
+  it("stays disabled until the Thread Room exists", () => {
+    const writeText = stubClipboard(() => Promise.resolve());
+    render(<ThreadLinkCopyAction />);
+
+    const copy = screen.getByRole("button", { name: "Copy link" });
+    expect(copy).toBeDisabled();
+    fireEvent.click(copy);
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("says the copy failed instead of claiming success", async () => {
+    stubClipboard(() => Promise.reject(new Error("Clipboard is denied")));
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: vi.fn(() => false),
+    });
+    render(<ThreadLinkCopyAction path="/t/tenant-1/rooms/room-thread/chat" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
 
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent("Copy failed"),
