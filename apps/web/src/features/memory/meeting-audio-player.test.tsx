@@ -2,6 +2,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { formatPlaybackTime, MeetingAudioPlayer } from "./meeting-audio-player";
+import {
+  readMeetingPlaybackSpeed,
+  writeMeetingPlaybackSpeed,
+} from "./meeting-playback-speed";
 import { readMeetingResume, rememberMeetingPosition } from "./meeting-resume";
 
 afterEach(() => vi.restoreAllMocks());
@@ -453,5 +457,68 @@ describe("MeetingAudioPlayer keyboard", () => {
 
     expect(fireEvent.keyDown(document.body, { key: " " })).toBe(true);
     expect(play).not.toHaveBeenCalled();
+  });
+});
+
+describe("MeetingAudioPlayer speed memory", () => {
+  const ACCOUNT = "account-a";
+
+  it("opens at the Account's stored speed", () => {
+    writeMeetingPlaybackSpeed(ACCOUNT, 1.5);
+
+    const { audio } = renderPlayer("meeting-1", ACCOUNT);
+
+    expect(audio.playbackRate).toBe(1.5);
+    expect(speedTrigger()).toHaveTextContent("1.5x");
+  });
+
+  it("keeps the chosen speed when another meeting opens", async () => {
+    const { audio, player, rerender } = renderPlayer("meeting-1", ACCOUNT);
+    await chooseRate("2x");
+    expect(audio.playbackRate).toBe(2);
+
+    rerender(player("meeting-2"));
+
+    expect(audio.playbackRate).toBe(2);
+    expect(speedTrigger()).toHaveTextContent("2x");
+  });
+
+  it("keeps the chosen speed for the next player", async () => {
+    const first = renderPlayer("meeting-1", ACCOUNT);
+    await chooseRate("1.25x");
+    first.unmount();
+    // The media element itself is left at the default; the Account remembers.
+    expect(first.audio.playbackRate).toBe(1);
+
+    const second = renderPlayer("meeting-2", ACCOUNT);
+
+    expect(second.audio.playbackRate).toBe(1.25);
+    expect(speedTrigger()).toHaveTextContent("1.25x");
+  });
+
+  it("keeps another Account's speed out of this player", () => {
+    writeMeetingPlaybackSpeed("account-b", 2);
+
+    const { audio } = renderPlayer("meeting-1", ACCOUNT);
+
+    expect(audio.playbackRate).toBe(1);
+    expect(speedTrigger()).toHaveTextContent("1x");
+  });
+
+  it("keeps the stored speed when the browser refuses a new one", async () => {
+    const { audio } = renderPlayer("meeting-1", ACCOUNT);
+    await chooseRate("1.25x");
+    let applied = audio.playbackRate;
+    Object.defineProperty(audio, "playbackRate", {
+      configurable: true,
+      get: () => applied,
+      set: (value: number) => {
+        applied = Math.min(value, 1.25);
+      },
+    });
+
+    await chooseRate("2x");
+
+    expect(readMeetingPlaybackSpeed(ACCOUNT)).toBe(1.25);
   });
 });

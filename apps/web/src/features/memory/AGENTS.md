@@ -27,9 +27,10 @@
 - A meeting reader's header may copy the meeting's canonical link, built by
   `meeting-routes.ts` with the origin the app is served from. The clipboard
   again holds derived reading state, and a refused copy says so.
-- A meeting reader's recording player may change its playback speed for that
-  playback only: every meeting opens at 1x, nothing is stored, and a refused
-  rate keeps the previous one and says so.
+- A meeting reader's recording player remembers the listener's playback speed
+  per Account in this browser only, so the next meeting opens at that speed; a
+  refused rate keeps the previous one and says so, and the This browser
+  settings clear it.
 - A meeting reader's recording player remembers where its listener stopped, per
   meeting, in this browser only and keyed per Account. The place is offered on
   reopen, never held by TeamHub, and the This browser settings clear it.

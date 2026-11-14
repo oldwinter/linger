@@ -419,6 +419,7 @@ describe("Browser preferences", () => {
     "global-search-recent.v2:tenant-a",
     "library-recent-documents.v1:account-a",
     "meeting-resume.v1:account-a",
+    "meeting-playback-speed.v1:account-a",
     "wiki-recent-pages.v1:account-a",
   ];
 
@@ -443,6 +444,7 @@ describe("Browser preferences", () => {
       "Recent searches",
       "Recently opened documents",
       "Meeting listening positions",
+      "Meeting playback speed",
       "Recently opened Wiki pages",
     ]);
     expect(
