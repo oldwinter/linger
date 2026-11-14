@@ -12,6 +12,9 @@
 - A Wiki page is a read-only Markdown file Document: open it with the file preview and the knowledge presentation, never a collaboration session.
 - Web observes generation state. It does not call LLM Wiki directly or orchestrate compilation.
 
+- How Another Me would introduce you turns the profile into a short card.
+  The Human chooses which line leads, then can leave that card on today's
+  Pocket note.
 - Wiki navigation owns Profile, Timeline, Projects, Topics, People, and Companies. Timeline, People
   and Companies are the display labels for the existing `graph`, `contacts` and
   `clients` entries; keep their routes and data keys.
