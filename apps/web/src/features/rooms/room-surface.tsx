@@ -20,6 +20,7 @@ import {
 } from "react";
 import {
   Await,
+  Link,
   Outlet,
   useLoaderData,
   useLocation,
@@ -70,6 +71,7 @@ import {
   tenantRoomsQueryKey,
 } from "./room-queries";
 import { RoomDeleteDialog } from "./room-delete-dialog";
+import { stepOutPath } from "./step-out";
 import { useRoomPanelSidebar } from "./use-room-panel-sidebar";
 import { useRoomPresence } from "./use-room-presence";
 import { readPanelTabState } from "./task-sidebar/panel-tab-store";
@@ -842,6 +844,14 @@ function RoomHeader({
             }
           </Await>
         </Suspense>
+        {room.kind === "room" ? (
+          <Link
+            className="rounded-lg px-2 text-xs text-muted-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            to={stepOutPath(tenantId, roomId)}
+          >
+            {room.participation === "left" ? "Come back" : "Step out"}
+          </Link>
+        ) : null}
         {canDeleteDeletedAgentRoom ? (
           <Button
             aria-label="Delete Room"

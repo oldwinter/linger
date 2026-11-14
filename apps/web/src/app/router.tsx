@@ -183,6 +183,14 @@ export function createAppRoutes(
           path: "rooms",
         },
         {
+          ErrorBoundary: PanelRouteErrorSurface,
+          lazy: async () => ({
+            Component: (await import("@/features/rooms/step-out-page"))
+              .StepOutPage,
+          }),
+          path: "rooms/:roomId/step-out",
+        },
+        {
           element: <RoomSurface />,
           errorElement: <RoomRouteErrorSurface queryClient={queryClient} />,
           loader: ({ params }) => {
