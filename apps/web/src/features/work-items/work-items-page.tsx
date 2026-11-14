@@ -22,6 +22,7 @@ import { Link, useParams, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Select, SelectItem } from "@/components/ui/select";
+import { cn } from "@/lib/cn";
 import {
   teamHubIdentityQueryOptions,
   tenantRoomsQueryOptions,
@@ -77,6 +78,7 @@ import {
   workItemDashboardSortSearch,
   type WorkItemDashboardSort,
 } from "./work-item-sort";
+import { useWorkItemSelection } from "./use-work-item-selection";
 
 interface DashboardColumn {
   id: "todo" | "in-progress" | "done" | "closed";
@@ -533,6 +535,8 @@ function WorkItemBoard({
   const shownItems = sections.flatMap(({ column, items }) =>
     column.id === "closed" && !closedExpanded ? [] : items,
   );
+  const selection = useWorkItemSelection({ items: shownItems, tenantId });
+  const hasSelection = selection.count > 0;
   const orderedIdsKey = shownItems.map((item) => item.id).join("\n");
   const orderedIds = useMemo(
     () => (orderedIdsKey ? orderedIdsKey.split("\n") : []),
@@ -599,27 +603,73 @@ function WorkItemBoard({
   }, []);
 
   return (
-    <div className="work-items-board workspace-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-hidden p-4 sm:p-5">
-      <div className="grid h-full min-w-[1180px] grid-cols-5 gap-3">
-        {sections.map(({ column, items }) => (
-          <WorkItemColumn
-            closedExpanded={closedExpanded}
-            column={column}
-            focusedCardRef={focusedCardRef}
-            focusedWorkItemId={focusedWorkItemId}
-            items={items}
-            key={column.id}
-            keyboardFocusId={keyboardFocusId}
-            onDuplicate={onDuplicate}
-            onPeek={onPeek}
-            onToggleClosed={() => setClosedExpanded((expanded) => !expanded)}
-            originRoomLabel={originRoomLabel}
-            search={search}
-            tenantId={tenantId}
-          />
-        ))}
+    <>
+      {hasSelection || selection.outcome ? (
+        <div
+          aria-label="Selected Work Items"
+          className="flex shrink-0 flex-wrap items-center gap-2 border-b border-app-border px-4 py-2 text-sm sm:px-5"
+          role="group"
+        >
+          {hasSelection ? (
+            <span className="text-app-body">{selection.count} selected</span>
+          ) : null}
+          {hasSelection ? (
+            <Button
+              loading={selection.pending}
+              onClick={() => void selection.archive()}
+              size="compact"
+              tone="secondary"
+            >
+              Archive
+            </Button>
+          ) : null}
+          {hasSelection ? (
+            <Button
+              disabled={selection.pending}
+              onClick={selection.clear}
+              size="compact"
+              tone="ghost"
+            >
+              Clear
+            </Button>
+          ) : null}
+          {selection.outcome ? (
+            <p
+              className={
+                selection.outcome.failed ? "text-app-danger" : "text-app-muted"
+              }
+              role={selection.outcome.failed ? "alert" : "status"}
+            >
+              {selection.outcome.message}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      <div className="work-items-board workspace-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-hidden p-4 sm:p-5">
+        <div className="grid h-full min-w-[1180px] grid-cols-5 gap-3">
+          {sections.map(({ column, items }) => (
+            <WorkItemColumn
+              closedExpanded={closedExpanded}
+              column={column}
+              focusedCardRef={focusedCardRef}
+              focusedWorkItemId={focusedWorkItemId}
+              isSelected={selection.isSelected}
+              items={items}
+              key={column.id}
+              keyboardFocusId={keyboardFocusId}
+              onDuplicate={onDuplicate}
+              onPeek={onPeek}
+              onToggleClosed={() => setClosedExpanded((expanded) => !expanded)}
+              onToggleSelected={selection.toggle}
+              originRoomLabel={originRoomLabel}
+              search={search}
+              selectionActive={hasSelection}
+              tenantId={tenantId}
+            />
+          ))}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -707,27 +757,34 @@ function WorkItemColumn({
   column,
   focusedCardRef,
   focusedWorkItemId,
+  isSelected,
   items,
   keyboardFocusId,
   onDuplicate,
   onPeek,
   onToggleClosed,
+  onToggleSelected,
   originRoomLabel,
   search,
+  selectionActive,
   tenantId,
 }: {
   closedExpanded: boolean;
   column: DashboardColumn;
   focusedCardRef: RefCallback<HTMLAnchorElement>;
   focusedWorkItemId?: string;
+  isSelected: (workItemId: string) => boolean;
   items: TeamHubWorkItem[];
   /** The card the board's keys marked, which scrolls and Enter opens. */
   keyboardFocusId?: string;
   onDuplicate: (item: TeamHubWorkItem) => void;
   onPeek: (item: TeamHubWorkItem, card: HTMLAnchorElement) => void;
   onToggleClosed: () => void;
+  onToggleSelected: (workItemId: string) => void;
   originRoomLabel: (item: TeamHubWorkItem) => string;
   search: string;
+  /** Whether any card is selected, which keeps every checkbox in view. */
+  selectionActive: boolean;
   tenantId: string;
 }) {
   const isClosed = column.id === "closed";
@@ -866,6 +923,22 @@ function WorkItemColumn({
                   </span>
                 </span>
               </Link>
+              <span
+                className={cn(
+                  "absolute right-2.5 top-9",
+                  selectionActive
+                    ? "opacity-100"
+                    : "pointer-events-none opacity-0 transition-opacity group-focus-within/card:pointer-events-auto group-focus-within/card:opacity-100 group-hover/card:pointer-events-auto group-hover/card:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100",
+                )}
+              >
+                <input
+                  aria-label={`Select ${item.title}`}
+                  checked={isSelected(item.id)}
+                  className="size-4 cursor-pointer accent-primary"
+                  onChange={() => onToggleSelected(item.id)}
+                  type="checkbox"
+                />
+              </span>
               <span className="pointer-events-none absolute right-1.5 top-1.5 opacity-0 transition-opacity group-focus-within/card:pointer-events-auto group-focus-within/card:opacity-100 group-hover/card:pointer-events-auto group-hover/card:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
                 <WorkItemCardMenu
                   item={item}

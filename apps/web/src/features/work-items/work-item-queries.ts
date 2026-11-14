@@ -268,29 +268,48 @@ export function useUpdateWorkItem(tenantId: string, workItemId: string) {
 }
 
 /**
- * Archiving changes the board's membership and the open peek, and the timeline
- * gains its entry, so the answer replaces the target cache and the board and
- * timeline refetch. The Item is never copied into local state that could drift.
+ * An archive or unarchive changes the board's membership and the open peek, and
+ * each timeline gains its entry, so the answers replace the target caches and
+ * the board and timelines refetch. The board refetches once for the whole batch,
+ * and no Item is copied into local state that could drift.
  */
-function refreshAfterArchive(
+export function refreshWorkItemsAfterArchive(
   queryClient: ReturnType<typeof useQueryClient>,
   tenantId: string,
-  workItemId: string,
-  item: TeamHubWorkItem,
+  items: readonly TeamHubWorkItem[],
 ) {
-  queryClient.setQueryData(
-    tenantWorkItemTargetQueryKey(tenantId, workItemId),
-    item,
-  );
+  for (const item of items) {
+    queryClient.setQueryData(
+      tenantWorkItemTargetQueryKey(tenantId, item.id),
+      item,
+    );
+    void queryClient.invalidateQueries({
+      queryKey: tenantWorkItemTargetQueryKey(tenantId, item.id),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: tenantWorkItemTimelineQueryKey(tenantId, item.id),
+    });
+  }
   void queryClient.invalidateQueries({
     queryKey: tenantWorkItemsDashboardQueryPrefix(tenantId),
   });
-  void queryClient.invalidateQueries({
-    queryKey: tenantWorkItemTargetQueryKey(tenantId, workItemId),
-  });
-  void queryClient.invalidateQueries({
-    queryKey: tenantWorkItemTimelineQueryKey(tenantId, workItemId),
-  });
+}
+
+/** The one archive request, so a bulk archive runs the same path per Item. */
+export function archiveWorkItemRequest(
+  client: Pick<TeamHubClient, "api">,
+  workItemId: string,
+  expectedVersion: number,
+) {
+  return teamHubData(
+    client.api.POST("/v0/work-items/{workItemId}/archive", {
+      body: { expected_version: expectedVersion },
+      params: {
+        header: idempotencyHeader(createTeamHubIdempotencyKey()),
+        path: { workItemId },
+      },
+    }),
+  );
 }
 
 export function useArchiveWorkItem(tenantId: string, workItemId: string) {
@@ -298,17 +317,9 @@ export function useArchiveWorkItem(tenantId: string, workItemId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (expectedVersion: number) =>
-      teamHubData(
-        client.api.POST("/v0/work-items/{workItemId}/archive", {
-          body: { expected_version: expectedVersion },
-          params: {
-            header: idempotencyHeader(createTeamHubIdempotencyKey()),
-            path: { workItemId },
-          },
-        }),
-      ),
+      archiveWorkItemRequest(client, workItemId, expectedVersion),
     onSuccess: (item) =>
-      refreshAfterArchive(queryClient, tenantId, workItemId, item),
+      refreshWorkItemsAfterArchive(queryClient, tenantId, [item]),
   });
 }
 
@@ -327,7 +338,7 @@ export function useUnarchiveWorkItem(tenantId: string, workItemId: string) {
         }),
       ),
     onSuccess: (item) =>
-      refreshAfterArchive(queryClient, tenantId, workItemId, item),
+      refreshWorkItemsAfterArchive(queryClient, tenantId, [item]),
   });
 }
 
