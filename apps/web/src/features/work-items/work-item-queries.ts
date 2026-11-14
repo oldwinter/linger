@@ -352,16 +352,27 @@ function refreshAfterAssignment(
   });
 }
 
+interface WorkItemAssignmentInput {
+  actorId: string;
+  /**
+   * The person's one choice to assign this Actor. A retry of the same choice
+   * reuses it; a different Actor gets a new one.
+   */
+  idempotencyKey?: string;
+}
+
 export function useAssignWorkItem(tenantId: string, workItemId: string) {
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (actorId: string) =>
+    mutationFn: (input: WorkItemAssignmentInput) =>
       teamHubData(
         client.api.PUT("/v0/work-items/{workItemId}/assignments/{actorId}", {
           params: {
-            header: idempotencyHeader(createTeamHubIdempotencyKey()),
-            path: { actorId, workItemId },
+            header: idempotencyHeader(
+              input.idempotencyKey ?? createTeamHubIdempotencyKey(),
+            ),
+            path: { actorId: input.actorId, workItemId },
           },
         }),
       ),

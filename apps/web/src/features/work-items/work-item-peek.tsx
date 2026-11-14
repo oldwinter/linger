@@ -23,6 +23,7 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 import { dateTimeFormat } from "@/lib/date-format";
 
+import { WorkItemAssigneePicker } from "./work-item-assignee-picker";
 import { WorkItemCommentComposer } from "./work-item-comment-composer";
 import { WorkItemCopyStatus } from "./work-item-copy-status";
 import { WORK_ITEM_TITLE_LIMIT } from "./work-item-create-draft";
@@ -30,6 +31,7 @@ import {
   createWorkItemDashboardFilters,
   currentDashboardActorId,
 } from "./work-item-dashboard-filters";
+import { updateFailureMessage } from "./work-item-failure";
 import {
   workItemPriorities,
   workItemPriorityLabel,
@@ -119,7 +121,7 @@ export function WorkItemPeek({
       unassign.mutate(currentActorId);
     } else {
       unassign.reset();
-      assign.mutate(currentActorId);
+      assign.mutate({ actorId: currentActorId });
     }
   }
   const archived = Boolean(item.archived_at);
@@ -284,17 +286,25 @@ export function WorkItemPeek({
           ) : (
             <p className="text-sm text-app-muted">Unassigned</p>
           )}
-          {currentActorId ? (
-            <Button
-              aria-busy={assignmentPending || undefined}
+          <div className="flex flex-wrap items-center gap-2">
+            {currentActorId ? (
+              <Button
+                aria-busy={assignmentPending || undefined}
+                disabled={assignmentPending}
+                onClick={toggleAssignment}
+                size="compact"
+                tone="secondary"
+              >
+                {assignedToMe ? "Unassign me" : "Assign to me"}
+              </Button>
+            ) : null}
+            <WorkItemAssigneePicker
+              assignedActorIds={item.assignees.map(({ actor }) => actor.id)}
               disabled={assignmentPending}
-              onClick={toggleAssignment}
-              size="compact"
-              tone="secondary"
-            >
-              {assignedToMe ? "Unassign me" : "Assign to me"}
-            </Button>
-          ) : null}
+              tenantId={tenantId}
+              workItemId={workItem.id}
+            />
+          </div>
           {assignmentError ? (
             <p className="text-xs text-app-danger" role="alert">
               {updateFailureMessage(assignmentError)}
@@ -612,13 +622,6 @@ function WorkItemEditForm({
       </div>
     </form>
   );
-}
-
-/** A failed write says what TeamHub said, or that the Item could not change. */
-function updateFailureMessage(error: unknown) {
-  return error instanceof Error && error.message
-    ? error.message
-    : "The Work Item could not be updated.";
 }
 
 /**

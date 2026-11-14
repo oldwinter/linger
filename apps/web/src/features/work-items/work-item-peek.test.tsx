@@ -593,6 +593,275 @@ describe("Work Item peek", () => {
     ).toBeEnabled();
   });
 
+  it("offers every other Actor and leaves out the assigned ones", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const agent = runtime.seed.actors.find(
+      (actor) => actor.id === "actor-codex",
+    )!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        assignees: [assignment(agent)],
+        title: "Fix login failure",
+      }),
+    ]);
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    const picker = await openAssigneePicker(dialog);
+
+    expect(await within(picker).findByText("Maya Chen")).toBeVisible();
+    expect(
+      within(picker).getByRole("region", { name: "Humans" }),
+    ).toBeVisible();
+    expect(
+      within(picker).getByRole("region", { name: "Agents" }),
+    ).toBeVisible();
+    expect(within(picker).getByText("Lev8 GTM")).toBeVisible();
+    expect(within(picker).queryByText("Codex")).toBeNull();
+    // Five Actors are short enough to scan without a search field.
+    expect(
+      within(picker).queryByRole("searchbox", { name: "Search Actors" }),
+    ).toBeNull();
+  });
+
+  it("assigns another Actor and refreshes the peek", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const maya = runtime.seed.actors.find(
+      (actor) => actor.id === "actor-maya",
+    )!;
+    const item = workItem(human, { title: "Fix login failure" });
+    seedWorkItems(runtime, [item]);
+    runtime.server.on("PUT", ASSIGNMENT_PATH, () => {
+      runtime.seed.workItems = [
+        { ...item, assignees: [assignment(maya)], version: 2 },
+      ];
+      return assignment(maya);
+    });
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    const picker = await openAssigneePicker(dialog);
+    fireEvent.click(
+      await within(picker).findByRole("button", { name: "Maya Chen" }),
+    );
+
+    await waitFor(() =>
+      expect(runtime.server.requestsTo("PUT", ASSIGNMENT_PATH)).toHaveLength(1),
+    );
+    const [request] = runtime.server.requestsTo("PUT", ASSIGNMENT_PATH);
+    expect(new URL(request!.url).pathname).toBe(
+      "/v0/work-items/workitem-login/assignments/actor-maya",
+    );
+    expect(request?.headers.get("Idempotency-Key")).toMatch(/^web:/u);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Assign someone" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(await within(dialog).findByText("Maya Chen")).toBeVisible();
+    await waitFor(() =>
+      expect(
+        runtime.server.requestsTo("GET", WORK_ITEMS_PATH).length,
+      ).toBeGreaterThan(1),
+    );
+  });
+
+  it("blocks a second choice while the assignment is in flight", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const maya = runtime.seed.actors.find(
+      (actor) => actor.id === "actor-maya",
+    )!;
+    const item = workItem(human, { title: "Fix login failure" });
+    seedWorkItems(runtime, [item]);
+    let finish: () => void = () => undefined;
+    runtime.server.on(
+      "PUT",
+      ASSIGNMENT_PATH,
+      () =>
+        new Promise((resolve) => {
+          finish = () => {
+            runtime.seed.workItems = [
+              { ...item, assignees: [assignment(maya)], version: 2 },
+            ];
+            resolve(assignment(maya));
+          };
+        }),
+    );
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    const picker = await openAssigneePicker(dialog);
+    const option = await within(picker).findByRole("button", {
+      name: "Maya Chen",
+    });
+
+    fireEvent.click(option);
+    await waitFor(() => expect(option).toBeDisabled());
+    expect(within(picker).getByText("Assigning…")).toBeVisible();
+    fireEvent.click(option);
+    expect(
+      screen.getByRole("dialog", { name: "Assign someone" }),
+    ).toBeVisible();
+
+    finish();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Assign someone" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(runtime.server.requestsTo("PUT", ASSIGNMENT_PATH)).toHaveLength(1);
+  });
+
+  it("keeps the picker open with the server's message when the assignment fails", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [workItem(human, { title: "Fix login failure" })]);
+    runtime.server.on("PUT", ASSIGNMENT_PATH, () =>
+      teamHubErrorResponse(
+        409,
+        "CONFLICT",
+        "This Actor cannot be assigned right now.",
+      ),
+    );
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    const picker = await openAssigneePicker(dialog);
+    fireEvent.click(
+      await within(picker).findByRole("button", { name: "Maya Chen" }),
+    );
+
+    expect(await within(picker).findByRole("alert")).toHaveTextContent(
+      "This Actor cannot be assigned right now.",
+    );
+    expect(
+      screen.getByRole("dialog", { name: "Assign someone" }),
+    ).toBeVisible();
+    const option = within(picker).getByRole("button", { name: "Maya Chen" });
+    expect(option).toHaveAttribute("aria-current", "true");
+    expect(option).toBeEnabled();
+    expect(within(dialog).getByText("Unassigned")).toBeVisible();
+  });
+
+  it("retries the same choice with its idempotency key", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const maya = runtime.seed.actors.find(
+      (actor) => actor.id === "actor-maya",
+    )!;
+    const item = workItem(human, { title: "Fix login failure" });
+    seedWorkItems(runtime, [item]);
+    let attempts = 0;
+    runtime.server.on("PUT", ASSIGNMENT_PATH, () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return teamHubErrorResponse(
+          503,
+          "SERVICE_UNAVAILABLE",
+          "TeamHub is unavailable.",
+        );
+      }
+      runtime.seed.workItems = [
+        { ...item, assignees: [assignment(maya)], version: 2 },
+      ];
+      return assignment(maya);
+    });
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    const picker = await openAssigneePicker(dialog);
+    const option = await within(picker).findByRole("button", {
+      name: "Maya Chen",
+    });
+
+    fireEvent.click(option);
+    expect(await within(picker).findByRole("alert")).toHaveTextContent(
+      "TeamHub is unavailable.",
+    );
+
+    fireEvent.click(option);
+    await waitFor(() =>
+      expect(runtime.server.requestsTo("PUT", ASSIGNMENT_PATH)).toHaveLength(2),
+    );
+    const [failed, retried] = runtime.server.requestsTo("PUT", ASSIGNMENT_PATH);
+    expect(retried!.headers.get("Idempotency-Key")).toBe(
+      failed!.headers.get("Idempotency-Key"),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Assign someone" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(await within(dialog).findByText("Maya Chen")).toBeVisible();
+  });
+
+  it("searches a long Actor list by name", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    runtime.seed.actors.push(
+      ...Array.from({ length: 5 }, (_, index) => ({
+        created_at: "2026-07-30T00:00:00Z",
+        display_name: `Search Actor ${index + 1}`,
+        handle: `@search_${index + 1}`,
+        id: `actor-search-${index + 1}`,
+        kind: "human" as const,
+        tenant_id: "tenant-northstar",
+      })),
+    );
+    seedWorkItems(runtime, [workItem(human, { title: "Fix login failure" })]);
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    const picker = await openAssigneePicker(dialog);
+    const search = await within(picker).findByRole("searchbox", {
+      name: "Search Actors",
+    });
+
+    fireEvent.change(search, { target: { value: "maya" } });
+
+    expect(await within(picker).findByText("Maya Chen")).toBeVisible();
+    expect(within(picker).queryByText("Lev8 GTM")).toBeNull();
+    expect(within(picker).queryByText("Search Actor 1")).toBeNull();
+
+    fireEvent.change(search, { target: { value: "search actor 3" } });
+
+    expect(await within(picker).findByText("Search Actor 3")).toBeVisible();
+    expect(within(picker).queryByText("Maya Chen")).toBeNull();
+  });
+
   it("archives the Item and says the Archived filter shows it", async () => {
     const runtime = await testRuntime();
     const human = runtime.seed.identity.actors[0]!;
@@ -1102,6 +1371,11 @@ function renderPage(
     </QueryClientProvider>,
   );
   return queryClient;
+}
+
+async function openAssigneePicker(peek: HTMLElement) {
+  fireEvent.click(within(peek).getByRole("button", { name: "Assign someone" }));
+  return screen.findByRole("dialog", { name: "Assign someone" });
 }
 
 function LocationProbe() {
