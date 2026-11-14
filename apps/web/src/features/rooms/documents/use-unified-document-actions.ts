@@ -12,6 +12,8 @@ import type {
   TeamHubDocumentPlacementNode,
 } from "@/features/teamhub/teamhub-types";
 
+import { documentDownloadContent } from "./document-download-content";
+
 interface UnifiedDocumentActionsInput {
   client: TeamHubClient;
   closeSession: () => void;
@@ -90,7 +92,7 @@ export function useUnifiedDocumentActions({
         /[\\/:*?"<>|]/g,
         "-",
       );
-      const content = await client.downloadLatestDocument(document.id);
+      const content = await documentDownloadContent(client, document.id);
       triggerArtifactDownload(content.blob, filename);
     } catch (exportDocumentError) {
       setExportError(
