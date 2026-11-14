@@ -42,6 +42,11 @@ import { RoomAvatar } from "./members/room-avatar";
 import { PocketNoteLauncher } from "./pocket-notes/pocket-note-launcher";
 import { RecordingEntry } from "./voice-control/recording-entry";
 import { useNavReorderFlip } from "./use-nav-reorder-flip";
+import {
+  useWorkingClock,
+  workingDuration,
+  type WorkingDuration,
+} from "./working-duration";
 
 import {
   AgentRowMenu,
@@ -117,6 +122,9 @@ export function RoomSecondaryNavigation({
   const [templateAgentOpen, setTemplateAgentOpen] = useState(false);
   const runningRooms = new Set(runningRoomIds);
   const failedRooms = new Set(failedRoomIds);
+  const workingClock = useWorkingClock(runningRoomIds);
+  const durationFor = (roomId: string) =>
+    workingDuration(workingClock.since[roomId], workingClock.now);
   const visibleRoomIds = new Set(
     rooms.flatMap((room) =>
       room.parent_room_id ? [room.parent_room_id] : [room.id],
@@ -306,6 +314,7 @@ export function RoomSecondaryNavigation({
             {visibleAnotherMeRoom ? (
               <AnotherMeCard
                 active={visibleAnotherMeRoom.id === activeRoomId}
+                duration={durationFor(visibleAnotherMeRoom.id)}
                 failed={failedRooms.has(visibleAnotherMeRoom.id)}
                 onNavigate={(event) =>
                   completeNavigation(event, visibleAnotherMeRoom.id)
@@ -365,6 +374,7 @@ export function RoomSecondaryNavigation({
                           </span>
                         </span>
                         <RoomRowStatus
+                          duration={durationFor(room.id)}
                           failed={failedRooms.has(room.id)}
                           room={room}
                           working={runningRooms.has(room.id)}
@@ -401,6 +411,7 @@ export function RoomSecondaryNavigation({
                   >
                     <DirectRoomLink
                       active={room.id === activeRoomId}
+                      duration={durationFor(room.id)}
                       onNavigate={(event) => completeNavigation(event, room.id)}
                       room={room}
                       failed={failedRooms.has(room.id)}
@@ -518,6 +529,7 @@ function RoomRowTitle({
 
 function DirectRoomLink({
   active,
+  duration,
   failed,
   working,
   onNavigate,
@@ -525,6 +537,7 @@ function DirectRoomLink({
   tenantId,
 }: {
   active: boolean;
+  duration?: WorkingDuration;
   failed?: boolean;
   working: boolean;
   onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
@@ -566,7 +579,12 @@ function DirectRoomLink({
               : "No messages yet"}
         </span>
       </span>
-      <RoomRowStatus failed={failed} room={room} working={working} />
+      <RoomRowStatus
+        duration={duration}
+        failed={failed}
+        room={room}
+        working={working}
+      />
     </Link>
   );
 }
@@ -603,6 +621,7 @@ function RoomAttentionBadge({ room }: { room: TeamHubRoomListItem }) {
  */
 function AnotherMeCard({
   active,
+  duration,
   failed,
   onNavigate,
   room,
@@ -610,6 +629,7 @@ function AnotherMeCard({
   working,
 }: {
   active: boolean;
+  duration?: WorkingDuration;
   failed: boolean;
   onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
   room: TeamHubRoomListItem;
@@ -722,17 +742,24 @@ function AnotherMeCard({
               : "Your personal agent"}
           </span>
         </span>
-        <RoomRowStatus failed={failed} room={room} working={working} />
+        <RoomRowStatus
+          duration={duration}
+          failed={failed}
+          room={room}
+          working={working}
+        />
       </Link>
     </div>
   );
 }
 
 function RoomRowStatus({
+  duration,
   failed = false,
   room,
   working,
 }: {
+  duration?: WorkingDuration;
   failed?: boolean;
   room: TeamHubRoomListItem;
   working: boolean;
@@ -744,40 +771,50 @@ function RoomRowStatus({
   return (
     <span className="row-reveal-hide ml-auto flex shrink-0 items-center gap-1.5">
       <RoomAttentionBadge room={room} />
-      <span className="flex size-4 shrink-0 items-center justify-center">
-        {working ? (
-          <svg
-            aria-label="Agent working"
-            className="size-3.5 animate-spin text-app-muted motion-reduce:animate-none"
-            fill="none"
-            role="img"
-            viewBox="0 0 16 16"
-          >
-            <title>Agent working</title>
-            <circle
-              cx="8"
-              cy="8"
-              r="5.75"
-              stroke="currentColor"
-              strokeOpacity="0.2"
-              strokeWidth="1.5"
-            />
-            <path
-              d="M8 2.25a5.75 5.75 0 0 1 5.75 5.75"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeWidth="1.5"
-            />
-          </svg>
-        ) : failed ? (
+      <span className="flex shrink-0 items-center gap-1">
+        {working && duration ? (
           <span
-            aria-label="Last run failed"
-            className="flex text-app-danger"
-            role="img"
+            aria-hidden="true"
+            className="text-2xs tabular-nums text-app-muted"
           >
-            <Icon icon={AlertCircleIcon} size={14} />
+            {duration.short}
           </span>
         ) : null}
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          {working ? (
+            <svg
+              aria-label={duration?.speech ?? "Agent working"}
+              className="size-3.5 animate-spin text-app-muted motion-reduce:animate-none"
+              fill="none"
+              role="img"
+              viewBox="0 0 16 16"
+            >
+              <title>{duration?.speech ?? "Agent working"}</title>
+              <circle
+                cx="8"
+                cy="8"
+                r="5.75"
+                stroke="currentColor"
+                strokeOpacity="0.2"
+                strokeWidth="1.5"
+              />
+              <path
+                d="M8 2.25a5.75 5.75 0 0 1 5.75 5.75"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeWidth="1.5"
+              />
+            </svg>
+          ) : failed ? (
+            <span
+              aria-label="Last run failed"
+              className="flex text-app-danger"
+              role="img"
+            >
+              <Icon icon={AlertCircleIcon} size={14} />
+            </span>
+          ) : null}
+        </span>
       </span>
     </span>
   );
