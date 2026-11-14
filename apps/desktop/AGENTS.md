@@ -183,8 +183,16 @@ Gateway and runs Agents. The daemon exits with the app.
   Dock, the tray) shows setup until the computer is enrolled
   (`app-window.ts`), the main window after. The main window's server form
   without a server says Back to Setup instead of Cancel.
-- `src/shell/*.html`: app-owned pages (title bar, offline/setup page). They
-  have no network access and talk to the main process via `src/preload/shell.ts`.
+- `src/main/quick-note.ts`: QuickNote, the tray's "New Note" capture window.
+  It serves `app://quick-note` from its own session, appends the typed text
+  under today's Pocket Note through TeamHub with the web session cookie, then
+  confirms and closes. A missing enrollment or session shows a plain message
+  in the window. Its IPC channels are checked against that window instead of
+  the server origin, so the SPA API stays server-origin only.
+- `src/shell/*.html`: app-owned pages (title bar, offline/setup page, quick
+  note). They have no network access and talk to the main process through
+  their own preload (`src/preload/shell.ts`, `src/preload/setup.ts`,
+  `src/preload/quick-note.ts`).
 - `src/preload/index.ts`: the only SPA API, `window.lingerDesktop`.
 - `src/shared/api.ts`, `src/shared/shell.ts`: preload contract types and IPC
   channel names.

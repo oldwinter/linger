@@ -19,12 +19,29 @@ describe("trayMenu", () => {
     const actions = items.flatMap((i) => (i.kind === "action" ? i.action : []));
     expect(actions).toEqual([
       "open",
+      "quick-note",
       "enroll",
       "toggle-prevent-sleep",
       "show-logs",
       "save-diagnostics",
       "quit",
     ]);
+  });
+
+  it("offers a new note next to opening the app", () => {
+    const items = trayMenu({
+      status: { tone: "online", label: "Online" },
+      preventSleep: false,
+      enrolled: true,
+    });
+    const open = items.findIndex(
+      (item) => item.kind === "action" && item.action === "open",
+    );
+    expect(items[open + 1]).toEqual({
+      kind: "action",
+      action: "quick-note",
+      label: "New Note",
+    });
   });
 
   it("connects an unenrolled computer and reconnects an enrolled one", () => {

@@ -16,6 +16,7 @@ import type { DiagnosticsModule } from "./diagnostics.js";
 import { EnrollmentError, type EnrollmentModule } from "./enrollment.js";
 import type { Module, ModuleContext } from "./modules.js";
 import type { PowerGuardModule } from "./power-guard.js";
+import type { QuickNoteModule } from "./quick-note.js";
 import type { SetupWindowModule } from "./setup-window.js";
 import type { StatusModule, StatusTone } from "./status.js";
 import { renderTrayIcon, type TrayArtwork } from "./tray-icon.js";
@@ -67,6 +68,7 @@ export class TrayModule implements Module {
     "WindowManager",
     "Enrollment",
     "SetupWindow",
+    "QuickNote",
     "Updater",
     "Diagnostics",
   ];
@@ -178,6 +180,9 @@ export class TrayModule implements Module {
         break;
       case "open":
         ctx.get<SetupWindowModule>("SetupWindow").showApp();
+        break;
+      case "quick-note":
+        ctx.get<QuickNoteModule>("QuickNote").show();
         break;
       case "toggle-prevent-sleep": {
         const power = ctx.get<PowerGuardModule>("PowerGuard");
