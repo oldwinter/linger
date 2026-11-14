@@ -15,6 +15,10 @@
   structure as personal Folders, then upload files sequentially. The pending
   queue lives in `library-upload-queue.ts` outside React state so it survives
   leaving and reopening the Library; do not move it back into component state.
+- The documents view carries a Recently opened strip above the tree, read from a
+  per-Account browser list that the unified document page writes when it opens a
+  Document. It issues no request, and an entry without an id or name never
+  renders.
 - The sidebar appears beside an opened Document for switching: Back to
   Library, then personal Documents, Shared with me, and the independent
   read-only Meetings list. Wiki is a primary-rail destination with its own
