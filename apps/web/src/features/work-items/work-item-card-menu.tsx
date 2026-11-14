@@ -1,4 +1,8 @@
-import { Copy01Icon, Note01Icon } from "@hugeicons/core-free-icons";
+import {
+  Copy01Icon,
+  CopyPlusIcon,
+  Note01Icon,
+} from "@hugeicons/core-free-icons";
 
 import { ActionMenu } from "@/components/ui/action-menu";
 import { Icon } from "@/components/ui/icon";
@@ -10,9 +14,11 @@ import { useWorkItemCopy } from "./use-work-item-copy";
 /** The board card's actions, kept out of the card link so a click here never opens the Item. */
 export function WorkItemCardMenu({
   item,
+  onDuplicate,
   tenantId,
 }: {
   item: TeamHubWorkItem;
+  onDuplicate: (item: TeamHubWorkItem) => void;
   tenantId: string;
 }) {
   const { copiedLabel, copyLink, copyMarkdown, state } = useWorkItemCopy(
@@ -34,6 +40,11 @@ export function WorkItemCardMenu({
             icon: <Icon icon={Note01Icon} size={14} />,
             label: "Copy as Markdown",
             onSelect: copyMarkdown,
+          },
+          {
+            icon: <Icon icon={CopyPlusIcon} size={14} />,
+            label: "Duplicate",
+            onSelect: () => onDuplicate(item),
           },
         ]}
         label={`Actions for ${item.title}`}

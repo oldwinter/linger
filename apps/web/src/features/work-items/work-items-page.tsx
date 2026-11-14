@@ -48,7 +48,11 @@ import {
 import { WorkItemBoardCopyAction } from "./work-item-board-copy-action";
 import { workItemBoardMarkdown } from "./work-item-board-markdown";
 import { WorkItemCardMenu } from "./work-item-card-menu";
-import { WorkItemCreateAction } from "./work-item-create-dialog";
+import {
+  WorkItemCreateAction,
+  WorkItemCreateDialog,
+} from "./work-item-create-dialog";
+import { workItemDuplicateDraft } from "./work-item-duplicate";
 import { WorkItemPeek } from "./work-item-peek";
 import {
   tenantWorkItemTargetQueryOptions,
@@ -115,6 +119,8 @@ export function WorkItemsPage() {
     [focusedWorkItemId],
   );
   const [peekWorkItem, setPeekWorkItem] = useState<TeamHubWorkItem>();
+  // The card menu's Duplicate opens the create dialog on a copy of that Item.
+  const [duplicateItem, setDuplicateItem] = useState<TeamHubWorkItem>();
   const peekTrigger = useRef<HTMLAnchorElement | null>(null);
   useEffect(() => {
     if (!peekWorkItem) return;
@@ -422,6 +428,7 @@ export function WorkItemsPage() {
                 focusedWorkItemId={focusedWorkItemId}
                 items={columnItems}
                 key={column.id}
+                onDuplicate={setDuplicateItem}
                 onPeek={openPeek}
                 originRoomLabel={roomFilter.originLabel}
                 search={dashboardSearch}
@@ -450,6 +457,15 @@ export function WorkItemsPage() {
           search={dashboardSearch}
           tenantId={tenantId}
           workItem={peekWorkItem}
+        />
+      ) : null}
+      {duplicateItem ? (
+        <WorkItemCreateDialog
+          initial={workItemDuplicateDraft(duplicateItem)}
+          key={duplicateItem.id}
+          onClose={() => setDuplicateItem(undefined)}
+          rooms={rooms.items}
+          tenantId={tenantId}
         />
       ) : null}
     </main>
@@ -550,6 +566,7 @@ function WorkItemColumn({
   focusedCardRef,
   focusedWorkItemId,
   items,
+  onDuplicate,
   onPeek,
   originRoomLabel,
   search,
@@ -559,6 +576,7 @@ function WorkItemColumn({
   focusedCardRef: RefCallback<HTMLAnchorElement>;
   focusedWorkItemId?: string;
   items: TeamHubWorkItem[];
+  onDuplicate: (item: TeamHubWorkItem) => void;
   onPeek: (item: TeamHubWorkItem, card: HTMLAnchorElement) => void;
   originRoomLabel: (item: TeamHubWorkItem) => string;
   search: string;
@@ -699,7 +717,11 @@ function WorkItemColumn({
                 </span>
               </Link>
               <span className="pointer-events-none absolute right-1.5 top-1.5 opacity-0 transition-opacity group-focus-within/card:pointer-events-auto group-focus-within/card:opacity-100 group-hover/card:pointer-events-auto group-hover/card:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
-                <WorkItemCardMenu item={item} tenantId={tenantId} />
+                <WorkItemCardMenu
+                  item={item}
+                  onDuplicate={onDuplicate}
+                  tenantId={tenantId}
+                />
               </span>
             </li>
           ))}
