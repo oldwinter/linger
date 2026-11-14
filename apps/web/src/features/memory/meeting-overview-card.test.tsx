@@ -146,6 +146,66 @@ describe("MeetingOverviewCard", () => {
     expect(screen.getAllByRole("button")).toHaveLength(1);
   });
 
+  it("offers Copy actions only when the section has Actions and a handler", () => {
+    const onCopyActions = vi.fn();
+    const outcomes = [
+      {
+        label: "Decision" as const,
+        text: "Ship the web app first.",
+        children: [],
+      },
+      {
+        label: "Action" as const,
+        text: "Prepare designs.",
+        children: ["Owner: Lin"],
+      },
+    ];
+    const { rerender } = render(
+      <MeetingOutcomes outcomes={outcomes} title="To-do list" />,
+    );
+    expect(screen.queryByRole("button", { name: "Copy actions" })).toBeNull();
+
+    rerender(
+      <MeetingOutcomes
+        onCopyActions={onCopyActions}
+        outcomes={outcomes}
+        title="To-do list"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Copy actions" }));
+    expect(onCopyActions).toHaveBeenCalledWith(
+      "- [ ] Prepare designs.\n  - [ ] Owner: Lin",
+    );
+  });
+
+  it("shows Copied or the failure message from the copy result", () => {
+    const outcomes = [
+      { label: "Action" as const, text: "Prepare designs.", children: [] },
+    ];
+    const { rerender } = render(
+      <MeetingOutcomes
+        copyStatus="copied"
+        onCopyActions={() => {}}
+        outcomes={outcomes}
+        title="To-do list"
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Copied");
+
+    rerender(
+      <MeetingOutcomes
+        copyStatus="failed"
+        onCopyActions={() => {}}
+        outcomes={outcomes}
+        title="To-do list"
+      />,
+    );
+    expect(screen.queryByText("Copied")).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Copy failed. Select the actions and copy them yourself.",
+    );
+  });
+
   it("says None observed for an empty to-do list", () => {
     render(<MeetingOutcomes outcomes={[]} title="To-do list" />);
     expect(

@@ -71,6 +71,21 @@ export function MeetingReader({
     meetingTitle: title,
     tenantId,
   });
+  // Copy feedback belongs to the section that raised it and to the meeting
+  // showing now; switching meetings drops it with the old entry.
+  const [actionsCopy, setActionsCopy] = useState<{
+    entryId: string;
+    index: number;
+    state: "copied" | "failed";
+  }>();
+  async function copyActions(index: number, checklist: string) {
+    try {
+      await navigator.clipboard.writeText(checklist);
+      setActionsCopy({ entryId: entry.id, index, state: "copied" });
+    } catch {
+      setActionsCopy({ entryId: entry.id, index, state: "failed" });
+    }
+  }
   const summaryMarkdown = useMemo(
     () => entry.content.replace(/^#[ \t]+[^\n]*\n?/mu, ""),
     [entry.content],
@@ -194,7 +209,16 @@ export function MeetingReader({
                       <MeetingOverviewCard key={index} topics={block.topics} />
                     ) : (
                       <MeetingOutcomes
+                        copyStatus={
+                          actionsCopy?.entryId === entry.id &&
+                          actionsCopy.index === index
+                            ? actionsCopy.state
+                            : undefined
+                        }
                         key={index}
+                        onCopyActions={(checklist) =>
+                          void copyActions(index, checklist)
+                        }
                         onTrack={trackAction}
                         outcomes={block.outcomes}
                         title={block.title}

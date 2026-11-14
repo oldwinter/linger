@@ -117,8 +117,28 @@ function actionDraft(entry: TeamHubMemoryEntry, action: string) {
   return `Track this action: ${action}\nFrom the meeting "Meeting · Sep 23, 14:30": ${link}`;
 }
 
+/** A summary with two Actions, the second carrying a sub-point. */
+const checklistSummary = [
+  "## Action Items",
+  "",
+  "- Action: Send the revised budget to Finance",
+  "- Action: Book the follow-up review",
+  "  - Confirm the room",
+].join("\n");
+
+/** Gives the page a Clipboard API and returns its writeText double. */
+function stubClipboard(writeText: (value: string) => Promise<void>) {
+  const writeTextDouble = vi.fn(writeText);
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: writeTextDouble },
+  });
+  return writeTextDouble;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
+  Reflect.deleteProperty(navigator, "clipboard");
   window.sessionStorage.clear();
   window.localStorage.clear();
 });
@@ -567,6 +587,66 @@ describe("MeetingPage", () => {
     expect(
       screen.queryByRole("button", { name: /^Track action:/u }),
     ).toBeNull();
+  });
+
+  it("copies the meeting's Actions as a Markdown checklist", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry({ content: checklistSummary }, true);
+    serveMeetings(runtime, [entry]);
+    const writeText = stubClipboard(() => Promise.resolve());
+    renderPage(runtime, `?entry=${entry.id}&file=summary`);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Copy actions" }),
+    );
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        [
+          "- [ ] Send the revised budget to Finance",
+          "- [ ] Book the follow-up review",
+          "  - [ ] Confirm the room",
+        ].join("\n"),
+      ),
+    );
+    expect(await screen.findByText("Copied")).toBeVisible();
+  });
+
+  it("says when copying the actions fails instead of claiming success", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry({ content: checklistSummary }, true);
+    serveMeetings(runtime, [entry]);
+    stubClipboard(() => Promise.reject(new Error("Not allowed")));
+    renderPage(runtime, `?entry=${entry.id}&file=summary`);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Copy actions" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Copy failed. Select the actions and copy them yourself.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText("Copied")).toBeNull();
+  });
+
+  it("offers Copy actions only when the meeting has Actions", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry(
+      {
+        content:
+          "## Decisions And Outcomes\n\n- Decision: Ship the beta.\n- Completed: Cut the release branch.",
+      },
+      true,
+    );
+    serveMeetings(runtime, [entry]);
+    renderPage(runtime, `?entry=${entry.id}&file=summary`);
+
+    expect(
+      await screen.findByRole("region", { name: "Decisions And Outcomes" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Copy actions" })).toBeNull();
   });
 
   it("shows a retryable meeting failure", async () => {

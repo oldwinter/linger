@@ -3,6 +3,7 @@ import { BubbleChatIcon } from "@hugeicons/core-free-icons";
 import { Fragment } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { meetingActionChecklist } from "./meeting-action-checklist";
 import type { MeetingOutcome, MeetingTopic } from "./meeting-overview";
 
 /**
@@ -19,8 +20,11 @@ const topicTints = [
 
 /** Shares the knowledge document's column and H2 around these sections. */
 const sectionFrame = "mb-3 w-full";
-const sectionHeading =
-  "mb-2 mt-7 text-[22px] font-[580] leading-[1.35] tracking-[-0.01em] text-app-ink";
+const sectionHeadingText =
+  "text-[22px] font-[580] leading-[1.35] tracking-[-0.01em] text-app-ink";
+const sectionHeading = cn("mb-2 mt-7", sectionHeadingText);
+/** The outcomes H2 sits in a row so Copy actions can share its line. */
+const sectionHeadingRow = "mb-2 mt-7 flex items-center justify-between gap-3";
 
 /** Long card text reads better in two columns than three. */
 const LONG_TOPIC_TEXT = 120;
@@ -142,21 +146,48 @@ const outcomeTints: Record<NonNullable<MeetingOutcome["label"]>, string> = {
 /**
  * Decisions And Outcomes or Action Items, each entry led by its kind as a
  * tag instead of the `Decision:` / `Completed:` / `Action:` prefix. A Track
- * button stages an Action in the Another Me Chat; it is absent without a
- * handler.
+ * button stages an Action in the Another Me Chat; a Copy actions button hands
+ * the section's Actions to the reader as a checklist. Each is absent without
+ * its handler, and Copy actions also without an Action that has text.
  */
 export function MeetingOutcomes({
+  copyStatus,
+  onCopyActions,
   onTrack,
   outcomes,
   title,
 }: {
+  copyStatus?: "copied" | "failed";
+  onCopyActions?: (checklist: string) => void;
   onTrack?: (action: string) => void;
   outcomes: MeetingOutcome[];
   title: string;
 }) {
+  const checklist = meetingActionChecklist(outcomes);
   return (
     <section aria-label={title} className={sectionFrame}>
-      <h2 className={sectionHeading}>{title}</h2>
+      <div className={sectionHeadingRow}>
+        <h2 className={sectionHeadingText}>{title}</h2>
+        {onCopyActions && checklist ? (
+          <Button
+            onClick={() => onCopyActions(checklist)}
+            size="compact"
+            tone="ghost"
+          >
+            Copy actions
+          </Button>
+        ) : null}
+      </div>
+      {copyStatus === "copied" ? (
+        <p className="mb-2 text-xs text-app-muted" role="status">
+          Copied
+        </p>
+      ) : null}
+      {copyStatus === "failed" ? (
+        <p className="mb-2 text-xs text-app-danger" role="alert">
+          Copy failed. Select the actions and copy them yourself.
+        </p>
+      ) : null}
       {outcomes.length === 0 ? (
         <p className="text-[15px] leading-relaxed text-app-body">
           None observed.
