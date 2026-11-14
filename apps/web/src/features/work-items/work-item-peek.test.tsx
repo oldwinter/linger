@@ -1336,6 +1336,198 @@ describe("Work Item peek", () => {
       "Fix login failure",
     );
   });
+
+  it("counts the hidden comments and events on one control per section", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const item = workItem(human, { title: "Fix login failure" });
+    seedWorkItems(runtime, [item]);
+    seedConversation(runtime, human, {
+      [item.id]: { comments: 5, events: 10 },
+    });
+
+    renderPage(runtime);
+    const dialog = await openPeek("Fix login failure");
+    const comments = peekSection(dialog, "Recent comments");
+    const timeline = peekSection(dialog, "Timeline");
+
+    expect(
+      await within(comments).findByRole("button", {
+        name: "Show all 5 comments",
+      }),
+    ).toBeVisible();
+    expect(
+      within(timeline).getByRole("button", { name: "Show all 10 events" }),
+    ).toBeVisible();
+    expect(within(comments).getAllByRole("listitem")).toHaveLength(3);
+    expect(within(timeline).getAllByRole("listitem")).toHaveLength(8);
+    expect(within(comments).getByText("Note 3")).toBeVisible();
+    expect(within(comments).queryByText("Note 2")).not.toBeInTheDocument();
+  });
+
+  it("expands to every loaded entry and collapses back", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const item = workItem(human, { title: "Fix login failure" });
+    seedWorkItems(runtime, [item]);
+    seedConversation(runtime, human, {
+      [item.id]: { comments: 5, events: 10 },
+    });
+
+    renderPage(runtime);
+    const dialog = await openPeek("Fix login failure");
+    const comments = peekSection(dialog, "Recent comments");
+    const timeline = peekSection(dialog, "Timeline");
+    const locationBefore = screen.getByTestId("location").textContent;
+
+    fireEvent.click(
+      await within(comments).findByRole("button", {
+        name: "Show all 5 comments",
+      }),
+    );
+    const allComments = within(comments).getAllByRole("listitem");
+    expect(allComments).toHaveLength(5);
+    // The expanded list keeps the newest-first reading order.
+    expect(allComments[0]).toHaveTextContent("Note 5");
+    expect(allComments.at(-1)).toHaveTextContent("Note 1");
+    expect(
+      within(comments).getByRole("button", { name: "Show fewer" }),
+    ).toBeVisible();
+
+    fireEvent.click(
+      within(timeline).getByRole("button", { name: "Show all 10 events" }),
+    );
+    expect(within(timeline).getAllByRole("listitem")).toHaveLength(10);
+    expect(
+      within(timeline).getByRole("button", { name: "Show fewer" }),
+    ).toBeVisible();
+
+    fireEvent.click(
+      within(comments).getByRole("button", { name: "Show fewer" }),
+    );
+    expect(within(comments).getAllByRole("listitem")).toHaveLength(3);
+    expect(
+      within(comments).getByRole("button", { name: "Show all 5 comments" }),
+    ).toBeVisible();
+    expect(within(comments).getByText("Note 5")).toBeVisible();
+
+    fireEvent.click(
+      within(timeline).getByRole("button", { name: "Show fewer" }),
+    );
+    expect(within(timeline).getAllByRole("listitem")).toHaveLength(8);
+    expect(
+      within(timeline).getByRole("button", { name: "Show all 10 events" }),
+    ).toBeVisible();
+    expect(screen.getByTestId("location").textContent).toBe(locationBefore);
+  });
+
+  it("shows no control when the peek already shows everything", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const item = workItem(human, { title: "Fix login failure" });
+    seedWorkItems(runtime, [item]);
+    seedConversation(runtime, human, {
+      [item.id]: { comments: 3, events: 8 },
+    });
+
+    renderPage(runtime);
+    const dialog = await openPeek("Fix login failure");
+    const comments = peekSection(dialog, "Recent comments");
+    const timeline = peekSection(dialog, "Timeline");
+
+    await waitFor(() =>
+      expect(within(comments).getAllByRole("listitem")).toHaveLength(3),
+    );
+    expect(within(timeline).getAllByRole("listitem")).toHaveLength(8);
+    expect(
+      within(dialog).queryByRole("button", { name: /^Show all/u }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("expands without asking TeamHub for anything", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const item = workItem(human, { title: "Fix login failure" });
+    seedWorkItems(runtime, [item]);
+    seedConversation(runtime, human, {
+      [item.id]: { comments: 5, events: 10 },
+    });
+
+    renderPage(runtime);
+    const dialog = await openPeek("Fix login failure");
+    const comments = peekSection(dialog, "Recent comments");
+    const timeline = peekSection(dialog, "Timeline");
+    const commentsRequests = runtime.server.requestsTo(
+      "GET",
+      COMMENTS_PATH,
+    ).length;
+    const timelineRequests = runtime.server.requestsTo(
+      "GET",
+      TIMELINE_PATH,
+    ).length;
+
+    fireEvent.click(
+      await within(comments).findByRole("button", {
+        name: "Show all 5 comments",
+      }),
+    );
+    fireEvent.click(
+      within(timeline).getByRole("button", { name: "Show all 10 events" }),
+    );
+
+    expect(within(comments).getAllByRole("listitem")).toHaveLength(5);
+    expect(within(timeline).getAllByRole("listitem")).toHaveLength(10);
+    expect(runtime.server.requestsTo("GET", COMMENTS_PATH)).toHaveLength(
+      commentsRequests,
+    );
+    expect(runtime.server.requestsTo("GET", TIMELINE_PATH)).toHaveLength(
+      timelineRequests,
+    );
+  });
+
+  it("starts another Item collapsed after the first was expanded", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const first = workItem(human, { title: "Fix login failure" });
+    const second = workItem(human, {
+      id: "workitem-settings",
+      number: 43,
+      title: "Ship settings",
+    });
+    seedWorkItems(runtime, [first, second]);
+    seedConversation(runtime, human, {
+      [first.id]: { comments: 5, events: 10 },
+      [second.id]: { comments: 5, events: 10 },
+    });
+
+    renderPage(runtime);
+    const dialog = await openPeek("Fix login failure");
+    fireEvent.click(
+      await within(dialog).findByRole("button", {
+        name: "Show all 5 comments",
+      }),
+    );
+    expect(
+      within(dialog).getByRole("button", { name: "Show fewer" }),
+    ).toBeVisible();
+
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+
+    const reopened = await openPeek("Ship settings");
+    const comments = peekSection(reopened, "Recent comments");
+    expect(
+      await within(comments).findByRole("button", {
+        name: "Show all 5 comments",
+      }),
+    ).toBeVisible();
+    expect(
+      within(reopened).queryByRole("button", { name: "Show fewer" }),
+    ).not.toBeInTheDocument();
+    expect(within(comments).getAllByRole("listitem")).toHaveLength(3);
+  });
 });
 
 async function testRuntime() {
@@ -1376,6 +1568,54 @@ function renderPage(
 async function openAssigneePicker(peek: HTMLElement) {
   fireEvent.click(within(peek).getByRole("button", { name: "Assign someone" }));
   return screen.findByRole("dialog", { name: "Assign someone" });
+}
+
+async function openPeek(title: string) {
+  fireEvent.click(await screen.findByRole("link", { name: new RegExp(title) }));
+  return screen.findByRole("dialog", { name: title });
+}
+
+function peekSection(peek: HTMLElement, name: string) {
+  return within(peek).getByRole("region", { name });
+}
+
+/** Answers the peek's comment and timeline reads for each Item by count. */
+function seedConversation(
+  runtime: TestTeamHubRuntime,
+  author: TeamHubWorkItem["created_by"],
+  entries: Record<string, { comments: number; events: number }>,
+) {
+  const countsFor = (workItemId: string) =>
+    entries[workItemId] ?? { comments: 0, events: 0 };
+  runtime.server.on("GET", COMMENTS_PATH, ({ params }) => {
+    const workItemId = params.workItemId ?? "";
+    return {
+      items: Array.from(
+        { length: countsFor(workItemId).comments },
+        (_, index) =>
+          comment(
+            workItemId,
+            author,
+            `Note ${index + 1}`,
+            `2026-07-30T10:${String(index).padStart(2, "0")}:00Z`,
+          ),
+      ),
+      page: { has_more: false },
+    };
+  });
+  runtime.server.on("GET", TIMELINE_PATH, ({ params }) => {
+    const workItemId = params.workItemId ?? "";
+    return {
+      items: Array.from({ length: countsFor(workItemId).events }, (_, index) =>
+        timelineActivity(workItemId, author, {
+          id: `activity-${index}`,
+          kind: "metadata_updated",
+          occurred_at: `2026-07-30T09:${String(index).padStart(2, "0")}:00Z`,
+        }),
+      ),
+      page: { has_more: false },
+    };
+  });
 }
 
 function LocationProbe() {
