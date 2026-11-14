@@ -1,6 +1,7 @@
 import type { ComponentProps } from "react";
 
 import { MessageTimeline } from "./message-timeline";
+import { useOpenedUnreadCount } from "./new-messages-mark";
 import type { RoomChatData } from "./use-room-chat-data";
 import type { RoomChatConversationState } from "./use-room-chat-conversation-state";
 import type { RoomChatTimelineActions } from "./use-room-chat-timeline-actions";
@@ -25,6 +26,7 @@ export function RoomChatTimelineSection({
     members,
     messages,
     navigation,
+    roomId,
     setForwardMessage,
     tenantId,
   } = data;
@@ -43,6 +45,7 @@ export function RoomChatTimelineSection({
     timeline,
     voiceLiveDraft,
   } = state;
+  const openedUnreadCount = useOpenedUnreadCount(tenantId, roomId);
   return (
     <RoomTimelineViewport
       actorDisplayNames={actions.actorDisplayNames}
@@ -99,6 +102,7 @@ export function RoomChatTimelineSection({
       onOpenThread={navigation.openThread}
       onReply={interactions.replyToMessage}
       onRetry={delivery.retryMessage}
+      openedUnreadCount={openedUnreadCount}
       pendingMessages={conversation.pendingMessages}
       presentations={actions.resolvedPresentations}
       selectedContextMessageIds={

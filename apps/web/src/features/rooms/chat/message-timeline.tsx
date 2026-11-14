@@ -5,6 +5,8 @@ import {
   messageStartsConversation,
   timeStartsConversation,
 } from "./message-grouping";
+import { newMessagesStartIndex } from "./new-messages-mark";
+import { NewMessagesMark } from "./new-messages-mark-view";
 import { Icon } from "@/components/ui/icon";
 import { useRoomRenderTiming } from "../room-render-timing";
 import {
@@ -143,6 +145,8 @@ interface MessageTimelineProps {
   tenantId: string;
   focusedMessageId?: string | null;
   focusedMessageHighlight?: string | null;
+  /** Unread Messages from other people when this Room was opened. */
+  openedUnreadCount?: number;
   workspaceAgentIds?: ReadonlySet<string>;
 }
 
@@ -184,6 +188,7 @@ export function MessageTimeline({
   tenantId,
   focusedMessageId,
   focusedMessageHighlight,
+  openedUnreadCount = 0,
   workspaceAgentIds = EMPTY_STATIC_AGENT_ACTOR_IDS,
 }: MessageTimelineProps) {
   const { filePreviewError, previewMessageFile } =
@@ -227,11 +232,19 @@ export function MessageTimeline({
     }),
     [onOpenProfile, onOpenAgentActivity, runtimeStatusViews],
   );
+  const newMessagesAt = newMessagesStartIndex(
+    candidateMessages.map((message) => ({ authorId: message.author.id })),
+    currentActorId,
+    openedUnreadCount,
+  );
   const renderMessage = (message: TeamHubMessage, index: number) => {
     const previous = candidateMessages[index - 1];
     const startsConversation = messageStartsConversation(message, previous);
     return (
       <Fragment key={message.id}>
+        {index === newMessagesAt ? (
+          <NewMessagesMark count={openedUnreadCount} />
+        ) : null}
         {startsConversation ? (
           <div className="room-conversation-time text-center text-xs text-app-subtle">
             <time dateTime={message.created_at}>
