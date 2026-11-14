@@ -3,7 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearDesktopNotificationPause,
+  clearDesktopNotificationPauses,
   desktopNotificationPauseUntil,
+  hasDesktopNotificationPauses,
   isDesktopNotificationPaused,
   readDesktopNotificationPause,
   setDesktopNotificationPause,
@@ -103,6 +105,26 @@ describe("desktop notification pause model", () => {
     expect(() =>
       setDesktopNotificationPause(ACCOUNT, new Date()),
     ).not.toThrow();
+  });
+
+  it("reports and clears the pause of every Account", () => {
+    expect(hasDesktopNotificationPauses()).toBe(false);
+
+    setDesktopNotificationPause(ACCOUNT, new Date("2026-11-15T11:00:00.000Z"));
+    setDesktopNotificationPause(
+      "account-b",
+      new Date("2026-11-15T11:00:00.000Z"),
+    );
+    localStorage.setItem("unrelated", "keep");
+
+    expect(hasDesktopNotificationPauses()).toBe(true);
+
+    clearDesktopNotificationPauses();
+
+    expect(hasDesktopNotificationPauses()).toBe(false);
+    expect(readDesktopNotificationPause(ACCOUNT)).toBeUndefined();
+    expect(readDesktopNotificationPause("account-b")).toBeUndefined();
+    expect(localStorage.getItem("unrelated")).toBe("keep");
   });
 
   it("signals this tab and other tabs when the pause changes", () => {

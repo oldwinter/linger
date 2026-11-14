@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -15,7 +16,10 @@ import {
   vi,
 } from "vitest";
 
-import { setDesktopNotificationPause } from "@/features/rooms/desktop-notification-pause";
+import {
+  clearDesktopNotificationPauses,
+  setDesktopNotificationPause,
+} from "@/features/rooms/desktop-notification-pause";
 
 import { DesktopNotificationsSettings } from "./desktop-notifications-settings";
 
@@ -154,6 +158,29 @@ describe("Desktop notifications pause", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("Paused until");
     fireEvent.click(screen.getByRole("button", { name: "Resume now" }));
+
+    expect(
+      screen.getByRole("button", { name: "Pause for 1 hour" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Resume now" })).toBeNull();
+    expect(
+      localStorage.getItem("desktop-notification-pause.v1:account-a"),
+    ).toBeNull();
+  });
+
+  it("returns to unpaused when this browser's preferences are cleared", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 10, 15, 9, 30));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    stubNotification("granted");
+    setDesktopNotificationPause("account-a", new Date(2026, 10, 15, 10, 30));
+
+    render(<DesktopNotificationsSettings accountId="account-a" />);
+    expect(screen.getByRole("button", { name: "Resume now" })).toBeVisible();
+
+    act(() => clearDesktopNotificationPauses());
 
     expect(
       screen.getByRole("button", { name: "Pause for 1 hour" }),
