@@ -73,6 +73,7 @@ import {
 import { splitSnoozedRooms } from "./room-snooze-filter";
 import {
   readRoomUnreadFilter,
+  subscribeRoomUnreadFilter,
   unreadRoomRows,
   writeRoomUnreadFilter,
 } from "./room-unread-filter";
@@ -169,6 +170,12 @@ export function RoomSecondaryNavigation({
   const [unreadOnly, setUnreadOnly] = useState(() =>
     readRoomUnreadFilter(accountId),
   );
+  // Clearing this browser's preferences elsewhere turns the filter off here too.
+  useEffect(() => {
+    const refresh = () => setUnreadOnly(readRoomUnreadFilter(accountId));
+    refresh();
+    return subscribeRoomUnreadFilter(refresh);
+  }, [accountId]);
   function setUnreadFilter(next: boolean) {
     setUnreadOnly(next);
     writeRoomUnreadFilter(accountId, next);

@@ -1,3 +1,8 @@
+import {
+  removePreferenceKeys,
+  storedPreferenceKeys,
+} from "@/lib/local-preference-keys";
+
 const RECENT_LIMIT = 5;
 const STORAGE_PREFIX = "library-recent-documents.v1:";
 
@@ -63,6 +68,16 @@ export function clearRecentDocuments(accountId: string | undefined): void {
   } catch {
     // Blocked storage has nothing to clear.
   }
+}
+
+/** Whether this browser lists a recently opened Document for any Account. */
+export function hasRecentDocuments(): boolean {
+  return storedPreferenceKeys([STORAGE_PREFIX]).length > 0;
+}
+
+/** Clears the list for every Account in this browser. */
+export function clearAllRecentDocuments(): void {
+  removePreferenceKeys([STORAGE_PREFIX]);
 }
 
 /** Records one open for the Account that opened it. */

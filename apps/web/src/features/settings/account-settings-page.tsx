@@ -6,6 +6,7 @@ import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
 import { AccountProfileSettings } from "./account-profile-settings";
+import { BrowserPreferencesSettings } from "./browser-preferences-settings";
 import { DesktopNotificationsSettings } from "./desktop-notifications-settings";
 import { SettingsPageHeading } from "./settings-page-heading";
 
@@ -27,6 +28,8 @@ export function AccountSettingsPage() {
       <AccountProfileSettings client={client} tenantId={tenantId} />
 
       <DesktopNotificationsSettings accountId={accountId} />
+
+      <BrowserPreferencesSettings />
     </div>
   );
 }

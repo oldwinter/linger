@@ -408,6 +408,106 @@ describe("Settings surfaces", () => {
   });
 });
 
+describe("Browser preferences", () => {
+  const PREFERENCE_KEYS = [
+    "linger.room-composer-draft:account-a:tenant-a:room-a",
+    "room-mention-snooze.v1:account-a",
+    "room-mention-mute.v1:account-a",
+    "room-unread-filter.v1:account-a",
+    "global-search-recent.v2:tenant-a",
+    "library-recent-documents.v1:account-a",
+  ];
+
+  it("lists every registered preference and disables Clear when nothing is stored", async () => {
+    const runtime = await testRuntime();
+    renderSettings(runtime);
+
+    const section = await screen.findByRole("region", {
+      name: "This browser",
+    });
+
+    expect(
+      within(section)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual([
+      "Composer drafts",
+      "Room mention snoozes and mutes",
+      "Unread-only Room list",
+      "Recent searches",
+      "Recently opened documents",
+    ]);
+    expect(
+      within(section).getByRole("button", { name: "Clear" }),
+    ).toBeDisabled();
+  });
+
+  it("asks before clearing and then removes every stored preference", async () => {
+    seedBrowserPreferences();
+    const runtime = await testRuntime();
+    renderSettings(runtime);
+
+    const section = await screen.findByRole("region", {
+      name: "This browser",
+    });
+    fireEvent.click(within(section).getByRole("button", { name: "Clear" }));
+
+    // The first click only asks; the stored values are still there.
+    for (const key of PREFERENCE_KEYS) {
+      expect(window.localStorage.getItem(key)).not.toBeNull();
+    }
+    expect(
+      within(section).queryByRole("button", { name: "Clear" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      within(section).getByRole("button", { name: "Clear preferences" }),
+    );
+
+    expect(
+      await within(section).findByText("Preferences cleared"),
+    ).toBeVisible();
+    for (const key of PREFERENCE_KEYS) {
+      expect(window.localStorage.getItem(key)).toBeNull();
+    }
+    expect(window.localStorage.getItem("unrelated")).toBe("keep");
+    expect(
+      within(section).getByRole("button", { name: "Clear" }),
+    ).toBeDisabled();
+  });
+
+  it("reports a failure when the browser keeps the stored values", async () => {
+    seedBrowserPreferences();
+    vi.spyOn(window.localStorage, "removeItem").mockImplementation(
+      () => undefined,
+    );
+    const runtime = await testRuntime();
+    renderSettings(runtime);
+
+    const section = await screen.findByRole("region", {
+      name: "This browser",
+    });
+    fireEvent.click(within(section).getByRole("button", { name: "Clear" }));
+    fireEvent.click(
+      within(section).getByRole("button", { name: "Clear preferences" }),
+    );
+
+    expect(await within(section).findByRole("alert")).toHaveTextContent(
+      "Preferences could not be cleared",
+    );
+    expect(
+      within(section).getByRole("button", { name: "Clear" }),
+    ).toBeEnabled();
+  });
+
+  function seedBrowserPreferences() {
+    for (const key of PREFERENCE_KEYS) {
+      window.localStorage.setItem(key, "{}");
+    }
+    window.localStorage.setItem("unrelated", "keep");
+  }
+});
+
 describe("Voice API keys", () => {
   it("shows where each voice key comes from and saves one", async () => {
     const runtime = await testRuntime();

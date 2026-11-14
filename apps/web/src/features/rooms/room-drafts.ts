@@ -119,6 +119,11 @@ export function clearRoomDrafts() {
   notifyDraftListeners();
 }
 
+/** Whether this browser holds a Room composer draft for any Account. */
+export function hasRoomDrafts(): boolean {
+  return draftStorageEntries().length > 0;
+}
+
 /** One snapshot of this tab's saved composer drafts, one entry per storage
  * key. Reading storage can fail in privacy-restricted contexts. */
 export function draftStorageEntries(): [string, string][] {

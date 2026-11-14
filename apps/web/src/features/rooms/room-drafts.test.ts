@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearRoomDrafts,
   draftStorageEntries,
+  hasRoomDrafts,
   readRoomComposerDraft,
   roomsWithDrafts,
   subscribeRoomComposerDrafts,
@@ -75,6 +76,18 @@ describe("Room drafts", () => {
 
     expect(readRoomComposerDraft(firstRoom).body).toBe("");
     expect(window.localStorage.getItem("unrelated")).toBe("keep");
+  });
+
+  it("reports whether any Room draft is stored", () => {
+    expect(hasRoomDrafts()).toBe(false);
+
+    writeRoomComposerDraft(firstRoom, textDraft("private draft"));
+
+    expect(hasRoomDrafts()).toBe(true);
+
+    clearRoomDrafts();
+
+    expect(hasRoomDrafts()).toBe(false);
   });
 
   it("round-trips structured Composer references", () => {
