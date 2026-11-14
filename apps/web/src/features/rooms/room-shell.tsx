@@ -57,6 +57,7 @@ import {
 import { TeamHubEventSync } from "./event-sync";
 import { useAnotherMeNotifications } from "./another-me-notifications";
 import { useRoomMentionNotifications } from "./room-mention-notifications";
+import { useRoomWindowTitle } from "./room-unread-title";
 import { requireRoomRouteParam } from "./room-route-params";
 import { useScrollPaneActivity } from "./use-scroll-pane-activity";
 import {
@@ -157,10 +158,10 @@ function RoomShellReady({
     roomId: activeRoomId,
     open: openRoom,
   });
-
-  useEffect(() => {
-    document.title = `${spaceOwnerName}'s space`;
-  }, [spaceOwnerName]);
+  useRoomWindowTitle({
+    baseTitle: `${spaceOwnerName}'s space`,
+    rooms: roomsQuery.data?.items,
+  });
 
   const rooms = roomsQuery.data;
   return (

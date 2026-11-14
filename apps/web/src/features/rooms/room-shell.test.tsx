@@ -335,11 +335,11 @@ describe("Room shell mention notifications", () => {
 });
 
 describe("Room shell document title", () => {
-  it("names the tab after the Space owner's Tenant actor", async () => {
+  it("names the tab after the Space owner and its unread activity", async () => {
     document.title = "Linger";
     await renderAccountShell();
 
-    await waitFor(() => expect(document.title).toBe("Jenny Bin's space"));
+    await waitFor(() => expect(document.title).toBe("(2) Jenny Bin's space"));
   });
 });
 
