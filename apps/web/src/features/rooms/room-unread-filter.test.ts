@@ -4,9 +4,11 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
 
 import {
-  readRoomUnreadFilter,
+  mentionRoomRows,
+  readRoomFilterMode,
+  roomFilterRows,
   unreadRoomRows,
-  writeRoomUnreadFilter,
+  writeRoomFilterMode,
 } from "./room-unread-filter";
 
 const PREFERENCE_KEY = "room-unread-filter.v1:account-a";
@@ -37,21 +39,22 @@ function room(
   };
 }
 
+const rooms = [
+  room("design", 2),
+  room("mentioned", 0, 1),
+  room("both", 3, 2),
+  room("read", 0),
+];
+
 describe("unreadRoomRows", () => {
   it("returns every Room when the filter is off", () => {
-    const rooms = [room("design", 2), room("read", 0)];
-
     expect(unreadRoomRows(rooms, "read", false)).toEqual(rooms);
   });
 
   it("keeps Rooms with unread Messages or unread mentions", () => {
-    const ids = unreadRoomRows(
-      [room("design", 2), room("mentioned", 0, 1), room("read", 0)],
-      undefined,
-      true,
-    ).map((row) => row.id);
+    const ids = unreadRoomRows(rooms, undefined, true).map((row) => row.id);
 
-    expect(ids).toEqual(["design", "mentioned"]);
+    expect(ids).toEqual(["design", "mentioned", "both"]);
   });
 
   it("keeps a read active Room visible", () => {
@@ -84,38 +87,94 @@ describe("unreadRoomRows", () => {
   });
 });
 
-describe("Room unread filter storage", () => {
+describe("mentionRoomRows", () => {
+  it("keeps only Rooms with unread mentions", () => {
+    const ids = mentionRoomRows(rooms, undefined).map((row) => row.id);
+
+    expect(ids).toEqual(["mentioned", "both"]);
+  });
+
+  it("keeps the active Room even without a mention", () => {
+    const ids = mentionRoomRows([...rooms, room("active", 0)], "active").map(
+      (row) => row.id,
+    );
+
+    expect(ids).toEqual(["mentioned", "both", "active"]);
+  });
+
+  it("drops Rooms that only have plain unread Messages", () => {
+    expect(mentionRoomRows([room("design", 4)], undefined)).toEqual([]);
+  });
+});
+
+describe("roomFilterRows", () => {
+  it("returns every Room for all", () => {
+    expect(roomFilterRows(rooms, "read", "all")).toEqual(rooms);
+  });
+
+  it("uses the unread rule for unread", () => {
+    expect(roomFilterRows(rooms, "read", "unread")).toEqual(
+      unreadRoomRows(rooms, "read", true),
+    );
+  });
+
+  it("uses the mention rule for mentions", () => {
+    expect(roomFilterRows(rooms, "read", "mentions")).toEqual(
+      mentionRoomRows(rooms, "read"),
+    );
+  });
+});
+
+describe("Room filter storage", () => {
   beforeEach(() => {
     localStorage.clear();
   });
 
-  it("remembers the choice for the Account that made it", () => {
-    writeRoomUnreadFilter("account-a", true);
-
-    expect(localStorage.getItem(PREFERENCE_KEY)).toBe("true");
-    expect(readRoomUnreadFilter("account-a")).toBe(true);
-
-    writeRoomUnreadFilter("account-a", false);
-
-    expect(readRoomUnreadFilter("account-a")).toBe(false);
+  it("starts on all", () => {
+    expect(readRoomFilterMode("account-a")).toBe("all");
   });
 
-  it("starts off for another Account", () => {
-    writeRoomUnreadFilter("account-a", true);
+  it("remembers each mode for the Account that chose it", () => {
+    writeRoomFilterMode("account-a", "unread");
+    expect(localStorage.getItem(PREFERENCE_KEY)).toBe('"unread"');
+    expect(readRoomFilterMode("account-a")).toBe("unread");
 
-    expect(readRoomUnreadFilter("account-b")).toBe(false);
+    writeRoomFilterMode("account-a", "mentions");
+    expect(readRoomFilterMode("account-a")).toBe("mentions");
+
+    writeRoomFilterMode("account-a", "all");
+    expect(readRoomFilterMode("account-a")).toBe("all");
   });
 
-  it("falls back to off when the stored value cannot be parsed", () => {
+  it("reads the old boolean choice as the mode it meant", () => {
+    localStorage.setItem(PREFERENCE_KEY, "true");
+    expect(readRoomFilterMode("account-a")).toBe("unread");
+
+    localStorage.setItem(PREFERENCE_KEY, "false");
+    expect(readRoomFilterMode("account-a")).toBe("all");
+  });
+
+  it("starts on all for another Account", () => {
+    writeRoomFilterMode("account-a", "mentions");
+
+    expect(readRoomFilterMode("account-b")).toBe("all");
+  });
+
+  it("falls back to all when the stored value cannot be parsed", () => {
     localStorage.setItem(PREFERENCE_KEY, "{not json");
+    expect(readRoomFilterMode("account-a")).toBe("all");
 
-    expect(readRoomUnreadFilter("account-a")).toBe(false);
+    localStorage.setItem(PREFERENCE_KEY, JSON.stringify("archived"));
+    expect(readRoomFilterMode("account-a")).toBe("all");
+
+    localStorage.setItem(PREFERENCE_KEY, JSON.stringify(42));
+    expect(readRoomFilterMode("account-a")).toBe("all");
   });
 
   it("keeps no choice without an Account", () => {
-    writeRoomUnreadFilter(undefined, true);
+    writeRoomFilterMode(undefined, "mentions");
 
     expect(localStorage.length).toBe(0);
-    expect(readRoomUnreadFilter(undefined)).toBe(false);
+    expect(readRoomFilterMode(undefined)).toBe("all");
   });
 });

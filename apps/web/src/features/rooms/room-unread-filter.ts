@@ -2,11 +2,24 @@ import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
 
 const PREFERENCE_PREFIX = "room-unread-filter.v1:";
 
+/** Which Rooms the list shows: everything, the unread ones, or the mentions. */
+export type RoomFilterMode = "all" | "unread" | "mentions";
+
 /**
- * The Room rows the list shows. With the filter on, a Room stays when it has
- * unread Messages or unread mentions; the active Room always stays, so
+ * The Room rows the list shows for one mode. The active Room always stays, so
  * switching Rooms never hides the one the person is in.
  */
+export function roomFilterRows(
+  rooms: readonly TeamHubRoomListItem[],
+  activeRoomId: string | undefined,
+  mode: RoomFilterMode,
+): TeamHubRoomListItem[] {
+  if (mode === "unread") return unreadRoomRows(rooms, activeRoomId, true);
+  if (mode === "mentions") return mentionRoomRows(rooms, activeRoomId);
+  return [...rooms];
+}
+
+/** Keeps Rooms with unread Messages or unread mentions. */
 export function unreadRoomRows(
   rooms: readonly TeamHubRoomListItem[],
   activeRoomId: string | undefined,
@@ -21,31 +34,44 @@ export function unreadRoomRows(
   );
 }
 
+/** Keeps Rooms with unread mentions, so addressed Messages stay findable. */
+export function mentionRoomRows(
+  rooms: readonly TeamHubRoomListItem[],
+  activeRoomId: string | undefined,
+): TeamHubRoomListItem[] {
+  return rooms.filter(
+    (room) => room.id === activeRoomId || room.unread_mention_count > 0,
+  );
+}
+
 /**
- * The choice belongs to one Account, so signing in elsewhere starts with the
- * filter off. A stored value that is not readable JSON falls back to off rather
- * than breaking the Room list.
+ * Reads the Account's choice. The old boolean value still means what it did:
+ * true was unread-only and false was every Room. Anything unreadable starts at
+ * every Room rather than breaking the Room list.
  */
-export function readRoomUnreadFilter(accountId: string | undefined): boolean {
-  if (!accountId) return false;
+export function readRoomFilterMode(
+  accountId: string | undefined,
+): RoomFilterMode {
+  if (!accountId) return "all";
   try {
-    const stored = window.localStorage.getItem(preferenceKey(accountId));
-    return JSON.parse(stored ?? "false") === true;
+    const value: unknown = JSON.parse(
+      window.localStorage.getItem(preferenceKey(accountId)) ?? "null",
+    );
+    if (value === true) return "unread";
+    if (value === "unread" || value === "mentions") return value;
+    return "all";
   } catch {
-    return false;
+    return "all";
   }
 }
 
-export function writeRoomUnreadFilter(
+export function writeRoomFilterMode(
   accountId: string | undefined,
-  unreadOnly: boolean,
+  mode: RoomFilterMode,
 ): void {
   if (!accountId) return;
   try {
-    window.localStorage.setItem(
-      preferenceKey(accountId),
-      JSON.stringify(unreadOnly),
-    );
+    window.localStorage.setItem(preferenceKey(accountId), JSON.stringify(mode));
   } catch {
     // Blocked storage keeps the choice for this tab only.
   }
