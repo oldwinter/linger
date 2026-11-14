@@ -71,7 +71,7 @@ describe("workItemBoardViewUrl", () => {
     expect(
       viewUrl({
         ...EMPTY_WORK_ITEM_DASHBOARD_FILTERS,
-        text: "設計 review",
+        text: "\u8a2d\u8a08 review",
       }),
     ).toBe(`${boardUrl}?q=%E8%A8%AD%E8%A8%88+review`);
   });
@@ -83,7 +83,7 @@ describe("workItemBoardViewUrl", () => {
       execution: "waiting_for_approval",
       priority: "urgent",
       room: "room-gtm-launch",
-      text: "設計 review",
+      text: "\u8a2d\u8a08 review",
     };
 
     const url = new URL(viewUrl(filters, "newest"));
