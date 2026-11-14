@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import type { RefObject } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -58,6 +64,7 @@ function page(
 function renderPanel(
   listPocketNotes: (cursor: string | undefined) => unknown,
   putTodayPocketNote?: (text: string) => unknown,
+  deletePocketNote?: (date: string) => unknown,
 ) {
   const runtime = createTestTeamHubRuntime();
   runtime.server.on(
@@ -70,6 +77,13 @@ function renderPanel(
       "PUT",
       "/v0/tenants/{tenantId}/me/pocket-notes/today",
       ({ body }) => putTodayPocketNote((body as { text: string }).text),
+    );
+  }
+  if (deletePocketNote) {
+    runtime.server.on(
+      "DELETE",
+      "/v0/tenants/{tenantId}/me/pocket-notes/{noteDate}",
+      ({ params }) => deletePocketNote(params.noteDate!),
     );
   }
   const anchorRef: RefObject<HTMLButtonElement | null> = {
@@ -288,6 +302,119 @@ describe("PocketNotePanel search", () => {
 
     expect(screen.getByText("Shipped the graph preview")).toBeVisible();
     expect(screen.getByText("Reviewed the flashback card")).toBeVisible();
+  });
+});
+
+describe("PocketNotePanel month groups", () => {
+  it("heads each month's cards with its month", async () => {
+    renderPanel(async () =>
+      page([
+        note("2026-10-01", "First note"),
+        note("2026-09-30", "Yesterday's idea"),
+        note("2026-09-01", "Older idea"),
+      ]),
+    );
+    await openAllNotes();
+
+    const headings = screen.getAllByRole("heading");
+    expect(headings.map((heading) => heading.textContent)).toEqual([
+      "October 2026",
+      "September 2026",
+    ]);
+    const september = headings[1]!.closest("section")!;
+    expect(within(september).getByText("Yesterday's idea")).toBeVisible();
+    expect(within(september).getByText("Older idea")).toBeVisible();
+    expect(within(september).queryByText("First note")).not.toBeInTheDocument();
+    expect(headings[0]!.closest(".overflow-y-auto")).not.toBeNull();
+  });
+
+  it("groups a search's matches under their own months", async () => {
+    renderPanel(async () =>
+      page([
+        note("2026-10-01", "October idea"),
+        note("2026-09-30", "Yesterday's idea"),
+        note("2026-09-01", "Older note"),
+      ]),
+    );
+    await openAllNotes();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search notes" }), {
+      target: { value: "idea" },
+    });
+
+    const headings = screen.getAllByRole("heading");
+    expect(headings.map((heading) => heading.textContent)).toEqual([
+      "October 2026",
+      "September 2026",
+    ]);
+    const september = headings[1]!.closest("section")!;
+    expect(
+      within(september).getByRole("button", { name: /Yesterday's idea/ }),
+    ).toBeVisible();
+    expect(
+      within(september).queryByRole("button", { name: /Older note/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("extends the last group with earlier notes from the same month", async () => {
+    renderPanel(async (cursor) =>
+      cursor
+        ? page([
+            note("2026-09-01", "Older idea"),
+            note("2026-08-15", "August idea"),
+          ])
+        : page(
+            [
+              note("2026-10-01", "First note"),
+              note("2026-09-30", "Yesterday's idea"),
+            ],
+            "2026-09-30",
+          ),
+    );
+    await openAllNotes();
+    fireEvent.click(screen.getByRole("button", { name: "Load earlier notes" }));
+
+    await screen.findByText("August idea");
+    const headings = screen.getAllByRole("heading");
+    expect(headings.map((heading) => heading.textContent)).toEqual([
+      "October 2026",
+      "September 2026",
+      "August 2026",
+    ]);
+    expect(
+      within(headings[1]!.closest("section")!).getByText("Older idea"),
+    ).toBeVisible();
+  });
+
+  it("keeps each card's download and delete inside its month group", async () => {
+    const deletePocketNote = vi.fn(async () => undefined);
+    renderPanel(
+      async () =>
+        page([
+          note("2026-10-01", "First note"),
+          note("2026-09-30", "Yesterday's idea"),
+        ]),
+      undefined,
+      deletePocketNote,
+    );
+    await openAllNotes();
+
+    fireEvent.click(screen.getByRole("button", { name: "Download Sep 30" }));
+    expect(download.triggerArtifactDownload).toHaveBeenCalledOnce();
+    expect(download.triggerArtifactDownload.mock.calls[0]?.[1]).toBe(
+      "pocket-note-2026-09-30.md",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Sep 30" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() =>
+      expect(deletePocketNote).toHaveBeenCalledWith("2026-09-30"),
+    );
+    await waitFor(() =>
+      expect(screen.queryByText("Yesterday's idea")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("First note")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "October 2026" })).toBeVisible();
   });
 });
 

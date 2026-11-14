@@ -54,6 +54,7 @@ import {
 import { LazyVoiceKeyDialog } from "@/features/rooms/voice-control/lazy-voice-key-dialog";
 import { appendToPocketNote } from "./pocket-note-append";
 import { pocketNoteCopyText } from "./pocket-note-copy";
+import { groupPocketNotesByMonth } from "./pocket-note-months";
 import { usePocketDictation } from "./use-pocket-dictation";
 import {
   PocketNoteEditor,
@@ -701,99 +702,112 @@ function AllPocketNotes({
       </label>
       <div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-4">
         {search.matched ? (
-          <ul className="grid grid-cols-2 gap-2.5">
-            {search.items.map((note) => {
-              const label =
-                note.date === today ? "Today" : formatPocketNoteDate(note.date);
-              const preview = markdownPlainText(note.text);
-              return (
-                <li className="group relative" key={note.date}>
-                  <button
-                    className="flex h-[118px] w-full flex-col rounded-xl border border-border bg-card p-3 text-left transition-colors hover:border-border-hover hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
-                    onClick={() => onOpen(note)}
-                    type="button"
-                  >
-                    <span className="pr-12 text-xs font-medium text-app-ink">
-                      {label}
-                    </span>
-                    <span className="mt-1.5 line-clamp-4 whitespace-pre-wrap break-words text-xs leading-[18px] text-app-muted">
-                      {preview ? (
-                        <HighlightedText query={query} text={preview} />
-                      ) : (
-                        "Nothing written yet"
-                      )}
-                    </span>
-                  </button>
-                  {note.date === today ? null : confirming === note.date ? (
-                    <div
-                      aria-label={`Delete ${label}?`}
-                      className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-card/95 p-3"
-                      role="alertdialog"
-                    >
-                      <p
-                        className={`text-center text-xs ${remove.isError ? "text-app-danger" : "text-app-ink"}`}
-                      >
-                        {remove.isError
-                          ? "Couldn’t delete. Try again."
-                          : "Delete this note?"}
-                      </p>
-                      <div className="flex gap-1.5">
-                        <Button
-                          onClick={() => {
-                            remove.reset();
-                            setConfirming(undefined);
-                          }}
-                          size="compact"
-                          tone="ghost"
+          <div className="flex flex-col gap-3">
+            {groupPocketNotesByMonth(search.items).map((group, index) => (
+              <section aria-label={group.label} key={`${group.key}-${index}`}>
+                {/* In flow above its own cards, so a stuck heading never covers them. */}
+                <h2 className="sticky top-0 z-10 bg-popover py-1.5 text-xs font-medium text-app-muted">
+                  {group.label}
+                </h2>
+                <ul className="grid grid-cols-2 gap-2.5">
+                  {group.notes.map((note) => {
+                    const label =
+                      note.date === today
+                        ? "Today"
+                        : formatPocketNoteDate(note.date);
+                    const preview = markdownPlainText(note.text);
+                    return (
+                      <li className="group relative" key={note.date}>
+                        <button
+                          className="flex h-[118px] w-full flex-col rounded-xl border border-border bg-card p-3 text-left transition-colors hover:border-border-hover hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                          onClick={() => onOpen(note)}
+                          type="button"
                         >
-                          Cancel
-                        </Button>
-                        <Button
-                          loading={remove.isPending}
-                          onClick={() => remove.mutate(note.date)}
-                          size="compact"
-                          tone="danger"
-                        >
-                          Delete
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
-                      <button
-                        aria-label={`Download ${label}`}
-                        className={cn(
-                          noteActionClass,
-                          "hover:bg-accent hover:text-app-ink",
+                          <span className="pr-12 text-xs font-medium text-app-ink">
+                            {label}
+                          </span>
+                          <span className="mt-1.5 line-clamp-4 whitespace-pre-wrap break-words text-xs leading-[18px] text-app-muted">
+                            {preview ? (
+                              <HighlightedText query={query} text={preview} />
+                            ) : (
+                              "Nothing written yet"
+                            )}
+                          </span>
+                        </button>
+                        {note.date === today ? null : confirming ===
+                          note.date ? (
+                          <div
+                            aria-label={`Delete ${label}?`}
+                            className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-card/95 p-3"
+                            role="alertdialog"
+                          >
+                            <p
+                              className={`text-center text-xs ${remove.isError ? "text-app-danger" : "text-app-ink"}`}
+                            >
+                              {remove.isError
+                                ? "Couldn’t delete. Try again."
+                                : "Delete this note?"}
+                            </p>
+                            <div className="flex gap-1.5">
+                              <Button
+                                onClick={() => {
+                                  remove.reset();
+                                  setConfirming(undefined);
+                                }}
+                                size="compact"
+                                tone="ghost"
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                loading={remove.isPending}
+                                onClick={() => remove.mutate(note.date)}
+                                size="compact"
+                                tone="danger"
+                              >
+                                Delete
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
+                            <button
+                              aria-label={`Download ${label}`}
+                              className={cn(
+                                noteActionClass,
+                                "hover:bg-accent hover:text-app-ink",
+                              )}
+                              disabled={downloading}
+                              onClick={() => onDownloadNote(note)}
+                              title="Download note"
+                              type="button"
+                            >
+                              <Icon icon={Download01Icon} size={14} />
+                            </button>
+                            <button
+                              aria-label={`Delete ${label}`}
+                              className={cn(
+                                noteActionClass,
+                                "hover:bg-accent hover:text-app-danger",
+                              )}
+                              onClick={() => {
+                                remove.reset();
+                                setConfirming(note.date);
+                              }}
+                              title="Delete note"
+                              type="button"
+                            >
+                              <Icon icon={Delete02Icon} size={14} />
+                            </button>
+                          </div>
                         )}
-                        disabled={downloading}
-                        onClick={() => onDownloadNote(note)}
-                        title="Download note"
-                        type="button"
-                      >
-                        <Icon icon={Download01Icon} size={14} />
-                      </button>
-                      <button
-                        aria-label={`Delete ${label}`}
-                        className={cn(
-                          noteActionClass,
-                          "hover:bg-accent hover:text-app-danger",
-                        )}
-                        onClick={() => {
-                          remove.reset();
-                          setConfirming(note.date);
-                        }}
-                        title="Delete note"
-                        type="button"
-                      >
-                        <Icon icon={Delete02Icon} size={14} />
-                      </button>
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            ))}
+          </div>
         ) : (
           <div className="flex flex-col items-center gap-2 px-2 py-8 text-center">
             <p className="text-xs text-app-muted">
