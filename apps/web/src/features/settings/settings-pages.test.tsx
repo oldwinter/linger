@@ -30,6 +30,7 @@ import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import { AccountSettingsPage } from "./account-settings-page";
 import { SecuritySettingsPage } from "./security-settings-page";
 import { SettingsLayout } from "./settings-page";
+import { ShortcutsSettingsPage } from "./shortcuts-settings-page";
 
 // The dialog imports its sections lazily, so pay that cost before the first
 // assertion instead of racing a dynamic import inside a findBy timeout.
@@ -158,6 +159,27 @@ describe("Settings surfaces", () => {
     );
   });
 
+  it("opens Shortcuts from Settings navigation", async () => {
+    const runtime = await testRuntime();
+    renderSettings(runtime);
+
+    fireEvent.click(
+      within(
+        await screen.findByRole("navigation", { name: "Settings sections" }),
+      ).getByRole("link", { name: "Shortcuts" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "Shortcuts",
+      }),
+    ).toBeVisible();
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/t/tenant-northstar/settings/shortcuts",
+    );
+  });
+
   it("presents Settings as a page and displays the saved Account response", async () => {
     const runtime = await testRuntime();
     const saved = {
@@ -180,7 +202,7 @@ describe("Settings surfaces", () => {
       within(settingsNav)
         .getAllByRole("link")
         .map((link) => link.textContent?.replace(/\s+/g, " ").trim()),
-    ).toEqual(["Profile", "Security", "My Rules", "Computers"]);
+    ).toEqual(["Profile", "Security", "My Rules", "Shortcuts", "Computers"]);
     expect(
       screen.queryByRole("button", { name: "Log out" }),
     ).not.toBeInTheDocument();
@@ -470,6 +492,7 @@ function renderSettings(
                 children: [
                   { element: <AccountSettingsPage />, path: "account" },
                   { element: <SecuritySettingsPage />, path: "security" },
+                  { element: <ShortcutsSettingsPage />, path: "shortcuts" },
                 ],
                 element: (
                   <>
