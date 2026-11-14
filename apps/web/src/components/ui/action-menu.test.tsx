@@ -266,4 +266,17 @@ describe("ActionMenu", () => {
     fireEvent(window, new Event("resize"));
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
+
+  it("keeps a menu for a trigger inside an open dialog in the dialog", () => {
+    render(
+      <dialog aria-label="Peek" open>
+        <ActionMenu label="Send to Room" items={[{ label: "product-v0" }]} />
+      </dialog>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Send to Room" }));
+
+    expect(screen.getByRole("dialog", { name: "Peek" })).toContainElement(
+      screen.getByRole("menu"),
+    );
+  });
 });

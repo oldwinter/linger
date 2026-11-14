@@ -29,6 +29,7 @@ import {
   useWorkItemTransition,
 } from "./work-item-queries";
 import { dashboardWorkItemPath } from "./work-item-routes";
+import { WorkItemShareAction } from "./work-item-share-action";
 import { useWorkItemCopy, type WorkItemCopyState } from "./use-work-item-copy";
 
 const peekDateFormatter = dateTimeFormat({
@@ -134,6 +135,7 @@ export function WorkItemPeek({
         <>
           <PeekCopyMarkdown tenantId={tenantId} workItem={item} />
           <PeekCopyLink tenantId={tenantId} workItem={item} />
+          <WorkItemShareAction item={item} tenantId={tenantId} />
         </>
       }
       onClose={onClose}
