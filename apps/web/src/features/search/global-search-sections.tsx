@@ -200,6 +200,7 @@ export function GlobalSearchResultList({
   listRef,
   onListLeave,
   onListScroll,
+  onRemoveRecent,
   openResult,
   roomScoped,
   scope,
@@ -219,6 +220,7 @@ export function GlobalSearchResultList({
   listRef: RefObject<HTMLDivElement | null>;
   onListLeave: () => void;
   onListScroll: () => void;
+  onRemoveRecent: (text: string) => void;
   openResult: (result: SearchResult) => Promise<void>;
   roomScoped: boolean;
   scope: Scope | undefined;
@@ -313,6 +315,7 @@ export function GlobalSearchResultList({
                       key={result.id}
                       onActivate={() => hoverRow(index)}
                       onOpen={() => void openResult(result)}
+                      onRemoveRecent={onRemoveRecent}
                       query={debouncedQuery}
                       result={result}
                     />
@@ -369,8 +372,11 @@ function SectionHeader({
 /** The open error, when a hit failed to open, and the keyboard legend. */
 export function GlobalSearchFooter({
   openError,
+  recentSelected,
 }: {
   openError: string | null;
+  /** The active row is a recent search, so Delete can forget it. */
+  recentSelected: boolean;
 }) {
   return (
     <>
@@ -400,6 +406,12 @@ export function GlobalSearchFooter({
           <ShortcutKey>Tab</ShortcutKey>
           Search in type
         </span>
+        {recentSelected ? (
+          <span className="flex items-center gap-2">
+            <ShortcutKey>Delete</ShortcutKey>
+            Remove recent
+          </span>
+        ) : null}
       </div>
     </>
   );
