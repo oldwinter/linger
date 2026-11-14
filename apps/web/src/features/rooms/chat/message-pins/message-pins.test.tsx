@@ -323,6 +323,338 @@ describe("PinnedMessagesControl", () => {
       }),
     ).toBeEnabled();
   });
+  it("narrows the pinned list by text and author with a highlighted count", async () => {
+    const getPins = vi.fn<TestRouteHandler>(() =>
+      pinList([
+        {
+          message: message({
+            id: "message-2",
+            raw_message: "Ship it",
+            author: {
+              display_name: "Bob",
+              id: "human-2",
+              kind: "human",
+              tenant_id: "tenant-1",
+            },
+          }),
+          pinned_at: "2026-10-11T08:00:00.000Z",
+          pinned_by_actor_id: "human-2",
+        },
+        {
+          message: message(),
+          pinned_at: "2026-10-10T08:00:00.000Z",
+          pinned_by_actor_id: "human-1",
+        },
+        {
+          message: message({
+            id: "message-3",
+            raw_message: "Q4 roadmap review",
+          }),
+          pinned_at: "2026-10-09T08:00:00.000Z",
+          pinned_by_actor_id: "human-1",
+        },
+      ]),
+    );
+    const { client, queryClient } = setup((server) =>
+      server.on("GET", pinsPath, getPins),
+    );
+    render(
+      <MemoryRouter>
+        <PinnedMessagesControl
+          onJump={vi.fn()}
+          roomId="room-1"
+          tenantId="tenant-1"
+        />
+      </MemoryRouter>,
+      { wrapper: wrapper(queryClient, client) },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Pinned messages" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Pinned messages",
+    });
+    expect(await within(dialog).findAllByRole("listitem")).toHaveLength(3);
+
+    const field = within(dialog).getByRole("searchbox", {
+      name: "Search pinned messages",
+    });
+    fireEvent.change(field, { target: { value: "SHIP" } });
+
+    const rows = within(dialog).getAllByRole("listitem");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveTextContent("Ship it");
+    expect(rows[0]!.querySelector("mark")?.textContent).toBe("Ship");
+    expect(within(dialog).getByText("1 of 3")).toBeVisible();
+    // Filtering is view state; it never rereads the Room's pins.
+    expect(getPins).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(field, { target: { value: "bob" } });
+    expect(within(dialog).getAllByRole("listitem")[0]).toHaveTextContent(
+      "Ship it",
+    );
+    expect(within(dialog).getByText("1 of 3")).toBeVisible();
+  });
+
+  it("says when no pin matches and clearing restores the list and its scroll", async () => {
+    const pins = [1, 2, 3, 4].map((index) => ({
+      message: message({
+        id: `message-${index}`,
+        raw_message: `Release note ${index}`,
+      }),
+      pinned_at: `2026-10-0${index}T08:00:00.000Z`,
+      pinned_by_actor_id: "human-1",
+    }));
+    const { client, queryClient } = setup((server) =>
+      server.on("GET", pinsPath, () => pinList(pins)),
+    );
+    render(
+      <MemoryRouter>
+        <PinnedMessagesControl
+          onJump={vi.fn()}
+          roomId="room-1"
+          tenantId="tenant-1"
+        />
+      </MemoryRouter>,
+      { wrapper: wrapper(queryClient, client) },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Pinned messages" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Pinned messages",
+    });
+    const list = await within(dialog).findAllByRole("listitem");
+    expect(list).toHaveLength(4);
+    const scroller = dialog.querySelector<HTMLElement>(".workspace-scrollbar")!;
+    scroller.scrollTop = 40;
+    fireEvent.scroll(scroller);
+
+    const field = within(dialog).getByRole("searchbox", {
+      name: "Search pinned messages",
+    });
+    fireEvent.change(field, { target: { value: "absent phrase" } });
+
+    expect(
+      await within(dialog).findByText(/No pinned messages match/u),
+    ).toBeVisible();
+    expect(within(dialog).queryAllByRole("listitem")).toHaveLength(0);
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Clear search" }),
+    );
+
+    expect(field).toHaveValue("");
+    expect(
+      within(dialog)
+        .getAllByRole("listitem")
+        .map((row) => row.textContent),
+    ).toEqual([
+      expect.stringContaining("Release note 1"),
+      expect.stringContaining("Release note 2"),
+      expect.stringContaining("Release note 3"),
+      expect.stringContaining("Release note 4"),
+    ]);
+    expect(dialog.querySelector<HTMLElement>(".workspace-scrollbar")).toBe(
+      scroller,
+    );
+    expect(scroller.scrollTop).toBe(40);
+  });
+
+  it("resets the filter when the panel closes", async () => {
+    const { client, queryClient } = setup((server) =>
+      server.on("GET", pinsPath, () =>
+        pinList([
+          {
+            message: message({ id: "message-2", raw_message: "Ship it" }),
+            pinned_at: "2026-10-10T08:00:00.000Z",
+            pinned_by_actor_id: "human-2",
+          },
+          {
+            message: message(),
+            pinned_at: "2026-10-09T08:00:00.000Z",
+            pinned_by_actor_id: "human-1",
+          },
+        ]),
+      ),
+    );
+    render(
+      <MemoryRouter>
+        <PinnedMessagesControl
+          onJump={vi.fn()}
+          roomId="room-1"
+          tenantId="tenant-1"
+        />
+      </MemoryRouter>,
+      { wrapper: wrapper(queryClient, client) },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Pinned messages" }));
+    let dialog = await screen.findByRole("dialog", {
+      name: "Pinned messages",
+    });
+    await within(dialog).findAllByRole("listitem");
+    fireEvent.change(
+      within(dialog).getByRole("searchbox", {
+        name: "Search pinned messages",
+      }),
+      { target: { value: "ship" } },
+    );
+    expect(within(dialog).getAllByRole("listitem")).toHaveLength(1);
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Close pinned messages" }),
+    );
+    expect(
+      screen.queryByRole("dialog", { name: "Pinned messages" }),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Pinned messages" }));
+    dialog = await screen.findByRole("dialog", { name: "Pinned messages" });
+    expect(
+      await within(dialog).findByRole("searchbox", {
+        name: "Search pinned messages",
+      }),
+    ).toHaveValue("");
+    expect(within(dialog).getAllByRole("listitem")).toHaveLength(2);
+  });
+
+  it("resets the filter when the Room changes", async () => {
+    const { client, queryClient } = setup((server) =>
+      server.on("GET", pinsPath, ({ params }) =>
+        params.roomId === "room-2"
+          ? pinList([
+              {
+                message: message({
+                  id: "message-9",
+                  raw_message: "Quarterly plan",
+                  room_id: "room-2",
+                }),
+                pinned_at: "2026-10-12T08:00:00.000Z",
+                pinned_by_actor_id: "human-1",
+              },
+            ])
+          : pinList([
+              {
+                message: message({ id: "message-2", raw_message: "Ship it" }),
+                pinned_at: "2026-10-10T08:00:00.000Z",
+                pinned_by_actor_id: "human-2",
+              },
+            ]),
+      ),
+    );
+    const view = (roomId: string) => (
+      <MemoryRouter>
+        <PinnedMessagesControl
+          onJump={vi.fn()}
+          roomId={roomId}
+          tenantId="tenant-1"
+        />
+      </MemoryRouter>
+    );
+    const { rerender } = render(view("room-1"), {
+      wrapper: wrapper(queryClient, client),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Pinned messages" }));
+    let dialog = await screen.findByRole("dialog", {
+      name: "Pinned messages",
+    });
+    await within(dialog).findAllByRole("listitem");
+    fireEvent.change(
+      within(dialog).getByRole("searchbox", {
+        name: "Search pinned messages",
+      }),
+      { target: { value: "ship" } },
+    );
+    expect(within(dialog).getAllByRole("listitem")).toHaveLength(1);
+
+    rerender(view("room-2"));
+
+    dialog = await screen.findByRole("dialog", { name: "Pinned messages" });
+    expect(
+      await within(dialog).findByRole("searchbox", {
+        name: "Search pinned messages",
+      }),
+    ).toHaveValue("");
+    expect(await within(dialog).findByText("Quarterly plan")).toBeVisible();
+  });
+
+  it("unpins and jumps from a filtered list", async () => {
+    let pins: TeamHubMessagePinList["items"] = [
+      {
+        message: message({ id: "message-2", raw_message: "Ship it" }),
+        pinned_at: "2026-10-10T08:00:00.000Z",
+        pinned_by_actor_id: "human-2",
+      },
+      {
+        message: message(),
+        pinned_at: "2026-10-09T08:00:00.000Z",
+        pinned_by_actor_id: "human-1",
+      },
+    ];
+    const deletePin = vi.fn<TestRouteHandler>(({ params }) => {
+      pins = pins.filter((pin) => pin.message.id !== params.messageId);
+      return undefined;
+    });
+    const onJump = vi.fn();
+    const { client, queryClient } = setup((server) =>
+      server
+        .on("GET", pinsPath, () => pinList(pins))
+        .on("DELETE", messagePath, deletePin),
+    );
+    render(
+      <MemoryRouter>
+        <PinnedMessagesControl
+          onJump={onJump}
+          roomId="room-1"
+          tenantId="tenant-1"
+        />
+      </MemoryRouter>,
+      { wrapper: wrapper(queryClient, client) },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Pinned messages" }));
+    let dialog = await screen.findByRole("dialog", {
+      name: "Pinned messages",
+    });
+    await within(dialog).findAllByRole("listitem");
+    const field = within(dialog).getByRole("searchbox", {
+      name: "Search pinned messages",
+    });
+    fireEvent.change(field, { target: { value: "ship" } });
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Go to message" }),
+    );
+    expect(onJump).toHaveBeenCalledWith("message-2");
+
+    fireEvent.click(screen.getByRole("button", { name: "Pinned messages" }));
+    dialog = await screen.findByRole("dialog", { name: "Pinned messages" });
+    await within(dialog).findAllByRole("listitem");
+    fireEvent.change(
+      within(dialog).getByRole("searchbox", {
+        name: "Search pinned messages",
+      }),
+      { target: { value: "ship" } },
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Unpin" }));
+
+    await waitFor(() =>
+      expect(deletePin).toHaveBeenCalledWith(
+        expect.objectContaining({
+          params: { roomId: "room-1", messageId: "message-2" },
+        }),
+      ),
+    );
+    // The filter stays on, so the remaining pin no longer matches it.
+    expect(
+      await within(dialog).findByText(/No pinned messages match/u),
+    ).toBeVisible();
+    expect(within(dialog).getByText("0 of 1")).toBeVisible();
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Clear search" }),
+    );
+    expect(within(dialog).getByText("Freeze the release")).toBeVisible();
+  });
 });
 
 describe("useMessagePinToggle", () => {

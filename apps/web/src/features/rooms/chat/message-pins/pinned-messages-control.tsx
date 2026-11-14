@@ -1,13 +1,25 @@
-import { Cancel01Icon, PinIcon } from "@hugeicons/core-free-icons";
+import {
+  Cancel01Icon,
+  PinIcon,
+  Search01Icon,
+} from "@hugeicons/core-free-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import {
+  type UIEvent,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { HighlightedText } from "@/features/search/search-highlight";
 import type { TeamHubMessagePinList } from "@/features/teamhub/teamhub-types";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
 import { roomPinsQueryOptions } from "../../room-queries";
+import { searchPinnedMessages } from "./pinned-message-search";
 import { useMessagePinToggle } from "./use-message-pin-toggle";
 
 type MessagePin = TeamHubMessagePinList["items"][number];
@@ -65,6 +77,32 @@ export function PinnedMessagesControl({
   }, [open]);
 
   const pins = data?.items ?? [];
+  // The filter is view state for this opening in this Room; closing the panel
+  // or opening another Room starts it over.
+  const [query, setQuery] = useState("");
+  const listRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef(0);
+  const restoreScroll = useRef(false);
+  useEffect(() => {
+    setQuery("");
+    scrollRef.current = 0;
+    restoreScroll.current = false;
+  }, [open, roomId]);
+  useLayoutEffect(() => {
+    if (!restoreScroll.current) return;
+    restoreScroll.current = false;
+    if (listRef.current) listRef.current.scrollTop = scrollRef.current;
+  }, [query]);
+  const filtering = query.trim().length > 0;
+  const search = searchPinnedMessages(pins, query);
+  function changeQuery(next: string) {
+    // Clearing returns the list the person had scrolled through before.
+    if (!next.trim() && filtering) restoreScroll.current = true;
+    setQuery(next);
+  }
+  function rememberScroll(event: UIEvent<HTMLDivElement>) {
+    if (!filtering) scrollRef.current = event.currentTarget.scrollTop;
+  }
   return (
     <div className="relative" ref={rootRef}>
       <Button
@@ -86,7 +124,14 @@ export function PinnedMessagesControl({
           role="dialog"
         >
           <div className="flex items-center justify-between px-1 pb-1">
-            <h2 className="text-sm font-medium text-foreground">Pinned</h2>
+            <div className="flex items-baseline gap-1.5">
+              <h2 className="text-sm font-medium text-foreground">Pinned</h2>
+              {filtering ? (
+                <span aria-live="polite" className="text-2xs text-app-subtle">
+                  {search.count} of {pins.length}
+                </span>
+              ) : null}
+            </div>
             <Button
               aria-label="Close pinned messages"
               className="!rounded-lg border-0 text-app-muted"
@@ -98,6 +143,30 @@ export function PinnedMessagesControl({
               <Icon icon={Cancel01Icon} size={14} />
             </Button>
           </div>
+          {!isPending && !isError && pins.length > 0 ? (
+            <label className="mb-1 flex h-8 shrink-0 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground transition-colors hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring/40">
+              <Icon icon={Search01Icon} size={14} />
+              <input
+                aria-label="Search pinned messages"
+                className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+                onChange={(event) => changeQuery(event.target.value)}
+                placeholder="Search pinned messages"
+                role="searchbox"
+                type="text"
+                value={query}
+              />
+              {query ? (
+                <button
+                  aria-label="Clear pinned message search"
+                  className="flex size-5 shrink-0 items-center justify-center rounded-full hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                  onClick={() => changeQuery("")}
+                  type="button"
+                >
+                  <Icon icon={Cancel01Icon} size={12} />
+                </button>
+              ) : null}
+            </label>
+          ) : null}
           {isPending ? (
             <p className="px-1 py-2 text-xs text-app-subtle">
               Loading pinned messages
@@ -116,55 +185,87 @@ export function PinnedMessagesControl({
               No pinned messages yet.
             </p>
           ) : (
-            <ul className="workspace-scrollbar flex min-h-0 flex-col gap-1 overflow-y-auto">
-              {pins.map((pin) => {
-                const unpinning =
-                  unpin.isPending &&
-                  unpin.variables?.message.id === pin.message.id;
-                const unpinFailed =
-                  unpin.isError &&
-                  unpin.variables?.message.id === pin.message.id;
-                return (
-                  <li
-                    className="rounded-md p-2 hover:bg-accent"
-                    key={pin.message.id}
+            // The scroller stays mounted so clearing the filter can put the
+            // list back where the person left it.
+            <div
+              className="workspace-scrollbar flex min-h-0 flex-col gap-1 overflow-y-auto"
+              onScroll={rememberScroll}
+              ref={listRef}
+            >
+              {filtering && search.count === 0 ? (
+                <div className="flex flex-col items-center gap-2 px-2 py-6 text-center">
+                  <p className="text-xs text-app-muted">
+                    No pinned messages match “{query.trim()}”.
+                  </p>
+                  <Button
+                    onClick={() => changeQuery("")}
+                    size="compact"
+                    tone="secondary"
                   >
-                    <p className="truncate text-2xs font-medium text-app-subtle">
-                      {pin.message.author.display_name}
-                    </p>
-                    <p className="line-clamp-2 text-xs text-app-ink">
-                      {pin.message.raw_message}
-                    </p>
-                    <div className="mt-1 flex items-center gap-1">
-                      <Button
-                        className="justify-start"
-                        onClick={() => {
-                          onJump(pin.message.id);
-                          setOpen(false);
-                        }}
-                        size="compact"
-                        tone="ghost"
+                    Clear search
+                  </Button>
+                </div>
+              ) : (
+                <ul className="flex flex-col gap-1">
+                  {search.items.map((pin) => {
+                    const unpinning =
+                      unpin.isPending &&
+                      unpin.variables?.message.id === pin.message.id;
+                    const unpinFailed =
+                      unpin.isError &&
+                      unpin.variables?.message.id === pin.message.id;
+                    return (
+                      <li
+                        className="rounded-md p-2 hover:bg-accent"
+                        key={pin.message.id}
                       >
-                        Go to message
-                      </Button>
-                      <Button
-                        disabled={unpinning}
-                        onClick={() => unpin.mutate(pin)}
-                        size="compact"
-                        tone="ghost"
-                      >
-                        Unpin
-                      </Button>
-                    </div>
-                    {unpinFailed ? (
-                      <p className="mt-1 text-xs text-app-danger" role="alert">
-                        Could not unpin the message.
-                      </p>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
+                        <p className="truncate text-2xs font-medium text-app-subtle">
+                          <HighlightedText
+                            query={query}
+                            text={pin.message.author.display_name}
+                          />
+                        </p>
+                        <p className="line-clamp-2 text-xs text-app-ink">
+                          <HighlightedText
+                            query={query}
+                            text={pin.message.raw_message}
+                          />
+                        </p>
+                        <div className="mt-1 flex items-center gap-1">
+                          <Button
+                            className="justify-start"
+                            onClick={() => {
+                              onJump(pin.message.id);
+                              setOpen(false);
+                            }}
+                            size="compact"
+                            tone="ghost"
+                          >
+                            Go to message
+                          </Button>
+                          <Button
+                            disabled={unpinning}
+                            onClick={() => unpin.mutate(pin)}
+                            size="compact"
+                            tone="ghost"
+                          >
+                            Unpin
+                          </Button>
+                        </div>
+                        {unpinFailed ? (
+                          <p
+                            className="mt-1 text-xs text-app-danger"
+                            role="alert"
+                          >
+                            Could not unpin the message.
+                          </p>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
           )}
         </div>
       ) : null}
