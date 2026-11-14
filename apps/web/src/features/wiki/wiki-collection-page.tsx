@@ -21,6 +21,7 @@ import {
 import { type WikiEntry, wikiPreviewPages } from "./wiki-preview-pages";
 import { matchWikiPage, wikiSearchText } from "./wiki-page-search";
 import { usePersonalWikiRefresh } from "./wiki-refresh";
+import { wikiDocumentPath } from "./wiki-routes";
 
 const GraphPage = lazy(async () => {
   const { WikiGraphPage } = await import("@/features/memory/wiki-graph-page");
@@ -104,7 +105,7 @@ function WikiCollectionContent({ collection }: { collection: WikiCollection }) {
     return match ? [{ entry, snippet: match.snippet }] : [];
   });
   const documentPath = (page: TeamHubDocument) =>
-    `/t/${encodeURIComponent(tenantId)}/documents/${encodeURIComponent(page.id)}`;
+    wikiDocumentPath(tenantId, page.id);
   return (
     <div className="workspace-content mx-auto w-full px-4 py-6 md:px-8">
       <WikiBack />

@@ -18,7 +18,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import {
   teamHubErrorResponse,
@@ -163,6 +163,10 @@ vi.mock("./room-document-blocknote-editor-loader", () => ({
     );
   },
 }));
+
+afterEach(() => {
+  Reflect.deleteProperty(navigator, "clipboard");
+});
 
 describe("Unified Document legacy convergence", () => {
   beforeEach(() => {
@@ -344,6 +348,7 @@ describe("Unified Document legacy convergence", () => {
       expect(actions).not.toBeNull();
       expect(within(actions as HTMLElement).getAllByRole("button")).toEqual([
         screen.getByRole("button", { name: "Table of contents" }),
+        screen.getByRole("button", { name: "Copy link" }),
       ]);
       expect(body).toHaveAttribute("data-editable", "false");
       expect(body).toHaveAttribute("data-knowledge-title", "Casey example");
@@ -371,6 +376,7 @@ describe("Unified Document legacy convergence", () => {
     ) as HTMLElement;
     expect(within(actions).getAllByRole("button")).toEqual([
       screen.getByRole("button", { name: "Table of contents" }),
+      screen.getByRole("button", { name: "Copy link" }),
       screen.getByRole("button", { name: "Download" }),
     ]);
     expect(
@@ -409,6 +415,7 @@ describe("Unified Document legacy convergence", () => {
     ) as HTMLElement;
     expect(within(actions).getAllByRole("button")).toEqual([
       screen.getByRole("button", { name: "Table of contents" }),
+      screen.getByRole("button", { name: "Copy link" }),
       download,
     ]);
     expect(
@@ -421,6 +428,34 @@ describe("Unified Document legacy convergence", () => {
 
     await waitFor(() => expect(downloadLatest).toHaveBeenCalledOnce());
     expect(downloadLatest).toHaveBeenCalledWith(document.id);
+  });
+
+  it("copies a Wiki page's link with the app origin and confirms it", async () => {
+    const runtime = createDocumentTestRuntime();
+    const document = seedRoomDocument(runtime, "wiki-copy-link");
+    showDocument(runtime, {
+      ...document,
+      from: [{ binding_kind: "wiki_page", context_id: "wiki-jenny" }],
+    });
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    renderUnifiedDocumentPage(
+      runtime,
+      `/t/tenant-northstar/documents/${document.id}`,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Copy link" }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledOnce());
+    expect(writeText).toHaveBeenCalledWith(
+      `${window.location.origin}/t/tenant-northstar/documents/${document.id}`,
+    );
+    const actions = window.document.querySelector(
+      ".room-document-header-actions",
+    ) as HTMLElement;
+    expect(await within(actions).findByRole("status")).toHaveTextContent(
+      "Copied",
+    );
   });
 
   it.each(
