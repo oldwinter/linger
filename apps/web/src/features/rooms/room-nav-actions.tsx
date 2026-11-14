@@ -6,6 +6,7 @@ import {
   Clock01Icon,
   Delete02Icon,
   Link01Icon,
+  Moon02Icon,
   PinIcon,
   PinOffIcon,
   Tick02Icon,
@@ -36,6 +37,12 @@ import {
   tenantRoomsQueryKey,
 } from "./room-queries";
 import { roomChatPath } from "./room-routes";
+import {
+  clearRoomSnooze,
+  roomSnoozeUntil,
+  setRoomSnooze,
+  type RoomSnoozeChoice,
+} from "./room-snooze";
 
 const AgentDeleteDialog = lazy(async () => ({
   default: (await import("./room-nav-agent-delete-dialog"))
@@ -271,9 +278,10 @@ export function RoomPinButton({
 }
 
 /**
- * A Room's mention notification choices. They are this browser's display
- * decision for the Account, so the menu writes nothing to the server. A muted
- * Room offers only Unmute, and Off appears only while the Room is snoozed.
+ * A Room's quieting choices. Both are this browser's display decisions for the
+ * Account, so the menu writes nothing to the server. Mention snoozing quietens
+ * notifications; Room snoozing hides the row until it ends. A muted Room offers
+ * only Unmute, and Off appears only while the Room's mentions are snoozed.
  */
 export function RoomMentionMenu({
   accountId,
@@ -281,6 +289,7 @@ export function RoomMentionMenu({
   muted,
   name,
   roomId,
+  roomSnoozed,
   snoozed,
   tenantId,
 }: {
@@ -289,6 +298,7 @@ export function RoomMentionMenu({
   muted: boolean;
   name: string;
   roomId: string;
+  roomSnoozed: boolean;
   snoozed: boolean;
   tenantId: string;
 }) {
@@ -302,39 +312,71 @@ export function RoomMentionMenu({
       now,
     );
   }
+  function snoozeRoom(choice: RoomSnoozeChoice) {
+    const now = new Date();
+    setRoomSnooze(accountId, roomId, roomSnoozeUntil(choice, now), now);
+  }
+  const mentionItems: ActionMenuItem[] = muted
+    ? [
+        {
+          icon: <Icon icon={BellIcon} size={14} />,
+          label: "Unmute mentions",
+          onSelect: () => unmuteRoomMention(accountId, roomId),
+          separatorBefore: true,
+        },
+      ]
+    : [
+        {
+          icon: <Icon icon={Clock01Icon} size={14} />,
+          label: "Snooze mentions for 1 hour",
+          onSelect: () => snooze("hour"),
+        },
+        {
+          icon: <Icon icon={AlarmClockIcon} size={14} />,
+          label: "Snooze mentions until tomorrow morning",
+          onSelect: () => snooze("morning"),
+        },
+        ...(snoozed
+          ? [
+              {
+                icon: <Icon icon={BellOffIcon} size={14} />,
+                label: "Turn off snoozing",
+                onSelect: () =>
+                  clearRoomMentionSnooze(accountId, roomId, new Date()),
+                separatorBefore: true,
+              },
+            ]
+          : []),
+      ];
+  const roomItems: ActionMenuItem[] = roomSnoozed
+    ? [
+        {
+          icon: <Icon icon={BellIcon} size={14} />,
+          label: "Bring Room back",
+          onSelect: () => clearRoomSnooze(accountId, roomId, new Date()),
+          separatorBefore: true,
+        },
+      ]
+    : [
+        {
+          icon: <Icon icon={Clock01Icon} size={14} />,
+          label: "Snooze Room for 1 hour",
+          onSelect: () => snoozeRoom("hour"),
+          separatorBefore: true,
+        },
+        {
+          icon: <Icon icon={Moon02Icon} size={14} />,
+          label: "Snooze Room until tomorrow morning",
+          onSelect: () => snoozeRoom("morning"),
+        },
+      ];
   const items: ActionMenuItem[] = [
     ...roomMarkReadItems(markRead, roomId, markReadThrough),
+    ...mentionItems,
+    ...roomItems,
     ...(muted
-      ? [
-          {
-            icon: <Icon icon={BellIcon} size={14} />,
-            label: "Unmute mentions",
-            onSelect: () => unmuteRoomMention(accountId, roomId),
-            separatorBefore: true,
-          },
-        ]
+      ? []
       : [
-          {
-            icon: <Icon icon={Clock01Icon} size={14} />,
-            label: "Snooze mentions for 1 hour",
-            onSelect: () => snooze("hour"),
-          },
-          {
-            icon: <Icon icon={AlarmClockIcon} size={14} />,
-            label: "Snooze mentions until tomorrow morning",
-            onSelect: () => snooze("morning"),
-          },
-          ...(snoozed
-            ? [
-                {
-                  icon: <Icon icon={BellOffIcon} size={14} />,
-                  label: "Turn off snoozing",
-                  onSelect: () =>
-                    clearRoomMentionSnooze(accountId, roomId, new Date()),
-                  separatorBefore: true,
-                },
-              ]
-            : []),
           {
             icon: <Icon icon={BellOffIcon} size={14} />,
             label: "Mute mentions",

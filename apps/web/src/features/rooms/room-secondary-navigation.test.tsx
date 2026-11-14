@@ -25,6 +25,7 @@ import { TeamHubTestServer } from "@/test/teamhub-test-server";
 import * as avatarImages from "./members/actor-avatar-image";
 import { writeRoomComposerDraft, type RoomComposerDraft } from "./room-drafts";
 import { RoomSecondaryNavigation } from "./room-secondary-navigation";
+import { ROOM_SNOOZE_HOUR_MS } from "./room-snooze";
 
 /** Row actions read the Room list cache and the runtime client. */
 function NavigationProviders({ children }: { children: ReactNode }) {
@@ -1146,6 +1147,8 @@ describe("Room navigation mention snooze", () => {
     ).toEqual([
       "Snooze mentions for 1 hour",
       "Snooze mentions until tomorrow morning",
+      "Snooze Room for 1 hour",
+      "Snooze Room until tomorrow morning",
       "Mute mentions",
     ]);
     fireEvent.click(
@@ -1246,12 +1249,16 @@ describe("Room navigation mention snooze", () => {
     const mutedMenu = await screen.findByRole("menu", {
       name: "More actions for room-a",
     });
-    // A muted Room hides the snooze choices instead of offering both.
+    // A muted Room hides the mention snooze choices instead of offering both.
     expect(
       within(mutedMenu)
         .getAllByRole("menuitem")
         .map((item) => item.textContent),
-    ).toEqual(["Unmute mentions"]);
+    ).toEqual([
+      "Unmute mentions",
+      "Snooze Room for 1 hour",
+      "Snooze Room until tomorrow morning",
+    ]);
     fireEvent.click(
       within(mutedMenu).getByRole("menuitem", { name: "Unmute mentions" }),
     );
@@ -1265,6 +1272,187 @@ describe("Room navigation mention snooze", () => {
     ).toEqual({});
   });
 });
+describe("Room navigation snooze", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  function renderList(rooms: TeamHubRoomListItem[], activeRoomId?: string) {
+    return render(
+      <MemoryRouter>
+        <RoomSecondaryNavigation
+          accountId="account-a"
+          activeRoomId={activeRoomId}
+          onCloseMobile={() => undefined}
+          onCreateRoom={() => undefined}
+          rooms={rooms}
+          tenant={{
+            created_at: "2026-07-24T09:00:00Z",
+            id: "tenant-a",
+            name: "Northstar",
+          }}
+        />
+      </MemoryRouter>,
+    );
+  }
+
+  async function openMenu(name: string) {
+    fireEvent.click(
+      screen.getByRole("button", { name: `More actions for ${name}` }),
+    );
+    return screen.findByRole("menu", { name: `More actions for ${name}` });
+  }
+
+  it("snoozes a Room for an hour from its row menu", async () => {
+    renderList([room("room-a", 0, 0), room("room-b", 2, 1)]);
+    const menu = await openMenu("room-b");
+    fireEvent.click(
+      within(menu).getByRole("menuitem", {
+        name: "Snooze Room for 1 hour",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByRole("link", { name: "room-b" })).toBeNull(),
+    );
+    const stored = JSON.parse(
+      localStorage.getItem("room-snooze.v1:account-a")!,
+    ) as Record<string, string>;
+    const remaining = Date.parse(stored["room-b"]!) - Date.now();
+    expect(remaining).toBeGreaterThan(ROOM_SNOOZE_HOUR_MS - 5_000);
+    expect(remaining).toBeLessThanOrEqual(ROOM_SNOOZE_HOUR_MS);
+    expect(
+      screen.getByRole("button", { name: "1 snoozed Room" }),
+    ).toBeVisible();
+  });
+
+  it("snoozes a Room until tomorrow morning", async () => {
+    renderList([room("room-a", 0, 0)]);
+    const menu = await openMenu("room-a");
+    fireEvent.click(
+      within(menu).getByRole("menuitem", {
+        name: "Snooze Room until tomorrow morning",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByRole("link", { name: "room-a" })).toBeNull(),
+    );
+    const morning = new Date();
+    morning.setHours(8, 0, 0, 0);
+    if (morning <= new Date()) morning.setDate(morning.getDate() + 1);
+    expect(
+      JSON.parse(localStorage.getItem("room-snooze.v1:account-a")!)["room-a"],
+    ).toBe(morning.toISOString());
+  });
+
+  it("keeps the active Room visible and brings it back from its menu", async () => {
+    renderList([room("room-a", 0, 0), room("room-b", 0, 0)], "room-b");
+    let menu = await openMenu("room-b");
+    fireEvent.click(
+      within(menu).getByRole("menuitem", {
+        name: "Snooze Room for 1 hour",
+      }),
+    );
+
+    expect(screen.getByRole("link", { name: "room-b" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /snoozed Room/ })).toBeNull();
+
+    menu = await openMenu("room-b");
+    fireEvent.click(
+      within(menu).getByRole("menuitem", { name: "Bring Room back" }),
+    );
+
+    await waitFor(() =>
+      expect(
+        JSON.parse(localStorage.getItem("room-snooze.v1:account-a")!),
+      ).toEqual({}),
+    );
+    menu = await openMenu("room-b");
+    expect(
+      within(menu).getByRole("menuitem", { name: "Snooze Room for 1 hour" }),
+    ).toBeVisible();
+    expect(
+      within(menu).queryByRole("menuitem", { name: "Bring Room back" }),
+    ).toBeNull();
+  });
+
+  it("lists snoozed Rooms in one collapsed line and brings one back", async () => {
+    renderList([
+      room("room-a", 0, 0),
+      room("room-b", 3, 1),
+      room("room-c", 0, 0),
+    ]);
+    for (const name of ["room-b", "room-c"]) {
+      const menu = await openMenu(name);
+      fireEvent.click(
+        within(menu).getByRole("menuitem", {
+          name: "Snooze Room for 1 hour",
+        }),
+      );
+      await waitFor(() =>
+        expect(screen.queryByRole("link", { name })).toBeNull(),
+      );
+    }
+
+    const line = screen.getByRole("button", { name: "2 snoozed Rooms" });
+    expect(line).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.queryByRole("button", { name: "Bring back room-b" }),
+    ).toBeNull();
+
+    fireEvent.click(line);
+    expect(line).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByRole("button", { name: "Bring back room-b" }),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Bring back room-b" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "1 snoozed Room" }),
+      ).toBeVisible(),
+    );
+    const restored = screen.getByRole("link", { name: "room-b" });
+    expect(restored).toBeVisible();
+    // Snoozing only hid the row; its unread numbers come back unchanged.
+    expect(within(restored).getByTitle("1 unread mention")).toBeVisible();
+  });
+
+  it("keeps Room snoozing separate from mention snoozing", async () => {
+    renderList([room("room-a", 2, 1)]);
+    let menu = await openMenu("room-a");
+    fireEvent.click(
+      within(menu).getByRole("menuitem", {
+        name: "Snooze mentions for 1 hour",
+      }),
+    );
+
+    expect(await screen.findByText("Snoozed")).toBeVisible();
+    expect(screen.getByRole("link", { name: "room-a" })).toBeVisible();
+    expect(localStorage.getItem("room-snooze.v1:account-a")).toBeNull();
+
+    menu = await openMenu("room-a");
+    fireEvent.click(
+      within(menu).getByRole("menuitem", {
+        name: "Snooze Room for 1 hour",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByRole("link", { name: "room-a" })).toBeNull(),
+    );
+    const mentionStored = JSON.parse(
+      localStorage.getItem("room-mention-snooze.v1:account-a")!,
+    ) as Record<string, string>;
+    expect(Date.parse(mentionStored["room-a"]!)).toBeGreaterThan(Date.now());
+    expect(
+      screen.getByRole("button", { name: "1 snoozed Room" }),
+    ).toBeVisible();
+  });
+});
+
 describe("Room navigation draft hint", () => {
   beforeEach(() => {
     localStorage.clear();
