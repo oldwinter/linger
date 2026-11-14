@@ -59,6 +59,7 @@ import {
 
 import { writeRoomComposerDraft } from "../room-drafts";
 import * as documentRoutePreload from "../documents/document-route-preload";
+import { messageQuoteText } from "./message-quote";
 import { RoomChat } from "./room-chat";
 import { roomMessageSender } from "./room-message-sender";
 import { browserRoomMessageOutbox } from "./room-message-outbox";
@@ -2063,6 +2064,73 @@ describe("Room Chat", () => {
     expect(router.state.location.search).toBe("");
   });
 
+  it("creates a Work Item issue from a Message draft", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const raw =
+      "I moved the launch notes into Shared Documents. @codex, please review the release checklist.";
+    const create = vi.fn<TestRouteHandler>(() => ({
+      assignees: [],
+      created_at: "2026-07-23T10:00:00Z",
+      created_by: runtime.seed.actors[0]!,
+      description: "",
+      explicit_access_grants: [],
+      id: "workitem-from-message",
+      kind: "issue",
+      number: 43,
+      priority: "medium",
+      referenced_actors: [],
+      state: "open",
+      tenant_id: "tenant-northstar",
+      title: raw,
+      updated_at: "2026-07-23T10:00:00Z",
+      updated_by: runtime.seed.actors[0]!,
+      version: 1,
+    }));
+    runtime.server.on("POST", "/v0/tenants/{tenantId}/work-items", create);
+
+    const router = renderRoomChat(runtime, testQueryClient());
+
+    const body = await screen.findByText(/I moved the launch notes/);
+    fireEvent.click(
+      within(body.closest("article")!).getByRole("button", {
+        name: "More message actions",
+      }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Create issue" }));
+
+    const description = messageQuoteText({
+      authorName: "Maya Chen",
+      createdAt: "2026-07-23T09:12:00Z",
+      message: raw,
+    });
+    const dialog = screen.getByRole("dialog", { name: "New issue" });
+    expect(within(dialog).getByLabelText("Title")).toHaveValue(raw);
+    expect(within(dialog).getByLabelText("Description")).toHaveValue(
+      description,
+    );
+    expect(
+      within(dialog).getByRole("combobox", { name: "Origin Room" }),
+    ).toHaveTextContent("#all");
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Create issue" }),
+    );
+
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(create.mock.calls[0]![0].body).toEqual({
+      description,
+      kind: "issue",
+      origin_room_id: "room-all",
+      priority: "medium",
+      title: raw,
+    });
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(
+        "/t/tenant-northstar/dashboard/workitem-from-message",
+      ),
+    );
+  });
+
   it("keeps Human avatars static while names mention and Agent avatars open Agent info", async () => {
     const runtime = createTestTeamHubRuntime();
 
@@ -2643,6 +2711,10 @@ function renderRoomChat(
       {
         element: <p>Unified Document</p>,
         path: "/t/:tenantId/documents/:documentId",
+      },
+      {
+        element: <p>Work Item dashboard</p>,
+        path: "/t/:tenantId/dashboard/:workItemId",
       },
     ],
     {

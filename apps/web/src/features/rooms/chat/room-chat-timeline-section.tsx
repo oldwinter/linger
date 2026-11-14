@@ -28,6 +28,7 @@ export function RoomChatTimelineSection({
     members,
     messages,
     navigation,
+    setCreateIssueMessage,
     setForwardMessage,
     tenantId,
   } = data;
@@ -103,6 +104,7 @@ export function RoomChatTimelineSection({
       onTogglePin={conversation.togglePin}
       pinnedMessageIds={conversation.pinnedMessageIds}
       actorKinds={actions.actorKinds}
+      onCreateIssueMessage={setCreateIssueMessage}
       onForwardMessage={setForwardMessage}
       onMentionAuthor={interactions.mentionAuthor}
       onOpenMessageFile={navigation.openMessageFile}

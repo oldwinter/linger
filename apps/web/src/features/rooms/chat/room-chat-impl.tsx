@@ -1,4 +1,6 @@
 import { FileDropTarget } from "@/components/ui/file-drop-target";
+import { WorkItemCreateDialog } from "@/features/work-items/work-item-create-dialog";
+import { messageWorkItemDraft } from "@/features/work-items/work-item-create-draft";
 
 import { MessageForwardDialog } from "./message-forward-dialog";
 import { RoomReadStateSync } from "./room-read-state-sync";
@@ -16,7 +18,16 @@ export function RoomChatImpl() {
   const data = useRoomChatData();
   const state = useRoomChatConversationState(data);
   const actions = useRoomChatTimelineActions(data, state);
-  const { client, forwardMessage, roomId, setForwardMessage, tenantId } = data;
+  const {
+    client,
+    createIssueMessage,
+    forwardMessage,
+    room,
+    roomId,
+    setCreateIssueMessage,
+    setForwardMessage,
+    tenantId,
+  } = data;
   const { currentActor, interactions, onboarding, timeline } = state;
   return (
     <div className="room-chat-layout flex min-h-0 flex-1">
@@ -46,6 +57,21 @@ export function RoomChatImpl() {
             client={client}
             message={forwardMessage}
             onClose={() => setForwardMessage(null)}
+            tenantId={tenantId}
+          />
+        ) : null}
+        {createIssueMessage ? (
+          <WorkItemCreateDialog
+            initial={messageWorkItemDraft({
+              authorName:
+                actions.actorDisplayNames[createIssueMessage.author.id] ??
+                createIssueMessage.author.display_name,
+              createdAt: createIssueMessage.created_at,
+              message: createIssueMessage.raw_message,
+              roomId: createIssueMessage.room_id,
+            })}
+            onClose={() => setCreateIssueMessage(null)}
+            rooms={[{ id: room.id, kind: room.kind, name: room.name }]}
             tenantId={tenantId}
           />
         ) : null}

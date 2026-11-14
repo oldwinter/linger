@@ -16,12 +16,14 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 
 import {
+  WORK_ITEM_TITLE_LIMIT,
+  type WorkItemCreateDraft,
+} from "./work-item-create-draft";
+import {
   tenantWorkItemsDashboardQueryPrefix,
   tenantWorkItemTargetQueryKey,
 } from "./work-item-queries";
 import { dashboardWorkItemPath } from "./work-item-routes";
-
-const TITLE_LIMIT = 240;
 
 const priorities: readonly TeamHubWorkItemPriority[] = [
   "low",
@@ -74,10 +76,13 @@ export function WorkItemCreateAction({
 }
 
 export function WorkItemCreateDialog({
+  initial,
   onClose,
   rooms,
   tenantId,
 }: {
+  /** Values another surface already knows, such as a Message's draft. */
+  initial?: WorkItemCreateDraft;
   onClose: () => void;
   rooms: readonly WorkItemCreateRoom[];
   tenantId: string;
@@ -88,10 +93,10 @@ export function WorkItemCreateDialog({
   const formId = useId();
   const titleInputRef = useRef<HTMLInputElement>(null);
   const idempotency = useRef<{ content: string; key: string } | null>(null);
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [description, setDescription] = useState(initial?.description ?? "");
   const [priority, setPriority] = useState<TeamHubWorkItemPriority>("medium");
-  const [originRoomId, setOriginRoomId] = useState("");
+  const [originRoomId, setOriginRoomId] = useState(initial?.originRoomId ?? "");
   const createIssue = useMutation({
     mutationFn: (submission: Submission) =>
       teamHubData(
@@ -119,7 +124,7 @@ export function WorkItemCreateDialog({
   });
 
   const trimmedTitle = title.trim();
-  const titleTooLong = trimmedTitle.length > TITLE_LIMIT;
+  const titleTooLong = trimmedTitle.length > WORK_ITEM_TITLE_LIMIT;
   const canSubmit = trimmedTitle.length > 0 && !titleTooLong;
   const failure = createIssue.error
     ? classifyTeamHubCommandFailure(
@@ -129,7 +134,10 @@ export function WorkItemCreateDialog({
       )
     : null;
   const originRooms = rooms
-    .filter((room) => room.kind !== "thread")
+    // A Thread is a reply surface, except when it is the origin already given.
+    .filter(
+      (room) => room.kind !== "thread" || room.id === initial?.originRoomId,
+    )
     .sort((left, right) => left.name.localeCompare(right.name));
 
   useEffect(() => {
@@ -199,7 +207,7 @@ export function WorkItemCreateDialog({
         </label>
         {titleTooLong ? (
           <span className="mt-1 block text-sm text-app-danger" role="alert">
-            A title can be at most {TITLE_LIMIT} characters long.
+            A title can be at most {WORK_ITEM_TITLE_LIMIT} characters long.
           </span>
         ) : null}
 

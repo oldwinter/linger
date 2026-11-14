@@ -133,6 +133,7 @@ interface MessageTimelineProps {
   onOpenDirectChat?: (actorId: string) => void;
   onOpenUrl?: (url: string) => void;
   onMentionAuthor?: (actor: TeamHubActorRef) => void;
+  onCreateIssueMessage?: (message: TeamHubMessage) => void;
   onForwardMessage?: (message: TeamHubMessage) => void;
   onReply?: (message: TeamHubMessage) => void;
   onToggleReaction?: (
@@ -184,6 +185,7 @@ export function MessageTimeline({
   onOpenDirectChat,
   onOpenUrl,
   onMentionAuthor,
+  onCreateIssueMessage,
   onForwardMessage,
   onReply,
   onToggleReaction,
@@ -299,6 +301,7 @@ export function MessageTimeline({
           onOpenUrl={onOpenUrl}
           onOpenThread={onOpenThread}
           onMentionAuthor={onMentionAuthor}
+          onCreateIssueMessage={onCreateIssueMessage}
           onForwardMessage={onForwardMessage}
           onReply={onReply}
           onToggleReaction={onToggleReaction}
