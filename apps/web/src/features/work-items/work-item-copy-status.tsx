@@ -3,15 +3,18 @@ import { cn } from "@/lib/cn";
 import type { WorkItemCopyState } from "./use-work-item-copy";
 
 /**
- * The copy outcome, anchored under the control that copied. Failure is spelled
+ * An action's outcome, anchored under the control that ran. Failure is spelled
  * out rather than left to an icon so it cannot pass for success.
  */
 export function WorkItemCopyStatus({
   copiedLabel = "Link copied",
+  failedLabel = "Copy failed",
   state,
 }: {
-  /** What the successful copy wrote; the failure line is the same for all. */
+  /** What the successful action wrote; the failure line is shared. */
   copiedLabel?: string;
+  /** What the action says when it was refused; copies say so by default. */
+  failedLabel?: string;
   state: WorkItemCopyState;
 }) {
   if (state === "idle") return null;
@@ -23,7 +26,7 @@ export function WorkItemCopyStatus({
       )}
       role="status"
     >
-      {state === "copied" ? copiedLabel : "Copy failed"}
+      {state === "copied" ? copiedLabel : failedLabel}
     </span>
   );
 }

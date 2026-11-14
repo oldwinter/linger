@@ -46,6 +46,8 @@ import {
   type WorkItemDashboardPriority,
 } from "./work-item-dashboard-filters";
 import { WorkItemBoardCopyAction } from "./work-item-board-copy-action";
+import { workItemBoardCsv } from "./work-item-board-csv";
+import { WorkItemBoardCsvAction } from "./work-item-board-csv-action";
 import { workItemBoardMarkdown } from "./work-item-board-markdown";
 import { WorkItemCardMenu } from "./work-item-card-menu";
 import {
@@ -227,14 +229,23 @@ export function WorkItemsPage() {
       (item) => dashboardColumnFor(item) === column.id,
     ),
   }));
+  const exportSections = boardSections.map(
+    ({ column, items: columnItems }) => ({
+      items: columnItems,
+      label: column.label,
+    }),
+  );
   const boardMarkdown = workItemBoardMarkdown({
     filters: activeFilterLabels(filters, roomFilter.options),
     origin: window.location.origin,
-    sections: boardSections.map(({ column, items: columnItems }) => ({
-      items: columnItems,
-      label: column.label,
-    })),
+    sections: exportSections,
     sortLabel: sortLabels[sort],
+    tenantId,
+  });
+  const boardCsv = workItemBoardCsv({
+    origin: window.location.origin,
+    roomLabel: roomFilter.originLabel,
+    sections: exportSections,
     tenantId,
   });
 
@@ -268,6 +279,10 @@ export function WorkItemsPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <WorkItemBoardCsvAction
+              csv={boardCsv}
+              disabled={!filteredItems.length}
+            />
             <WorkItemBoardCopyAction markdown={boardMarkdown} />
             <WorkItemCreateAction rooms={rooms.items} tenantId={tenantId} />
           </div>
