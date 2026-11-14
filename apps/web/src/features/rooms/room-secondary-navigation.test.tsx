@@ -41,6 +41,43 @@ function render(ui: ReactElement) {
 }
 
 describe("RoomSecondaryNavigation attention", () => {
+  it("shows the away recap above the Room rows", () => {
+    localStorage.removeItem("away-recap-dismissed.v1:account-a:tenant-a");
+    render(
+      <MemoryRouter initialEntries={["/t/tenant-a/rooms/room-active/chat"]}>
+        <Routes>
+          <Route
+            element={
+              <RoomSecondaryNavigation
+                accountId="account-a"
+                activeRoomId="room-active"
+                onCloseMobile={() => undefined}
+                onCreateRoom={() => undefined}
+                rooms={[room("room-active", 4, 2), room("room-waiting", 3, 1)]}
+                tenant={{
+                  created_at: "2026-07-24T09:00:00Z",
+                  id: "tenant-a",
+                  name: "Northstar",
+                }}
+              />
+            }
+            path="/t/:tenantId/rooms/:roomId/chat"
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const recap = screen.getByRole("region", { name: "While you were away" });
+    expect(recap).toHaveTextContent("3 new messages in 1 room, 1 mention");
+    const messages = screen
+      .getByRole("heading", { name: "Messages" })
+      .closest("section")!;
+    expect(
+      recap.compareDocumentPosition(messages) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it("shows newly created Agents and Rooms first after updates and reloads", () => {
     const olderRoom = {
       ...room("older-room", 0, 0),

@@ -27,6 +27,7 @@ import { searchShortcutLabel } from "@/features/search/search-shortcut";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 
 import { AgentCreateMenu } from "./agent-create-menu";
+import { AwayRecapCard } from "./away-recap-card";
 import type {
   TeamHubRoomListItem,
   TeamHubTenant,
@@ -84,6 +85,7 @@ function usePrefetchTemplateFlow() {
 }
 
 export function RoomSecondaryNavigation({
+  accountId,
   activeRoomId,
   anotherMeRoomId,
   navigationStatus,
@@ -96,6 +98,8 @@ export function RoomSecondaryNavigation({
   runningRoomIds = [],
   tenant,
 }: {
+  /** Scopes the away recap's dismissal to this Account in this Tenant. */
+  accountId?: string;
   activeRoomId?: string;
   anotherMeRoomId?: string;
   navigationStatus?: ReactNode;
@@ -303,6 +307,14 @@ export function RoomSecondaryNavigation({
             land together once everything has settled. */}
         {navigationStatus ?? (
           <>
+            <AwayRecapCard
+              accountId={accountId}
+              activeRoomId={activeRoomId}
+              key={`${accountId}:${tenant.id}`}
+              onNavigate={completeNavigation}
+              rooms={rooms}
+              tenantId={tenant.id}
+            />
             {visibleAnotherMeRoom ? (
               <AnotherMeCard
                 active={visibleAnotherMeRoom.id === activeRoomId}
