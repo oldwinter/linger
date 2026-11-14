@@ -254,6 +254,16 @@ function WikiOverview({
     <>
       <div className="landing-notices">
         <WikiRefreshBanner {...refresh} agentActorId={anotherMe} />
+        {refreshing && previews.length > 0 ? (
+          <p className="mb-6">
+            <Link
+              className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              to={`${base}/writing`}
+            >
+              {`Read ${previews.length} ${previews.length === 1 ? "page" : "pages"} written so far`}
+            </Link>
+          </p>
+        ) : null}
       </div>
       <div className="landing-grid">
         <div className="landing-col landing-col-left">

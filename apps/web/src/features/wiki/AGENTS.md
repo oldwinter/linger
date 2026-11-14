@@ -11,6 +11,8 @@
   Documents or bypass Wiki source versioning.
 - A Wiki page is a read-only Markdown file Document: open it with the file preview and the knowledge presentation, never a collaboration session.
 - Web observes generation state. It does not call LLM Wiki directly or orchestrate compilation.
+  While a refresh is writing pages, Read pages written so far walks those
+  previews one at a time and opens each page before it is published.
 
 - Wiki navigation owns Profile, Timeline, Projects, Topics, People, and Companies. Timeline, People
   and Companies are the display labels for the existing `graph`, `contacts` and

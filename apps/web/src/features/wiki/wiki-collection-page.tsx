@@ -20,6 +20,7 @@ import {
 } from "./wiki-home-page";
 import { type WikiEntry, wikiPreviewPages } from "./wiki-preview-pages";
 import { usePersonalWikiRefresh } from "./wiki-refresh";
+import { WikiWritingWalk } from "./wiki-writing-walk-page";
 
 const GraphPage = lazy(async () => {
   const { WikiGraphPage } = await import("@/features/memory/wiki-graph-page");
@@ -37,6 +38,7 @@ export function WikiCollectionPage() {
         to={`/t/${encodeURIComponent(tenantId)}/library/wiki`}
       />
     );
+  if (collection === "writing") return <WikiWritingWalk />;
   if (collection === "graph")
     return (
       <Suspense

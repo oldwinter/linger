@@ -117,5 +117,8 @@ it("shows the pages a refresh has written as ordinary cards that open as pages",
   expect(screen.getByRole("status")).toHaveTextContent(
     "Another Me is writing your Wiki",
   );
+  expect(
+    screen.getByRole("link", { name: "Read 2 pages written so far" }),
+  ).toHaveAttribute("href", "/t/tenant-northstar/library/wiki/writing");
   expect(screen.queryByText("No topics yet.")).toBeNull();
 });
