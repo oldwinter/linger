@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import { Suspense } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createAppQueryClient } from "@/app/query-client";
 import {
@@ -16,10 +16,20 @@ import {
 } from "@/test/teamhub-test-runtime";
 import { teamHubErrorResponse } from "@/test/teamhub-test-server";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
+import { writeClipboardText } from "@/lib/clipboard";
 
 import { RoomMembersSection } from "./room-members-section";
 
+vi.mock("@/lib/clipboard", () => ({ writeClipboardText: vi.fn() }));
+
+const copy = vi.mocked(writeClipboardText);
+
 describe("RoomMembersSection", () => {
+  beforeEach(() => {
+    copy.mockReset();
+    copy.mockResolvedValue(undefined);
+  });
+
   afterEach(() => onlineManager.setOnline(true));
 
   it("issues Add member when the browser connectivity manager reports offline", async () => {
@@ -168,7 +178,9 @@ describe("RoomMembersSection", () => {
 
     renderPanel(runtime);
     await screen.findByRole("region", { name: "Room members" });
-    fireEvent.click(screen.getByRole("button", { name: "Remove Codex" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Remove Codex" }),
+    );
 
     const confirmation = screen.getByRole("dialog", {
       name: "Remove Codex?",
@@ -216,7 +228,9 @@ describe("RoomMembersSection", () => {
 
     renderPanel(runtime);
     await screen.findByRole("region", { name: "Room members" });
-    fireEvent.click(screen.getByRole("button", { name: "Remove Codex" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Remove Codex" }),
+    );
     const confirmation = screen.getByRole("dialog", {
       name: "Remove Codex?",
     });
@@ -278,6 +292,83 @@ describe("RoomMembersSection", () => {
       within(dialog).queryByText("@jenny_delegate"),
     ).not.toBeInTheDocument();
   });
+
+  it("copies the Room's members as Markdown in the order shown", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMembers(runtime);
+
+    renderPanel(runtime);
+    await screen.findByRole("region", { name: "Room members" });
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Copy members" }),
+    );
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Copied");
+    expect(copy).toHaveBeenCalledOnce();
+    expect(copy).toHaveBeenCalledWith(
+      [
+        "# Design",
+        "",
+        "- Jenny Bin (Human)",
+        "- Maya Chen (Human)",
+        "- Codex (Agent)",
+        "- Lev8 GTM (Agent)",
+        "- Jenny's Delegate (Agent)",
+      ].join("\n"),
+    );
+  });
+
+  it("keeps Copy members disabled while the member list loads", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMembers(runtime);
+    runtime.server.on(
+      "GET",
+      "/v0/rooms/{roomId}/members",
+      () => new Promise(() => undefined),
+    );
+
+    renderPanel(runtime);
+
+    expect(
+      await screen.findByRole("button", { name: "Copy members" }),
+    ).toBeDisabled();
+    expect(copy).not.toHaveBeenCalled();
+  });
+
+  it("keeps Copy members disabled when the Room has no members", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMembers(runtime);
+    runtime.server.on("GET", "/v0/rooms/{roomId}/members", () => ({
+      items: [],
+      page: { has_more: false },
+    }));
+
+    renderPanel(runtime);
+    const control = await screen.findByRole("button", {
+      name: "Copy members",
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByText("Loading members...")).not.toBeInTheDocument(),
+    );
+    expect(control).toBeDisabled();
+    expect(copy).not.toHaveBeenCalled();
+  });
+
+  it("reports a refused clipboard write instead of Copied", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMembers(runtime);
+    copy.mockRejectedValue(new Error("Clipboard is unavailable"));
+
+    renderPanel(runtime);
+    await screen.findByRole("region", { name: "Room members" });
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Copy members" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
+    expect(screen.queryByText("Copied")).toBeNull();
+  });
 });
 
 async function runtimeWithOnlyCurrentMember(
@@ -308,6 +399,7 @@ function renderPanel(
           <RoomMembersSection
             onOpenProfile={callbacks.onOpenProfile}
             roomId={callbacks.roomId ?? "room-all"}
+            roomName="Design"
             tenantId="tenant-northstar"
           />
         </Suspense>

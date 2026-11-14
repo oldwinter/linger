@@ -143,6 +143,7 @@ function RoomSettingsContent({
             <RoomMembersSection
               onOpenProfile={onOpenProfile}
               roomId={room.id}
+              roomName={room.name}
               tenantId={room.tenant_id}
             />
           </Suspense>
