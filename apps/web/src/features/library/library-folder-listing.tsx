@@ -1,6 +1,7 @@
 import type { RoomDocumentMenuActions } from "@/features/rooms/documents/room-document-actions-menu";
 import { Select, SelectItem } from "@/components/ui/select";
 import type { TeamHubDocumentTreeSummary } from "@/features/teamhub/teamhub-types";
+import type { ReactNode } from "react";
 
 import { documentFileName } from "./document-display-name";
 import {
@@ -27,6 +28,7 @@ export function LibraryFolderListing({
   activeView,
   browsedError,
   browsedPending,
+  bulkBar,
   documentActions,
   documents,
   error,
@@ -38,7 +40,9 @@ export function LibraryFolderListing({
   onFileTypeChange,
   onOpenFolder,
   onSortByChange,
+  onToggleSelected,
   pendingUploads,
+  selectedDocumentIds,
   sortBy,
   tab,
   tenantId,
@@ -47,6 +51,7 @@ export function LibraryFolderListing({
   activeView: { empty: string; label: string };
   browsedError: Error | null;
   browsedPending: boolean;
+  bulkBar?: ReactNode;
   documentActions: (
     document: TeamHubDocumentTreeSummary,
   ) => RoomDocumentMenuActions;
@@ -60,7 +65,9 @@ export function LibraryFolderListing({
   onFileTypeChange: (fileType: string) => void;
   onOpenFolder: (folderId?: string) => void;
   onSortByChange: (sortBy: string) => void;
+  onToggleSelected: (documentId: string) => void;
   pendingUploads: readonly PendingDocumentUpload[];
+  selectedDocumentIds: ReadonlySet<string>;
   sortBy: string;
   tab: Exclude<WorkspaceTab, "meetings">;
   tenantId: string;
@@ -68,6 +75,7 @@ export function LibraryFolderListing({
 }) {
   return (
     <>
+      {bulkBar}
       <div className="workspace-file-filters">
         <Select
           aria-label="File type"
@@ -140,6 +148,7 @@ export function LibraryFolderListing({
         )}
         onCopy={onCopy}
         onOpenFolder={onOpenFolder}
+        onToggleSelected={onToggleSelected}
         pending={browsedPending}
         pendingUploads={
           tab === "owned"
@@ -147,6 +156,7 @@ export function LibraryFolderListing({
             : []
         }
         section={tab === "shared" ? "shared-with-me" : "my-documents"}
+        selectedDocumentIds={selectedDocumentIds}
         tenantId={tenantId}
       />
     </>

@@ -1952,6 +1952,101 @@ describe("Library Documents", () => {
     });
   });
 
+  it("moves selected Library documents with one folder picker and rereads once", async () => {
+    const runtime = await signedInRuntime();
+    const alpha = seedNativeDocument(runtime, "bulk-move-alpha");
+    alpha.title = "Alpha plan";
+    const bravo = seedNativeDocument(runtime, "bulk-move-bravo");
+    bravo.title = "Bravo plan";
+    const folder = seedFolder(runtime, "bulk-move-folder", { name: "Archive" });
+    renderPage(runtime);
+
+    const files = await screen.findByLabelText("My pages documents");
+    fireEvent.click(
+      within(files).getByRole("checkbox", { name: "Select Alpha plan.md" }),
+    );
+    fireEvent.click(
+      within(files).getByRole("checkbox", { name: "Select Bravo plan.md" }),
+    );
+    expect(
+      screen.getByRole("group", { name: "Selected documents" }),
+    ).toHaveTextContent("2 selected");
+
+    fireEvent.click(screen.getByRole("button", { name: "Move to folder" }));
+    const dialog = screen.getByRole("dialog", {
+      name: "Move 2 documents to…",
+    });
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Select Archive" }),
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move here" }));
+
+    await waitFor(() => {
+      expect(documentSeeds(runtime).tree.items).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            document_id: alpha.id,
+            parent_id: folder.id,
+          }),
+          expect.objectContaining({
+            document_id: bravo.id,
+            parent_id: folder.id,
+          }),
+        ]),
+      );
+    });
+    expect(await screen.findByText("Moved 2 documents.")).toBeVisible();
+    expect(screen.queryByText("2 selected")).toBeNull();
+  });
+
+  it("keeps failed rows selected when a bulk trash partially fails", async () => {
+    const runtime = await signedInRuntime();
+    const alpha = seedNativeDocument(runtime, "bulk-trash-alpha");
+    alpha.title = "Alpha plan";
+    const bravo = seedNativeDocument(runtime, "bulk-trash-bravo");
+    bravo.title = "Bravo plan";
+    const trashed: string[] = [];
+    runtime.server.on("DELETE", "/v0/documents/{documentId}", ({ params }) => {
+      const documentId = params.documentId!;
+      if (documentId === alpha.id) {
+        return teamHubErrorResponse(503, "DOCUMENT_DELETION_UNAVAILABLE");
+      }
+      trashed.push(documentId);
+      const document = documentSeeds(runtime).documents.get(documentId);
+      if (document) showDocument(runtime, { ...document, status: "trashed" });
+      return undefined;
+    });
+    renderPage(runtime);
+
+    const files = await screen.findByLabelText("My pages documents");
+    fireEvent.click(
+      within(files).getByRole("checkbox", { name: "Select Alpha plan.md" }),
+    );
+    fireEvent.click(
+      within(files).getByRole("checkbox", { name: "Select Bravo plan.md" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Trash" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Delete Document?",
+    });
+    expect(dialog).toHaveTextContent("2 documents will be deleted");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Moved to trash 1 of 2 documents. Failed: Alpha plan.",
+    );
+    expect(trashed).toEqual([bravo.id]);
+    const remaining = await screen.findByLabelText("My pages documents");
+    expect(
+      within(remaining).getByRole("checkbox", { name: "Select Alpha plan.md" }),
+    ).toBeChecked();
+    expect(
+      within(remaining).queryByRole("checkbox", {
+        name: "Select Bravo plan.md",
+      }),
+    ).toBeNull();
+  });
+
   it("uses one unclipped action menu per Folder and Document with typed items", async () => {
     const runtime = await signedInRuntime();
     seedFolder(runtime, "menu-folder-create", { name: "Plans" });
