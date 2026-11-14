@@ -2502,7 +2502,7 @@ describe("Room Message timeline cards", () => {
     expect(screen.queryByText("Live activities")).toBeNull();
   });
 
-  it("keeps Copy link, Forward, Reply, and Reply to thread in the More message menu", () => {
+  it("keeps Copy text, Copy link, Forward, Reply, and Reply to thread in the More message menu", () => {
     const message = ordinaryAgentMessage();
     renderTimeline(message, {
       onForwardMessage: vi.fn(),
@@ -2519,6 +2519,7 @@ describe("Room Message timeline cards", () => {
       screen.getAllByRole("menuitem").map((item) => item.textContent),
     ).toEqual([
       "Copy link",
+      "Copy text",
       "Forward message",
       "Reply to message",
       "Reply to thread",

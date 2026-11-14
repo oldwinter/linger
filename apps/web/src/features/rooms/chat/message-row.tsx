@@ -71,6 +71,7 @@ import {
   type MessageTextBlock,
 } from "./message-body-blocks";
 import { messageQuoteText } from "./message-quote";
+import { messagePlainText } from "./message-plain-text";
 import { MessageCard } from "./message-card";
 import { MessageHtmlFragment } from "./message-html-fragment";
 import { MessageMarkdown } from "./message-markdown";
@@ -825,6 +826,9 @@ function ConversationMessageActions({
   const [quoteState, setQuoteState] = useState<"idle" | "copied" | "failed">(
     "idle",
   );
+  const [textCopy, setTextCopy] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const runtime = useOptionalTeamHubRuntime();
   const queryClient = useQueryClient();
@@ -844,6 +848,12 @@ function ConversationMessageActions({
     );
     return () => window.clearTimeout(timer);
   }, [pocketSave]);
+
+  useEffect(() => {
+    if (textCopy === "idle") return;
+    const timer = window.setTimeout(() => setTextCopy("idle"), 1200);
+    return () => window.clearTimeout(timer);
+  }, [textCopy]);
 
   function saveToPocketNote() {
     if (!runtime || pocketSaving.current) return;
@@ -876,10 +886,24 @@ function ConversationMessageActions({
       .catch(() => setCopied(false));
   }
 
+  function copyMessageText() {
+    void import("@/lib/clipboard")
+      .then(({ writeClipboardText }) =>
+        writeClipboardText(messagePlainText(message.raw_message)),
+      )
+      .then(() => setTextCopy("copied"))
+      .catch(() => setTextCopy("failed"));
+  }
+
   overflowItems.push({
     icon: <Icon icon={Link01Icon} size={14} />,
     label: "Copy link",
     onSelect: () => copyText(roomMessagePath(tenantId, message)),
+  });
+  overflowItems.push({
+    icon: <Icon icon={Copy01Icon} size={14} />,
+    label: "Copy text",
+    onSelect: copyMessageText,
   });
   if (runtime) {
     overflowItems.push({
@@ -941,6 +965,7 @@ function ConversationMessageActions({
           ? pocketSave
           : undefined
       }
+      data-text-copy-status={textCopy === "idle" ? undefined : textCopy}
       data-reaction-picker-open={reactionPickerOpen || undefined}
     >
       {onToggleReaction ? (
@@ -1024,6 +1049,19 @@ function ConversationMessageActions({
           menuClassName="fixed z-[100] w-48 rounded-md bg-popover p-1 font-(family-name:--app-room-font) text-sm shadow-md"
           trigger={<Icon icon={MoreHorizontalIcon} size={16} />}
         />
+      ) : null}
+      {textCopy === "copied" || textCopy === "failed" ? (
+        <span
+          className={cn(
+            "ml-1 whitespace-nowrap rounded-md px-2 py-1 text-xs leading-[18px]",
+            textCopy === "copied"
+              ? "bg-primary text-primary-foreground"
+              : "border border-[var(--app-status-danger-border)] bg-[var(--app-status-danger-surface)] text-destructive",
+          )}
+          role="status"
+        >
+          {textCopy === "copied" ? "Copied" : "Copy failed"}
+        </span>
       ) : null}
       {pocketSave === "saved" || pocketSave === "failed" ? (
         <span
