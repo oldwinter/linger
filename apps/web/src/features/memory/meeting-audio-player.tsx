@@ -11,7 +11,15 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type SyntheticEvent,
 } from "react";
+
+import {
+  forgetMeetingPosition,
+  readMeetingResume,
+  rememberMeetingPosition,
+  resumablePosition,
+} from "./meeting-resume";
 
 /** "754.2" seconds -> "12:34"; hours appear only when needed. */
 export function formatPlaybackTime(seconds: number) {
@@ -30,6 +38,8 @@ const playbackRates = [0.75, 1, 1.25, 1.5, 2] as const;
 const defaultRate = 1;
 /** Long enough to notice the change was refused, short enough not to linger. */
 const rateNoticeMs = 2000;
+/** Between time-update saves, so scrubbing does not write on every frame. */
+const resumeSaveIntervalMs = 5000;
 
 function rateLabel(rate: number) {
   return `${rate}x`;
@@ -42,6 +52,7 @@ function rateLabel(rate: number) {
  * while it loads.
  */
 export function MeetingAudioPlayer({
+  accountId,
   downloadDisabled,
   filename,
   mediaType,
@@ -50,6 +61,8 @@ export function MeetingAudioPlayer({
   src,
   status,
 }: {
+  /** Whose listening positions this browser remembers; nothing without one. */
+  accountId?: string;
   downloadDisabled?: boolean;
   filename: string;
   mediaType?: string;
@@ -67,28 +80,86 @@ export function MeetingAudioPlayer({
   const [failed, setFailed] = useState(false);
   const [rate, setRate] = useState(defaultRate);
   const [rateNotice, setRateNotice] = useState(false);
+  const [resumeFrom, setResumeFrom] = useState<number>();
   const rateNoticeTimer = useRef<number | undefined>(undefined);
+  const restoredRef = useRef(false);
+  const lastSavedAt = useRef(0);
   const ready = Boolean(src) && !failed;
   const progress = duration ? Math.min(100, (current / duration) * 100) : 0;
 
-  // The element leaves with the player, but a rate must not outlive it.
-  const attachAudio = useCallback((element: HTMLAudioElement | null) => {
-    audioRef.current = element;
-    return () => {
-      if (element) element.playbackRate = defaultRate;
-    };
-  }, []);
+  // The element leaves with the player, but a rate must not outlive it and the
+  // place its listener reached must, so closing the meeting saves it here.
+  const attachAudio = useCallback(
+    (element: HTMLAudioElement | null) => {
+      audioRef.current = element;
+      return () => {
+        if (!element) return;
+        element.playbackRate = defaultRate;
+        rememberMeetingPosition(
+          accountId,
+          meetingId,
+          element.currentTime,
+          Date.now(),
+        );
+      };
+    },
+    [accountId, meetingId],
+  );
 
-  // Another meeting is another recording: the speed choice belongs to this
-  // playback and is never carried over or stored.
+  // Another meeting is another recording: the speed choice and the remembered
+  // position both belong to that one playback and are never carried over.
   useEffect(() => {
     window.clearTimeout(rateNoticeTimer.current);
     setRate(defaultRate);
     setRateNotice(false);
+    setResumeFrom(undefined);
+    restoredRef.current = false;
+    lastSavedAt.current = 0;
     if (audioRef.current) audioRef.current.playbackRate = defaultRate;
-  }, [meetingId]);
+  }, [accountId, meetingId]);
 
   useEffect(() => () => window.clearTimeout(rateNoticeTimer.current), []);
+
+  /** Saves the place now; a position at the very start is no place to return to. */
+  function savePosition(at: number) {
+    if (!accountId || !meetingId) return;
+    if (!Number.isFinite(at) || at <= 0) return;
+    const now = Date.now();
+    rememberMeetingPosition(accountId, meetingId, at, now);
+    lastSavedAt.current = now;
+  }
+
+  /** Applies a remembered place once its metadata supplies the duration. */
+  function restorePosition(audio: HTMLAudioElement) {
+    if (restoredRef.current || !accountId || !meetingId) return;
+    restoredRef.current = true;
+    const entry = readMeetingResume(accountId)[meetingId];
+    const position = entry
+      ? resumablePosition(entry.position, audio.duration)
+      : null;
+    if (position === null) return;
+    audio.currentTime = position;
+    setCurrent(position);
+    setResumeFrom(position);
+  }
+
+  function startFromBeginning() {
+    const audio = audioRef.current;
+    if (audio) audio.currentTime = 0;
+    lastSavedAt.current = 0;
+    setCurrent(0);
+    setResumeFrom(undefined);
+    forgetMeetingPosition(accountId, meetingId);
+  }
+
+  function onTimeUpdate(event: SyntheticEvent<HTMLAudioElement>) {
+    const at = event.currentTarget.currentTime;
+    setCurrent(at);
+    // Scrubbing fires time updates in a burst; one write per interval is enough
+    // to survive a reload, and pause or seek saves land immediately.
+    if (Date.now() - lastSavedAt.current < resumeSaveIntervalMs) return;
+    savePosition(at);
+  }
 
   function toggle() {
     const audio = audioRef.current;
@@ -144,12 +215,19 @@ export function MeetingAudioPlayer({
           }
           onEnded={() => setPlaying(false)}
           onError={() => setFailed(true)}
-          onLoadedMetadata={(event) =>
-            setDuration(event.currentTarget.duration)
-          }
-          onPause={() => setPlaying(false)}
-          onPlay={() => setPlaying(true)}
-          onTimeUpdate={(event) => setCurrent(event.currentTarget.currentTime)}
+          onLoadedMetadata={(event) => {
+            setDuration(event.currentTarget.duration);
+            restorePosition(event.currentTarget);
+          }}
+          onPause={(event) => {
+            setPlaying(false);
+            savePosition(event.currentTarget.currentTime);
+          }}
+          onPlay={() => {
+            setPlaying(true);
+            setResumeFrom(undefined);
+          }}
+          onTimeUpdate={onTimeUpdate}
           preload="metadata"
           ref={attachAudio}
           title={filename}
@@ -194,6 +272,10 @@ export function MeetingAudioPlayer({
             if (!audio) return;
             audio.currentTime = Number(event.target.value);
             setCurrent(audio.currentTime);
+            // Choosing a place by hand takes over from the resumed one.
+            setResumeFrom(undefined);
+            if (audio.currentTime > 0) savePosition(audio.currentTime);
+            else forgetMeetingPosition(accountId, meetingId);
           }}
           step={0.1}
           style={
@@ -202,6 +284,21 @@ export function MeetingAudioPlayer({
           type="range"
           value={current}
         />
+        {resumeFrom !== undefined ? (
+          <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] leading-4 text-app-muted">
+            <span>
+              Resumed at {formatPlaybackTime(resumeFrom)} /{" "}
+              {formatPlaybackTime(duration)}
+            </span>
+            <button
+              className="rounded-sm text-app-link underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+              onClick={startFromBeginning}
+              type="button"
+            >
+              Start from the beginning
+            </button>
+          </p>
+        ) : null}
       </div>
       <Select
         aria-label={`Playback speed, ${rateLabel(rate)}`}

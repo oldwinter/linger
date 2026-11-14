@@ -30,6 +30,9 @@
 - A meeting reader's recording player may change its playback speed for that
   playback only: every meeting opens at 1x, nothing is stored, and a refused
   rate keeps the previous one and says so.
+- A meeting reader's recording player remembers where its listener stopped, per
+  meeting, in this browser only and keyed per Account. The place is offered on
+  reopen, never held by TeamHub, and the This browser settings clear it.
 - A meeting reader may send its summary to a Room as one Message from the
   header's Room picker. That Message copies derived reading state, writes no
   Memory state, and reuses its idempotency key only when retrying the same

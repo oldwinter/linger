@@ -8,6 +8,7 @@ import {
 import { ReadOnlyBlockNoteDocumentLoader } from "@/components/read-only-blocknote-document-loader";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { useQuery } from "@tanstack/react-query";
 import { ArtifactContentRendererLoader } from "@/features/rooms/files/artifact-content-renderer-loader";
 import {
   downloadArtifactPreview,
@@ -15,6 +16,7 @@ import {
   triggerArtifactDownload,
   type LoadedArtifactPreview,
 } from "@/features/rooms/files/artifact-preview-loader";
+import { teamHubIdentityQueryOptions } from "@/features/rooms/room-queries";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 import { MeetingAudioPlayer } from "./meeting-audio-player";
@@ -81,7 +83,12 @@ export function MeetingReader({
   resolveLink?: (reference: string) => string | null | undefined;
   tenantId: string;
 }) {
+  const { client } = useTeamHubRuntime();
   const meeting = entry.meeting!;
+  // The shell already cached this identity, so the reader adds no request; the
+  // listening position belongs to the signed-in Account.
+  const identity = useQuery(teamHubIdentityQueryOptions(client));
+  const accountId = identity.data?.account.id;
   const [deleting, setDeleting] = useState(false);
   const tab: MeetingTab =
     file === "summary" || file === "transcript"
@@ -369,6 +376,7 @@ export function MeetingReader({
             <div className="mt-8">
               <MeetingVersionReader
                 key={meeting.recording_version_id}
+                accountId={accountId}
                 documentId={meeting.recording_document_id}
                 filename={meeting.recording_filename}
                 meetingId={entry.id}
@@ -396,12 +404,15 @@ export function MeetingReader({
  * the transcript as the tab's document, each with its own download.
  */
 function MeetingVersionReader({
+  accountId,
   documentId,
   versionId,
   filename,
   meetingId,
   variant,
 }: {
+  /** Whose listening positions the player remembers. */
+  accountId?: string;
   documentId: string;
   versionId: string;
   filename: string;
@@ -711,6 +722,7 @@ function MeetingVersionReader({
       preview.version.media_type.toLowerCase().startsWith("audio/");
     return (
       <MeetingAudioPlayer
+        accountId={accountId}
         downloadDisabled={!preview || downloading}
         filename={filename}
         mediaType={preview?.version.media_type}
