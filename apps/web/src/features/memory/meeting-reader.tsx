@@ -19,6 +19,7 @@ import {
 } from "./meeting-overview-card";
 import { HideMeetingDialog } from "./hide-meeting-dialog";
 import { formatMeetingWhen, meetingWhen } from "./meetings-calendar";
+import { useMeetingActionTrack } from "./use-meeting-action-track";
 
 const meetingSummaryHiddenSectionTitles = [
   "CRM Evidence Cache",
@@ -60,7 +61,16 @@ export function MeetingReader({
         ? "summary"
         : "transcript";
   const when = meetingWhen(entry.path);
-  // The Session page's H1 is a generated recording ID, not a reader title.
+  // The Session page's H1 is a generated recording ID, not a reader title, so
+  // the page and a staged Action both name it by its date and time.
+  const title = when
+    ? `Meeting · ${formatMeetingWhen(when.date, when.time)}`
+    : entry.title;
+  const trackAction = useMeetingActionTrack({
+    meetingId: entry.id,
+    meetingTitle: title,
+    tenantId,
+  });
   const summaryMarkdown = useMemo(
     () => entry.content.replace(/^#[ \t]+[^\n]*\n?/mu, ""),
     [entry.content],
@@ -91,11 +101,7 @@ export function MeetingReader({
     >
       <header className="mb-4 flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <h2 className="break-words text-xl text-app-ink">
-            {when
-              ? `Meeting · ${formatMeetingWhen(when.date, when.time)}`
-              : entry.title}
-          </h2>
+          <h2 className="break-words text-xl text-app-ink">{title}</h2>
           <p className="mt-1 text-xs text-app-muted">Read only</p>
         </div>
         <Button onClick={() => setDeleting(true)} size="compact" tone="ghost">
@@ -189,6 +195,7 @@ export function MeetingReader({
                     ) : (
                       <MeetingOutcomes
                         key={index}
+                        onTrack={trackAction}
                         outcomes={block.outcomes}
                         title={block.title}
                       />

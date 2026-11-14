@@ -1,6 +1,7 @@
 import { cn } from "@/lib/cn";
 import { BubbleChatIcon } from "@hugeicons/core-free-icons";
 import { Fragment } from "react";
+import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import type { MeetingOutcome, MeetingTopic } from "./meeting-overview";
 
@@ -140,12 +141,16 @@ const outcomeTints: Record<NonNullable<MeetingOutcome["label"]>, string> = {
 
 /**
  * Decisions And Outcomes or Action Items, each entry led by its kind as a
- * tag instead of the `Decision:` / `Completed:` / `Action:` prefix.
+ * tag instead of the `Decision:` / `Completed:` / `Action:` prefix. A Track
+ * button stages an Action in the Another Me Chat; it is absent without a
+ * handler.
  */
 export function MeetingOutcomes({
+  onTrack,
   outcomes,
   title,
 }: {
+  onTrack?: (action: string) => void;
   outcomes: MeetingOutcome[];
   title: string;
 }) {
@@ -182,6 +187,17 @@ export function MeetingOutcomes({
                 </ul>
               ) : null}
             </div>
+            {item.label === "Action" && onTrack ? (
+              <Button
+                aria-label={`Track action: ${item.text}`}
+                className="ml-auto"
+                onClick={() => onTrack(item.text)}
+                size="compact"
+                tone="ghost"
+              >
+                Track
+              </Button>
+            ) : null}
           </li>
         ))}
       </ul>
