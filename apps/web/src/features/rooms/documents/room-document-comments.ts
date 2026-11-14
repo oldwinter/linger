@@ -258,12 +258,12 @@ export class TeamHubDocumentThreadStore extends ThreadStore {
     throw new Error("Document Comment Threads cannot be deleted");
   }
 
-  async resolveThread(): Promise<void> {
-    throw new Error("Document Comment Threads cannot be resolved");
+  async resolveThread(options: { threadId: string }): Promise<void> {
+    await this.#setResolution(options.threadId, true);
   }
 
-  async unresolveThread(): Promise<void> {
-    throw new Error("Document Comment Threads cannot be resolved");
+  async unresolveThread(options: { threadId: string }): Promise<void> {
+    await this.#setResolution(options.threadId, false);
   }
 
   async addReaction(options: {
@@ -372,6 +372,20 @@ export class TeamHubDocumentThreadStore extends ThreadStore {
     this.#upsertThread({ ...thread, comments, updated_at: comment.updated_at });
   }
 
+  async #setResolution(threadId: string, resolved: boolean): Promise<void> {
+    this.#requireDurableThread(threadId);
+    const thread = await teamHubData(
+      this.#client.api.PATCH(
+        "/v0/document-comment-threads/{documentCommentThreadId}",
+        {
+          params: { path: { documentCommentThreadId: threadId } },
+          body: { resolved },
+        },
+      ),
+    );
+    this.#upsertThread(thread);
+  }
+
   async #refreshThread(threadId: string): Promise<void> {
     const thread = await teamHubData(
       this.#client.api.GET(
@@ -433,12 +447,15 @@ class TeamHubDocumentThreadStoreAuth extends ThreadStoreAuth {
     return false;
   }
 
-  canResolveThread(): boolean {
-    return false;
+  // TeamHub resolves or reopens for any Human who can read the Document, and
+  // refuses an orphaned Thread. This store only exists for such a reader, so
+  // the orphan state is the one refusal left to mirror here.
+  canResolveThread(thread: ThreadData): boolean {
+    return !thread.resolved && !isOrphanedThread(thread);
   }
 
-  canUnresolveThread(): boolean {
-    return false;
+  canUnresolveThread(thread: ThreadData): boolean {
+    return thread.resolved && !isOrphanedThread(thread);
   }
 
   canAddReaction(comment: CommentData, emoji?: string): boolean {
@@ -448,6 +465,13 @@ class TeamHubDocumentThreadStoreAuth extends ThreadStoreAuth {
   canDeleteReaction(comment: CommentData, emoji?: string): boolean {
     return !emoji || hasCurrentReaction(comment, emoji, this.currentActorId);
   }
+}
+
+function isOrphanedThread(thread: ThreadData): boolean {
+  return (
+    (thread.metadata as { anchorStatus?: string } | undefined)?.anchorStatus ===
+    "orphaned"
+  );
 }
 
 function projectThread(
@@ -463,6 +487,9 @@ function projectThread(
       anchorStatus: thread.anchor_status,
       ...(attachmentError ? { attachmentError } : {}),
       documentId: thread.document_id,
+      ...(thread.resolved_by
+        ? { resolvedByName: thread.resolved_by.display_name }
+        : {}),
     },
     resolved: thread.resolved,
     ...(thread.resolved_at === undefined
