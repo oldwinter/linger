@@ -153,6 +153,18 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
     });
   }
 
+  function jumpToToday() {
+    setChosen(today);
+    setCollapsed((current) => {
+      const next = new Set(current);
+      next.delete(today);
+      return next;
+    });
+    scrollRef.current
+      ?.querySelector<HTMLElement>(".meeting-today")
+      ?.scrollIntoView({ block: "nearest", inline: "center" });
+  }
+
   function chooseRange(next: MeetingsRange) {
     setChosen(undefined);
     setCollapsed(new Set());
@@ -326,6 +338,15 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
             )}
             <section aria-label={rangeLabel} className="meeting-events">
               <div className="flex flex-wrap items-center gap-3 py-3">
+                {range === "all" ? (
+                  <button
+                    className="inline-flex h-9 shrink-0 items-center rounded-lg border border-border bg-card px-3 text-sm text-foreground hover:border-border-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={jumpToToday}
+                    type="button"
+                  >
+                    Jump to today
+                  </button>
+                ) : null}
                 <label className="flex h-9 w-full items-center gap-2 rounded-lg border border-border bg-card px-3 text-muted-foreground transition-colors hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring/40 sm:w-64">
                   <Icon icon={Search01Icon} size={16} />
                   <input
