@@ -7,15 +7,32 @@ import {
   MailReply01Icon,
   Message01Icon,
   MoreHorizontalIcon,
+  NoteAddIcon,
   RotateLeft01Icon,
   SentIcon,
   SmilePlusIcon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { AnimatePresence, motion } from "motion/react";
-import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
+import { QueryClientContext } from "@tanstack/react-query";
+import {
+  Fragment,
+  memo,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
+import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
+import { useOptionalTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import {
+  pocketCaptureLine,
+  saveMessageLineToPocket,
+  type PocketCaptureStatus,
+} from "../pocket-notes/pocket-note-capture";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { FileTypeIcon } from "@/features/library/workspace-file-icon";
@@ -334,6 +351,7 @@ function ConversationMessageRow({
       onOpenThread={onOpenThread}
       onForwardMessage={onForwardMessage}
       onReply={onReply}
+      tenantId={tenantId}
     />
   );
   const presentationAttachments = Array.isArray(presentation?.attachments)
@@ -772,17 +790,57 @@ function ConversationMessageActions({
   onForwardMessage,
   onReply,
   onToggleReaction,
+  tenantId,
 }: Pick<
   MessageRowProps,
-  "message" | "currentActorId" | "onOpenThread" | "onForwardMessage" | "onReply"
+  | "message"
+  | "currentActorId"
+  | "onOpenThread"
+  | "onForwardMessage"
+  | "onReply"
+  | "tenantId"
 > & {
   hasCardPayload: boolean;
   onToggleReaction?: (reactionId: TeamHubMessageReactionId) => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [pocket, setPocket] = useState<PocketCaptureStatus | "saving" | "idle">(
+    "idle",
+  );
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
+  const runtime = useOptionalTeamHubRuntime();
+  const queryClient = useContext(QueryClientContext);
   const overflowItems: ActionMenuItem[] = [];
+  const pocketLine = pocketCaptureLine(
+    message.author.display_name,
+    markdownPlainText(message.raw_message),
+  );
+  if (runtime && pocketLine) {
+    const pocketLabel =
+      pocket === "saved" || pocket === "already"
+        ? "Saved to Pocket"
+        : pocket === "full"
+          ? "Pocket is full"
+          : "Save to Pocket";
+    overflowItems.push({
+      disabled:
+        pocket === "saving" || pocket === "saved" || pocket === "already",
+      icon: <Icon icon={NoteAddIcon} size={14} />,
+      label: pocketLabel,
+      onSelect: () => {
+        setPocket("saving");
+        void saveMessageLineToPocket(
+          runtime.client,
+          queryClient,
+          tenantId,
+          pocketLine,
+        )
+          .then(setPocket)
+          .catch(() => setPocket("idle"));
+      },
+    });
+  }
 
   if (onForwardMessage) {
     overflowItems.push({
