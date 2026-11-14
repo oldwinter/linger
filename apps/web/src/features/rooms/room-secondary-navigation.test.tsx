@@ -26,7 +26,11 @@ import * as avatarImages from "./members/actor-avatar-image";
 import { writeRoomComposerDraft, type RoomComposerDraft } from "./room-drafts";
 import { clearRoomUnreadFilter } from "./room-unread-filter";
 import { RoomSecondaryNavigation } from "./room-secondary-navigation";
-import { ROOM_SNOOZE_HOUR_MS } from "./room-snooze";
+import {
+  ROOM_SNOOZE_HOUR_MS,
+  clearRoomSnoozes,
+  setRoomSnooze,
+} from "./room-snooze";
 
 /** Row actions read the Room list cache and the runtime client. */
 function NavigationProviders({ children }: { children: ReactNode }) {
@@ -1428,6 +1432,27 @@ describe("Room navigation snooze", () => {
     expect(
       screen.getByRole("button", { name: "1 snoozed Room" }),
     ).toBeVisible();
+  });
+
+  it("brings every snoozed Room back when this browser's preferences are cleared", () => {
+    setRoomSnooze(
+      "account-a",
+      "room-b",
+      new Date(Date.now() + ROOM_SNOOZE_HOUR_MS),
+      new Date(),
+    );
+    renderList([room("room-a", 0, 0), room("room-b", 2, 1)]);
+
+    expect(screen.queryByRole("link", { name: "room-b" })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "1 snoozed Room" }),
+    ).toBeVisible();
+
+    act(() => clearRoomSnoozes());
+
+    expect(screen.getByRole("link", { name: "room-b" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /snoozed Room/ })).toBeNull();
+    expect(localStorage.getItem("room-snooze.v1:account-a")).toBeNull();
   });
 
   it("snoozes a Room until tomorrow morning", async () => {

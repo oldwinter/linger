@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 
 import {
+  removePreferenceKeys,
+  storedPreferenceKeys,
+} from "@/lib/local-preference-keys";
+
+import {
   MENTION_SNOOZE_HOUR_MS,
   nextLocalMorning,
 } from "./room-mention-snooze";
@@ -85,6 +90,17 @@ export function clearDesktopNotificationPause(
   } catch {
     return;
   }
+  window.dispatchEvent(new Event(PAUSE_CHANGED));
+}
+
+/** Whether this browser pauses notifications for any Account. */
+export function hasDesktopNotificationPauses(): boolean {
+  return storedPreferenceKeys([PAUSE_PREFIX]).length > 0;
+}
+
+/** Ends every desktop notification pause in this browser, for every Account. */
+export function clearDesktopNotificationPauses(): void {
+  removePreferenceKeys([PAUSE_PREFIX]);
   window.dispatchEvent(new Event(PAUSE_CHANGED));
 }
 

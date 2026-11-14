@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
 
+import {
+  removePreferenceKeys,
+  storedPreferenceKeys,
+} from "@/lib/local-preference-keys";
+
 import { nextLocalMorning } from "./room-mention-snooze";
 
 const SNOOZE_PREFIX = "room-snooze.v1:";
@@ -130,6 +135,17 @@ export function clearRoomSnooze(
     accountId,
     withoutRoomSnooze(readRoomSnooze(accountId, now), roomId),
   );
+}
+
+/** Whether this browser hides a Room for any Account. */
+export function hasRoomSnoozes(): boolean {
+  return storedPreferenceKeys([SNOOZE_PREFIX]).length > 0;
+}
+
+/** Brings every snoozed Room back in this browser, for every Account. */
+export function clearRoomSnoozes(): void {
+  removePreferenceKeys([SNOOZE_PREFIX]);
+  window.dispatchEvent(new Event(SNOOZE_CHANGED));
 }
 
 export function subscribeRoomSnooze(listener: () => void): () => void {

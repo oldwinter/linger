@@ -413,7 +413,9 @@ describe("Browser preferences", () => {
     "linger.room-composer-draft:account-a:tenant-a:room-a",
     "room-mention-snooze.v1:account-a",
     "room-mention-mute.v1:account-a",
+    "room-snooze.v1:account-a",
     "room-unread-filter.v1:account-a",
+    "desktop-notification-pause.v1:account-a",
     "global-search-recent.v2:tenant-a",
     "library-recent-documents.v1:account-a",
   ];
@@ -433,7 +435,9 @@ describe("Browser preferences", () => {
     ).toEqual([
       "Composer drafts",
       "Room mention snoozes and mutes",
+      "Snoozed Rooms",
       "Unread-only Room list",
+      "Desktop notification pause",
       "Recent searches",
       "Recently opened documents",
     ]);

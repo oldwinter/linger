@@ -8,12 +8,15 @@ import {
 import {
   ROOM_SNOOZE_HOUR_MS,
   clearRoomSnooze,
+  clearRoomSnoozes,
+  hasRoomSnoozes,
   isRoomSnoozed,
   pruneRoomSnooze,
   readRoomSnooze,
   roomSnoozedIds,
   roomSnoozeUntil,
   setRoomSnooze,
+  subscribeRoomSnooze,
   withRoomSnooze,
   withoutRoomSnooze,
   writeRoomSnooze,
@@ -145,6 +148,33 @@ describe("room snooze storage", () => {
       throw new Error("blocked");
     });
     expect(() => writeRoomSnooze(ACCOUNT, {})).not.toThrow();
+  });
+
+  it("reports and clears the snoozes of every Account", () => {
+    const now = new Date("2026-11-15T10:00:00.000Z");
+    expect(hasRoomSnoozes()).toBe(false);
+
+    setRoomSnooze(ACCOUNT, "room-a", new Date("2026-11-15T11:00:00.000Z"), now);
+    setRoomSnooze(
+      "account-b",
+      "room-b",
+      new Date("2026-11-15T11:00:00.000Z"),
+      now,
+    );
+    localStorage.setItem("unrelated", "keep");
+
+    expect(hasRoomSnoozes()).toBe(true);
+    const listener = vi.fn();
+    const stop = subscribeRoomSnooze(listener);
+
+    clearRoomSnoozes();
+    stop();
+
+    expect(hasRoomSnoozes()).toBe(false);
+    expect(readRoomSnooze(ACCOUNT, now)).toEqual({});
+    expect(readRoomSnooze("account-b", now)).toEqual({});
+    expect(localStorage.getItem("unrelated")).toBe("keep");
+    expect(listener).toHaveBeenCalled();
   });
 
   it("leaves the mention snooze untouched", () => {

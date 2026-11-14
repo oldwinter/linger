@@ -1,8 +1,10 @@
 import { useEffect, useId, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { subscribeDesktopNotificationPause } from "@/features/rooms/desktop-notification-pause";
 import { subscribeRoomComposerDrafts } from "@/features/rooms/room-drafts";
 import { subscribeRoomMentionPreferences } from "@/features/rooms/room-mention-snooze";
+import { subscribeRoomSnooze } from "@/features/rooms/room-snooze";
 import { subscribeRoomUnreadFilter } from "@/features/rooms/room-unread-filter";
 
 import { browserPreferences } from "./browser-preferences";
@@ -25,7 +27,9 @@ export function BrowserPreferencesSettings() {
     const stops = [
       subscribeRoomComposerDrafts(refresh),
       subscribeRoomMentionPreferences(refresh),
+      subscribeRoomSnooze(refresh),
       subscribeRoomUnreadFilter(refresh),
+      subscribeDesktopNotificationPause(refresh),
     ];
     refresh();
     return () => {
