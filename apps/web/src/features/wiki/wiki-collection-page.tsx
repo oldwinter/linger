@@ -21,7 +21,8 @@ import {
 import { type WikiEntry, wikiPreviewPages } from "./wiki-preview-pages";
 import { matchWikiPage, wikiSearchText } from "./wiki-page-search";
 import { usePersonalWikiRefresh } from "./wiki-refresh";
-import { wikiDocumentPath } from "./wiki-routes";
+import { wikiDocumentPath, wikiPreviewPath } from "./wiki-routes";
+import { WikiCollectionCopyList } from "./wiki-collection-copy-list";
 
 const GraphPage = lazy(async () => {
   const { WikiGraphPage } = await import("@/features/memory/wiki-graph-page");
@@ -106,10 +107,19 @@ function WikiCollectionContent({ collection }: { collection: WikiCollection }) {
   });
   const documentPath = (page: TeamHubDocument) =>
     wikiDocumentPath(tenantId, page.id);
+  const copyPages = pages.map(({ entry }) => ({
+    path: entry.published
+      ? documentPath(entry.published)
+      : wikiPreviewPath(tenantId, entry.preview.path),
+    title: entryName(entry),
+  }));
   return (
     <div className="workspace-content mx-auto w-full px-4 py-6 md:px-8">
       <WikiBack />
-      <h1 className="mb-2 text-2xl text-foreground">{label}</h1>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-2xl text-foreground">{label}</h1>
+        <WikiCollectionCopyList label={label} pages={copyPages} />
+      </div>
       <p className="mb-6 text-sm text-muted-foreground">
         {all.length} {label.toLowerCase()}
       </p>

@@ -49,6 +49,6 @@ function documentLinkUrl(
 }
 
 /** A bracket in a name would end the link text early and break the bullet. */
-function escapeLinkText(value: string) {
+export function escapeLinkText(value: string) {
   return value.replace(/[[\]\\]/gu, (character) => `\\${character}`);
 }

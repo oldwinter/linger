@@ -33,3 +33,7 @@
   highlighted, and a no-match message takes the list's place. Filtering never
   fetches, never changes the route or the open page, and keeps its per-collection
   query in view state only, so clearing the field restores the full list.
+  A collection page's Copy list copies the cards it shows as a Markdown list:
+  the collection name as the heading and one absolute link per card, in that
+  order. A filtered page copies only the matches; the action stays disabled
+  while the collection loads or is empty, and copying changes nothing else.
