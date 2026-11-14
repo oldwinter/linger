@@ -45,6 +45,8 @@ import { serveWikiDocuments } from "@/features/wiki/wiki.test-support";
 import type {
   TeamHubDocument,
   TeamHubDocumentShareViewV2,
+  TeamHubMessage,
+  TeamHubMessageCreateInput,
 } from "@/features/teamhub/teamhub-types";
 import {
   commentActor,
@@ -390,8 +392,8 @@ describe("Unified Document legacy convergence", () => {
     expect(within(actions).getAllByRole("button")).toEqual([
       screen.getByRole("button", { name: "Table of contents" }),
       screen.getByRole("button", { name: "Copy link" }),
-      screen.getByRole("button", { name: "Copy as Markdown" }),
-      screen.getByRole("button", { name: "Download" }),
+      screen.getByRole("button", { name: "Send to Room" }),
+      screen.getByRole("button", { name: "More Wiki page actions" }),
     ]);
     expect(
       within(actions).queryByRole("button", { name: "More Document actions" }),
@@ -423,15 +425,16 @@ describe("Unified Document legacy convergence", () => {
       `/t/tenant-northstar/documents/${document.id}`,
     );
 
-    const download = await screen.findByRole("button", { name: "Download" });
+    expect(await screen.findByTestId("document-body")).toBeVisible();
+
     const actions = window.document.querySelector(
       ".room-document-header-actions",
     ) as HTMLElement;
     expect(within(actions).getAllByRole("button")).toEqual([
       screen.getByRole("button", { name: "Table of contents" }),
       screen.getByRole("button", { name: "Copy link" }),
-      screen.getByRole("button", { name: "Copy as Markdown" }),
-      download,
+      screen.getByRole("button", { name: "Send to Room" }),
+      screen.getByRole("button", { name: "More Wiki page actions" }),
     ]);
     expect(
       within(actions).queryByRole("button", { name: "More Document actions" }),
@@ -439,7 +442,10 @@ describe("Unified Document legacy convergence", () => {
     expect(screen.queryByRole("menuitem", { name: "Rename" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
 
-    fireEvent.click(download);
+    fireEvent.click(
+      screen.getByRole("button", { name: "More Wiki page actions" }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Download" }));
 
     await waitFor(() => expect(downloadLatest).toHaveBeenCalledOnce());
     expect(downloadLatest).toHaveBeenCalledWith(document.id);
@@ -495,14 +501,20 @@ describe("Unified Document legacy convergence", () => {
       `/t/tenant-northstar/documents/${document.id}`,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Download" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "More Wiki page actions" }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Download" }));
     await waitFor(() =>
       expect(downloadedArtifacts.trigger).toHaveBeenCalledOnce(),
     );
     const saved = downloadedArtifacts.trigger.mock.calls[0]![0] as Blob;
     expect(await saved.text()).toBe("# Casey example\n\nSaved bytes.\n");
 
-    fireEvent.click(screen.getByRole("button", { name: "Copy as Markdown" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "More Wiki page actions" }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy as Markdown" }));
 
     await waitFor(() => expect(writeText).toHaveBeenCalledOnce());
     expect(writeText).toHaveBeenCalledWith(await saved.text());
@@ -513,6 +525,66 @@ describe("Unified Document legacy convergence", () => {
     ) as HTMLElement;
     expect(await within(actions).findByRole("status")).toHaveTextContent(
       "Copied",
+    );
+  });
+
+  it("sends a Wiki page to a Room with a bounded excerpt and its link", async () => {
+    const runtime = createDocumentTestRuntime();
+    const document = seedRoomDocument(runtime, "wiki-send");
+    showDocument(runtime, {
+      ...document,
+      from: [{ binding_kind: "wiki_page", context_id: "wiki-jenny" }],
+      title: "Casey example.md",
+      updated_at: "2026-11-15T09:00:00Z",
+    });
+    vi.spyOn(runtime.client, "downloadLatestDocument").mockResolvedValue({
+      blob: new Blob(["# Casey example\n\nThe page opens here."]),
+      mediaType: "text/markdown",
+      sha256: "0".repeat(64),
+    });
+    const posts: {
+      body: TeamHubMessageCreateInput;
+      idempotencyKey: string | null;
+      path: string;
+    }[] = [];
+    runtime.server.on(
+      "POST",
+      "/v0/rooms/{roomId}/messages",
+      ({ body, params, request }) => {
+        posts.push({
+          body: body as TeamHubMessageCreateInput,
+          idempotencyKey: request.headers.get("Idempotency-Key"),
+          path: new URL(request.url).pathname,
+        });
+        return Response.json(sentWikiMessage(params.roomId!), {
+          status: 201,
+        });
+      },
+    );
+    renderUnifiedDocumentPage(
+      runtime,
+      `/t/tenant-northstar/documents/${document.id}`,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Send to Room" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "product-v0" }),
+    );
+
+    expect(await screen.findByText("Sent to product-v0.")).toBeVisible();
+    expect(posts).toHaveLength(1);
+    expect(posts[0]!.path).toBe("/v0/rooms/room-product-v0/messages");
+    expect(posts[0]!.body.raw_message).toBe(
+      [
+        "# Casey example",
+        "Casey example The page opens here.",
+        `${window.location.origin}/t/tenant-northstar/documents/${document.id}`,
+      ].join("\n\n"),
+    );
+    expect(posts[0]!.idempotencyKey).toBe(
+      `wiki-page-share:${document.id}:2026-11-15T09:00:00Z:room-product-v0`,
     );
   });
 
@@ -2466,6 +2538,25 @@ function renderUnifiedDocumentPage(
     </QueryClientProvider>,
   );
   return { ...rendered, router };
+}
+
+function sentWikiMessage(roomId: string): TeamHubMessage {
+  return {
+    attachments: [],
+    author: {
+      display_name: "Jenny Bin",
+      id: "actor-jenny",
+      kind: "human",
+      tenant_id: "tenant-northstar",
+    },
+    created_at: "2026-11-15T12:00:00Z",
+    id: "message-wiki-page-1",
+    message_kind: "conversation",
+    raw_message: "",
+    room_id: roomId,
+    segments: [],
+    tenant_id: "tenant-northstar",
+  };
 }
 
 const versionCreatedAt = "2026-08-28T00:00:00Z";

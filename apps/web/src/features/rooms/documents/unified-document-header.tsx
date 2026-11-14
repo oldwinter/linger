@@ -1,6 +1,5 @@
 import {
   Comment01Icon,
-  Download04Icon,
   Share08Icon,
   ArrowDown01Icon,
   PencilEdit01Icon,
@@ -37,7 +36,8 @@ import type {
   TeamHubDocumentPlacementNode,
 } from "@/features/teamhub/teamhub-types";
 import { WikiCopyLink } from "@/features/wiki/wiki-copy-link";
-import { WikiCopyMarkdown } from "@/features/wiki/wiki-copy-markdown";
+import { WikiPageActionsMenu } from "@/features/wiki/wiki-page-actions-menu";
+import { WikiSendToRoom } from "@/features/wiki/wiki-send-to-room";
 import { roomMembersQueryOptions } from "../room-queries";
 
 import type { RoomDocumentCollaborationSession } from "./room-document-collaboration";
@@ -323,25 +323,26 @@ function UnifiedDocumentHeader({
             <Icon icon={TableOfContentsIcon} />
           </Button>
         ) : null}
-        {/* A Wiki page stays read-only, so Copy link, Copy as Markdown, and
-            Download are its actions. */}
+        {/* A Wiki page stays read-only: Copy link and Send to Room stand
+            alone, and Copy as Markdown and Download share one menu so the
+            action row keeps its size. */}
         {isWikiPage && document ? (
           <WikiCopyLink documentId={document.id} tenantId={tenantId} />
         ) : null}
         {isWikiPage && document?.capabilities.export ? (
-          <WikiCopyMarkdown documentId={document.id} />
+          <WikiSendToRoom
+            documentId={document.id}
+            tenantId={tenantId}
+            title={documentLogicalTitle(document)}
+            updatedAt={document.updated_at}
+          />
         ) : null}
         {isWikiPage && document?.capabilities.export ? (
-          <Button
-            aria-label="Download"
-            disabled={exportPending}
-            onClick={onExport}
-            size="compactIcon"
-            title="Download"
-            tone="ghost"
-          >
-            <Icon icon={Download04Icon} />
-          </Button>
+          <WikiPageActionsMenu
+            documentId={document.id}
+            exportPending={exportPending}
+            onExport={onExport}
+          />
         ) : null}
         {!sidebar ? actionsMenu : null}
         {!isWikiPage &&
