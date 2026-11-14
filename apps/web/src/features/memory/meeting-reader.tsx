@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { ReadOnlyBlockNoteDocumentLoader } from "@/components/read-only-blocknote-document-loader";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,7 @@ import {
   triggerArtifactDownload,
   type LoadedArtifactPreview,
 } from "@/features/rooms/files/artifact-preview-loader";
+import { teamHubIdentityQueryOptions } from "@/features/rooms/room-queries";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 import { MeetingAudioPlayer } from "./meeting-audio-player";
@@ -204,6 +206,7 @@ export function MeetingReader({
             {/* The recording closes the summary, ready to replay a moment. */}
             <div className="mt-8">
               <MeetingVersionReader
+                captureId={meeting.capture_id}
                 key={meeting.recording_version_id}
                 documentId={meeting.recording_document_id}
                 versionId={meeting.recording_version_id}
@@ -231,17 +234,24 @@ export function MeetingReader({
  * the transcript as the tab's document, each with its own download.
  */
 function MeetingVersionReader({
+  captureId,
   documentId,
   versionId,
   filename,
   variant,
 }: {
+  captureId?: string;
   documentId: string;
   versionId: string;
   filename: string;
   variant: "player" | "document";
 }) {
   const { client } = useTeamHubRuntime();
+  const identity = useQuery({
+    ...teamHubIdentityQueryOptions(client),
+    enabled: variant === "player" && Boolean(captureId),
+  });
+  const accountId = identity.data?.account.id;
   const [preview, setPreview] = useState<LoadedArtifactPreview>();
   const [error, setError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
@@ -387,6 +397,7 @@ function MeetingVersionReader({
         filename={filename}
         mediaType={preview?.version.media_type}
         onDownload={() => void download()}
+        resume={accountId && captureId ? { accountId, captureId } : undefined}
         src={playable ? preview.objectUrl : undefined}
         status={
           !preview

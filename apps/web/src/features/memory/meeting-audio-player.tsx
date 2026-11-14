@@ -6,6 +6,8 @@ import {
 import { Icon } from "@/components/ui/icon";
 import { useRef, useState, type CSSProperties } from "react";
 
+import { readMeetingPlayback, writeMeetingPlayback } from "./meeting-playback";
+
 /** "754.2" seconds -> "12:34"; hours appear only when needed. */
 export function formatPlaybackTime(seconds: number) {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
@@ -28,6 +30,7 @@ export function MeetingAudioPlayer({
   filename,
   mediaType,
   onDownload,
+  resume,
   src,
   status,
 }: {
@@ -35,17 +38,41 @@ export function MeetingAudioPlayer({
   filename: string;
   mediaType?: string;
   onDownload: () => void;
+  /** Remembers this recording for the signed-in account across visits. */
+  resume?: { accountId: string; captureId: string };
   src?: string;
   /** Replaces the time line, e.g. while the recording is still loading. */
   status?: string;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const lastWritten = useRef(0);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
   const [failed, setFailed] = useState(false);
   const ready = Boolean(src) && !failed;
   const progress = duration ? Math.min(100, (current / duration) * 100) : 0;
+  const resumeLabel =
+    !playing && current > 3
+      ? `Resume at ${formatPlaybackTime(current)}`
+      : undefined;
+
+  function remember(seconds: number, total: number) {
+    if (!resume) return;
+    const finished =
+      Number.isFinite(total) && total > 0 && seconds >= total - 5;
+    const keep = Number.isFinite(seconds) && seconds > 3 && !finished;
+    if (!keep) {
+      // A zero playhead at load is not the listener reaching the end.
+      if (!finished) return;
+      writeMeetingPlayback(resume.accountId, resume.captureId, seconds, total);
+      lastWritten.current = 0;
+      return;
+    }
+    if (Math.abs(seconds - lastWritten.current) < 5) return;
+    writeMeetingPlayback(resume.accountId, resume.captureId, seconds, total);
+    lastWritten.current = Math.floor(seconds);
+  }
 
   function toggle() {
     const audio = audioRef.current;
@@ -65,14 +92,43 @@ export function MeetingAudioPlayer({
           onDurationChange={(event) =>
             setDuration(event.currentTarget.duration)
           }
-          onEnded={() => setPlaying(false)}
+          onEnded={(event) => {
+            setPlaying(false);
+            remember(
+              event.currentTarget.duration,
+              event.currentTarget.duration,
+            );
+          }}
           onError={() => setFailed(true)}
-          onLoadedMetadata={(event) =>
-            setDuration(event.currentTarget.duration)
-          }
-          onPause={() => setPlaying(false)}
+          onLoadedMetadata={(event) => {
+            const audio = event.currentTarget;
+            setDuration(audio.duration);
+            if (!resume) return;
+            const saved = readMeetingPlayback(
+              resume.accountId,
+              resume.captureId,
+            );
+            if (saved > 3 && audio.duration && saved < audio.duration - 5) {
+              audio.currentTime = saved;
+              setCurrent(saved);
+              lastWritten.current = saved;
+            }
+          }}
+          onPause={(event) => {
+            setPlaying(false);
+            remember(
+              event.currentTarget.currentTime,
+              event.currentTarget.duration,
+            );
+          }}
           onPlay={() => setPlaying(true)}
-          onTimeUpdate={(event) => setCurrent(event.currentTarget.currentTime)}
+          onTimeUpdate={(event) => {
+            setCurrent(event.currentTarget.currentTime);
+            remember(
+              event.currentTarget.currentTime,
+              event.currentTarget.duration,
+            );
+          }}
           preload="metadata"
           ref={audioRef}
           title={filename}
@@ -96,7 +152,7 @@ export function MeetingAudioPlayer({
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-3">
           <span className="truncate text-[14px] font-medium text-app-ink">
-            Meeting recording
+            {resumeLabel ?? "Meeting recording"}
           </span>
           <span className="shrink-0 text-[12px] tabular-nums text-app-muted">
             {failed

@@ -5,7 +5,15 @@ import {
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { Link, useSearchParams } from "react-router";
 
 import {
@@ -18,7 +26,15 @@ import {
 } from "./meetings-calendar";
 import { Spinner } from "@/components/ui/spinner";
 import { dayKey } from "@/lib/date-format";
+import { formatPlaybackTime } from "./meeting-audio-player";
+import {
+  meetingPlaybackVersion,
+  readMeetingPlayback,
+  subscribeMeetingPlayback,
+} from "./meeting-playback";
 import { meetingPath, useMeetings } from "./memory-queries";
+import { teamHubIdentityQueryOptions } from "@/features/rooms/room-queries";
+import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { HideMeetingDialog } from "./hide-meeting-dialog";
 
 const levelClass = [
@@ -70,6 +86,13 @@ function shiftDate(date: string, days: number) {
  * the list by file name, date, or time.
  */
 export function MeetingsPanel({ tenantId }: { tenantId: string }) {
+  const { client } = useTeamHubRuntime();
+  const identity = useQuery(teamHubIdentityQueryOptions(client));
+  const playbackVersion = useSyncExternalStore(
+    subscribeMeetingPlayback,
+    meetingPlaybackVersion,
+    () => 0,
+  );
   const meetings = useMeetings(tenantId);
   const byDate = useMemo(
     () => meetingsByDate(meetings.data ?? []),
@@ -384,6 +407,13 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
                         {day.items.map((meeting) => {
                           const to = meetingPath(tenantId, meeting.id);
                           const name = `Meeting ${formatMeetingWhen(meeting.date, meeting.time)}`;
+                          const heard =
+                            playbackVersion >= 0 && identity.data
+                              ? readMeetingPlayback(
+                                  identity.data.account.id,
+                                  meeting.captureId,
+                                )
+                              : 0;
                           return (
                             <li
                               className="group flex items-center gap-3 transition-colors duration-300 hover:bg-muted/70"
@@ -395,6 +425,11 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
                               >
                                 Meeting{" "}
                                 {formatMeetingWhen(meeting.date, meeting.time)}
+                                {heard > 3 ? (
+                                  <span className="text-app-muted">
+                                    {` · Resume at ${formatPlaybackTime(heard)}`}
+                                  </span>
+                                ) : null}
                               </Link>
                               {meeting.summaryReady ? (
                                 // The meeting entry opens on its summary.

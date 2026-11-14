@@ -2,8 +2,12 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { formatPlaybackTime, MeetingAudioPlayer } from "./meeting-audio-player";
+import { readMeetingPlayback, writeMeetingPlayback } from "./meeting-playback";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  localStorage.clear();
+  vi.restoreAllMocks();
+});
 
 describe("MeetingAudioPlayer", () => {
   it("formats playback time with hours only when needed", () => {
@@ -71,5 +75,30 @@ describe("MeetingAudioPlayer", () => {
       screen.getByRole("button", { name: "Download recording.m4a" }),
     );
     expect(onDownload).toHaveBeenCalledOnce();
+  });
+
+  it("resumes a recording left earlier in the session", () => {
+    writeMeetingPlayback("account-jenny", "capture-a", 65, 125);
+    const { container } = render(
+      <MeetingAudioPlayer
+        filename="recording.m4a"
+        mediaType="audio/mp4"
+        onDownload={vi.fn()}
+        resume={{ accountId: "account-jenny", captureId: "capture-a" }}
+        src="blob:recording"
+      />,
+    );
+    const audio = container.querySelector("audio")!;
+    Object.defineProperty(audio, "duration", {
+      configurable: true,
+      value: 125,
+    });
+    fireEvent.loadedMetadata(audio);
+    expect(audio.currentTime).toBe(65);
+    expect(screen.getByText("Resume at 1:05")).toBeVisible();
+
+    audio.currentTime = 90;
+    fireEvent.pause(audio);
+    expect(readMeetingPlayback("account-jenny", "capture-a")).toBe(90);
   });
 });

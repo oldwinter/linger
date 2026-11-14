@@ -13,6 +13,7 @@ import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 
+import { readMeetingPlayback, writeMeetingPlayback } from "./meeting-playback";
 import {
   MeetingsPanel,
   meetingsRangeFromSearch,
@@ -53,6 +54,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date(2026, 9, 1, 16));
 });
 afterEach(() => {
+  globalThis.localStorage?.clear();
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -149,6 +151,24 @@ describe("Meetings panel", () => {
       screen.getByRole("button", { name: "2026-10-01: 2 meetings" }),
     );
     expect(toggle).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("shows a recording left mid-way on the meetings list", async () => {
+    writeMeetingPlayback(
+      "account-jenny",
+      "capture_meeting_000000000000000000000001",
+      65,
+      600,
+    );
+    renderPanel();
+    expect(
+      readMeetingPlayback(
+        "account-jenny",
+        "capture_meeting_000000000000000000000001",
+      ),
+    ).toBe(65);
+    const link = await screen.findByRole("link", { name: /Oct 1, 09:05/ });
+    expect(link.textContent).toContain("Resume at 1:05");
   });
 
   it("opens on the past seven days with one square per day", async () => {
