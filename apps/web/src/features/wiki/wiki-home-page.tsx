@@ -2,9 +2,11 @@ import {
   ArrowLeft02Icon,
   ArrowRight02Icon,
   Building03Icon,
+  ShuffleIcon,
 } from "@hugeicons/core-free-icons";
 import { lazy, type ReactNode, Suspense, useMemo } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { useTabIndicator } from "@/components/ui/tab-indicator";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
@@ -25,6 +27,7 @@ import { usePersonalWikiRefresh, type WikiRefreshStatus } from "./wiki-refresh";
 import { WikiRefreshBanner } from "./wiki-refresh-status";
 import { useAnotherMeActorId } from "./wiki-working-card";
 import { wikiPreviewPath } from "./wiki-preview-page";
+import { wikiSurpriseIndex } from "./wiki-surprise";
 import {
   useWikiDisplayState,
   wikiCollection,
@@ -97,6 +100,7 @@ export function useWikiCollectionPages(tenantId: string) {
     pending: documents.isPending,
     error: Boolean(documents.error),
     of,
+    pages,
     /** The collection's cards with the running refresh's pages in place. */
     entries: (collection: WikiCollection, previews: WikiPreviewPage[]) =>
       wikiEntries(
@@ -160,10 +164,13 @@ export function WikiHomePage() {
             {indicator}
           </div>
           {tab === "wiki" ? (
-            <WikiRefreshButton
-              refreshing={refresh.refreshing}
-              tenantId={tenantId}
-            />
+            <>
+              <WikiRefreshButton
+                refreshing={refresh.refreshing}
+                tenantId={tenantId}
+              />
+              <WikiSurpriseButton tenantId={tenantId} />
+            </>
           ) : (
             <WikiProfileEditButton tenantId={tenantId} />
           )}
@@ -185,6 +192,35 @@ export function WikiHomePage() {
         )}
       </div>
     </main>
+  );
+}
+
+/** Opens one of the person's Wiki pages at random, or nothing without pages. */
+function WikiSurpriseButton({ tenantId }: { tenantId: string }) {
+  const navigate = useNavigate();
+  const collection = useWikiCollectionPages(tenantId);
+  const pages = collection.pages;
+  if (pages.length === 0) return null;
+  return (
+    <Button
+      onClick={() => {
+        const index = wikiSurpriseIndex({
+          count: pages.length,
+          random: Math.random,
+        });
+        const page = index === undefined ? undefined : pages[index];
+        if (!page) return;
+        void navigate(
+          `/t/${encodeURIComponent(tenantId)}/documents/${encodeURIComponent(page.id)}`,
+        );
+      }}
+      size="compact"
+      title="Open one of your Wiki pages at random"
+      tone="ghost"
+    >
+      <Icon icon={ShuffleIcon} className="shrink-0" size={14} />
+      Surprise me
+    </Button>
   );
 }
 

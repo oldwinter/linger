@@ -15,6 +15,8 @@
 - Wiki navigation owns Profile, Timeline, Projects, Topics, People, and Companies. Timeline, People
   and Companies are the display labels for the existing `graph`, `contacts` and
   `clients` entries; keep their routes and data keys.
+  The Wiki home's Surprise me action opens one of the pages already listed at
+  random through the normal page route, adding no query or refetch.
   Wiki routes show the overview and collection pages without a sidebar; the directory
   appears only beside an opened Wiki page and lists that page's own collection,
   following links into other collections, until Back.
