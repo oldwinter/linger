@@ -127,7 +127,7 @@ describe("useLibraryBulkActions", () => {
     expect(onChanged).toHaveBeenCalledTimes(1);
     expect(result.current.selectedDocumentIds.size).toBe(0);
     expect(result.current.outcome).toEqual({
-      failed: 0,
+      failed: false,
       message: "Moved 2 documents.",
     });
   });
@@ -162,7 +162,7 @@ describe("useLibraryBulkActions", () => {
     expect(onChanged).toHaveBeenCalledTimes(1);
     expect([...result.current.selectedDocumentIds]).toEqual([notes.id]);
     expect(result.current.outcome).toEqual({
-      failed: 1,
+      failed: true,
       message: "Moved 1 of 2 documents. Failed: Bravo.",
     });
   });
@@ -189,7 +189,7 @@ describe("useLibraryBulkActions", () => {
     );
     await waitFor(() =>
       expect(result.current.outcome).toEqual({
-        failed: 0,
+        failed: false,
         message: "Moved to trash 1 document.",
       }),
     );

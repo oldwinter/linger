@@ -27,6 +27,7 @@ import { NewFolderDialog } from "./library-folder-browser";
 import { LibraryFolderListing } from "./library-folder-listing";
 import { MoveFolderPickerDialog } from "./move-folder-picker-dialog";
 import { readDroppedUploadSources } from "./library-upload-queue";
+import { visibleLibraryDocuments } from "./library-visible-documents";
 import { RecentDocumentsStrip } from "./recent-documents-strip";
 import {
   type LibraryBulkOutcome,
@@ -98,6 +99,11 @@ export function LibraryDocumentsPage() {
     resetKey: `${tab}:${folderId ?? ""}`,
     tenantId,
   });
+  // Copy links follows the rows the list shows, in its order.
+  const copyDocuments = visibleLibraryDocuments(levelDocuments, {
+    fileType,
+    sortBy,
+  }).filter((document) => bulk.selectedDocumentIds.has(document.id));
   function chooseTab(next: WorkspaceTab) {
     // A selection belongs to the folder level it was made in.
     bulk.clear();
@@ -261,10 +267,12 @@ export function LibraryDocumentsPage() {
                   browsedPending={browsedTree.isPending}
                   bulkBar={
                     <LibraryBulkBar
+                      canCopy={copyDocuments.length > 0}
                       canMove={bulk.canMove}
                       canTrash={bulk.canTrash}
                       count={bulk.count}
                       onClear={bulk.clear}
+                      onCopyLinks={() => void bulk.copyLinks(copyDocuments)}
                       onMove={bulk.beginMove}
                       onTrash={bulk.beginTrash}
                       outcome={bulk.outcome}
@@ -301,19 +309,23 @@ export function LibraryDocumentsPage() {
 
 /** The actions offered while Library rows are selected, with the last outcome. */
 function LibraryBulkBar({
+  canCopy,
   canMove,
   canTrash,
   count,
   onClear,
+  onCopyLinks,
   onMove,
   onTrash,
   outcome,
   pending,
 }: {
+  canCopy: boolean;
   canMove: boolean;
   canTrash: boolean;
   count: number;
   onClear: () => void;
+  onCopyLinks: () => void;
   onMove: () => void;
   onTrash: () => void;
   outcome: LibraryBulkOutcome | null;
@@ -344,6 +356,14 @@ function LibraryBulkBar({
         tone="danger"
       >
         Trash
+      </Button>
+      <Button
+        disabled={pending || !canCopy}
+        onClick={onCopyLinks}
+        size="compact"
+        tone="secondary"
+      >
+        Copy links
       </Button>
       {count > 0 ? (
         <Button onClick={onClear} size="compact" tone="ghost">
