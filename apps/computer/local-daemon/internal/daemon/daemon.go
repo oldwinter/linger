@@ -173,6 +173,9 @@ type Daemon struct {
 	gatewayStateMu       sync.RWMutex
 	reconciled           bool
 	gatewayState         string
+	// gatewayConnectionError names the last Gateway connection failure this
+	// release can explain, under gatewayStateMu.
+	gatewayConnectionError string
 	// welcomedEpochs are the connection epochs this process was welcomed
 	// with, under gatewayStateMu. A start sent on any other epoch was sent to
 	// an earlier Daemon process.
@@ -285,6 +288,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}
 		err := d.runConnection(ctx, deviceIdentity)
 		d.setGatewayState("connecting")
+		d.setGatewayConnectionError(connectionErrorFor(err))
 		if fatalErr := d.fatalError(); fatalErr != nil {
 			return fatalErr
 		}

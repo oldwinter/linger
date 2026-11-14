@@ -6,6 +6,7 @@ import {
   MINIMUM_CURRENT_COMPUTER_VERSION,
 } from "./local-computer-management.js";
 import { logAgentEvent } from "../observability/agent-log.js";
+import { TeamHubRuntimeStateError } from "../executor/teamhub-runtime-state-client.js";
 import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 
@@ -54,6 +55,8 @@ export interface RunnerSessionErrorContext {
   readonly computerId: string;
   readonly phase: string;
   readonly agentId?: string;
+  /** TeamHub's error code when the failure was a TeamHub runtime-state call. */
+  readonly code?: string;
 }
 
 export interface RunnerGatewayWebSocketHandle {
@@ -68,6 +71,12 @@ const MAX_QUEUED_BYTES = 16 * 1024 * 1024;
 const MAX_TIMER_DELAY_MS = 2_147_000_000;
 export const RUNNER_UPGRADE_REQUIRED_CLOSE_REASON =
   "upgrade_required: rerun the Linger Computer installer";
+// The Desktop app and the Local Computer Daemon both read this reason to tell
+// the user another Computer holds the Daemon Identity.
+export const RUNNER_DAEMON_IDENTITY_CONFLICT_CLOSE_REASON =
+  "Runner daemon identity conflict";
+const TEAMHUB_DAEMON_IDENTITY_IN_USE_CODE =
+  "AGENT_RUNTIME_DAEMON_IDENTITY_IN_USE";
 // Every Computer release that can update itself declares this in its hello.
 const SELF_UPDATE_CAPABILITY = "self_update_v2";
 
@@ -648,9 +657,19 @@ export class RunnerSocketSession {
       computerId: this.#credential.runnerId,
       phase: this.#processingFrame?.type ?? "session.transport",
       agentId: this.#processingFrame?.agentId,
+      ...(error instanceof TeamHubRuntimeStateError && error.code !== undefined
+        ? { code: error.code }
+        : {}),
     });
     if (error instanceof RunnerUpgradeRequiredError) {
       this.#closeProtocol(1008, RUNNER_UPGRADE_REQUIRED_CLOSE_REASON);
+      return;
+    }
+    if (
+      error instanceof TeamHubRuntimeStateError &&
+      error.code === TEAMHUB_DAEMON_IDENTITY_IN_USE_CODE
+    ) {
+      this.#closeProtocol(1011, RUNNER_DAEMON_IDENTITY_CONFLICT_CLOSE_REASON);
       return;
     }
     this.#closeProtocol(

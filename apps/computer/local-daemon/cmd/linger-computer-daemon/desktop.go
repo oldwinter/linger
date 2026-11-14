@@ -31,11 +31,15 @@ type desktopStatus struct {
 	Type             string `json:"type"`
 	GatewayState     string `json:"gateway_state"`
 	ActiveOperations int    `json:"active_operations"`
+	// ConnectionError names a Gateway refusal the Desktop app can explain, such
+	// as another Computer holding this Daemon Identity.
+	ConnectionError string `json:"connection_error,omitempty"`
 }
 
 type desktopStatusSource interface {
 	GatewayState() string
 	ActiveOperationCount() int
+	GatewayConnectionError() string
 }
 
 // desktopPermissionRequest asks the Desktop app about its own permissions.
@@ -173,7 +177,12 @@ func reportDesktopStatus(ctx context.Context, encode func(any) error, source des
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		current := desktopStatus{Type: "status", GatewayState: source.GatewayState(), ActiveOperations: source.ActiveOperationCount()}
+		current := desktopStatus{
+			Type:             "status",
+			GatewayState:     source.GatewayState(),
+			ActiveOperations: source.ActiveOperationCount(),
+			ConnectionError:  source.GatewayConnectionError(),
+		}
 		if last == nil || current != *last {
 			if encode(current) != nil {
 				return
