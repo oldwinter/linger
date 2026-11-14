@@ -22,6 +22,14 @@ import {
   rememberMeetingPosition,
   resumablePosition,
 } from "./meeting-resume";
+import {
+  DEFAULT_MEETING_PLAYBACK_RATE,
+  isMeetingPlaybackRate,
+  MEETING_PLAYBACK_RATES,
+  readMeetingPlaybackSpeed,
+  writeMeetingPlaybackSpeed,
+  type MeetingPlaybackRate,
+} from "./meeting-playback-speed";
 
 /** "754.2" seconds -> "12:34"; hours appear only when needed. */
 export function formatPlaybackTime(seconds: number) {
@@ -35,9 +43,6 @@ export function formatPlaybackTime(seconds: number) {
     : `${minutes}:${rest}`;
 }
 
-/** The speeds a recording offers; every meeting starts at the default. */
-const playbackRates = [0.75, 1, 1.25, 1.5, 2] as const;
-const defaultRate = 1;
 /** Long enough to notice the change was refused, short enough not to linger. */
 const rateNoticeMs = 2000;
 /** Between time-update saves, so scrubbing does not write on every frame. */
@@ -71,12 +76,12 @@ export function MeetingAudioPlayer({
   src,
   status,
 }: {
-  /** Whose listening positions this browser remembers; nothing without one. */
+  /** Whose listening positions and speed this browser remembers. */
   accountId?: string;
   downloadDisabled?: boolean;
   filename: string;
   mediaType?: string;
-  /** Changes with the meeting, so the next one starts at the default speed. */
+  /** Changes with the meeting, so the next one carries its Account's speed. */
   meetingId?: string;
   onDownload: () => void;
   src?: string;
@@ -89,7 +94,9 @@ export function MeetingAudioPlayer({
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
   const [failed, setFailed] = useState(false);
-  const [rate, setRate] = useState(defaultRate);
+  const [rate, setRate] = useState<MeetingPlaybackRate>(() =>
+    readMeetingPlaybackSpeed(accountId),
+  );
   const [rateNotice, setRateNotice] = useState(false);
   const [resumeFrom, setResumeFrom] = useState<number>();
   const rateNoticeTimer = useRef<number | undefined>(undefined);
@@ -98,14 +105,15 @@ export function MeetingAudioPlayer({
   const ready = Boolean(src) && !failed;
   const progress = duration ? Math.min(100, (current / duration) * 100) : 0;
 
-  // The element leaves with the player, but a rate must not outlive it and the
-  // place its listener reached must, so closing the meeting saves it here.
+  // The element leaves with the player, but the media element outlives a
+  // meeting change, so the speed it carried must not, while the Account's
+  // chosen speed stays in this browser.
   const attachAudio = useCallback(
     (element: HTMLAudioElement | null) => {
       audioRef.current = element;
       return () => {
         if (!element) return;
-        element.playbackRate = defaultRate;
+        element.playbackRate = DEFAULT_MEETING_PLAYBACK_RATE;
         rememberMeetingPosition(
           accountId,
           meetingId,
@@ -117,16 +125,18 @@ export function MeetingAudioPlayer({
     [accountId, meetingId],
   );
 
-  // Another meeting is another recording: the speed choice and the remembered
-  // position both belong to that one playback and are never carried over.
+  // Another meeting is another recording: the remembered position belongs to
+  // that one playback and is never carried over. The speed is the Account's
+  // preference, so the next recording opens at the speed last chosen.
   useEffect(() => {
     window.clearTimeout(rateNoticeTimer.current);
-    setRate(defaultRate);
+    const storedRate = readMeetingPlaybackSpeed(accountId);
+    setRate(storedRate);
     setRateNotice(false);
     setResumeFrom(undefined);
     restoredRef.current = false;
     lastSavedAt.current = 0;
-    if (audioRef.current) audioRef.current.playbackRate = defaultRate;
+    if (audioRef.current) audioRef.current.playbackRate = storedRate;
   }, [accountId, meetingId]);
 
   useEffect(() => () => window.clearTimeout(rateNoticeTimer.current), []);
@@ -241,8 +251,8 @@ export function MeetingAudioPlayer({
    */
   function chooseRate(next: string) {
     const audio = audioRef.current;
-    if (!audio) return;
     const requested = Number(next);
+    if (!audio || !isMeetingPlaybackRate(requested)) return;
     window.clearTimeout(rateNoticeTimer.current);
     setRateNotice(false);
     try {
@@ -253,6 +263,8 @@ export function MeetingAudioPlayer({
     // Some browsers clamp the rate rather than throw, so read it back.
     if (audio.playbackRate === requested) {
       setRate(requested);
+      // The Account's choice outlives this meeting and this tab.
+      writeMeetingPlaybackSpeed(accountId, requested);
       return;
     }
     try {
@@ -375,7 +387,7 @@ export function MeetingAudioPlayer({
         value={String(rate)}
         variant="pill"
       >
-        {playbackRates.map((value) => (
+        {MEETING_PLAYBACK_RATES.map((value) => (
           <SelectItem key={value} value={String(value)}>
             {rateLabel(value)}
           </SelectItem>

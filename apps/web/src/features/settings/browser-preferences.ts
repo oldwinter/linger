@@ -3,6 +3,10 @@ import {
   hasRecentDocuments,
 } from "@/features/library/recent-documents";
 import {
+  clearMeetingPlaybackSpeed,
+  hasMeetingPlaybackSpeed,
+} from "@/features/memory/meeting-playback-speed";
+import {
   clearMeetingResume,
   hasMeetingResume,
 } from "@/features/memory/meeting-resume";
@@ -91,6 +95,12 @@ export const browserPreferences: readonly BrowserPreference[] = [
     hasAnything: hasMeetingResume,
     label: "Meeting listening positions",
     module: "features/memory/meeting-resume.ts",
+  },
+  {
+    clear: clearMeetingPlaybackSpeed,
+    hasAnything: hasMeetingPlaybackSpeed,
+    label: "Meeting playback speed",
+    module: "features/memory/meeting-playback-speed.ts",
   },
   {
     clear: clearAllRecentWikiPages,
