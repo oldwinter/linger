@@ -152,6 +152,7 @@ function RoomShellReady({
   // The shell is above the Room route, so it reads the open Room from the URL.
   const activeRoomId = useMatch("/t/:tenantId/rooms/:roomId/*")?.params.roomId;
   useRoomMentionNotifications({
+    accountId: identity.account.id,
     rooms: roomsQuery.data?.items,
     roomId: activeRoomId,
     open: openRoom,

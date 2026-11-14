@@ -1103,3 +1103,79 @@ describe("Room navigation unread filter", () => {
     ).toBeVisible();
   });
 });
+
+describe("Room navigation mention snooze", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  function renderList(rooms: TeamHubRoomListItem[]) {
+    return render(
+      <MemoryRouter>
+        <RoomSecondaryNavigation
+          accountId="account-a"
+          onCloseMobile={() => undefined}
+          onCreateRoom={() => undefined}
+          rooms={rooms}
+          tenant={{
+            created_at: "2026-07-24T09:00:00Z",
+            id: "tenant-a",
+            name: "Northstar",
+          }}
+        />
+      </MemoryRouter>,
+    );
+  }
+
+  it("snoozes a Room's mentions from its row menu and turns them back on", async () => {
+    renderList([room("room-a", 2, 1)]);
+    expect(screen.queryByText("Snoozed")).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "More actions for room-a" }),
+    );
+    const menu = await screen.findByRole("menu", {
+      name: "More actions for room-a",
+    });
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual([
+      "Snooze mentions for 1 hour",
+      "Snooze mentions until tomorrow morning",
+    ]);
+    fireEvent.click(
+      within(menu).getByRole("menuitem", {
+        name: "Snooze mentions for 1 hour",
+      }),
+    );
+
+    expect(await screen.findByText("Snoozed")).toBeVisible();
+    const stored = JSON.parse(
+      localStorage.getItem("room-mention-snooze.v1:account-a")!,
+    );
+    expect(Date.parse(stored["room-a"])).toBeGreaterThan(Date.now());
+    // Snoozing quiets notifications only; the row keeps its unread numbers.
+    expect(
+      within(screen.getByRole("link", { name: "room-a" })).getByTitle(
+        "1 unread mention",
+      ),
+    ).toBeVisible();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "More actions for room-a" }),
+    );
+    const reopened = await screen.findByRole("menu", {
+      name: "More actions for room-a",
+    });
+    fireEvent.click(
+      within(reopened).getByRole("menuitem", { name: "Turn off snoozing" }),
+    );
+
+    await waitFor(() => expect(screen.queryByText("Snoozed")).toBeNull());
+    expect(
+      JSON.parse(localStorage.getItem("room-mention-snooze.v1:account-a")!),
+    ).toEqual({});
+  });
+});
