@@ -119,6 +119,57 @@ export function clearRoomDrafts() {
   notifyDraftListeners();
 }
 
+/** One snapshot of this tab's saved composer drafts, one entry per storage
+ * key. Reading storage can fail in privacy-restricted contexts. */
+export function draftStorageEntries(): [string, string][] {
+  try {
+    const storage = resolveLocalStorage();
+    if (!storage) return [];
+    const entries: [string, string][] = [];
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (!key?.startsWith(roomComposerDraftPrefix)) continue;
+      const value = storage.getItem(key);
+      if (value !== null) entries.push([key, value]);
+    }
+    return entries;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The Rooms whose own composer or a thread composer holds text, from one
+ * snapshot of draft storage. Another Account's or Tenant's drafts are outside
+ * this list, whitespace alone is not text, and a key or value this code cannot
+ * read simply names no Room.
+ */
+export function roomsWithDrafts(
+  entries: Iterable<readonly [string, string]>,
+  accountId: string | undefined,
+  tenantId: string,
+): Set<string> {
+  const roomIds = new Set<string>();
+  if (!accountId) return roomIds;
+  const account = encodeURIComponent(accountId);
+  const tenant = encodeURIComponent(tenantId);
+  for (const [key, value] of entries) {
+    try {
+      if (!key.startsWith(roomComposerDraftPrefix)) continue;
+      const [storedAccount, storedTenant, storedRoom] = key
+        .slice(roomComposerDraftPrefix.length)
+        .split(":");
+      if (storedAccount !== account || storedTenant !== tenant || !storedRoom)
+        continue;
+      if (parseComposerDraft(value).body.trim())
+        roomIds.add(decodeURIComponent(storedRoom));
+    } catch {
+      // A malformed key or value names no readable draft.
+    }
+  }
+  return roomIds;
+}
+
 function roomComposerDraftKey(scope: RoomDraftScope) {
   const segments = [scope.accountId, scope.tenantId, scope.roomId];
 

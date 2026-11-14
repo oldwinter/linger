@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   fireEvent,
   render as renderInDocument,
   screen,
@@ -8,7 +9,7 @@ import {
 } from "@testing-library/react";
 import { type ReactElement, type ReactNode, useState } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   TeamHubRuntimeProvider,
@@ -22,6 +23,7 @@ import { createHttpTeamHubClient } from "@/features/teamhub/teamhub-client";
 import { TeamHubTestServer } from "@/test/teamhub-test-server";
 
 import * as avatarImages from "./members/actor-avatar-image";
+import { writeRoomComposerDraft, type RoomComposerDraft } from "./room-drafts";
 import { RoomSecondaryNavigation } from "./room-secondary-navigation";
 
 /** Row actions read the Room list cache and the runtime client. */
@@ -1177,5 +1179,119 @@ describe("Room navigation mention snooze", () => {
     expect(
       JSON.parse(localStorage.getItem("room-mention-snooze.v1:account-a")!),
     ).toEqual({});
+  });
+});
+describe("Room navigation draft hint", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const scope = { accountId: "account-a", tenantId: "tenant-a" };
+
+  function draft(body: string): RoomComposerDraft {
+    return {
+      body,
+      documentContexts: [],
+      documentReferences: [],
+      mentions: [],
+      skillReferences: [],
+    };
+  }
+
+  function navigation(
+    rooms: TeamHubRoomListItem[],
+    accountId = scope.accountId,
+  ) {
+    return (
+      <MemoryRouter>
+        <RoomSecondaryNavigation
+          accountId={accountId}
+          onCloseMobile={() => undefined}
+          onCreateRoom={() => undefined}
+          rooms={rooms}
+          tenant={{
+            created_at: "2026-07-24T09:00:00Z",
+            id: "tenant-a",
+            name: "Northstar",
+          }}
+        />
+      </MemoryRouter>
+    );
+  }
+
+  it("marks only the Rooms that hold a draft", () => {
+    writeRoomComposerDraft(
+      { ...scope, roomId: "room-drafted" },
+      draft("Unsent"),
+    );
+    writeRoomComposerDraft(
+      { ...scope, roomId: "room-thread", threadId: "message-1" },
+      draft("A reply"),
+    );
+    writeRoomComposerDraft({ ...scope, roomId: "room-direct" }, draft("Hello"));
+
+    render(
+      navigation([
+        room("room-drafted", 0, 0),
+        room("room-thread", 0, 0),
+        room("room-clear", 0, 0),
+        deletedDirectRoom(),
+      ]),
+    );
+
+    expect(
+      screen.getByRole("img", { name: "Draft in room-drafted" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("img", { name: "Draft in room-thread" }),
+    ).toBeVisible();
+    expect(screen.getByRole("img", { name: "Draft in Codex" })).toBeVisible();
+    expect(
+      screen.queryByRole("img", { name: "Draft in room-clear" }),
+    ).toBeNull();
+  });
+
+  it("follows the composer as it saves and clears a draft", () => {
+    render(navigation([room("room-drafted", 0, 0)]));
+    const hint = () =>
+      screen.queryByRole("img", { name: "Draft in room-drafted" });
+
+    expect(hint()).toBeNull();
+
+    act(() => {
+      writeRoomComposerDraft(
+        { ...scope, roomId: "room-drafted" },
+        draft("Unsent"),
+      );
+    });
+    expect(hint()).toBeVisible();
+
+    act(() => {
+      writeRoomComposerDraft({ ...scope, roomId: "room-drafted" }, draft(""));
+    });
+    expect(hint()).toBeNull();
+  });
+
+  it("keeps one draft subscription until the Account changes", async () => {
+    const roomDrafts = await import("./room-drafts");
+    const unsubscribe = vi.fn();
+    const subscribe = vi
+      .spyOn(roomDrafts, "subscribeRoomComposerDrafts")
+      .mockReturnValue(unsubscribe);
+    const rooms = [room("room-drafted", 0, 0)];
+
+    const { rerender } = render(navigation(rooms));
+    expect(subscribe).toHaveBeenCalledTimes(1);
+
+    rerender(navigation([room("room-drafted", 2, 1)]));
+    expect(subscribe).toHaveBeenCalledTimes(1);
+
+    rerender(navigation(rooms, "account-b"));
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    expect(subscribe).toHaveBeenCalledTimes(2);
   });
 });

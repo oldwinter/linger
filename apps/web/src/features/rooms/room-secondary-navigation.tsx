@@ -42,6 +42,11 @@ import {
 } from "./members/agent-avatar";
 import { RoomAvatar } from "./members/room-avatar";
 import { PocketNoteLauncher } from "./pocket-notes/pocket-note-launcher";
+import {
+  draftStorageEntries,
+  roomsWithDrafts,
+  subscribeRoomComposerDrafts,
+} from "./room-drafts";
 import { RecordingEntry } from "./voice-control/recording-entry";
 import { useNavReorderFlip } from "./use-nav-reorder-flip";
 
@@ -95,6 +100,27 @@ function usePrefetchTemplateFlow() {
   }, []);
 }
 
+/**
+ * Room ids whose saved composer holds text. The composer already announces its
+ * own saves and clears, so the hint follows them without a query or a timer,
+ * and the subscription only changes when the Account or Tenant does.
+ */
+function useDraftRoomIds(
+  accountId: string | undefined,
+  tenantId: string,
+): Set<string> {
+  const [roomIds, setRoomIds] = useState(() =>
+    roomsWithDrafts(draftStorageEntries(), accountId, tenantId),
+  );
+  useEffect(() => {
+    const refresh = () =>
+      setRoomIds(roomsWithDrafts(draftStorageEntries(), accountId, tenantId));
+    refresh();
+    return subscribeRoomComposerDrafts(refresh);
+  }, [accountId, tenantId]);
+  return roomIds;
+}
+
 export function RoomSecondaryNavigation({
   accountId,
   activeRoomId,
@@ -143,6 +169,7 @@ export function RoomSecondaryNavigation({
   const now = new Date();
   const runningRooms = new Set(runningRoomIds);
   const failedRooms = new Set(failedRoomIds);
+  const draftRoomIds = useDraftRoomIds(accountId, tenant.id);
   const visibleRoomIds = new Set(
     rooms.flatMap((room) =>
       room.parent_room_id ? [room.parent_room_id] : [room.id],
@@ -414,6 +441,9 @@ export function RoomSecondaryNavigation({
                         <RoomAvatar members={room.member_preview ?? []} />
                         <span className="min-w-0 flex-1 px-1">
                           <RoomRowTitle
+                            draftName={
+                              draftRoomIds.has(room.id) ? room.name : undefined
+                            }
                             pinned={Boolean(room.pinned_at)}
                             snoozed={snoozed}
                           >
@@ -466,6 +496,7 @@ export function RoomSecondaryNavigation({
                   >
                     <DirectRoomLink
                       active={room.id === activeRoomId}
+                      draftName={draftRoomIds.has(room.id) ? name : undefined}
                       onNavigate={(event) => completeNavigation(event, room.id)}
                       room={room}
                       failed={failedRooms.has(room.id)}
@@ -606,16 +637,28 @@ function NavRow({
 
 function RoomRowTitle({
   children,
+  draftName,
   pinned,
   snoozed = false,
 }: {
   children: ReactNode;
+  /** The Room's name while it holds an unsent draft. */
+  draftName?: string;
   pinned: boolean;
   snoozed?: boolean;
 }) {
   return (
     <span className="flex min-w-0 items-center gap-1 text-sm leading-[18px] font-medium text-foreground">
       <span className="min-w-0 truncate">{children}</span>
+      {draftName ? (
+        <span
+          aria-label={`Draft in ${draftName}`}
+          className="ml-0.5 flex shrink-0 items-center rounded-full bg-muted px-1.5 text-2xs leading-4 font-medium text-muted-foreground"
+          role="img"
+        >
+          Draft
+        </span>
+      ) : null}
       {pinned ? (
         <span
           aria-label="Pinned"
@@ -639,6 +682,7 @@ function RoomRowTitle({
 
 function DirectRoomLink({
   active,
+  draftName,
   failed,
   working,
   onNavigate,
@@ -646,6 +690,7 @@ function DirectRoomLink({
   tenantId,
 }: {
   active: boolean;
+  draftName?: string;
   failed?: boolean;
   working: boolean;
   onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
@@ -676,7 +721,7 @@ function DirectRoomLink({
         size="nav"
       />
       <span className="min-w-0 flex-1 px-1">
-        <RoomRowTitle pinned={Boolean(room.pinned_at)}>
+        <RoomRowTitle draftName={draftName} pinned={Boolean(room.pinned_at)}>
           {displayName}
         </RoomRowTitle>
         <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">
