@@ -1,9 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { expect, it, vi } from "vitest";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
+import { localCalendarDay } from "@/features/memory/on-this-day";
+import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 import { WikiHomePage } from "./wiki-home-page";
 import {
   serveWikiDocuments,
@@ -119,3 +121,68 @@ it("shows the pages a refresh has written as ordinary cards that open as pages",
   );
   expect(screen.queryByText("No topics yet.")).toBeNull();
 });
+
+it("features an earlier Daily and opens that day on the timeline", async () => {
+  const runtime = createTestTeamHubRuntime();
+  serveWikiDocuments(runtime).mockResolvedValue({
+    items: [],
+    page: { has_more: false },
+  });
+  const today = localCalendarDay();
+  const week = calendarShift(today, -7);
+  const entry = (day: string): TeamHubMemoryEntry => ({
+    id: `daily-${day}`,
+    kind: "daily",
+    path: `timeline/daily/${day}.md`,
+    date: day,
+    title: `Daily ${day}`,
+    summary: `What happened on ${day}`,
+    updated_at: `${day}T00:00:00Z`,
+    content: `---\ndescription: What happened on ${day}\n---\n`,
+  });
+  runtime.server.on("GET", "/v0/tenants/{tenantId}/memory", () => ({
+    items: [entry(today), entry(week)],
+  }));
+  const router = createMemoryRouter(
+    [
+      { path: "/t/:tenantId/library/wiki", element: <WikiHomePage /> },
+      {
+        path: "/t/:tenantId/library/wiki/graph",
+        element: <div>Timeline</div>,
+      },
+    ],
+    { initialEntries: ["/t/tenant-northstar/library/wiki?tab=wiki"] },
+  );
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <TeamHubRuntimeProvider runtime={runtime}>
+        <RouterProvider router={router} />
+      </TeamHubRuntimeProvider>
+    </QueryClientProvider>,
+  );
+  const recall = await screen.findByRole("region", { name: "A week ago" });
+  expect(recall).toHaveTextContent(`What happened on ${week}`);
+  fireEvent.click(
+    within(recall).getByRole("button", { name: `Open Daily for ${week}` }),
+  );
+  expect(router.state.location.pathname).toBe(
+    "/t/tenant-northstar/library/wiki/graph",
+  );
+  expect(router.state.location.search).toBe(`?day=${week}`);
+  expect(screen.getByText("Timeline")).toBeTruthy();
+});
+
+function calendarShift(day: string, delta: number): string {
+  const [year, month, date] = day.split("-").map(Number) as [
+    number,
+    number,
+    number,
+  ];
+  return new Date(Date.UTC(year, month - 1, date + delta))
+    .toISOString()
+    .slice(0, 10);
+}

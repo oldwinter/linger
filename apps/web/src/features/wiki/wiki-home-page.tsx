@@ -14,6 +14,7 @@ import type { TeamHubDocument } from "@/features/teamhub/teamhub-types";
 import { documentFileName } from "@/features/library/document-display-name";
 import { useWikiDocuments } from "./knowledge-sidebar-trees";
 import { WikiDailyCard } from "./wiki-daily-card";
+import { OnThisDayRecall, recallForToday } from "./on-this-day-recall";
 import {
   wikiEntries,
   type WikiEntry,
@@ -225,6 +226,7 @@ function WikiOverview({
   const daily = [...(reports.data ?? [])]
     .filter(reportDate)
     .sort((a, b) => (reportDate(b) ?? "").localeCompare(reportDate(a) ?? ""));
+  const { recall, recent } = recallForToday(daily);
   const projects = collections.entries("projects", previews);
   const topics = collections.entries("topics", previews);
   const people = collections.entries("contacts", previews);
@@ -270,24 +272,39 @@ function WikiOverview({
                 Reports are unavailable.
               </p>
             ) : daily.length ? (
-              <div className="daily-list">
-                {daily.slice(0, 2).map((entry) => {
-                  const day = reportDate(entry)!;
-                  const open = () =>
-                    void navigate(
-                      `${base}/graph?day=${encodeURIComponent(day)}`,
-                    );
-                  return (
-                    <WikiDailyCard
-                      key={entry.id}
-                      tenantId={tenantId}
-                      day={day}
-                      entry={entry}
-                      onOpen={open}
-                    />
-                  );
-                })}
-              </div>
+              <>
+                {recall ? (
+                  <OnThisDayRecall
+                    onOpen={() =>
+                      void navigate(
+                        `${base}/graph?day=${encodeURIComponent(recall.day)}`,
+                      )
+                    }
+                    recall={recall}
+                    tenantId={tenantId}
+                  />
+                ) : null}
+                {recent.length ? (
+                  <div className="daily-list">
+                    {recent.map((entry) => {
+                      const day = reportDate(entry)!;
+                      const open = () =>
+                        void navigate(
+                          `${base}/graph?day=${encodeURIComponent(day)}`,
+                        );
+                      return (
+                        <WikiDailyCard
+                          key={entry.id}
+                          tenantId={tenantId}
+                          day={day}
+                          entry={entry}
+                          onOpen={open}
+                        />
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </>
             ) : (
               <p className="landing-empty">No daily reports yet.</p>
             )}

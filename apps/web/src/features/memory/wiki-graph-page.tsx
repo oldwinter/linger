@@ -171,6 +171,12 @@ export function WikiGraphPage() {
                     kind={selectedReport.kind}
                     tenantId={tenantId}
                     onClose={() => setSelectedReport(undefined)}
+                    onOpenDay={
+                      selectedReport.kind === "daily"
+                        ? (next) =>
+                            setSelectedReport({ kind: "daily", day: next })
+                        : undefined
+                    }
                   />
                 </Suspense>
               ) : null
