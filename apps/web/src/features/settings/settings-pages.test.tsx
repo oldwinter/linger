@@ -436,7 +436,7 @@ describe("Browser preferences", () => {
       "Composer drafts",
       "Room mention snoozes and mutes",
       "Snoozed Rooms",
-      "Unread-only Room list",
+      "Room list filter",
       "Desktop notification pause",
       "Recent searches",
       "Recently opened documents",

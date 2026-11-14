@@ -57,7 +57,7 @@ export const browserPreferences: readonly BrowserPreference[] = [
   {
     clear: clearRoomUnreadFilter,
     hasAnything: hasRoomUnreadFilter,
-    label: "Unread-only Room list",
+    label: "Room list filter",
     module: "features/rooms/room-unread-filter.ts",
   },
   {
