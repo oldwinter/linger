@@ -16,6 +16,8 @@
 - A reader may copy a report as Markdown or send it to a Room as one Message.
   That Message is a copy of derived reading state, not source evidence, and
   neither action writes Memory state.
+- A meeting reader may copy its Action items as a Markdown checklist. The
+  clipboard holds a copy of derived reading state and the reader writes none.
 - Timeline is the display label for the existing `graph` entry; keep its route
   and data key. Keep/Delete stay browser-local display decisions through
   `features/wiki/wiki-display-state.ts`: filter displayed graph nodes and edges
