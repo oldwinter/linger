@@ -14,12 +14,18 @@ import { teamHubErrorResponse } from "@/test/teamhub-test-server";
 import PocketNotePanel from "./pocket-note-panel";
 
 const download = vi.hoisted(() => ({ triggerArtifactDownload: vi.fn() }));
+const clipboard = vi.hoisted(() => ({ writeClipboardText: vi.fn() }));
 
 vi.mock("../files/artifact-preview-loader", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("../files/artifact-preview-loader")
   >()),
   triggerArtifactDownload: download.triggerArtifactDownload,
+}));
+
+vi.mock("@/lib/clipboard", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/clipboard")>()),
+  writeClipboardText: clipboard.writeClipboardText,
 }));
 
 beforeEach(() => {
@@ -29,6 +35,8 @@ beforeEach(() => {
     getBoundingClientRect: { configurable: true, value: () => new DOMRect() },
   });
   download.triggerArtifactDownload.mockReset();
+  clipboard.writeClipboardText.mockReset();
+  clipboard.writeClipboardText.mockResolvedValue(undefined);
 });
 
 function note(date: string, text: string): TeamHubPocketNote {
@@ -47,13 +55,23 @@ function page(
 }
 
 /** Renders the panel on its today page, with the list it will open. */
-function renderPanel(listPocketNotes: (cursor: string | undefined) => unknown) {
+function renderPanel(
+  listPocketNotes: (cursor: string | undefined) => unknown,
+  putTodayPocketNote?: (text: string) => unknown,
+) {
   const runtime = createTestTeamHubRuntime();
   runtime.server.on(
     "GET",
     "/v0/tenants/{tenantId}/me/pocket-notes",
     ({ query }) => listPocketNotes(query.get("cursor") ?? undefined),
   );
+  if (putTodayPocketNote) {
+    runtime.server.on(
+      "PUT",
+      "/v0/tenants/{tenantId}/me/pocket-notes/today",
+      ({ body }) => putTodayPocketNote((body as { text: string }).text),
+    );
+  }
   const anchorRef: RefObject<HTMLButtonElement | null> = {
     current: document.createElement("button"),
   };
@@ -78,6 +96,14 @@ function renderPanel(listPocketNotes: (cursor: string | undefined) => unknown) {
 
 async function openAllNotes() {
   fireEvent.click(await screen.findByRole("button", { name: "All notes" }));
+}
+
+function pasteText(editor: HTMLElement, text: string) {
+  fireEvent.paste(editor, {
+    clipboardData: {
+      getData: (type: string) => (type === "text/plain" ? text : ""),
+    },
+  });
 }
 
 describe("PocketNotePanel download", () => {
@@ -262,5 +288,68 @@ describe("PocketNotePanel search", () => {
 
     expect(screen.getByText("Shipped the graph preview")).toBeVisible();
     expect(screen.getByText("Reviewed the flashback card")).toBeVisible();
+  });
+});
+
+describe("PocketNotePanel copy", () => {
+  it("copies today's note as a pasted block", async () => {
+    renderPanel(async () =>
+      page([note("2026-10-01", "Shipped the graph preview")]),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Copy note" }));
+
+    await waitFor(() =>
+      expect(clipboard.writeClipboardText).toHaveBeenCalledWith(
+        "Shipped the graph preview\n",
+      ),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent("Copied");
+  });
+
+  it("copies the text being edited", async () => {
+    renderPanel(
+      async () => page([]),
+      (text) => note("2026-10-01", text),
+    );
+    const editor = await screen.findByRole("textbox", {
+      name: "Today’s note",
+    });
+    pasteText(editor, "Buy milk");
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy note" }));
+
+    await waitFor(() =>
+      expect(clipboard.writeClipboardText).toHaveBeenCalledWith("Buy milk\n"),
+    );
+  });
+
+  it("closes trailing whitespace with one newline", async () => {
+    renderPanel(async () => page([note("2026-10-01", "Plan\n\n\n")]));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Copy note" }));
+
+    await waitFor(() =>
+      expect(clipboard.writeClipboardText).toHaveBeenCalledWith("Plan\n"),
+    );
+  });
+
+  it("keeps Copy off while the page is empty", async () => {
+    renderPanel(async () => page([]));
+
+    expect(
+      await screen.findByRole("button", { name: "Copy note" }),
+    ).toBeDisabled();
+  });
+
+  it("reports a refused copy", async () => {
+    clipboard.writeClipboardText.mockRejectedValue(new Error("denied"));
+    renderPanel(async () =>
+      page([note("2026-10-01", "Shipped the graph preview")]),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Copy note" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
   });
 });

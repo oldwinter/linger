@@ -1,6 +1,7 @@
 import {
   ArrowLeft01Icon,
   Cancel01Icon,
+  Copy01Icon,
   Delete02Icon,
   Download01Icon,
   GridViewIcon,
@@ -36,6 +37,7 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubPocketNote } from "@/features/teamhub/teamhub-types";
 
 import { Button } from "@/components/ui/button";
+import { writeClipboardText } from "@/lib/clipboard";
 import { cn } from "@/lib/cn";
 
 import {
@@ -51,6 +53,7 @@ import {
 } from "./pocket-notes-export";
 import { LazyVoiceKeyDialog } from "@/features/rooms/voice-control/lazy-voice-key-dialog";
 import { appendToPocketNote } from "./pocket-note-append";
+import { pocketNoteCopyText } from "./pocket-note-copy";
 import { usePocketDictation } from "./use-pocket-dictation";
 import {
   PocketNoteEditor,
@@ -59,6 +62,8 @@ import {
 import { searchPocketNotes } from "./pocket-note-search";
 
 const autosaveDelayMs = 800;
+/** Long enough to read, matching the other copy actions. */
+const copiedFeedbackMs = 1200;
 const maximumNoteLength = 20000;
 const panelWidth = 360;
 const panelGap = 12;
@@ -464,6 +469,7 @@ function TodayPocketNote({
   return (
     <>
       <PocketNoteHeader
+        action={<PocketNoteCopyAction text={text} />}
         leading={
           <HeaderButton label="All notes" onClick={onShowAll}>
             <Icon icon={GridViewIcon} size={16} />
@@ -869,6 +875,52 @@ function HeaderButton({
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * Copies today's page as the person sees it and reports the clipboard's answer,
+ * so a refused write never reads as success. Nothing is saved or requested.
+ */
+function PocketNoteCopyAction({ text }: { text: string }) {
+  const value = pocketNoteCopyText(text);
+  const [failed, setFailed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const resetTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => () => window.clearTimeout(resetTimer.current), []);
+
+  function copy() {
+    window.clearTimeout(resetTimer.current);
+    setFailed(false);
+    setCopied(false);
+    void writeClipboardText(value)
+      .then(() => {
+        setCopied(true);
+        resetTimer.current = window.setTimeout(
+          () => setCopied(false),
+          copiedFeedbackMs,
+        );
+      })
+      .catch(() => setFailed(true));
+  }
+
+  return (
+    <>
+      {copied ? (
+        <span className="text-xs leading-4 text-app-muted" role="status">
+          Copied
+        </span>
+      ) : null}
+      {failed ? (
+        <span className="text-xs leading-4 text-app-danger" role="alert">
+          Copy failed
+        </span>
+      ) : null}
+      <HeaderButton disabled={!value} label="Copy note" onClick={copy}>
+        <Icon icon={Copy01Icon} size={16} />
+      </HeaderButton>
+    </>
   );
 }
 
