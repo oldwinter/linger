@@ -13,6 +13,9 @@
 - Tracking a meeting Action stages an unsent draft in the Human's Another Me
   Chat and opens it; the reader still sends nothing itself and creates no Work
   Item.
+- A reader may copy a report as Markdown or send it to a Room as one Message.
+  That Message is a copy of derived reading state, not source evidence, and
+  neither action writes Memory state.
 - Timeline is the display label for the existing `graph` entry; keep its route
   and data key. Keep/Delete stay browser-local display decisions through
   `features/wiki/wiki-display-state.ts`: filter displayed graph nodes and edges
