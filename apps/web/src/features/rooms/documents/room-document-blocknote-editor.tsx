@@ -17,6 +17,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { TextSelection } from "@tiptap/pm/state";
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -63,6 +64,11 @@ import {
 } from "./room-document-comment-composer";
 import { roomDocumentBlocksAreEmpty } from "./room-document-blocks";
 import {
+  countRoomDocumentText,
+  roomDocumentTextCountLabel,
+  type RoomDocumentTextCount,
+} from "./room-document-text-count";
+import {
   RoomDocumentCommentsController,
   RoomDocumentCommentsOpenProvider,
 } from "./room-document-comments-sidebar";
@@ -88,6 +94,9 @@ import {
 } from "./canvas/canvas-header";
 
 const ignoreCommentsOpenChange = () => undefined;
+
+/** Rewrites the text count at most this often while the person types. */
+const TEXT_COUNT_INTERVAL_MS = 300;
 
 export interface RoomDocumentBlockNoteEditorProps {
   client: TeamHubClient;
@@ -362,6 +371,36 @@ export function RoomDocumentBlockNoteEditor({
   const [isEmptyDocument, setIsEmptyDocument] = useState(() =>
     roomDocumentBlocksAreEmpty(editor.document),
   );
+  const [textCount, setTextCount] = useState<RoomDocumentTextCount>({
+    characters: 0,
+    words: 0,
+  });
+  const textCountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const textCountedAtRef = useRef(0);
+  const updateTextCount = useCallback((target: RoomDocumentEditor) => {
+    textCountedAtRef.current = Date.now();
+    setTextCount(
+      countRoomDocumentText(target.blocksToMarkdownLossy(target.document)),
+    );
+  }, []);
+  const scheduleTextCount = (target: RoomDocumentEditor) => {
+    // A read-only Document shows no line, so remote changes need no count.
+    if (!editable) return;
+    const elapsed = Date.now() - textCountedAtRef.current;
+    if (elapsed >= TEXT_COUNT_INTERVAL_MS) {
+      if (textCountTimerRef.current !== null) {
+        clearTimeout(textCountTimerRef.current);
+        textCountTimerRef.current = null;
+      }
+      updateTextCount(target);
+      return;
+    }
+    if (textCountTimerRef.current !== null) return;
+    textCountTimerRef.current = setTimeout(() => {
+      textCountTimerRef.current = null;
+      updateTextCount(target);
+    }, TEXT_COUNT_INTERVAL_MS - elapsed);
+  };
   const knowledgeTitle = editable ? undefined : knowledgeDocumentTitle;
   const knowledge = useKnowledgePresentation(editor, knowledgeTitle);
   const { agentEditing, canvas } = useCanvas(editor, session.awareness);
@@ -374,9 +413,19 @@ export function RoomDocumentBlockNoteEditor({
     editorRef.current = editor;
     if (surfaceEditorRef) surfaceEditorRef.current = editor;
     setIsEmptyDocument(roomDocumentBlocksAreEmpty(editor.document));
+    // The mount count is not a typing update, so it leaves the throttle window
+    // open and the first edit after opening still counts at once.
+    textCountedAtRef.current = 0;
+    setTextCount(
+      countRoomDocumentText(editor.blocksToMarkdownLossy(editor.document)),
+    );
     return () => {
       editorRef.current = null;
       if (surfaceEditorRef) surfaceEditorRef.current = null;
+      if (textCountTimerRef.current !== null) {
+        clearTimeout(textCountTimerRef.current);
+        textCountTimerRef.current = null;
+      }
     };
   }, [editor, surfaceEditorRef]);
 
@@ -477,6 +526,7 @@ export function RoomDocumentBlockNoteEditor({
           setIsEmptyDocument(
             roomDocumentBlocksAreEmpty(changedEditor.document),
           );
+          scheduleTextCount(changedEditor);
           onHeadingsChange?.(
             extractDocumentHeadings(
               changedEditor.document,
@@ -542,6 +592,14 @@ export function RoomDocumentBlockNoteEditor({
           threadStore={threadStore}
         />
       </BlockNoteView>
+      {editable && textCount.characters > 0 ? (
+        <p
+          className="mt-2 text-right text-xs text-muted-foreground"
+          data-testid="document-text-count"
+        >
+          {roomDocumentTextCountLabel(textCount)}
+        </p>
+      ) : null}
       {!readOnlyCommentPending && (
         <ReadOnlySelectionCommentControl
           anchorRef={readOnlyAnchorRef}
