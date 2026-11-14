@@ -80,6 +80,20 @@ func TestHerdrDelegationsNameTheTextAPaneReceives(t *testing.T) {
 		},
 		{"herdr agent list", nil, false},
 		{"herdr pane run w2:p2", nil, false},
+		// A redirect names a file or the null device, never a pane.
+		{`herdr pane wait-output w2:p1 --match "test result" --timeout 120000 >/dev/null; herdr pane read w2:p1 --source recent --lines 120`, nil, false},
+		{"herdr pane read w2:p1 > /dev/null", nil, false},
+		{"herdr pane read w2:p1 >> notes/herdr.log", nil, false},
+		{"herdr pane read w2:p1 2>/dev/null", nil, false},
+		{"herdr pane read w2:p1 &>/dev/null", nil, false},
+		{"herdr pane read w2:p1 < notes/input.txt", nil, false},
+		// The target is unreadable, but the command is read-only either way.
+		{"herdr pane read w2:p1 > ~/herdr.log", nil, false},
+		// A redirect inside quotes is text for the pane, not a redirect.
+		{"herdr pane send-text w1:p1 'echo a > b'", []Delegation{{Kind: DelegationTerminalInput, Target: "w1:p1", Text: "echo a > b"}}, false},
+		{`printf 'hi' | herdr pane send-text w1:p1 'hi'`, []Delegation{{Kind: DelegationTerminalInput, Target: "w1:p1", Text: "hi"}}, false},
+		// A delegating command the host cannot read still hides its text.
+		{`herdr pane send-text w1:p1 "$(cat message)"`, nil, true},
 		{`herdr agent prompt reviewer "Use $HOME"`, nil, true},
 		{`ls && herdr pane run w2:p2 "$(cat cmd)"`, nil, true},
 		{`echo "$HOME"`, nil, false},
@@ -120,6 +134,11 @@ func TestReviewerReviewsHerdrDelegationsWithTheirText(t *testing.T) {
 			command: `herdr agent prompt reviewer "Deploy $BRANCH"`,
 			want:    `{"missing":["` + HerdrUnreadMissing + `"]}`,
 		},
+		{
+			name:    "a read-only command whose redirect target the host does not read",
+			command: "herdr pane read w2:p1 > ~/herdr.log",
+			want:    `null`,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			requester := newFakeRequester()
@@ -151,7 +170,12 @@ func TestReviewerAllowsReadOnlyHerdrCommandsWithoutAsking(t *testing.T) {
 	workspace := shellWorkspace(t)
 	reviewer := &Reviewer{Requester: requester, Environment: Environment{Workspace: workspace}}
 	for _, runtime := range []string{"claude", "codex"} {
-		for _, command := range []string{"herdr agent list", "herdr pane read w2:p1 --lines 50"} {
+		for _, command := range []string{
+			"herdr agent list",
+			"herdr pane read w2:p1 --lines 50",
+			// Waiting for output and reading it back hands nothing to a pane.
+			`herdr pane wait-output w2:p1 --match "test result" --timeout 120000 >/dev/null; herdr pane read w2:p1 --source recent --lines 120`,
+		} {
 			verdict := reviewer.Review(context.Background(), Request{Action: Action{Runtime: runtime, Tool: "Bash", Command: command}})
 			if verdict.Decision != Allow {
 				t.Fatalf("%s %q: %+v", runtime, command, verdict)
