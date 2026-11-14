@@ -17,6 +17,7 @@ import {
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { type ReactNode, useState } from "react";
+import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
@@ -67,6 +68,7 @@ export function ComputerDetail({
   agentAvailabilities,
   agents,
   browserConnection,
+  canDoHref,
   computer: latestComputer,
   onConnect,
   onOpenAgent,
@@ -76,6 +78,8 @@ export function ComputerDetail({
   agents: TeamHubTenantAgent[];
   /** The browser status as a progress chip or an Access row; the page owns its TeamHub reads. */
   browserConnection?: (variant: "chip" | "row") => ReactNode;
+  /** Where the owner asks macOS what this computer may do. */
+  canDoHref?: string;
   computer: LocalComputer;
   onConnect?: () => void;
   onOpenAgent: (actorId: string) => void;
@@ -128,6 +132,16 @@ export function ComputerDetail({
         onUpdate={() => setUpdateOpen(true)}
         readiness={readiness}
       />
+      {canDoHref ? (
+        <p className="px-2 pt-3">
+          <Link
+            className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            to={canDoHref}
+          >
+            What this Mac can do
+          </Link>
+        </p>
+      ) : null}
       <Group
         count={agents.length}
         summary={agentStatusSummary(agentAvailabilities, agents)}

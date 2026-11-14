@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 
 import { ComputerBrowserConnection } from "./browser-connection/computer-browser-connection";
+import { computerCanDoPath } from "./computer-can-do";
 import { ComputerDetail } from "./computer-detail";
 import { projectAgentAvailabilitySnapshots } from "./agent-availability";
 import { ComputerDirectory } from "./computer-directory";
@@ -232,6 +233,10 @@ export function ComputersPage() {
                   tenantId={tenantId}
                   variant={variant}
                 />
+              )}
+              canDoHref={computerCanDoPath(
+                tenantId,
+                selectedComputer.computer_id,
               )}
               computer={selectedComputer}
               key={selectedComputer.computer_id}
