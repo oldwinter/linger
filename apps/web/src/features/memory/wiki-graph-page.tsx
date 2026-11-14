@@ -21,6 +21,7 @@ import { WikiRefreshBanner } from "@/features/wiki/wiki-refresh-status";
 import { useAnotherMeActorId } from "@/features/wiki/wiki-working-card";
 import { nodeMoments, parseEmbeddedWikiGraph } from "./wiki-graph-model";
 import { WikiBack } from "@/features/wiki/wiki-home-page";
+import { WikiFlashbackCard } from "./wiki-flashback-card";
 import { WikiKnowledgeGraph } from "./wiki-knowledge-graph";
 import { usePeriodReports } from "./wiki-period-reports";
 
@@ -136,25 +137,31 @@ export function WikiGraphPage() {
             key={`${tenantId}:${graph.dataUpdatedAt}`}
             onReadingModeChange={() => setSelectedReport(undefined)}
             renderTimeline={(pages, granularity, navigation) => (
-              <Suspense
-                fallback={
-                  <p role="status" className="p-6 text-sm text-app-muted">
-                    Loading timeline…
-                  </p>
-                }
-              >
-                <ReportCards
-                  tenantId={tenantId}
-                  pages={pages}
-                  moments={timelineMoments!}
-                  granularity={granularity}
-                  focus={navigation.focus}
-                  onPeriodChange={navigation.onPeriodChange}
-                  onSelectReport={(kind, day) =>
-                    setSelectedReport({ kind, day })
-                  }
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                <WikiFlashbackCard
+                  reports={reports.data}
+                  onOpen={(day) => setSelectedReport({ kind: "daily", day })}
                 />
-              </Suspense>
+                <Suspense
+                  fallback={
+                    <p role="status" className="p-6 text-sm text-app-muted">
+                      Loading timeline…
+                    </p>
+                  }
+                >
+                  <ReportCards
+                    tenantId={tenantId}
+                    pages={pages}
+                    moments={timelineMoments!}
+                    granularity={granularity}
+                    focus={navigation.focus}
+                    onPeriodChange={navigation.onPeriodChange}
+                    onSelectReport={(kind, day) =>
+                      setSelectedReport({ kind, day })
+                    }
+                  />
+                </Suspense>
+              </div>
             )}
             dailyPanel={
               selectedReport ? (
