@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 
 const SNOOZE_PREFIX = "room-mention-snooze.v1:";
-const SNOOZE_CHANGED = "room-mention-snooze-changed";
+const MUTE_PREFIX = "room-mention-mute.v1:";
+const PREFERENCES_CHANGED = "room-mention-preferences-changed";
 
 /** One hour, the shortest choice the Room row menu offers. */
 export const MENTION_SNOOZE_HOUR_MS = 60 * 60 * 1000;
@@ -15,6 +16,9 @@ const MORNING_HOUR = 8;
  * nothing the server knows or counts.
  */
 export type RoomMentionSnooze = Readonly<Record<string, string>>;
+
+/** Room ids whose mentions stay quiet until the person unmutes them. */
+export type RoomMentionMute = ReadonlySet<string>;
 
 export type RoomMentionSnoozeChoice = "hour" | "morning";
 
@@ -81,6 +85,42 @@ export function snoozedRoomIds(
   return new Set(Object.keys(pruneRoomMentionSnooze(snooze, now)));
 }
 
+export function withRoomMentionMute(
+  mute: RoomMentionMute,
+  roomId: string,
+): RoomMentionMute {
+  return new Set([...mute, roomId]);
+}
+
+export function withoutRoomMentionMute(
+  mute: RoomMentionMute,
+  roomId: string,
+): RoomMentionMute {
+  const next = new Set(mute);
+  next.delete(roomId);
+  return next;
+}
+
+export function isRoomMentionMuted(
+  mute: RoomMentionMute,
+  roomId: string,
+): boolean {
+  return mute.has(roomId);
+}
+
+/** The Rooms whose mentions stay quiet right now: snoozed or muted. */
+export function quietRoomIds(
+  snooze: RoomMentionSnooze,
+  mute: RoomMentionMute,
+  now: Date,
+): ReadonlySet<string> {
+  const quiet = new Set<string>(
+    Object.keys(pruneRoomMentionSnooze(snooze, now)),
+  );
+  for (const roomId of mute) quiet.add(roomId);
+  return quiet;
+}
+
 /**
  * Reads this Account's snoozes as of `now`, dropping expired and unreadable
  * entries. Blocked or corrupt storage means nothing is snoozed rather than a
@@ -121,7 +161,7 @@ export function writeRoomMentionSnooze(
     return;
   }
   // Same-tab readers refresh; other tabs hear the storage event instead.
-  window.dispatchEvent(new Event(SNOOZE_CHANGED));
+  window.dispatchEvent(new Event(PREFERENCES_CHANGED));
 }
 
 export function setRoomMentionSnooze(
@@ -147,11 +187,76 @@ export function clearRoomMentionSnooze(
   );
 }
 
-export function subscribeRoomMentionSnooze(listener: () => void): () => void {
-  window.addEventListener(SNOOZE_CHANGED, listener);
+/**
+ * This Account's muted Rooms. Blocked or corrupt storage means nothing is
+ * muted rather than a broken Room list.
+ */
+export function readRoomMentionMute(
+  accountId: string | undefined,
+): RoomMentionMute {
+  if (!accountId) return new Set();
+  try {
+    const parsed: unknown = JSON.parse(
+      window.localStorage.getItem(muteKey(accountId)) ?? "[]",
+    );
+    if (!Array.isArray(parsed)) return new Set();
+    // Storage is untrusted: anything but a room id string is no mute.
+    return new Set(
+      parsed.filter((roomId): roomId is string => typeof roomId === "string"),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+export function writeRoomMentionMute(
+  accountId: string | undefined,
+  mute: RoomMentionMute,
+): void {
+  if (!accountId) return;
+  try {
+    window.localStorage.setItem(muteKey(accountId), JSON.stringify([...mute]));
+  } catch {
+    // Blocked storage leaves the Room list working without the choice.
+    return;
+  }
+  window.dispatchEvent(new Event(PREFERENCES_CHANGED));
+}
+
+/** Mutes a Room until the person unmutes it, ending any snooze it held. */
+export function muteRoomMention(
+  accountId: string | undefined,
+  roomId: string,
+  now: Date,
+): void {
+  writeRoomMentionSnooze(
+    accountId,
+    withoutRoomMentionSnooze(readRoomMentionSnooze(accountId, now), roomId),
+  );
+  writeRoomMentionMute(
+    accountId,
+    withRoomMentionMute(readRoomMentionMute(accountId), roomId),
+  );
+}
+
+/** Unmuting leaves the Room with no leftover snooze either. */
+export function unmuteRoomMention(
+  accountId: string | undefined,
+  roomId: string,
+): void {
+  writeRoomMentionMute(
+    accountId,
+    withoutRoomMentionMute(readRoomMentionMute(accountId), roomId),
+  );
+}
+
+export function subscribeRoomMentionPreferences(
+  listener: () => void,
+): () => void {
+  window.addEventListener(PREFERENCES_CHANGED, listener);
   window.addEventListener("storage", listener);
   return () => {
-    window.removeEventListener(SNOOZE_CHANGED, listener);
+    window.removeEventListener(PREFERENCES_CHANGED, listener);
     window.removeEventListener("storage", listener);
   };
 }
@@ -170,9 +275,24 @@ export function useRoomMentionSnooze(
     const refresh = () =>
       setSnooze(readRoomMentionSnooze(accountId, new Date()));
     refresh();
-    return subscribeRoomMentionSnooze(refresh);
+    return subscribeRoomMentionPreferences(refresh);
   }, [accountId]);
   return snooze;
+}
+
+/** This Account's muted Rooms; a mute or an unmute re-reads them. */
+export function useRoomMentionMute(
+  accountId: string | undefined,
+): RoomMentionMute {
+  const [mute, setMute] = useState<RoomMentionMute>(() =>
+    readRoomMentionMute(accountId),
+  );
+  useEffect(() => {
+    const refresh = () => setMute(readRoomMentionMute(accountId));
+    refresh();
+    return subscribeRoomMentionPreferences(refresh);
+  }, [accountId]);
+  return mute;
 }
 
 function isLive(until: string, now: Date): boolean {
@@ -182,4 +302,8 @@ function isLive(until: string, now: Date): boolean {
 
 function snoozeKey(accountId: string) {
   return `${SNOOZE_PREFIX}${accountId}`;
+}
+
+function muteKey(accountId: string) {
+  return `${MUTE_PREFIX}${accountId}`;
 }

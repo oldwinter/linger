@@ -18,7 +18,10 @@ import {
   useRoomMentionNotifications,
 } from "./room-mention-notifications";
 import {
+  unmuteRoomMention,
+  withRoomMentionMute,
   withRoomMentionSnooze,
+  writeRoomMentionMute,
   writeRoomMentionSnooze,
 } from "./room-mention-snooze";
 
@@ -345,6 +348,53 @@ describe("useRoomMentionNotifications", () => {
 
     // The snooze expires on its own; the next reading sees the Room again.
     vi.setSystemTime(new Date("2026-11-15T10:31:00"));
+    rerender({
+      rooms: [
+        room("a", { mentions: 2, message: { id: "msg_3", text: "@Bo again" } }),
+        room("b", { mentions: 1, message: { id: "msg_10", text: "@Bo too" } }),
+      ],
+    });
+    expect(FakeNotification.shown.map((notice) => notice.title)).toEqual([
+      "Room b",
+      "Room a",
+    ]);
+    expect(setBadgeCount).toHaveBeenLastCalledWith(3);
+  });
+
+  it("keeps a muted Room quiet and out of the badge until it is unmuted", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-15T10:00:00"));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const setBadgeCount = vi.fn(async () => {});
+    (window as { lingerDesktop?: unknown }).lingerDesktop = {
+      notifications: { setBadgeCount },
+    };
+    const open = vi.fn();
+    writeRoomMentionMute("account-a", withRoomMentionMute(new Set(), "a"));
+    const { rerender } = renderNotifications(
+      [
+        room("a", { message: { id: "msg_1", text: "hello" } }),
+        room("b", { message: { id: "msg_9", text: "hi" } }),
+      ],
+      open,
+      "account-a",
+    );
+    expect(setBadgeCount).toHaveBeenLastCalledWith(0);
+
+    rerender({
+      rooms: [
+        room("a", { mentions: 2, message: { id: "msg_2", text: "@Bo look" } }),
+        room("b", { mentions: 1, message: { id: "msg_10", text: "@Bo too" } }),
+      ],
+    });
+    expect(FakeNotification.shown.map((notice) => notice.title)).toEqual([
+      "Room b",
+    ]);
+    expect(setBadgeCount).toHaveBeenLastCalledWith(1);
+
+    act(() => unmuteRoomMention("account-a", "a"));
     rerender({
       rooms: [
         room("a", { mentions: 2, message: { id: "msg_3", text: "@Bo again" } }),

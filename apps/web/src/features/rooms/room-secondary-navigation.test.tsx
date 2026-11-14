@@ -1146,6 +1146,7 @@ describe("Room navigation mention snooze", () => {
     ).toEqual([
       "Snooze mentions for 1 hour",
       "Snooze mentions until tomorrow morning",
+      "Mute mentions",
     ]);
     fireEvent.click(
       within(menu).getByRole("menuitem", {
@@ -1176,6 +1177,89 @@ describe("Room navigation mention snooze", () => {
     );
 
     await waitFor(() => expect(screen.queryByText("Snoozed")).toBeNull());
+    expect(
+      JSON.parse(localStorage.getItem("room-mention-snooze.v1:account-a")!),
+    ).toEqual({});
+  });
+
+  it("replaces a snooze with a mute so only one hint shows", async () => {
+    renderList([room("room-a", 2, 1)]);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "More actions for room-a" }),
+    );
+    const menu = await screen.findByRole("menu", {
+      name: "More actions for room-a",
+    });
+    fireEvent.click(
+      within(menu).getByRole("menuitem", {
+        name: "Snooze mentions for 1 hour",
+      }),
+    );
+    expect(await screen.findByText("Snoozed")).toBeVisible();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "More actions for room-a" }),
+    );
+    const reopened = await screen.findByRole("menu", {
+      name: "More actions for room-a",
+    });
+    fireEvent.click(
+      within(reopened).getByRole("menuitem", { name: "Mute mentions" }),
+    );
+
+    expect(await screen.findByText("Muted")).toBeVisible();
+    expect(screen.queryByText("Snoozed")).toBeNull();
+    expect(
+      JSON.parse(localStorage.getItem("room-mention-snooze.v1:account-a")!),
+    ).toEqual({});
+    expect(
+      JSON.parse(localStorage.getItem("room-mention-mute.v1:account-a")!),
+    ).toEqual(["room-a"]);
+  });
+
+  it("mutes a Room's mentions from its row menu until it is unmuted", async () => {
+    renderList([room("room-a", 2, 1)]);
+    expect(screen.queryByText("Muted")).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "More actions for room-a" }),
+    );
+    const menu = await screen.findByRole("menu", {
+      name: "More actions for room-a",
+    });
+    fireEvent.click(
+      within(menu).getByRole("menuitem", { name: "Mute mentions" }),
+    );
+
+    expect(await screen.findByText("Muted")).toBeVisible();
+    // Muting quiets notifications only; the row keeps its unread numbers.
+    expect(
+      within(screen.getByRole("link", { name: "room-a" })).getByTitle(
+        "1 unread mention",
+      ),
+    ).toBeVisible();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "More actions for room-a" }),
+    );
+    const mutedMenu = await screen.findByRole("menu", {
+      name: "More actions for room-a",
+    });
+    // A muted Room hides the snooze choices instead of offering both.
+    expect(
+      within(mutedMenu)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Unmute mentions"]);
+    fireEvent.click(
+      within(mutedMenu).getByRole("menuitem", { name: "Unmute mentions" }),
+    );
+
+    await waitFor(() => expect(screen.queryByText("Muted")).toBeNull());
+    expect(
+      JSON.parse(localStorage.getItem("room-mention-mute.v1:account-a")!),
+    ).toEqual([]);
     expect(
       JSON.parse(localStorage.getItem("room-mention-snooze.v1:account-a")!),
     ).toEqual({});

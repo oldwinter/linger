@@ -3,11 +3,15 @@ import { useEffect, useRef } from "react";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
 
-import { snoozedRoomIds, useRoomMentionSnooze } from "./room-mention-snooze";
+import {
+  quietRoomIds,
+  useRoomMentionMute,
+  useRoomMentionSnooze,
+} from "./room-mention-snooze";
 
 const BODY_LIMIT = 160;
 
-const NO_SNOOZED_ROOMS: ReadonlySet<string> = new Set();
+const NO_QUIET_ROOMS: ReadonlySet<string> = new Set();
 
 export interface RoomMentionNotice {
   /** The Message that announced the mention; absent for a Room-level notice. */
@@ -38,14 +42,14 @@ export function roomMentionMessages(
  * The unread mentions to announce from one reading of the Room list. A Room
  * read for the first time is only recorded, as on the app's first reading, so
  * joining a Room or learning about Threads never replays old mentions. Threads,
- * the Room already on screen, and Rooms whose mentions are snoozed have their
+ * the Room already on screen, and Rooms whose mentions are quiet have their
  * own place in the UI.
  */
 export function roomMentionNotices(
   rooms: readonly TeamHubRoomListItem[],
   activeRoomId: string | undefined,
   seen: RoomMentionMessages | undefined,
-  snoozedRooms: ReadonlySet<string> = NO_SNOOZED_ROOMS,
+  quietRooms: ReadonlySet<string> = NO_QUIET_ROOMS,
 ): RoomMentionNotice[] {
   if (!seen) return [];
   return rooms.flatMap((room) => {
@@ -54,7 +58,7 @@ export function roomMentionNotices(
       !message ||
       room.kind === "thread" ||
       room.id === activeRoomId ||
-      snoozedRooms.has(room.id) ||
+      quietRooms.has(room.id) ||
       room.unread_mention_count === 0 ||
       !seen.has(room.id) ||
       seen.get(room.id) === message.id
@@ -90,8 +94,8 @@ function desktopBadge(): DesktopBadge | undefined {
  * brings the window back on its Room, and on the Message it announced when the
  * notice names one. Mentions read while focused are dropped rather than shown
  * late, because the Room list already showed them. A Room whose mentions are
- * snoozed raises neither a notification nor a badge count, while the Room list
- * keeps its own unread numbers.
+ * snoozed or muted raises neither a notification nor a badge count, while the
+ * Room list keeps its own unread numbers.
  */
 export function useRoomMentionNotifications({
   accountId,
@@ -108,6 +112,7 @@ export function useRoomMentionNotifications({
   const seen = useRef<RoomMentionMessages | undefined>(undefined);
   const badge = useRef<number | null>(null);
   const snooze = useRoomMentionSnooze(accountId);
+  const mute = useRoomMentionMute(accountId);
 
   useEffect(() => {
     if (!rooms) return;
@@ -115,7 +120,7 @@ export function useRoomMentionNotifications({
       rooms,
       roomId,
       seen.current,
-      snoozedRoomIds(snooze, new Date()),
+      quietRoomIds(snooze, mute, new Date()),
     );
     seen.current = roomMentionMessages(rooms);
     if (
@@ -136,20 +141,20 @@ export function useRoomMentionNotifications({
         notification.close();
       };
     }
-  }, [open, roomId, rooms, snooze]);
+  }, [mute, open, roomId, rooms, snooze]);
 
   useEffect(() => {
     if (!rooms) return;
-    const snoozed = snoozedRoomIds(snooze, new Date());
+    const quiet = quietRoomIds(snooze, mute, new Date());
     const total = rooms.reduce(
       (sum, room) =>
-        snoozed.has(room.id) ? sum : sum + room.unread_mention_count,
+        quiet.has(room.id) ? sum : sum + room.unread_mention_count,
       0,
     );
     // The Room list updates on every Message; the badge only changes when a
-    // mention arrives, is read, or its Room is snoozed.
+    // mention arrives, is read, or its Room turns quiet.
     if (badge.current === total) return;
     badge.current = total;
     void desktopBadge()?.setBadgeCount(total);
-  }, [rooms, snooze]);
+  }, [mute, rooms, snooze]);
 }
