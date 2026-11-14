@@ -1164,9 +1164,10 @@ export class LocalServerModule implements Module {
       ctx.log.info("local_server.home_migrated", {});
       return undefined;
     }
+    // The migration names every instance it could not convert; the page
+    // shows that text, so it keeps the whole captured tail.
     const error =
-      outcome.error.trim().slice(-500) ||
-      `The installer exited with code ${outcome.code}.`;
+      outcome.error.trim() || `The installer exited with code ${outcome.code}.`;
     ctx.log.warn("local_server.home_migration_failed", { error });
     return error;
   }
