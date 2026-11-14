@@ -392,6 +392,68 @@ describe("WikiGraphPage", () => {
   });
 });
 
+describe("WikiGraphPage report search", () => {
+  it("narrows the cards, restores them on clear, and says when nothing matches", async () => {
+    const runtime = await loggedInRuntime();
+    serveWikiStatus(runtime).mockResolvedValue(wikiStatus());
+    vi.spyOn(
+      runtime.client,
+      "getPersonalKnowledgeGraphVisualization",
+    ).mockResolvedValue(embeddedGraph());
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/memory", () => ({
+      items: [
+        dailyEntry(
+          "2026-09-01",
+          "# Daily 2026-09-01\n\n## Work\n\nShipped the timeline.\n",
+        ),
+        dailyEntry(
+          "2026-09-02",
+          "# Daily 2026-09-02\n\n## Work\n\nReviewed the flashback.\n",
+        ),
+      ],
+    }));
+
+    renderPage(runtime);
+
+    const search = await screen.findByRole("searchbox", {
+      name: "Search reports",
+    });
+    expect(
+      await screen.findByRole("button", { name: "Open Daily for 2026-09-01" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Open Daily for 2026-09-02" }),
+    ).toBeVisible();
+
+    fireEvent.change(search, { target: { value: "flashback" } });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Open Daily for 2026-09-01" }),
+      ).toBeNull(),
+    );
+    expect(
+      screen.getByRole("button", { name: "Open Daily for 2026-09-02" }),
+    ).toBeVisible();
+
+    fireEvent.change(search, { target: { value: "nothing like this" } });
+    expect(await screen.findByText("No reports match.")).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Open Daily for 2026-09-02" }),
+    ).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Clear report search" }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Open Daily for 2026-09-01" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Open Daily for 2026-09-02" }),
+    ).toBeVisible();
+    expect(screen.queryByText("No reports match.")).toBeNull();
+  });
+});
+
 describe("WikiGraphPage flashback", () => {
   afterEach(() => vi.useRealTimers());
 

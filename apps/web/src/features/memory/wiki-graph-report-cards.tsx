@@ -1,4 +1,9 @@
-import { ArrowLeft01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
+import {
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
+  Cancel01Icon,
+  Search01Icon,
+} from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
 import {
   useCallback,
@@ -17,6 +22,7 @@ import {
   type WikiGraphNode,
 } from "./wiki-graph-model";
 import { WikiDailyCard } from "../wiki/wiki-daily-card";
+import { reportSearchItems, searchReports } from "./report-search";
 import {
   reportDate,
   usePeriodReports,
@@ -91,7 +97,8 @@ function PeriodCards({
     [reports.data],
   );
   const focusDay = focus?.day;
-  const cards = useMemo(() => {
+  const [query, setQuery] = useState("");
+  const allCards = useMemo(() => {
     const dated = new Map<string, NodeMoment[]>();
     const pageDates = new Set<string>();
     for (const page of pages) {
@@ -127,6 +134,24 @@ function PeriodCards({
         entry: entriesByDate.get(bucket.start),
       }));
   }, [entriesByDate, granularity, moments, pages, focusDay]);
+  // The readable text is derived once per report list; a keystroke only scans
+  // the prepared rows.
+  const searchItems = useMemo(
+    () => reportSearchItems(reports.data ?? []),
+    [reports.data],
+  );
+  const searching = query.trim() !== "";
+  const matchingDays = useMemo(
+    () => new Set(searchReports(searchItems, query).map((item) => item.day)),
+    [searchItems, query],
+  );
+  const cards = useMemo(
+    () =>
+      searching
+        ? allCards.filter((card) => matchingDays.has(card.day))
+        : allCards,
+    [allCards, matchingDays, searching],
+  );
 
   const updateActiveIndex = useCallback(() => {
     const track = trackRef.current;
@@ -320,6 +345,32 @@ function PeriodCards({
           <Icon icon={ArrowRight01Icon} size={16} />
         </button>
       </div>
+      {!reports.isPending && allCards.length ? (
+        <div className="flex flex-wrap items-center gap-3 px-4 pt-3">
+          <label className="flex h-9 w-full items-center gap-2 rounded-lg border border-border bg-card px-3 text-muted-foreground transition-colors hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring/40 sm:w-64">
+            <Icon icon={Search01Icon} size={16} />
+            <input
+              aria-label="Search reports"
+              className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search by date or text"
+              role="searchbox"
+              type="text"
+              value={query}
+            />
+            {query ? (
+              <button
+                aria-label="Clear report search"
+                className="flex size-6 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                onClick={() => setQuery("")}
+                type="button"
+              >
+                <Icon icon={Cancel01Icon} size={14} />
+              </button>
+            ) : null}
+          </label>
+        </div>
+      ) : null}
       {reports.error ? (
         <div role="alert" className="wiki-report-error">
           <p>{reports.error.message}</p>
@@ -332,10 +383,12 @@ function PeriodCards({
         <p role="status" className="p-6 text-sm text-app-muted">
           Loading {label} cards…
         </p>
-      ) : !cards.length ? (
+      ) : !allCards.length ? (
         <p className="p-6 text-sm text-app-muted">
           No {label} reports or dated pages yet.
         </p>
+      ) : !cards.length ? (
+        <p className="p-6 text-sm text-app-muted">No reports match.</p>
       ) : (
         <>
           {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- pointer dragging for the report track; keyboard scrolling works through its tabIndex */}
