@@ -27,6 +27,7 @@ const fixture = async (
     signInWithAccount?: () => Promise<void>;
   } = {},
   badge?: { setBadgeCount: (count: number) => boolean },
+  tray?: { setUnreadCount: (count: number) => void },
 ) => {
   const local = {
     ...stubModule("LocalServer"),
@@ -40,10 +41,12 @@ const fixture = async (
       stubModule("ComputerDaemon"),
       stubModule("WindowManager"),
       stubModule("WorkspaceGrants"),
+      stubModule("Tray"),
       local as never,
       new DesktopIpcModule({
         defaultDisplayName: "Desk",
         ...(badge ? { badge } : {}),
+        ...(tray ? { tray } : {}),
       }),
     ],
     { serverUrl: SERVER },
@@ -117,9 +120,32 @@ describe("DesktopIpcModule unread badge", () => {
     await f.host.stop("quit");
   });
 
+  it("names the same count in the app badge and the tray tooltip", async () => {
+    const app = { setBadgeCount: vi.fn(() => true) };
+    const tray = { setUnreadCount: vi.fn() };
+    const f = await fixture({}, app, tray);
+
+    await f.invoke(IPC.notificationsBadge, SERVER, 5);
+
+    expect(app.setBadgeCount).toHaveBeenLastCalledWith(5);
+    expect(tray.setUnreadCount).toHaveBeenLastCalledWith(5);
+    await f.host.stop("quit");
+  });
+
+  it("names the count in the tray where the platform has no count badge", async () => {
+    const tray = { setUnreadCount: vi.fn() };
+    const f = await fixture({}, undefined, tray);
+
+    await f.invoke(IPC.notificationsBadge, SERVER, 4);
+
+    expect(tray.setUnreadCount).toHaveBeenLastCalledWith(4);
+    await f.host.stop("quit");
+  });
+
   it("rejects another origin and counts that are not badge counts", async () => {
     const app = { setBadgeCount: vi.fn(() => true) };
-    const f = await fixture({}, app);
+    const tray = { setUnreadCount: vi.fn() };
+    const f = await fixture({}, app, tray);
 
     expect(() =>
       f.invoke(IPC.notificationsBadge, "https://evil.example.com", 3),
@@ -128,6 +154,7 @@ describe("DesktopIpcModule unread badge", () => {
       expect(() => f.invoke(IPC.notificationsBadge, SERVER, count)).toThrow();
     }
     expect(app.setBadgeCount).not.toHaveBeenCalled();
+    expect(tray.setUnreadCount).not.toHaveBeenCalled();
     await f.host.stop("quit");
   });
 
