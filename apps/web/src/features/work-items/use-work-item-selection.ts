@@ -67,6 +67,11 @@ export function useWorkItemSelection({
     setSelectedIds(selectAllVisibleWorkItems(visibleIds));
   }
 
+  /** Empties the selection but keeps the last archive report readable. */
+  function deselectAll() {
+    setSelectedIds(EMPTY_SELECTION);
+  }
+
   function clear() {
     setSelectedIds(EMPTY_SELECTION);
     setOutcome(null);
@@ -103,6 +108,7 @@ export function useWorkItemSelection({
     archive,
     clear,
     count: visibleSelectedIds.size,
+    deselectAll,
     isSelected: (workItemId: string) => visibleSelectedIds.has(workItemId),
     outcome,
     pending,
