@@ -1,8 +1,14 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { renderHook } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
 
-import { anotherMeNotice } from "./another-me-notifications";
+import { writeQuietUntil } from "./another-me-quiet";
+import {
+  anotherMeNotice,
+  useAnotherMeNotifications,
+} from "./another-me-notifications";
 
 const agent = {
   id: "actor_agent",
@@ -74,5 +80,55 @@ describe("anotherMeNotice", () => {
       "msg_1",
     );
     expect(notice?.body).toHaveLength(161);
+  });
+});
+
+describe("Another Me reminder delivery", () => {
+  const shown: string[] = [];
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    globalThis.localStorage?.clear();
+    shown.length = 0;
+  });
+
+  function deliver(messageId: string) {
+    vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    vi.stubGlobal(
+      "Notification",
+      class FakeNotification {
+        static permission = "granted";
+        onclick: (() => void) | null = null;
+        constructor(title: string) {
+          shown.push(title);
+        }
+        close() {}
+      },
+    );
+    return renderHook(
+      ({ id }: { id: string }) =>
+        useAnotherMeNotifications({
+          accountId: "account-jenny",
+          agentActorId: agent.id,
+          open: () => undefined,
+          roomId: "room_1",
+          rooms: [room({ id })],
+        }),
+      { initialProps: { id: messageId } },
+    );
+  }
+
+  it("shows a system reminder when this computer is not quiet", () => {
+    const view = deliver("msg_1");
+    view.rerender({ id: "msg_2" });
+    expect(shown).toEqual(["Another Me"]);
+  });
+
+  it("holds the system reminder while this computer is quiet", () => {
+    writeQuietUntil("account-jenny", Date.now() + 60_000);
+    const view = deliver("msg_1");
+    view.rerender({ id: "msg_2" });
+    expect(shown).toEqual([]);
   });
 });

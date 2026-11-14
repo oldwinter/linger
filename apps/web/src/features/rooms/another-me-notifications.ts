@@ -3,6 +3,8 @@ import { useEffect, useRef } from "react";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
 
+import { useAnotherMeQuiet } from "./another-me-quiet";
+
 const BODY_LIMIT = 160;
 
 export interface AnotherMeNotice {
@@ -41,11 +43,13 @@ export function anotherMeNotice(
  * notifications; the desktop app allows them for its own server.
  */
 export function useAnotherMeNotifications({
+  accountId,
   rooms,
   roomId,
   agentActorId,
   open,
 }: {
+  accountId?: string;
   rooms: readonly TeamHubRoomListItem[] | undefined;
   roomId: string | undefined;
   agentActorId: string | undefined;
@@ -53,6 +57,7 @@ export function useAnotherMeNotifications({
 }) {
   // undefined until the first reading; null when the Chat had no Message yet.
   const seen = useRef<string | null | undefined>(undefined);
+  const quiet = useAnotherMeQuiet(accountId);
   const room = roomId ? rooms?.find((item) => item.id === roomId) : undefined;
 
   useEffect(() => {
@@ -61,6 +66,7 @@ export function useAnotherMeNotifications({
     seen.current = room?.latest_message?.id ?? null;
     if (
       !notice ||
+      quiet.until !== undefined ||
       typeof Notification === "undefined" ||
       Notification.permission !== "granted" ||
       document.hasFocus()
@@ -75,5 +81,5 @@ export function useAnotherMeNotifications({
       open(roomId);
       notification.close();
     };
-  }, [agentActorId, open, room, roomId, rooms]);
+  }, [agentActorId, open, quiet.until, room, roomId, rooms]);
 }

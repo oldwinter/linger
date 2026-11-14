@@ -129,6 +129,7 @@ function RoomShellReady({
     [navigate, tenantId],
   );
   useAnotherMeNotifications({
+    accountId: identity.account.id,
     rooms: roomsQuery.data?.items,
     roomId: anotherMeRoomId,
     agentActorId: anotherMe?.agent_actor_id,
@@ -334,6 +335,7 @@ function RoomShellContent({
           inert={inert}
         >
           <RoomNavigation
+            accountId={identity.account.id}
             username={spaceOwnerNameFor(identity, tenantId)}
             accountMenu={
               <AccountMenu

@@ -8,6 +8,7 @@ import type {
   TeamHubProactiveRule,
   TeamHubProactiveRuleBook,
 } from "@/features/teamhub/teamhub-types";
+import { readQuietUntil } from "@/features/rooms/another-me-quiet";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 
 import { MyRulesPage } from "./my-rules-page";
@@ -95,6 +96,27 @@ function renderPage() {
 const row = (text: string) => screen.findByRole("listitem", { name: text });
 
 describe("My Rules", () => {
+  it("holds reminders on this computer until morning, then ends the hold", async () => {
+    renderPage();
+    expect(
+      await screen.findByRole("heading", {
+        name: "Reminders on this computer",
+      }),
+    ).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Quiet until morning" }),
+    );
+    expect(screen.getByText(/Quiet until 8:00 AM/)).toBeTruthy();
+    expect(readQuietUntil("account-jenny")).toEqual(expect.any(Number));
+    fireEvent.click(screen.getByRole("button", { name: "End quiet" }));
+    expect(screen.queryByRole("button", { name: "End quiet" })).toBeNull();
+    expect(
+      screen.getByText(/only holds the system reminder on this computer/),
+    ).toBeTruthy();
+    expect(readQuietUntil("account-jenny")).toBeUndefined();
+    localStorage.clear();
+  });
+
   it("lists rules with their status, clues, and where a shadow rule would differ", async () => {
     renderPage();
     const active = await row("Client replies → remind directly");

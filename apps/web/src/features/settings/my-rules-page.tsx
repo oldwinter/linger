@@ -9,6 +9,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useParams } from "react-router";
 
+import { QuietRemindersControl } from "@/features/rooms/another-me-quiet-control";
+import { teamHubIdentityQueryOptions } from "@/features/rooms/room-queries";
+
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Select, SelectItem } from "@/components/ui/select";
@@ -55,6 +58,7 @@ export function MyRulesPage() {
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
   const queryClient = useQueryClient();
   const rules = useQuery(myRulesQueryOptions(client, tenantId));
+  const identity = useQuery(teamHubIdentityQueryOptions(client));
   const command = useMutation({
     mutationFn: (input: MyRulesCommand) =>
       runMyRulesCommand(client, tenantId, input),
@@ -68,6 +72,20 @@ export function MyRulesPage() {
         description="How Another Me decides what to tell you, learned from your replies. Only active rules decide; a newly learned rule waits in shadow until you promote it. Another Me acts beyond reminding only where you allow it on an active rule."
         title="My Rules"
       />
+      {identity.data ? (
+        <section
+          aria-labelledby="my-rules-quiet"
+          className="flex flex-col gap-3"
+        >
+          <h2 className="text-sm text-foreground" id="my-rules-quiet">
+            Reminders on this computer
+          </h2>
+          <QuietRemindersControl
+            accountId={identity.data.account.id}
+            variant="settings"
+          />
+        </section>
+      ) : null}
       {rules.isPending ? (
         <div aria-busy="true" aria-label="Loading rules" role="status">
           <Skeleton className="h-40 w-full" />
