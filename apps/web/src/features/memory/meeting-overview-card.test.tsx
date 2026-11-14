@@ -1,5 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import type { MeetingTopic } from "./meeting-overview";
 import {
@@ -114,6 +114,46 @@ describe("MeetingOverviewCard", () => {
       "Noted context.",
     ]);
     expect(section).not.toHaveTextContent("Decision:");
+  });
+
+  it("checks a to-do line and leaves decisions without checkboxes", () => {
+    const onToggle = vi.fn();
+    const { rerender } = render(
+      <MeetingOutcomes
+        checks={{
+          checked: new Set(["Prepare designs."]),
+          onToggle,
+          ready: true,
+        }}
+        outcomes={[
+          {
+            label: "Action",
+            text: "Prepare designs.",
+            children: ["Owner: Lin"],
+          },
+          { label: "Action", text: "Send the recap", children: [] },
+        ]}
+        title="To-do list"
+      />,
+    );
+    expect(screen.getByText("1 of 2 done")).toBeVisible();
+    const done = screen.getByRole("checkbox", { name: "Prepare designs." });
+    expect(done).toBeChecked();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Send the recap" }));
+    expect(onToggle).toHaveBeenCalledWith("Send the recap");
+    rerender(
+      <MeetingOutcomes
+        outcomes={[
+          {
+            label: "Decision",
+            text: "Ship the web app first.",
+            children: [],
+          },
+        ]}
+        title="Decisions And Outcomes"
+      />,
+    );
+    expect(screen.queryByRole("checkbox")).toBeNull();
   });
 
   it("says None observed for an empty to-do list", () => {

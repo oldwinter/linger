@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -87,6 +88,7 @@ function serveMemoryEntry<Handler extends TestRouteHandler>(
 afterEach(() => {
   vi.restoreAllMocks();
   window.sessionStorage.clear();
+  window.localStorage.clear();
 });
 
 describe("MeetingPage", () => {
@@ -293,6 +295,37 @@ describe("MeetingPage", () => {
       await screen.findByRole("button", { name: "To-do list" }),
     ).toBeVisible();
     expect(screen.queryByRole("button", { name: "Document mode" })).toBeNull();
+  });
+
+  it("keeps checked follow-ups for this meeting on this computer", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry(
+      {
+        content:
+          "## Action Items\n\n- Action: Send the recap\n- Action: Book the room\n",
+      },
+      true,
+    );
+    serveMeetings(runtime, [entry]);
+    const open = () => renderPage(runtime, `?entry=${entry.id}&file=summary`);
+    open();
+    const recap = await screen.findByRole("checkbox", {
+      name: "Send the recap",
+    });
+    await waitFor(() => expect(recap).toBeEnabled());
+    fireEvent.click(recap);
+    expect(recap).toBeChecked();
+    expect(screen.getByText("1 of 2 done")).toBeVisible();
+    cleanup();
+    open();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("checkbox", { name: "Send the recap" }),
+      ).toBeChecked(),
+    );
+    expect(
+      screen.getByRole("checkbox", { name: "Book the room" }),
+    ).not.toBeChecked();
   });
 
   it("shows topic cards inside a Session page summary", async () => {

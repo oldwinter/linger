@@ -5,6 +5,9 @@
   Personal Wiki navigation in `features/wiki` links here.
 - Call TeamHub through the generated client (`client.api`) and generated
   Memory types; do not handwrite URLs or wire DTOs in components.
+- A meeting's to-do list can be checked off on this computer. The checks
+  belong to the signed-in account and that capture; the meeting document
+  stays read-only.
 - Meetings, reports and graph entries are read-only derived reading state, not
   source evidence. Deleting a meeting only hides it from the caller's own
   Meetings through TeamHub's

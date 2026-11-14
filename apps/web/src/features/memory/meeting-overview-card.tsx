@@ -2,6 +2,7 @@ import { cn } from "@/lib/cn";
 import { BubbleChatIcon } from "@hugeicons/core-free-icons";
 import { Fragment } from "react";
 import { Icon } from "@/components/ui/icon";
+import { followUpProgress, followUpTexts } from "./meeting-follow-ups";
 import type { MeetingOutcome, MeetingTopic } from "./meeting-overview";
 
 /**
@@ -143,47 +144,80 @@ const outcomeTints: Record<NonNullable<MeetingOutcome["label"]>, string> = {
  * tag instead of the `Decision:` / `Completed:` / `Action:` prefix.
  */
 export function MeetingOutcomes({
+  checks,
   outcomes,
   title,
 }: {
+  /** Local checks for a to-do list. Decisions stay read-only without this. */
+  checks?: {
+    checked: ReadonlySet<string>;
+    onToggle: (text: string) => void;
+    ready: boolean;
+  };
   outcomes: MeetingOutcome[];
   title: string;
 }) {
+  const items = new Set(followUpTexts(outcomes));
+  const progress = checks
+    ? followUpProgress([...items], [...checks.checked])
+    : null;
   return (
     <section aria-label={title} className={sectionFrame}>
       <h2 className={sectionHeading}>{title}</h2>
+      {progress && progress.total > 0 ? (
+        <p className="mb-2 text-sm text-app-muted">
+          {progress.done} of {progress.total} done
+        </p>
+      ) : null}
       {outcomes.length === 0 ? (
         <p className="text-[15px] leading-relaxed text-app-body">
           None observed.
         </p>
       ) : null}
       <ul className="space-y-2.5 text-[15px] leading-relaxed text-app-body">
-        {outcomes.map((item, index) => (
-          <li className="flex items-start gap-2.5" key={index}>
-            {item.label ? (
-              <span
-                className={cn(
-                  "mt-0.5 shrink-0 rounded-md border px-1.5 text-[12px] font-medium leading-5",
-                  outcomeTints[item.label],
-                )}
-              >
-                {item.label}
-              </span>
-            ) : null}
-            <div className="min-w-0">
-              <RichText text={item.text} />
-              {item.children.length > 0 ? (
-                <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[14px] text-app-muted marker:text-app-muted">
-                  {item.children.map((child, childIndex) => (
-                    <li key={childIndex}>
-                      <RichText text={child} />
-                    </li>
-                  ))}
-                </ul>
+        {outcomes.map((item, index) => {
+          const text = item.text.trim();
+          const checkable = checks !== undefined && items.has(text);
+          const done = checkable && checks.checked.has(text);
+          return (
+            <li className="flex items-start gap-2.5" key={index}>
+              {checkable ? (
+                <input
+                  aria-label={text}
+                  checked={done}
+                  className="mt-1 size-4 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                  disabled={!checks.ready}
+                  onChange={() => checks.onToggle(text)}
+                  type="checkbox"
+                />
               ) : null}
-            </div>
-          </li>
-        ))}
+              {item.label ? (
+                <span
+                  className={cn(
+                    "mt-0.5 shrink-0 rounded-md border px-1.5 text-[12px] font-medium leading-5",
+                    outcomeTints[item.label],
+                  )}
+                >
+                  {item.label}
+                </span>
+              ) : null}
+              <div
+                className={cn("min-w-0", done && "text-app-muted line-through")}
+              >
+                <RichText text={item.text} />
+                {item.children.length > 0 ? (
+                  <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[14px] text-app-muted marker:text-app-muted">
+                    {item.children.map((child, childIndex) => (
+                      <li key={childIndex}>
+                        <RichText text={child} />
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
