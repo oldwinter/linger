@@ -32,6 +32,14 @@ Another Me also starts a Task on its own, without you asking, when an outside
 event matches one of your rules on which you allowed "Create and delegate" in
 Settings → My Rules; see [Proactive Another Me](proactive.md#acting-under-your-mandate).
 
+Each `task` step in the Meta's activity is one line with the Task's name and
+state. Open it, or a Task under _tasks running in the background_, to read the
+Task like a chat: the brief and follow-ups the Meta sent, every step the
+AlterEgo took with the command, file or search it acted on, and the approval
+cards it raised. A card is answered there or in your chat, where it also
+appears, and a running Task can be canceled from the same view. Steps are read
+from the AlterEgo's session on your computer each time it takes a new one.
+
 ## On the computer
 
 Each AlterEgo belongs to the Meta that started it: only the Meta talks with
@@ -49,4 +57,7 @@ you, and the AlterEgo's output lands in the Meta's own workspace.
 
 <sub>Task commands and reports pass through the server. Each AlterEgo has its
 own session and workspace on the same computer; only the Task folder is linked
-into both.</sub>
+into both. An AlterEgo can also read the folders of the other Tasks delegated
+from the same Room, at the same `playground/<task-id>/` paths, so one Task's
+output path works as-is in the next Task's brief. Its edits there are not
+pre-approved the way edits in its own folder are.</sub>
