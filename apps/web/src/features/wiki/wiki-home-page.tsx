@@ -26,7 +26,7 @@ import { WikiRefreshButton } from "./wiki-refresh-button";
 import { usePersonalWikiRefresh, type WikiRefreshStatus } from "./wiki-refresh";
 import { WikiRefreshBanner } from "./wiki-refresh-status";
 import { useAnotherMeActorId } from "./wiki-working-card";
-import { wikiPreviewPath } from "./wiki-preview-page";
+import { wikiDocumentPath, wikiPreviewPath } from "./wiki-routes";
 import { wikiSurpriseIndex } from "./wiki-surprise";
 import {
   useWikiDisplayState,
@@ -210,9 +210,7 @@ function WikiSurpriseButton({ tenantId }: { tenantId: string }) {
         });
         const page = index === undefined ? undefined : pages[index];
         if (!page) return;
-        void navigate(
-          `/t/${encodeURIComponent(tenantId)}/documents/${encodeURIComponent(page.id)}`,
-        );
+        void navigate(wikiDocumentPath(tenantId, page.id));
       }}
       size="compact"
       title="Open one of your Wiki pages at random"

@@ -43,7 +43,7 @@ import {
   wikiPagePath,
   type WikiCollection,
 } from "./wiki-display-state";
-import { wikiPreviewPath } from "./wiki-preview-page";
+import { wikiPreviewPath } from "./wiki-routes";
 import { wikiPreviewPages } from "./wiki-preview-pages";
 import { usePersonalWikiRefresh } from "./wiki-refresh";
 
