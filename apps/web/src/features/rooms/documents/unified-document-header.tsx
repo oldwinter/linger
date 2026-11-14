@@ -44,6 +44,7 @@ import type { RoomDocumentCollaborationSession } from "./room-document-collabora
 import { RoomDocumentPresence } from "./room-document-presence";
 import { collaborationColor } from "./room-document-presence-model";
 import { DocumentActionsMenu } from "./room-document-actions-menu";
+import { RoomDocumentShareAction } from "./room-document-share-action";
 import type { UnifiedDocumentPageModel } from "./use-unified-document-page-model";
 
 interface UnifiedDocumentPageHeaderProps {
@@ -240,6 +241,10 @@ function UnifiedDocumentHeader({
         }}
       />
     ) : null;
+  const shareAction =
+    document && !isWikiPage && document.capabilities.read ? (
+      <RoomDocumentShareAction document={document} tenantId={tenantId} />
+    ) : null;
   return (
     <header className="room-document-header border-b border-app-border/60">
       <div className="room-document-header-identity">
@@ -343,6 +348,7 @@ function UnifiedDocumentHeader({
             <Icon icon={Download04Icon} />
           </Button>
         ) : null}
+        {shareAction}
         {!sidebar ? actionsMenu : null}
         {!isWikiPage &&
         session &&

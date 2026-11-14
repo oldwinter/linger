@@ -2188,6 +2188,52 @@ describe("Unified Document page", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("offers Send to Room beside the unchanged Document menu", async () => {
+    const runtime = createDocumentTestRuntime();
+    const document = seedNativeDocument(runtime, "share-to-room-document");
+
+    renderUnifiedDocumentPage(
+      runtime,
+      `/t/tenant-northstar/documents/${document.id}`,
+    );
+
+    expect(await screen.findByText("Room BlockNote editor")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Send to Room" })).toBeVisible();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "More Document actions" }),
+    );
+    for (const name of [
+      "Copy link",
+      "Rename",
+      "Download",
+      "Duplicate",
+      "Page history",
+      "Delete",
+    ]) {
+      expect(await screen.findByRole("menuitem", { name })).toBeVisible();
+    }
+  });
+
+  it("hides Send to Room for a Document the person cannot read", async () => {
+    const runtime = createDocumentTestRuntime();
+    const document = seedNativeDocument(runtime, "unreadable-document");
+    showDocument(runtime, {
+      ...document,
+      capabilities: { ...document.capabilities, read: false },
+    });
+
+    renderUnifiedDocumentPage(
+      runtime,
+      `/t/tenant-northstar/documents/${document.id}`,
+    );
+
+    expect(await screen.findByText("Room BlockNote editor")).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Send to Room" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("fails closed when the stable route Tenant does not own the Document", async () => {
     const runtime = createDocumentTestRuntime();
 
@@ -2538,6 +2584,11 @@ function versionDocumentRuntime(document: TeamHubDocument) {
     "GET",
     "/v0/tenants/{tenantId}/me/shared-document-tree",
     once({ items: [] }),
+  );
+  server.on(
+    "GET",
+    "/v0/tenants/{tenantId}/rooms",
+    once({ items: [], page: { has_more: false } }),
   );
   server.on("GET", "/v0/documents/{documentId}", once(document));
   server.on("POST", "/v0/documents/{documentId}/open", once({ document }));
