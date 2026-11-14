@@ -126,6 +126,43 @@ export function tenantWorkItemTimelineQueryOptions(
   });
 }
 
+interface WorkItemCommentInput {
+  body: string;
+  idempotencyKey: string;
+}
+
+/**
+ * A comment appears in the peek's comment list and again as a timeline entry,
+ * so both queries refetch rather than merging the answer into either.
+ */
+export function useCreateWorkItemComment(tenantId: string, workItemId: string) {
+  const { client } = useTeamHubRuntime();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: WorkItemCommentInput) =>
+      teamHubData(
+        client.api.POST("/v0/work-items/{workItemId}/comments", {
+          body: {
+            body: input.body,
+            segments: [{ content: input.body, type: "text" }],
+          },
+          params: {
+            header: idempotencyHeader(input.idempotencyKey),
+            path: { workItemId },
+          },
+        }),
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: tenantWorkItemCommentsQueryKey(tenantId, workItemId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: tenantWorkItemTimelineQueryKey(tenantId, workItemId),
+      });
+    },
+  });
+}
+
 interface WorkItemTransitionInput {
   expectedVersion: number;
   resolution?: NonNullable<TeamHubWorkItem["resolution"]>;

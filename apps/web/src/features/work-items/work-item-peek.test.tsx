@@ -227,6 +227,196 @@ describe("Work Item peek", () => {
     );
     expect(within(dialog).getByRole("button", { name: "Start" })).toBeEnabled();
   });
+
+  it("posts a comment and refreshes the comments and timeline", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const item = workItem(human, { title: "Fix login failure" });
+    seedWorkItems(runtime, [item]);
+    const comments = [
+      comment(item.id, human, "First note", "2026-07-30T10:00:00Z"),
+    ];
+    const posted: unknown[] = [];
+    runtime.server.on("GET", COMMENTS_PATH, () => ({
+      items: comments,
+      page: { has_more: false },
+    }));
+    runtime.server.on("GET", TIMELINE_PATH, () => ({
+      items: [timelineActivity(item.id, human)],
+      page: { has_more: false },
+    }));
+    runtime.server.on("POST", COMMENTS_PATH, ({ body }) => {
+      posted.push(body);
+      const created = comment(
+        item.id,
+        human,
+        "Thanks, looking now.",
+        "2026-07-30T12:00:00Z",
+      );
+      comments.push(created);
+      return created;
+    });
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    expect(await within(dialog).findByText("First note")).toBeVisible();
+    const textarea = within(dialog).getByRole("textbox", {
+      name: "Add a comment",
+    });
+
+    fireEvent.change(textarea, {
+      target: { value: "  Thanks, looking now.  " },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Submit" }));
+
+    expect(
+      await within(dialog).findByText("Thanks, looking now."),
+    ).toBeVisible();
+    expect(posted).toEqual([
+      {
+        body: "Thanks, looking now.",
+        segments: [{ content: "Thanks, looking now.", type: "text" }],
+      },
+    ]);
+    const [request] = runtime.server.requestsTo("POST", COMMENTS_PATH);
+    expect(new URL(request!.url).pathname).toBe(
+      "/v0/work-items/workitem-login/comments",
+    );
+    expect(request?.headers.get("Idempotency-Key")).toMatch(/^web:/u);
+    expect(textarea).toHaveValue("");
+    expect(textarea).toHaveFocus();
+    await waitFor(() =>
+      expect(
+        runtime.server.requestsTo("GET", COMMENTS_PATH).length,
+      ).toBeGreaterThan(1),
+    );
+    await waitFor(() =>
+      expect(
+        runtime.server.requestsTo("GET", TIMELINE_PATH).length,
+      ).toBeGreaterThan(1),
+    );
+  });
+
+  it("keeps Submit disabled for empty text and while a comment is in flight", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const item = workItem(human, { title: "Fix login failure" });
+    seedWorkItems(runtime, [item]);
+    let finish: () => void = () => undefined;
+    runtime.server.on(
+      "POST",
+      COMMENTS_PATH,
+      () =>
+        new Promise((resolve) => {
+          finish = () =>
+            resolve(
+              comment(
+                item.id,
+                human,
+                "Thanks, looking now.",
+                "2026-07-30T12:00:00Z",
+              ),
+            );
+        }),
+    );
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    const textarea = await within(dialog).findByRole("textbox", {
+      name: "Add a comment",
+    });
+    const submit = within(dialog).getByRole("button", { name: "Submit" });
+
+    expect(submit).toBeDisabled();
+    fireEvent.change(textarea, { target: { value: "   " } });
+    expect(submit).toBeDisabled();
+    fireEvent.change(textarea, { target: { value: "Thanks, looking now." } });
+    expect(submit).toBeEnabled();
+
+    fireEvent.click(submit);
+    await waitFor(() => expect(submit).toBeDisabled());
+    expect(submit).toHaveAttribute("aria-busy", "true");
+    expect(textarea).toBeDisabled();
+
+    finish();
+    await waitFor(() => expect(textarea).toHaveValue(""));
+    expect(textarea).toBeEnabled();
+  });
+
+  it("retries a failed comment with its key and shows why it failed", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const item = workItem(human, { title: "Fix login failure" });
+    seedWorkItems(runtime, [item]);
+    let attempts = 0;
+    runtime.server.on("POST", COMMENTS_PATH, () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return teamHubErrorResponse(
+          503,
+          "SERVICE_UNAVAILABLE",
+          "TeamHub is unavailable.",
+        );
+      }
+      return comment(
+        item.id,
+        human,
+        "Thanks, looking now.",
+        "2026-07-30T12:00:00Z",
+      );
+    });
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    const textarea = await within(dialog).findByRole("textbox", {
+      name: "Add a comment",
+    });
+    const submit = within(dialog).getByRole("button", { name: "Submit" });
+
+    fireEvent.change(textarea, { target: { value: "Thanks, looking now." } });
+    fireEvent.click(submit);
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "TeamHub is unavailable.",
+    );
+    expect(textarea).toHaveValue("Thanks, looking now.");
+    expect(submit).toBeEnabled();
+
+    fireEvent.click(submit);
+    await waitFor(() =>
+      expect(runtime.server.requestsTo("POST", COMMENTS_PATH)).toHaveLength(2),
+    );
+    const [failed, retried] = runtime.server.requestsTo("POST", COMMENTS_PATH);
+    expect(retried!.headers.get("Idempotency-Key")).toBe(
+      failed!.headers.get("Idempotency-Key"),
+    );
+    await waitFor(() => expect(textarea).toHaveValue(""));
+
+    fireEvent.change(textarea, { target: { value: "Second thought." } });
+    fireEvent.click(submit);
+    await waitFor(() =>
+      expect(runtime.server.requestsTo("POST", COMMENTS_PATH)).toHaveLength(3),
+    );
+    const [, , next] = runtime.server.requestsTo("POST", COMMENTS_PATH);
+    expect(next!.headers.get("Idempotency-Key")).not.toBe(
+      failed!.headers.get("Idempotency-Key"),
+    );
+  });
 });
 
 async function testRuntime() {
