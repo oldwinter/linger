@@ -162,6 +162,7 @@ export function ResultRow({
       <div
         className="global-search-enter flex h-10 items-center"
         onMouseMove={onActivate}
+        role="presentation"
         style={{ "--enter-index": enterIndex } as CSSProperties}
       >
         <button
@@ -183,6 +184,7 @@ export function ResultRow({
           <span className="truncate text-sm text-app-ink">{result.text}</span>
         </button>
         <button
+          aria-keyshortcuts="Delete"
           aria-label={`Remove recent search ${result.text}`}
           className="relative z-[1] mr-2 grid size-6 shrink-0 place-items-center rounded-md text-app-subtle opacity-60 transition-[opacity,color,background-color] duration-150 hover:bg-app-hover hover:text-app-ink hover:opacity-100 focus-visible:opacity-100"
           onClick={() => onRemoveRecent(result.text)}

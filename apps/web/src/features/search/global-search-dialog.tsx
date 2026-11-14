@@ -113,7 +113,7 @@ export function GlobalSearchDialog({
   const activeRow = useActiveRow({
     layoutKey,
     onClose,
-    onRemoveRecentQuery: removeRecentQuery,
+    onRemoveRecentQuery: forgetRecentQuery,
     openResult,
     query,
     rows,
@@ -145,7 +145,7 @@ export function GlobalSearchDialog({
     inputRef.current?.focus();
   }
 
-  function removeRecentQuery(text: string) {
+  function forgetRecentQuery(text: string) {
     setStore(removeGlobalSearchQuery(tenantId, text));
     inputRef.current?.focus();
   }
@@ -205,7 +205,7 @@ export function GlobalSearchDialog({
         listRef={activeRow.listRef}
         onListLeave={onListLeave}
         onListScroll={onListScroll}
-        onRemoveRecent={removeRecentQuery}
+        onRemoveRecent={activeRow.removeRecentQuery}
         openResult={openResult}
         roomScoped={roomScope !== undefined}
         scope={scope}
