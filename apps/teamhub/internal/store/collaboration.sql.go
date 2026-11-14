@@ -328,7 +328,7 @@ func (q *Queries) GetDeletingRoomForUpdate(ctx context.Context, roomID string) (
 }
 
 const getMessageForAccount = `-- name: GetMessageForAccount :one
-SELECT m.id, m.tenant_id, m.room_id, m.author_actor_id, m.body, m.segments,
+SELECT m.id, m.tenant_id, m.room_id, m.room_seq, m.author_actor_id, m.body, m.segments,
        m.card_context_message_id, m.message_kind, m.notice, m.card_title, m.card_kind,
        m.created_at,
        m.reply_to_message_id,
@@ -369,6 +369,7 @@ type GetMessageForAccountRow struct {
 	ID                   string             `json:"id"`
 	TenantID             string             `json:"tenant_id"`
 	RoomID               string             `json:"room_id"`
+	RoomSeq              pgtype.Int8        `json:"room_seq"`
 	AuthorActorID        string             `json:"author_actor_id"`
 	Body                 string             `json:"body"`
 	Segments             []byte             `json:"segments"`
@@ -394,6 +395,7 @@ func (q *Queries) GetMessageForAccount(ctx context.Context, arg GetMessageForAcc
 		&i.ID,
 		&i.TenantID,
 		&i.RoomID,
+		&i.RoomSeq,
 		&i.AuthorActorID,
 		&i.Body,
 		&i.Segments,
@@ -722,7 +724,7 @@ WITH message_page AS (
   ORDER BY m.created_at DESC, m.id DESC
   LIMIT $4::int
 )
-SELECT m.id, m.tenant_id, m.room_id, m.author_actor_id, m.body, m.segments,
+SELECT m.id, m.tenant_id, m.room_id, m.room_seq, m.author_actor_id, m.body, m.segments,
        m.card_context_message_id, m.message_kind, m.notice, m.card_title, m.card_kind,
        m.created_at,
        m.reply_to_message_id,
@@ -748,6 +750,7 @@ type ListMessagesForRoomAccountRow struct {
 	ID                   string             `json:"id"`
 	TenantID             string             `json:"tenant_id"`
 	RoomID               string             `json:"room_id"`
+	RoomSeq              pgtype.Int8        `json:"room_seq"`
 	AuthorActorID        string             `json:"author_actor_id"`
 	Body                 string             `json:"body"`
 	Segments             []byte             `json:"segments"`
@@ -784,6 +787,7 @@ func (q *Queries) ListMessagesForRoomAccount(ctx context.Context, arg ListMessag
 			&i.ID,
 			&i.TenantID,
 			&i.RoomID,
+			&i.RoomSeq,
 			&i.AuthorActorID,
 			&i.Body,
 			&i.Segments,

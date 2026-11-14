@@ -96,7 +96,7 @@ WITH pinned AS (
   LIMIT 50
 )
 SELECT pin.message_id,pin.pinned_by_actor_id,pin.created_at AS pinned_at,
-       m.id,m.tenant_id,m.room_id,m.author_actor_id,m.body,m.segments,
+       m.id,m.tenant_id,m.room_id,m.room_seq,m.author_actor_id,m.body,m.segments,
        m.card_context_message_id,m.message_kind,m.notice,m.card_title,m.card_kind,
        m.created_at,m.reply_to_message_id,
        (card.message_id IS NOT NULL)::boolean AS has_card,
@@ -120,6 +120,7 @@ type ListMessagePinsForRoomRow struct {
 	ID                   string             `json:"id"`
 	TenantID             string             `json:"tenant_id"`
 	RoomID               string             `json:"room_id"`
+	RoomSeq              pgtype.Int8        `json:"room_seq"`
 	AuthorActorID        string             `json:"author_actor_id"`
 	Body                 string             `json:"body"`
 	Segments             []byte             `json:"segments"`
@@ -154,6 +155,7 @@ func (q *Queries) ListMessagePinsForRoom(ctx context.Context, roomID string) ([]
 			&i.ID,
 			&i.TenantID,
 			&i.RoomID,
+			&i.RoomSeq,
 			&i.AuthorActorID,
 			&i.Body,
 			&i.Segments,

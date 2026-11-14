@@ -68,7 +68,7 @@ func (s *Service) ListMessagePins(ctx context.Context, accountID, roomID string)
 			DisplayName: row.AuthorDisplayName, AccountID: row.AuthorAccountID,
 			Handle: row.AuthorHandle, CreatedAt: row.AuthorCreatedAt,
 		}
-		message, err := messageModel(row.ID, row.TenantID, row.RoomID, row.Body, row.Segments, row.MessageKind, row.CardContextMessageID, row.ReplyToMessageID, row.CardTitle, row.CardKind, row.CreatedAt, author)
+		message, err := messageModel(row.ID, row.TenantID, row.RoomID, row.RoomSeq, row.Body, row.Segments, row.MessageKind, row.CardContextMessageID, row.ReplyToMessageID, row.CardTitle, row.CardKind, row.CreatedAt, author)
 		if err == nil {
 			err = ApplyMessageNotice(&message, row.Notice)
 		}

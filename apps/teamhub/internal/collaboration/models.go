@@ -177,7 +177,7 @@ func roomListItemModel(row store.ListRoomsForTenantAccountRow, creator store.Act
 	return model
 }
 
-func messageModel(id, tenantID, roomID, body string, segments []byte, messageKind string, cardContextMessageID, replyToMessageID, cardTitle, cardKind pgtype.Text, createdAt pgtype.Timestamptz, author store.Actor) (httpapi.Message, error) {
+func messageModel(id, tenantID, roomID string, roomSeq pgtype.Int8, body string, segments []byte, messageKind string, cardContextMessageID, replyToMessageID, cardTitle, cardKind pgtype.Text, createdAt pgtype.Timestamptz, author store.Actor) (httpapi.Message, error) {
 	content, err := storedMessageContent(body, segments)
 	if err != nil {
 		return httpapi.Message{}, err
@@ -188,6 +188,9 @@ func messageModel(id, tenantID, roomID, body string, segments []byte, messageKin
 		MessageKind: httpapi.MessageKind(messageKind),
 		Segments:    content.segments, Attachments: []httpapi.MessageAttachment{},
 		CreatedAt: createdAt.Time,
+	}
+	if roomSeq.Valid {
+		model.RoomSeq = &roomSeq.Int64
 	}
 	if cardContextMessageID.Valid {
 		model.CardContextMessageId = &cardContextMessageID.String

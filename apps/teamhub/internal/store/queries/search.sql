@@ -59,7 +59,7 @@ WITH page AS (
   ORDER BY m.created_at DESC, m.id DESC
   LIMIT sqlc.arg(page_limit)::int
 )
-SELECT m.id, m.tenant_id, m.room_id, m.author_actor_id, m.body, m.segments, m.message_kind,
+SELECT m.id, m.tenant_id, m.room_id, m.room_seq, m.author_actor_id, m.body, m.segments, m.message_kind,
        m.card_context_message_id, m.card_title, m.card_kind, m.created_at,
        m.reply_to_message_id,
        author.kind AS author_kind, author.display_name AS author_display_name,

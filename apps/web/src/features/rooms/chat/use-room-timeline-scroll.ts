@@ -60,6 +60,8 @@ export function useRoomTimelineScroll({
   );
   const previousTimelineRef = useRef<HTMLDivElement | null>(null);
   const [initialScrollReady, setInitialScrollReady] = useState(false);
+  const unreadDividerRef = useRef<HTMLDivElement | null>(null);
+  const [unreadDividerVisible, setUnreadDividerVisible] = useState(true);
   const shouldAutoFollowRef = useRef(true);
   const pendingPrependRef = useRef<PendingPrepend | null>(null);
   const readingAnchorRef = useRef<ReadingAnchor | null>(null);
@@ -106,6 +108,9 @@ export function useRoomTimelineScroll({
       pendingPrependRef.current = null;
       shouldAutoFollowRef.current = isNearTimelineBottom(timeline);
       setInitialScrollReady(true);
+      setUnreadDividerVisible(
+        unreadDividerIsInView(timeline, unreadDividerRef.current),
+      );
       return;
     }
     if (linkedMessageId && !linkedPositionRef.current.positioned) {
@@ -120,6 +125,9 @@ export function useRoomTimelineScroll({
       }
       shouldAutoFollowRef.current = false;
       setInitialScrollReady(true);
+      setUnreadDividerVisible(
+        unreadDividerIsInView(timeline, unreadDividerRef.current),
+      );
       return;
     }
 
@@ -129,6 +137,9 @@ export function useRoomTimelineScroll({
 
     shouldAutoFollowRef.current = isNearTimelineBottom(timeline);
     setInitialScrollReady(true);
+    setUnreadDividerVisible(
+      unreadDividerIsInView(timeline, unreadDividerRef.current),
+    );
   }, [
     timelineElement,
     firstMessageId,
@@ -183,6 +194,9 @@ export function useRoomTimelineScroll({
             timeline.getBoundingClientRect().top -
             anchor.offset,
         );
+        setUnreadDividerVisible(
+          unreadDividerIsInView(timeline, unreadDividerRef.current),
+        );
         return;
       }
       const contentOnly = entries.every((entry) => entry.target !== timeline);
@@ -190,6 +204,9 @@ export function useRoomTimelineScroll({
         return;
       }
       correct(timeline.scrollHeight);
+      setUnreadDividerVisible(
+        unreadDividerIsInView(timeline, unreadDividerRef.current),
+      );
     });
 
     observer.observe(timeline);
@@ -232,6 +249,9 @@ export function useRoomTimelineScroll({
         ? null
         : readingAnchor(timeline);
     }
+    setUnreadDividerVisible(
+      unreadDividerIsInView(timeline, unreadDividerRef.current),
+    );
     if (scopeKey) {
       readingPositions.delete(scopeKey);
       readingPositions.set(scopeKey, {
@@ -249,6 +269,16 @@ export function useRoomTimelineScroll({
     shouldAutoFollowRef.current = true;
   }
 
+  /** Returns to the "New messages" divider when it has scrolled out of view. */
+  function jumpToUnreadDivider() {
+    const divider = unreadDividerRef.current;
+    if (!divider) return;
+    // Going back to the divider is the reader's own move, so Messages that
+    // arrive afterwards must not pull the lane to the bottom again.
+    shouldAutoFollowRef.current = false;
+    divider.scrollIntoView({ block: "center", inline: "nearest" });
+  }
+
   /** Whether the reader follows the newest Message rather than history. */
   function isFollowingLatest() {
     return (
@@ -262,11 +292,14 @@ export function useRoomTimelineScroll({
     cancelOlderMessagesIfUnchanged,
     initialScrollReady,
     isFollowingLatest,
+    jumpToUnreadDivider,
     pinToLatest,
     prepareForOlderMessages,
     recordTimelineScroll,
     timelineElement,
     timelineRef: setTimelineElement,
+    unreadDividerRef,
+    unreadDividerVisible,
   };
 }
 
@@ -295,5 +328,19 @@ function readingAnchor(timeline: HTMLDivElement): ReadingAnchor | null {
 function isNearTimelineBottom(timeline: HTMLDivElement) {
   return (
     timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight <= 80
+  );
+}
+
+/** Whether the divider is inside the viewport, not merely mounted above it. */
+function unreadDividerIsInView(
+  timeline: HTMLDivElement,
+  divider: HTMLDivElement | null,
+) {
+  if (!divider) return true;
+  const dividerRect = divider.getBoundingClientRect();
+  const timelineRect = timeline.getBoundingClientRect();
+  return (
+    dividerRect.bottom > timelineRect.top &&
+    dividerRect.top < timelineRect.bottom
   );
 }

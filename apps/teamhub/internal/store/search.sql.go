@@ -68,7 +68,7 @@ WITH page AS (
   ORDER BY m.created_at DESC, m.id DESC
   LIMIT $6::int
 )
-SELECT m.id, m.tenant_id, m.room_id, m.author_actor_id, m.body, m.segments, m.message_kind,
+SELECT m.id, m.tenant_id, m.room_id, m.room_seq, m.author_actor_id, m.body, m.segments, m.message_kind,
        m.card_context_message_id, m.card_title, m.card_kind, m.created_at,
        m.reply_to_message_id,
        author.kind AS author_kind, author.display_name AS author_display_name,
@@ -102,6 +102,7 @@ type SearchTenantMessagesForAccountRow struct {
 	ID                    string             `json:"id"`
 	TenantID              string             `json:"tenant_id"`
 	RoomID                string             `json:"room_id"`
+	RoomSeq               pgtype.Int8        `json:"room_seq"`
 	AuthorActorID         string             `json:"author_actor_id"`
 	Body                  string             `json:"body"`
 	Segments              []byte             `json:"segments"`
@@ -154,6 +155,7 @@ func (q *Queries) SearchTenantMessagesForAccount(ctx context.Context, arg Search
 			&i.ID,
 			&i.TenantID,
 			&i.RoomID,
+			&i.RoomSeq,
 			&i.AuthorActorID,
 			&i.Body,
 			&i.Segments,
