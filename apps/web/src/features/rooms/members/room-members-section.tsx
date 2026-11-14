@@ -4,12 +4,18 @@ import {
   useQueryClient,
   useSuspenseQuery,
 } from "@tanstack/react-query";
-import { Delete02Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
+import {
+  Cancel01Icon,
+  Delete02Icon,
+  PlusSignIcon,
+  Search01Icon,
+} from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ModalDialog } from "@/components/ui/modal-dialog";
+import { HighlightedText } from "@/features/search/search-highlight";
 import { teamHubData, teamHubDone } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
@@ -28,6 +34,7 @@ import {
 import { eligibleRoomAgents } from "../agent-admission";
 import { ActorAvatar } from "./actor-avatar";
 import { AgentStatus } from "./agent-status";
+import { searchRoomMembers } from "./room-member-search";
 import { roomMembersMarkdown } from "./room-members-markdown";
 
 /** Long enough to read, matching the other copy actions. */
@@ -61,6 +68,13 @@ export function RoomMembersSection({
   const membersResult = useQuery(membersQuery);
   const memberItems = membersResult.data?.items ?? [];
   const membersPending = membersResult.isPending;
+  const [query, setQuery] = useState("");
+  // A search belongs to one look at one Room's roster; another Room starts over.
+  useEffect(() => {
+    setQuery("");
+  }, [roomId]);
+  const filtering = query.trim().length > 0;
+  const search = searchRoomMembers(memberItems, query);
   const copyDisabled = membersPending || memberItems.length === 0;
   function copyMembers() {
     if (copyDisabled) return;
@@ -171,80 +185,132 @@ export function RoomMembersSection({
           Loading members...
         </p>
       ) : null}
-      <div className="space-y-1">
-        {memberItems.map((member) => {
-          const agent = agentDirectory.data?.items.find(
-            (candidate) => candidate.actor.id === member.actor.id,
-          );
-          return (
-            <div
-              className="group flex min-h-13 w-full items-center rounded-lg transition-colors duration-300 hover:bg-muted/70"
-              key={member.actor.id}
-            >
+      {!membersPending && memberItems.length > 0 ? (
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <label className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground transition-colors hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring/40">
+            <Icon icon={Search01Icon} size={14} />
+            <input
+              aria-label="Search members"
+              className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search members"
+              role="searchbox"
+              type="text"
+              value={query}
+            />
+            {query ? (
               <button
-                aria-label={`Open ${member.actor.display_name} profile`}
-                className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-app-focus"
-                onClick={() => onOpenProfile?.(member.actor.id)}
+                aria-label="Clear member search"
+                className="flex size-5 shrink-0 items-center justify-center rounded-full hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                onClick={() => setQuery("")}
                 type="button"
               >
-                <ActorAvatar
-                  actorId={member.actor.id}
-                  kind={member.actor.kind}
-                  name={member.actor.display_name}
-                  size="sm"
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-1.5">
-                    <span className="truncate text-sm font-medium">
-                      {member.actor.display_name}
-                    </span>
-                    {member.actor.kind === "agent" ? (
-                      <span className="rounded-sm bg-muted px-1.5 py-0.5 text-2xs font-medium text-muted-foreground">
-                        Agent
-                      </span>
-                    ) : null}
-                    {sponsoredAgentIds.has(member.actor.id) ? (
-                      <span className="rounded-sm bg-muted px-1.5 py-0.5 text-2xs font-medium text-foreground">
-                        Yours
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                    <span>{member.role}</span>
-                    {member.actor.kind === "agent" &&
-                    agent &&
-                    availabilityByActorId.has(member.actor.id) ? (
-                      <>
-                        <span aria-hidden>·</span>
-                        <AgentStatus
-                          availability={
-                            availabilityByActorId.get(member.actor.id)!
-                          }
-                          showDetails
-                        />
-                      </>
-                    ) : null}
-                  </span>
-                </span>
+                <Icon icon={Cancel01Icon} size={12} />
               </button>
-              {isOwner && member.actor.id !== currentActorId ? (
-                <Button
-                  aria-label={`Remove ${member.actor.display_name}`}
-                  className="mr-1 opacity-70 group-hover:opacity-100"
-                  onClick={() => {
-                    removeMember.reset();
-                    setRemoveTarget(member.actor);
-                  }}
-                  size="compactIcon"
-                  title={`Remove ${member.actor.display_name}`}
-                  tone="ghost"
+            ) : null}
+          </label>
+          {filtering ? (
+            <span
+              aria-live="polite"
+              className="shrink-0 text-2xs text-app-subtle"
+            >
+              {search.count} of {memberItems.length}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      <div className="space-y-1">
+        {filtering && search.count === 0 ? (
+          <div className="flex flex-col items-center gap-2 px-2 py-6 text-center">
+            <p className="text-xs text-app-muted">
+              No members match “{query.trim()}”.
+            </p>
+            <Button
+              onClick={() => setQuery("")}
+              size="compact"
+              tone="secondary"
+            >
+              Clear search
+            </Button>
+          </div>
+        ) : (
+          search.items.map((member) => {
+            const agent = agentDirectory.data?.items.find(
+              (candidate) => candidate.actor.id === member.actor.id,
+            );
+            return (
+              <div
+                className="group flex min-h-13 w-full items-center rounded-lg transition-colors duration-300 hover:bg-muted/70"
+                key={member.actor.id}
+              >
+                <button
+                  aria-label={`Open ${member.actor.display_name} profile`}
+                  className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-app-focus"
+                  onClick={() => onOpenProfile?.(member.actor.id)}
+                  type="button"
                 >
-                  <Icon icon={Delete02Icon} size={16} />
-                </Button>
-              ) : null}
-            </div>
-          );
-        })}
+                  <ActorAvatar
+                    actorId={member.actor.id}
+                    kind={member.actor.kind}
+                    name={member.actor.display_name}
+                    size="sm"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1.5">
+                      <span className="truncate text-sm font-medium">
+                        <HighlightedText
+                          query={query}
+                          text={member.actor.display_name}
+                        />
+                      </span>
+                      {member.actor.kind === "agent" ? (
+                        <span className="rounded-sm bg-muted px-1.5 py-0.5 text-2xs font-medium text-muted-foreground">
+                          Agent
+                        </span>
+                      ) : null}
+                      {sponsoredAgentIds.has(member.actor.id) ? (
+                        <span className="rounded-sm bg-muted px-1.5 py-0.5 text-2xs font-medium text-foreground">
+                          Yours
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                      <span>{member.role}</span>
+                      {member.actor.kind === "agent" &&
+                      agent &&
+                      availabilityByActorId.has(member.actor.id) ? (
+                        <>
+                          <span aria-hidden>·</span>
+                          <AgentStatus
+                            availability={
+                              availabilityByActorId.get(member.actor.id)!
+                            }
+                            showDetails
+                          />
+                        </>
+                      ) : null}
+                    </span>
+                  </span>
+                </button>
+                {isOwner && member.actor.id !== currentActorId ? (
+                  <Button
+                    aria-label={`Remove ${member.actor.display_name}`}
+                    className="mr-1 opacity-70 group-hover:opacity-100"
+                    onClick={() => {
+                      removeMember.reset();
+                      setRemoveTarget(member.actor);
+                    }}
+                    size="compactIcon"
+                    title={`Remove ${member.actor.display_name}`}
+                    tone="ghost"
+                  >
+                    <Icon icon={Delete02Icon} size={16} />
+                  </Button>
+                ) : null}
+              </div>
+            );
+          })
+        )}
       </div>
 
       <div className="mt-3 flex items-center justify-between gap-3">
