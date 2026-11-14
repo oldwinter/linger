@@ -711,6 +711,138 @@ describe("Wiki directory", () => {
     expect(within(files).getByRole("link", { name: "beta" })).toBeVisible();
     expect(Object.entries(window.localStorage).sort()).toEqual(before);
   });
+  it("opens and focuses the filter with /", async () => {
+    const { router, runtime } = await setup(
+      "/t/tenant-northstar/documents/alpha",
+    );
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    const filter = await within(files).findByRole("searchbox", {
+      name: "Filter Projects",
+    });
+    expect(filter).not.toHaveFocus();
+
+    expect(fireEvent.keyDown(document.body, { key: "/" })).toBe(false);
+
+    expect(filter).toHaveFocus();
+    fireEvent.change(filter, { target: { value: "BET" } });
+    expect(within(files).queryByRole("link", { name: "alpha" })).toBeNull();
+    expect(within(files).getByRole("link", { name: "beta" })).toBeVisible();
+    expect(router.state.location.pathname).toBe(
+      "/t/tenant-northstar/documents/alpha",
+    );
+    expect(
+      runtime.server.requestsTo(
+        "GET",
+        "/v0/tenants/{tenantId}/personal-wiki/documents",
+      ),
+    ).toHaveLength(1);
+  });
+  it("leaves / to the filter once it has focus", async () => {
+    await setup("/t/tenant-northstar/documents/alpha");
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    const filter = await within(files).findByRole("searchbox", {
+      name: "Filter Projects",
+    });
+    filter.focus();
+
+    expect(fireEvent.keyDown(filter, { key: "/" })).toBe(true);
+
+    expect(filter).toHaveFocus();
+  });
+  it("ignores / typed into another field", async () => {
+    await setup("/t/tenant-northstar/documents/alpha");
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    const filter = await within(files).findByRole("searchbox", {
+      name: "Filter Projects",
+    });
+    const elsewhere = document.createElement("input");
+    document.body.append(elsewhere);
+    elsewhere.focus();
+
+    expect(fireEvent.keyDown(elsewhere, { key: "/" })).toBe(true);
+
+    elsewhere.remove();
+    expect(filter).not.toHaveFocus();
+  });
+  it("ignores / during an IME composition", async () => {
+    await setup("/t/tenant-northstar/documents/alpha");
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    const filter = await within(files).findByRole("searchbox", {
+      name: "Filter Projects",
+    });
+    const composing = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "/",
+    });
+    Object.defineProperty(composing, "isComposing", { value: true });
+
+    window.dispatchEvent(composing);
+
+    expect(composing.defaultPrevented).toBe(false);
+    expect(filter).not.toHaveFocus();
+  });
+  it("ignores / with a modifier held", async () => {
+    await setup("/t/tenant-northstar/documents/alpha");
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    const filter = await within(files).findByRole("searchbox", {
+      name: "Filter Projects",
+    });
+
+    expect(fireEvent.keyDown(document.body, { key: "/", metaKey: true })).toBe(
+      true,
+    );
+
+    expect(filter).not.toHaveFocus();
+  });
+  it("ignores / while a dialog is open", async () => {
+    await setup("/t/tenant-northstar/documents/alpha");
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    const filter = await within(files).findByRole("searchbox", {
+      name: "Filter Projects",
+    });
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    const inside = document.createElement("button");
+    dialog.append(inside);
+    document.body.append(dialog);
+
+    expect(fireEvent.keyDown(inside, { key: "/" })).toBe(true);
+
+    dialog.remove();
+    expect(filter).not.toHaveFocus();
+  });
+  it("clears the filter and leaves the field on Escape", async () => {
+    await setup("/t/tenant-northstar/documents/alpha");
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    const filter = await within(files).findByRole("searchbox", {
+      name: "Filter Projects",
+    });
+    fireEvent.change(filter, { target: { value: "BET" } });
+    expect(within(files).queryByRole("link", { name: "alpha" })).toBeNull();
+
+    expect(fireEvent.keyDown(filter, { key: "Escape" })).toBe(false);
+
+    expect(filter).toHaveValue("");
+    expect(filter).not.toHaveFocus();
+    expect(
+      await within(files).findByRole("link", { name: "alpha" }),
+    ).toBeVisible();
+  });
   it("filters hidden graph nodes and all their links without mutating the graph", () => {
     const result = filterWikiGraph(graph, {
       [wikiPageKey("projects/alpha.md")]: "delete",

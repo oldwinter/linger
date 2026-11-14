@@ -33,6 +33,11 @@
   highlighted, and a no-match message takes the list's place. Filtering never
   fetches, never changes the route or the open page, and keeps its per-collection
   query in view state only, so clearing the field restores the full list.
+  Pressing / while the directory shows its collection list focuses the filter
+  field and keeps the browser's quick-find from opening; it does nothing while
+  another field, a dialog, or an IME composition owns the keystroke. Escape in
+  the field clears the filter and leaves it. Both go through the shared
+  `isShortcutKeyEvent` guard in `src/lib/keyboard-shortcut.ts`.
   A collection page's Copy list copies the cards it shows as a Markdown list:
   the collection name as the heading and one absolute link per card, in that
   order. A filtered page copies only the matches; the action stays disabled

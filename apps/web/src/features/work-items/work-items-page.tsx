@@ -1,4 +1,5 @@
 import { dateTimeFormat } from "@/lib/date-format";
+import { isShortcutKeyEvent } from "@/lib/keyboard-shortcut";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDown01Icon,
@@ -53,7 +54,6 @@ import { WorkItemBoardCopyAction } from "./work-item-board-copy-action";
 import { workItemBoardCsv } from "./work-item-board-csv";
 import { WorkItemBoardCsvAction } from "./work-item-board-csv-action";
 import {
-  isWorkItemBoardKeyEvent,
   nextWorkItemCardId,
   workItemBoardMoveForKey,
 } from "./work-item-board-keyboard";
@@ -595,7 +595,7 @@ function WorkItemBoard({
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (!isWorkItemBoardKeyEvent(event)) return;
+      if (!isShortcutKeyEvent(event)) return;
       handleBoardKey(event);
     }
     window.addEventListener("keydown", onKeyDown);

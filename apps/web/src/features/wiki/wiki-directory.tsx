@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft02Icon,
   ArrowRight01Icon,
@@ -13,6 +13,7 @@ import {
   UserIcon,
 } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
+import { isShortcutKeyEvent } from "@/lib/keyboard-shortcut";
 import {
   Link,
   useLocation,
@@ -165,6 +166,22 @@ export function WikiDirectory({
     text: string;
   }>({ collection: null, text: "" });
   const filterText = filter.collection === collection ? filter.text : "";
+  const clearFilter = () => setFilter({ collection, text: "" });
+  // Slash opens the filter field without reaching for the pointer, unless the
+  // keystroke belongs to a field, a dialog, or an IME composition.
+  const filterRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    function onShortcut(event: KeyboardEvent) {
+      if (event.key !== "/" || !isShortcutKeyEvent(event)) return;
+      const input = filterRef.current;
+      if (!input) return;
+      // Browsers with quick-find would otherwise search the page instead.
+      event.preventDefault();
+      input.focus();
+    }
+    window.addEventListener("keydown", onShortcut);
+    return () => window.removeEventListener("keydown", onShortcut);
+  }, []);
   const visiblePages = filterWikiEntries(pages, filterText, pageRowTitle);
   const visibleNewPages = filterWikiEntries(
     newPages,
@@ -254,7 +271,14 @@ export function WikiDirectory({
                   onChange={(event) =>
                     setFilter({ collection, text: event.target.value })
                   }
+                  onKeyDown={(event) => {
+                    if (event.key !== "Escape" || !filterText) return;
+                    event.preventDefault();
+                    clearFilter();
+                    event.currentTarget.blur();
+                  }}
                   placeholder={`Filter ${wikiCollectionLabels[collection].toLowerCase()}`}
+                  ref={filterRef}
                   role="searchbox"
                   type="text"
                   value={filterText}
@@ -263,7 +287,7 @@ export function WikiDirectory({
                   <button
                     aria-label={`Clear ${wikiCollectionLabels[collection]} filter`}
                     className="flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
-                    onClick={() => setFilter({ collection, text: "" })}
+                    onClick={clearFilter}
                     type="button"
                   >
                     <Icon icon={Cancel01Icon} size={12} />
