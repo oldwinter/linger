@@ -27,6 +27,11 @@ import {
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 
+import {
+  clearRoomDrafts,
+  readRoomComposerDraft,
+} from "@/features/rooms/room-drafts";
+
 import { MeetingPage } from "./meeting-page";
 
 beforeAll(async () => {
@@ -87,6 +92,7 @@ function serveMemoryEntry<Handler extends TestRouteHandler>(
 afterEach(() => {
   vi.restoreAllMocks();
   window.sessionStorage.clear();
+  clearRoomDrafts();
 });
 
 describe("MeetingPage", () => {
@@ -424,6 +430,33 @@ describe("MeetingPage", () => {
       screen.queryByRole("navigation", { name: "Document table of contents" }),
     ).toBeNull();
     expect(button).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("asks Another Me with this meeting's follow-ups ready to send", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry(
+      {
+        content: "## Action Items\n\n- Action: Send the recap\n",
+        path: "Meetings/2026/11/14/Meeting 09-05-00",
+      },
+      true,
+    );
+    serveMeetings(runtime, [entry]);
+    const router = renderPage(runtime, `?entry=${entry.id}`);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Ask Another Me" }),
+    );
+    expect(router.state.location.pathname).toBe(
+      "/t/tenant-northstar/rooms/room-another-me/chat",
+    );
+    expect(router.state.location.state).toEqual({ focusComposer: true });
+    expect(
+      readRoomComposerDraft({
+        accountId: "account-jenny",
+        roomId: "room-another-me",
+        tenantId: "tenant-northstar",
+      }).body,
+    ).toBe("Help me follow up on Meeting Nov 14, 09:05.\n\n- Send the recap");
   });
 
   it("replaces the open outline when changing meetings and handles summaries without headings", async () => {

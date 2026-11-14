@@ -17,9 +17,14 @@ import {
   type SyntheticEvent,
 } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
+import { askAnotherMeAboutMeeting } from "./meeting-ask";
 import { useMeetings } from "./memory-queries";
 import { MeetingReader } from "./meeting-reader";
 import { meetingsTabPath } from "./meetings-panel";
+import {
+  anotherMeQueryOptions,
+  teamHubIdentityQueryOptions,
+} from "@/features/rooms/room-queries";
 
 import {
   extractRenderedDocumentHeadings,
@@ -48,6 +53,10 @@ export function MeetingPage() {
   const contentRef = useRef<HTMLElement>(null);
   const selectedId = searchParams.get("entry");
   const meetings = useMeetings(tenantId);
+  const identity = useQuery(teamHubIdentityQueryOptions(client));
+  const anotherMe = useQuery(anotherMeQueryOptions(client, tenantId));
+  const accountId = identity.data?.account.id;
+  const anotherMeRoomId = anotherMe.data?.room_id;
   const listed = meetings.data?.find((entry) => entry.id === selectedId);
   const selected = useQuery({
     enabled: listed !== undefined,
@@ -153,6 +162,21 @@ export function MeetingPage() {
             <MeetingReader
               entry={selected.data}
               file={searchParams.get("file")}
+              onAskAnotherMe={
+                accountId && anotherMeRoomId && selected.data
+                  ? () => {
+                      const entry = selected.data;
+                      if (!entry) return;
+                      const placed = askAnotherMeAboutMeeting({
+                        accountId,
+                        entry,
+                        roomId: anotherMeRoomId,
+                        tenantId,
+                      });
+                      void navigate(placed.to, { state: placed.state });
+                    }
+                  : undefined
+              }
               onHidden={() => void navigate(meetingsTabPath(tenantId, "week"))}
               onSelectTab={(tab) =>
                 setSearchParams(

@@ -5,6 +5,9 @@
   Personal Wiki navigation in `features/wiki` links here.
 - Call TeamHub through the generated client (`client.api`) and generated
   Memory types; do not handwrite URLs or wire DTOs in components.
+- From a meeting, Ask Another Me writes a follow-up into that room's
+  composer (keeping any unsent draft) and opens the chat with the composer
+  focused. The meeting itself stays read-only.
 - Meetings, reports and graph entries are read-only derived reading state, not
   source evidence. Deleting a meeting only hides it from the caller's own
   Meetings through TeamHub's

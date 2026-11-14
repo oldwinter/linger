@@ -37,6 +37,7 @@ export type MeetingTab = "summary" | "transcript";
 export function MeetingReader({
   entry,
   file,
+  onAskAnotherMe,
   onHidden,
   onSelectTab,
   resolveLink,
@@ -45,6 +46,8 @@ export function MeetingReader({
   entry: TeamHubMemoryEntry;
   /** The `file` URL parameter; "recording" and none choose the default tab. */
   file: string | null;
+  /** Opens Another Me's chat with a follow-up draft for this meeting. */
+  onAskAnotherMe?: () => void;
   /** Leaves the page once the meeting is deleted from the reader's Meetings. */
   onHidden: () => void;
   onSelectTab: (tab: MeetingTab) => void;
@@ -98,6 +101,11 @@ export function MeetingReader({
           </h2>
           <p className="mt-1 text-xs text-app-muted">Read only</p>
         </div>
+        {onAskAnotherMe ? (
+          <Button onClick={onAskAnotherMe} size="compact" tone="secondary">
+            Ask Another Me
+          </Button>
+        ) : null}
         <Button onClick={() => setDeleting(true)} size="compact" tone="ghost">
           Delete
         </Button>
