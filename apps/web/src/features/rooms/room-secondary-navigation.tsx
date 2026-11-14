@@ -53,12 +53,14 @@ import { useNavReorderFlip } from "./use-nav-reorder-flip";
 import {
   AgentRowMenu,
   pinnedFirst,
-  RoomMentionSnoozeMenu,
+  RoomMentionMenu,
   RoomPinButton,
   useRoomPin,
 } from "./room-nav-actions";
 import {
+  isRoomMentionMuted,
   isRoomMentionSnoozed,
+  useRoomMentionMute,
   useRoomMentionSnooze,
 } from "./room-mention-snooze";
 import {
@@ -164,6 +166,7 @@ export function RoomSecondaryNavigation({
     writeRoomUnreadFilter(accountId, next);
   }
   const mentionSnooze = useRoomMentionSnooze(accountId);
+  const mentionMute = useRoomMentionMute(accountId);
   // Rows judge expiry against this reading, so a snooze that ends passes on
   // the next render without a cleanup step.
   const now = new Date();
@@ -403,6 +406,7 @@ export function RoomSecondaryNavigation({
               ) : null}
               {listedChats.map((room) => {
                 if (room.kind === "room") {
+                  const muted = isRoomMentionMuted(mentionMute, room.id);
                   const snoozed = isRoomMentionSnoozed(
                     mentionSnooze,
                     room.id,
@@ -417,8 +421,9 @@ export function RoomSecondaryNavigation({
                             onToggle={() => togglePin(room)}
                             pinned={Boolean(room.pinned_at)}
                           />
-                          <RoomMentionSnoozeMenu
+                          <RoomMentionMenu
                             accountId={accountId}
+                            muted={muted}
                             name={room.name}
                             roomId={room.id}
                             snoozed={snoozed}
@@ -444,6 +449,7 @@ export function RoomSecondaryNavigation({
                             draftName={
                               draftRoomIds.has(room.id) ? room.name : undefined
                             }
+                            muted={muted}
                             pinned={Boolean(room.pinned_at)}
                             snoozed={snoozed}
                           >
@@ -638,15 +644,19 @@ function NavRow({
 function RoomRowTitle({
   children,
   draftName,
+  muted = false,
   pinned,
   snoozed = false,
 }: {
   children: ReactNode;
   /** The Room's name while it holds an unsent draft. */
   draftName?: string;
+  muted?: boolean;
   pinned: boolean;
   snoozed?: boolean;
 }) {
+  // Mute and snooze both quiet the same notifications, so one hint says which.
+  const quietHint = muted ? "Muted" : snoozed ? "Snoozed" : undefined;
   return (
     <span className="flex min-w-0 items-center gap-1 text-sm leading-[18px] font-medium text-foreground">
       <span className="min-w-0 truncate">{children}</span>
@@ -668,12 +678,12 @@ function RoomRowTitle({
           <Icon icon={PinIcon} size={12} />
         </span>
       ) : null}
-      {snoozed ? (
+      {quietHint ? (
         <span
           className="shrink-0 text-2xs font-medium leading-4 text-muted-foreground"
-          title="Mention notifications are snoozed"
+          title={`Mention notifications are ${quietHint.toLowerCase()}`}
         >
-          Snoozed
+          {quietHint}
         </span>
       ) : null}
     </span>
