@@ -1,8 +1,31 @@
 import { describe, expect, it } from "vitest";
 
-import { meetingTranscriptText } from "./meeting-transcript-text";
+import {
+  meetingTranscriptText,
+  meetingTranscriptTurns,
+} from "./meeting-transcript-text";
 
 describe("meetingTranscriptText", () => {
+  it("exposes the turns the text joins", () => {
+    const markdown = [
+      "# Recording Transcript — September 10, 2026 at 06:45 UTC",
+      "",
+      "> The recording lost a second of audio.",
+      "",
+      "[00:00:01 - 00:00:02] Speaker 1 First sentence.",
+      "",
+      "[00:00:02 - 00:00:03] Second sentence.",
+    ].join("\n");
+
+    expect(meetingTranscriptTurns(markdown)).toEqual([
+      "Speaker 1: First sentence.",
+      "Second sentence.",
+    ]);
+    expect(meetingTranscriptText(markdown)).toBe(
+      meetingTranscriptTurns(markdown).join("\n"),
+    );
+  });
+
   it("writes one Speaker line per turn in spoken order", () => {
     const markdown = [
       "# Recording Transcript — September 10, 2026 at 06:45 UTC",

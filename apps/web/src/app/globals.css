@@ -3969,6 +3969,16 @@ button.question-choice:focus-visible {
   background-color: hsl(var(--town-comment-amber) / 0.35);
 }
 
+/* Transcript search marks share the keyword search tint; the turn Previous and
+   Next land on reads stronger so the current match stands out from the rest. */
+::highlight(meeting-transcript-match) {
+  background-color: hsl(var(--town-comment-amber) / 0.35);
+}
+
+::highlight(meeting-transcript-current) {
+  background-color: hsl(var(--town-comment-amber) / 0.7);
+}
+
 .message-row-actions {
   pointer-events: none;
   border-radius: 8px;
