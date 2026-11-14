@@ -1,8 +1,15 @@
 import { createHash } from "node:crypto";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { EnrollmentError, enrollComputer } from "./enrollment.js";
+import { CredentialStore } from "./computer-credential.js";
+import {
+  EnrollmentError,
+  EnrollmentModule,
+  enrollComputer,
+} from "./enrollment.js";
+import { EventBus } from "./modules.js";
+import { stubModule, tempDirectory, testHost } from "./test-support.js";
 
 const claims = (value: object): string =>
   Buffer.from(JSON.stringify(value)).toString("base64url");
@@ -19,7 +26,13 @@ interface Call {
 }
 
 const fakeServer = (
-  overrides: { exchangeStatus?: number; bundle?: Record<string, unknown> } = {},
+  overrides: {
+    exchangeStatus?: number;
+    bundle?: Record<string, unknown>;
+    // The create answer for a renewal, which TeamHub refuses for a Computer
+    // it does not know.
+    renewal?: { status: number; body: unknown };
+  } = {},
 ): { fetch: typeof fetch; calls: Call[] } => {
   const calls: Call[] = [];
   let challenge = "";
@@ -39,6 +52,8 @@ const fakeServer = (
     if (input.pathname === "/v0/me")
       return json({ actors: [{ kind: "human", tenant_id: "tenant_acme" }] });
     if (input.pathname.endsWith("/local-computer-enrollments")) {
+      if (overrides.renewal && body?.computer_id)
+        return json(overrides.renewal.body, overrides.renewal.status);
       challenge = String(body?.code_challenge);
       return json({
         enrollment_id: "enr_1",
@@ -156,5 +171,153 @@ describe("enrollComputer", () => {
     await expect(
       enrollComputer({ ...input, fetch: server.fetch }),
     ).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
+
+  it("enrolls a new Computer once when the server no longer knows the renewal", async () => {
+    const server = fakeServer({
+      renewal: {
+        status: 404,
+        body: { error: { code: "INVALID_ENROLLMENT", message: "invalid" } },
+      },
+    });
+    const enrolled = await enrollComputer({
+      ...input,
+      computerId: "computer_gone",
+      fetch: server.fetch,
+    });
+    expect(enrolled.computerId).toBe("computer_1");
+    const creates = server.calls.filter((c) =>
+      c.url.endsWith("/local-computer-enrollments"),
+    );
+    expect(creates).toHaveLength(2);
+    expect(creates[0]?.body?.computer_id).toBe("computer_gone");
+    expect(creates[1]?.body).not.toHaveProperty("computer_id");
+  });
+
+  it("does not retry a 404 for another reason", async () => {
+    const server = fakeServer({
+      renewal: { status: 404, body: { error: { code: "NOT_FOUND" } } },
+    });
+    await expect(
+      enrollComputer({
+        ...input,
+        computerId: "computer_1",
+        fetch: server.fetch,
+      }),
+    ).rejects.toMatchObject({ code: "REJECTED" });
+    expect(
+      server.calls.filter((call) =>
+        call.url.endsWith("/local-computer-enrollments"),
+      ),
+    ).toHaveLength(1);
+  });
+});
+
+const enrollmentModule = (
+  defaults: Parameters<typeof testHost>[1],
+  fetcher?: typeof fetch,
+) => {
+  const directory = tempDirectory();
+  const credentials = new CredentialStore(`${directory}/credential.json`);
+  const bus = new EventBus();
+  const module = new EnrollmentModule({
+    sessionCookie: async () => "teamhub_session=abc",
+    defaultDisplayName: "Laptop",
+    credentials,
+    ...(fetcher ? { fetch: fetcher } : {}),
+  });
+  const host = testHost([stubModule("Config"), module], defaults, bus);
+  return { host, module, credentials, bus };
+};
+
+describe("EnrollmentModule", () => {
+  const enrolled = {
+    serverUrl: "https://linger.example.com",
+    computerId: "computer_1",
+    tenantId: "tenant_acme",
+    ownerActorId: "actor_ann",
+  };
+
+  it("keeps the Computer for renewal when the local server is reset", async () => {
+    const server = fakeServer();
+    const f = enrollmentModule(enrolled, server.fetch);
+    f.credentials.write({
+      computerId: "computer_1",
+      gatewayUrl: "wss://linger.example.com/v1/runner",
+      token: TOKEN,
+    });
+    await f.host.start();
+    await f.module.resetLocalServer();
+    expect(f.credentials.read()).toBeUndefined();
+    expect(f.host.ctx.config.get()).toMatchObject({
+      computerId: undefined,
+      tenantId: undefined,
+      ownerActorId: undefined,
+      renewalEnrollment: {
+        computerId: "computer_1",
+        origin: "https://linger.example.com",
+      },
+    });
+    // The next setup enrolls the same Computer and drops the reference.
+    await f.module.enroll();
+    const creates = server.calls.filter((call) =>
+      call.url.endsWith("/local-computer-enrollments"),
+    );
+    expect(creates[0]?.body?.computer_id).toBe("computer_1");
+    expect(f.host.ctx.config.get().renewalEnrollment).toBeUndefined();
+    expect(f.host.ctx.config.get().computerId).toBe("computer_1");
+  });
+
+  it("forgets the renewal when another server is set", async () => {
+    const f = enrollmentModule(enrolled);
+    f.credentials.write({
+      computerId: "computer_1",
+      gatewayUrl: "wss://linger.example.com/v1/runner",
+      token: TOKEN,
+    });
+    await f.host.start();
+    await f.module.resetLocalServer();
+    f.bus.emit("server.changed", "https://other.example.com");
+    await vi.waitFor(() =>
+      expect(f.host.ctx.config.get().renewalEnrollment).toBeUndefined(),
+    );
+  });
+
+  it("keeps the renewal when the same server is set again", async () => {
+    const f = enrollmentModule(enrolled);
+    f.credentials.write({
+      computerId: "computer_1",
+      gatewayUrl: "wss://linger.example.com/v1/runner",
+      token: TOKEN,
+    });
+    await f.host.start();
+    await f.module.resetLocalServer();
+    f.bus.emit("server.changed", "https://linger.example.com/workspace");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(f.host.ctx.config.get().renewalEnrollment).toEqual({
+      computerId: "computer_1",
+      origin: "https://linger.example.com",
+    });
+  });
+
+  it("does not renew against another server", async () => {
+    const server = fakeServer();
+    const f = enrollmentModule(
+      {
+        serverUrl: "https://other.example.com",
+        ownerActorId: "actor_ann",
+        renewalEnrollment: {
+          computerId: "computer_1",
+          origin: "https://linger.example.com",
+        },
+      },
+      server.fetch,
+    );
+    await f.host.start();
+    await f.module.enroll();
+    const creates = server.calls.filter((call) =>
+      call.url.endsWith("/local-computer-enrollments"),
+    );
+    expect(creates[0]?.body).not.toHaveProperty("computer_id");
   });
 });

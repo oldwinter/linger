@@ -87,12 +87,14 @@ export class DesktopIpcModule implements Module {
 
     const status = (): ComputerStatus => {
       const computerId = ctx.config.get().computerId;
+      const connectionError = daemon.connectionError();
       return {
         bridge: daemon.connection(),
         runtime: daemon.state(),
         ...(computerId ? { computerId } : {}),
         activeOperations: daemon.running(),
         preventSleep: power.active(),
+        ...(connectionError ? { connectionError } : {}),
       };
     };
     const settings = (): DesktopSettings => {
@@ -164,6 +166,7 @@ export class DesktopIpcModule implements Module {
     };
     this.#unsubscribe.push(
       ctx.bus.on("computer.connection", push),
+      ctx.bus.on("computer.identity_conflict", push),
       ctx.bus.on("runtime.state", push),
       ctx.bus.on("runtime.activity", push),
       ctx.bus.on("power.changed", push),

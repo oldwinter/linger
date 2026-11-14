@@ -8,12 +8,20 @@ export type RuntimeState =
   | "draining"
   | "crashed";
 
+// Why the Gateway refused this computer besides its connection state. The
+// Daemon Identity was enrolled for another Computer.
+export type ComputerConnectionError = "daemon_identity_conflict";
+export const DAEMON_IDENTITY_CONFLICT: ComputerConnectionError =
+  "daemon_identity_conflict";
+
 export interface ComputerStatus {
   readonly bridge: string;
   readonly runtime: RuntimeState;
   readonly computerId?: string;
   readonly activeOperations: number;
   readonly preventSleep: boolean;
+  // The daemon's last reported connection error; absent when it has none.
+  readonly connectionError?: ComputerConnectionError;
 }
 
 export interface WorkspaceGrantView {

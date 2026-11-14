@@ -18,6 +18,8 @@ export interface BusEvents {
   "computer.connection": [state: string];
   // Why the Computer service keeps exiting at start, or undefined once it ran.
   "computer.failed": [reason: string | undefined];
+  // The Gateway refused this computer's identity as another Computer's.
+  "computer.identity_conflict": [conflict: boolean];
   "computer.renamed": [];
   "grants.changed": [];
   "local-server.changed": [];

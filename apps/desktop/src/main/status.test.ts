@@ -45,4 +45,16 @@ describe("summarizeStatus", () => {
       label: "Sign-in Expired · Reconnect This Computer",
     });
   });
+
+  it("never reports a Computer whose identity another Computer holds as healthy", () => {
+    expect(summarizeStatus({ ...base, identityConflict: true })).toEqual({
+      tone: "error",
+      label: "Identity Conflict · Set Up Again",
+    });
+    // An absent conflict leaves every other state as it was.
+    expect(summarizeStatus({ ...base, identityConflict: false })).toEqual({
+      tone: "online",
+      label: "Online · Idle",
+    });
+  });
 });
