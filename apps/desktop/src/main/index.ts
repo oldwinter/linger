@@ -258,6 +258,8 @@ async function main(): Promise<void> {
           },
         }
       : undefined;
+  // The tray tooltip names the badge count the SPA sends over IPC.
+  const tray = new TrayModule({ quit: () => void quit() });
   const modules: Module[] = [
     {
       name: "Config",
@@ -316,12 +318,13 @@ async function main(): Promise<void> {
     }),
     new GlobalShortcutModule(),
     updater,
-    new TrayModule({ quit: () => void quit() }),
+    tray,
     new DesktopIpcModule({
       defaultDisplayName,
       // Electron's count badge exists on macOS and Linux only.
       ...(process.platform === "win32" ? {} : { badge: app }),
       ...(desktopPermissions ? { permissions: desktopPermissions } : {}),
+      tray,
     }),
   ];
   const host = new ModuleHost(modules, { config, log, bus: new EventBus() });

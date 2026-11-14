@@ -19,6 +19,7 @@ import {
   runDesktopPermissionStep,
   type DesktopPermissionHost,
 } from "./system-permissions.js";
+import type { DesktopTrayHost } from "./tray.js";
 import type { WindowManagerModule } from "./window-manager.js";
 import type { WorkspaceGrantsModule } from "./workspace-grants.js";
 
@@ -71,21 +72,25 @@ export class DesktopIpcModule implements Module {
     "ComputerDaemon",
     "WindowManager",
     "WorkspaceGrants",
+    "Tray",
   ];
   readonly #badge: DesktopBadgeHost | undefined;
   readonly #defaultDisplayName: string;
   // Set on macOS only.
   readonly #permissions: DesktopPermissionHost | undefined;
+  readonly #tray: DesktopTrayHost | undefined;
   readonly #unsubscribe: (() => void)[] = [];
 
   constructor(options: {
     badge?: DesktopBadgeHost;
     defaultDisplayName: string;
     permissions?: DesktopPermissionHost;
+    tray?: DesktopTrayHost;
   }) {
     this.#badge = options.badge;
     this.#defaultDisplayName = options.defaultDisplayName;
     this.#permissions = options.permissions;
+    this.#tray = options.tray;
   }
 
   async start(ctx: ModuleContext): Promise<void> {
@@ -151,7 +156,9 @@ export class DesktopIpcModule implements Module {
       return settings();
     });
     handle(IPC.notificationsBadge, (count) => {
-      this.#badge?.setBadgeCount(badgeCountInput.parse(count));
+      const unread = badgeCountInput.parse(count);
+      this.#badge?.setBadgeCount(unread);
+      this.#tray?.setUnreadCount(unread);
     });
 
     // The handler already checked that the caller is the window's server, so

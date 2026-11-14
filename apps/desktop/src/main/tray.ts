@@ -29,6 +29,16 @@ export interface TrayOptions {
   readonly quit: () => void;
 }
 
+// The unread count the SPA already sends for the badge, named in the tooltip.
+export interface DesktopTrayHost {
+  setUnreadCount(count: number): void;
+}
+
+const toolTip = (label: string, unread: number): string =>
+  unread > 0
+    ? `Linger · ${label} · ${unread} unread ${unread === 1 ? "mention" : "mentions"}`
+    : `Linger · ${label}`;
+
 const BUSY_FRAME_MS = 400;
 
 const ARTWORK: Record<number, TrayArtwork> = {
@@ -56,7 +66,7 @@ const icon = (tone: StatusTone, frame: number): NativeImage => {
 };
 
 // The system tray. The same menu opens from the title bar status.
-export class TrayModule implements Module {
+export class TrayModule implements Module, DesktopTrayHost {
   readonly name = "Tray";
   readonly dependsOn = [
     "Status",
@@ -71,6 +81,7 @@ export class TrayModule implements Module {
   readonly #options: TrayOptions;
   #ctx: ModuleContext | undefined;
   #tray: Tray | undefined;
+  #unreadCount = 0;
   #frame = 0;
   #animation: NodeJS.Timeout | undefined;
   readonly #icons = new Map<string, NativeImage>();
@@ -108,8 +119,19 @@ export class TrayModule implements Module {
     this.#tray = undefined;
   }
 
+  setUnreadCount(count: number): void {
+    this.#unreadCount = count;
+    this.#applyToolTip();
+  }
+
   #status() {
     return this.#ctx!.get<StatusModule>("Status").current();
+  }
+
+  // The status stays in the tooltip; the count is appended while there is one.
+  #applyToolTip(): void {
+    if (!this.#tray) return;
+    this.#tray.setToolTip(toolTip(this.#status().label, this.#unreadCount));
   }
 
   #refresh(): void {
@@ -126,7 +148,7 @@ export class TrayModule implements Module {
     }
     if (!this.#tray) return;
     this.#tray.setImage(this.#icon());
-    this.#tray.setToolTip(`Linger · ${this.#status().label}`);
+    this.#applyToolTip();
     this.#tray.setContextMenu(this.#menu());
   }
 
