@@ -1,9 +1,19 @@
-import { keepPreviousData, queryOptions } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  queryOptions,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import { collectTeamHubCursorPages } from "@/features/teamhub/teamhub-cursor-pages";
 import { TeamHubError } from "@/features/teamhub/teamhub-error";
-import { teamHubData } from "@/features/teamhub/teamhub-api";
-import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
+import { teamHubData, idempotencyHeader } from "@/features/teamhub/teamhub-api";
+import {
+  createTeamHubIdempotencyKey,
+  type TeamHubClient,
+} from "@/features/teamhub/teamhub-client";
+import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import type { TeamHubWorkItem } from "@/features/teamhub/teamhub-types";
 
 import {
   workItemDashboardListFilterSearch,
@@ -46,6 +56,119 @@ export function tenantWorkItemTargetQueryOptions(
     queryKey: tenantWorkItemTargetQueryKey(tenantId, workItemId),
     refetchOnWindowFocus: true,
     staleTime: 0,
+  });
+}
+
+export function tenantWorkItemCommentsQueryKey(
+  tenantId: string,
+  workItemId: string,
+) {
+  return ["teamhub", tenantId, "work-items", "comments", workItemId] as const;
+}
+
+export function tenantWorkItemCommentsQueryOptions(
+  client: Pick<TeamHubClient, "api">,
+  tenantId: string,
+  workItemId: string,
+) {
+  return queryOptions({
+    queryFn: async () => {
+      const page = await collectTeamHubCursorPages((pagination) =>
+        teamHubData(
+          client.api.GET("/v0/work-items/{workItemId}/comments", {
+            params: { path: { workItemId }, query: pagination },
+          }),
+        ),
+      );
+      if (
+        page.items.some(
+          (comment) =>
+            comment.tenant_id !== tenantId ||
+            comment.work_item_id !== workItemId,
+        )
+      ) {
+        throw new Error("Work Item Comments do not match the requested Item.");
+      }
+      return page.items;
+    },
+    queryKey: tenantWorkItemCommentsQueryKey(tenantId, workItemId),
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  });
+}
+
+export function tenantWorkItemTimelineQueryKey(
+  tenantId: string,
+  workItemId: string,
+) {
+  return ["teamhub", tenantId, "work-items", "timeline", workItemId] as const;
+}
+
+export function tenantWorkItemTimelineQueryOptions(
+  client: Pick<TeamHubClient, "api">,
+  tenantId: string,
+  workItemId: string,
+) {
+  return queryOptions({
+    queryFn: async () => {
+      const page = await collectTeamHubCursorPages((pagination) =>
+        teamHubData(
+          client.api.GET("/v0/work-items/{workItemId}/timeline", {
+            params: { path: { workItemId }, query: pagination },
+          }),
+        ),
+      );
+      return page.items;
+    },
+    queryKey: tenantWorkItemTimelineQueryKey(tenantId, workItemId),
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  });
+}
+
+interface WorkItemTransitionInput {
+  expectedVersion: number;
+  resolution?: NonNullable<TeamHubWorkItem["resolution"]>;
+  state: TeamHubWorkItem["state"];
+}
+
+/**
+ * A transition changes both the board and the open peek, so the answer replaces
+ * the target cache and both lists refetch. The timeline gains its state entry.
+ */
+export function useWorkItemTransition(tenantId: string, workItemId: string) {
+  const { client } = useTeamHubRuntime();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: WorkItemTransitionInput) =>
+      teamHubData(
+        client.api.POST("/v0/work-items/{workItemId}/transitions", {
+          body: {
+            expected_version: input.expectedVersion,
+            resolution: input.resolution,
+            state: input.state,
+          },
+          params: {
+            header: idempotencyHeader(createTeamHubIdempotencyKey()),
+            path: { workItemId },
+          },
+        }),
+      ),
+    onSuccess: (item) => {
+      queryClient.setQueryData(
+        tenantWorkItemTargetQueryKey(tenantId, workItemId),
+        item,
+      );
+      void queryClient.invalidateQueries({
+        queryKey: tenantWorkItemsDashboardQueryPrefix(tenantId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: tenantWorkItemTargetQueryKey(tenantId, workItemId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: tenantWorkItemTimelineQueryKey(tenantId, workItemId),
+      });
+    },
   });
 }
 

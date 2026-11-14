@@ -2183,6 +2183,25 @@ a[href][aria-disabled="true"],
   width: min(560px, calc(100vw - 32px));
 }
 
+/* The Work Item peek is a right-hand drawer over the board; the native
+   <dialog> still supplies the scrim, focus trap, and Escape. */
+.app-dialog.work-item-peek {
+  inset: 0 0 0 auto;
+  width: min(440px, 100vw);
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  border-radius: 0;
+  animation: work-item-peek-enter 0.18s ease both;
+}
+
+@keyframes work-item-peek-enter {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
 .global-search-progress {
   position: relative;
   height: 1px;

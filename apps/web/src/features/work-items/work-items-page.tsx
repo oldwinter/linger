@@ -6,7 +6,13 @@ import {
   CheckListIcon,
 } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
-import { useCallback, useState, type RefCallback } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type RefCallback,
+} from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -35,6 +41,7 @@ import {
   type WorkItemDashboardFilters,
   type WorkItemDashboardPriority,
 } from "./work-item-dashboard-filters";
+import { WorkItemPeek } from "./work-item-peek";
 import {
   tenantWorkItemTargetQueryOptions,
   tenantWorkItemsDashboardQueryOptions,
@@ -93,6 +100,24 @@ export function WorkItemsPage() {
     },
     [focusedWorkItemId],
   );
+  const [peekWorkItem, setPeekWorkItem] = useState<TeamHubWorkItem>();
+  const peekTrigger = useRef<HTMLAnchorElement | null>(null);
+  useEffect(() => {
+    if (!peekWorkItem) return;
+    // Leaving the peek, however it closes, puts the reader back on its card. A
+    // transition can move the card to another column, replacing its element, so
+    // fall back to the card that now carries the Item.
+    return () => {
+      const trigger = peekTrigger.current?.isConnected
+        ? peekTrigger.current
+        : cardForWorkItem(peekWorkItem.id);
+      trigger?.focus();
+    };
+  }, [peekWorkItem]);
+  function openPeek(item: TeamHubWorkItem, card: HTMLAnchorElement) {
+    peekTrigger.current = card;
+    setPeekWorkItem(item);
+  }
   const [searchParams, setSearchParams] = useSearchParams();
   const filters = createWorkItemDashboardFilters(searchParams);
   const identityQuery = useQuery(teamHubIdentityQueryOptions(client));
@@ -279,6 +304,7 @@ export function WorkItemsPage() {
                   (item) => dashboardColumnFor(item) === column.id,
                 )}
                 key={column.id}
+                onPeek={openPeek}
                 originRoomLabel={roomFilter.originLabel}
                 search={dashboardSearch}
                 tenantId={tenantId}
@@ -298,8 +324,28 @@ export function WorkItemsPage() {
           </div>
         </section>
       )}
+
+      {peekWorkItem ? (
+        <WorkItemPeek
+          key={peekWorkItem.id}
+          onClose={() => setPeekWorkItem(undefined)}
+          search={dashboardSearch}
+          tenantId={tenantId}
+          workItem={peekWorkItem}
+        />
+      ) : null}
     </main>
   );
+}
+
+/** The rendered card for a Work Item, wherever its column currently is. */
+function cardForWorkItem(workItemId: string) {
+  for (const card of document.querySelectorAll<HTMLAnchorElement>(
+    "[data-work-item-id]",
+  )) {
+    if (card.dataset.workItemId === workItemId) return card;
+  }
+  return null;
 }
 
 function mergeFocusedWorkItem(
@@ -359,6 +405,7 @@ function WorkItemColumn({
   focusedCardRef,
   focusedWorkItemId,
   items,
+  onPeek,
   originRoomLabel,
   search,
   tenantId,
@@ -367,6 +414,7 @@ function WorkItemColumn({
   focusedCardRef: RefCallback<HTMLAnchorElement>;
   focusedWorkItemId?: string;
   items: TeamHubWorkItem[];
+  onPeek: (item: TeamHubWorkItem, card: HTMLAnchorElement) => void;
   originRoomLabel: (item: TeamHubWorkItem) => string;
   search: string;
   tenantId: string;
@@ -418,6 +466,21 @@ function WorkItemColumn({
                   item.id === focusedWorkItemId ? "location" : undefined
                 }
                 className="work-item-card block px-3 py-2.5 text-app-ink outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                data-work-item-id={item.id}
+                onClick={(event) => {
+                  // A plain click peeks at the Item; keyboard activation does
+                  // the same. Modified clicks keep the full page for a new tab.
+                  if (
+                    event.button !== 0 ||
+                    event.metaKey ||
+                    event.ctrlKey ||
+                    event.shiftKey ||
+                    event.altKey
+                  )
+                    return;
+                  event.preventDefault();
+                  onPeek(item, event.currentTarget);
+                }}
                 ref={item.id === focusedWorkItemId ? focusedCardRef : undefined}
                 to={{
                   pathname: dashboardWorkItemPath(tenantId, item.id),

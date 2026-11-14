@@ -170,6 +170,9 @@ export type TeamHubMessageCardHumanActorRef =
   components["schemas"]["MessageCardHumanActorRef"];
 export type TeamHubWorkItem = components["schemas"]["WorkItem"];
 export type TeamHubWorkItemPage = components["schemas"]["WorkItemPage"];
+export type TeamHubWorkItemComment = components["schemas"]["WorkItemComment"];
+export type TeamHubWorkItemTimelineEntry =
+  components["schemas"]["WorkItemTimelineEntry"];
 export type TeamHubTaskExecution =
   components["schemas"]["TaskExecutionProjection"];
 export type TeamHubTaskActivityPage = Omit<
