@@ -882,6 +882,93 @@ describe("Global search dialog", () => {
     expect(screen.queryByText("Recent")).not.toBeInTheDocument();
     expect(readGlobalSearchStore(TENANT).queries).toEqual([]);
   });
+  it("shows the eight most recent queries and runs one by click", async () => {
+    const queries = Array.from({ length: 10 }, (_, index) => `query ${index}`);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ queries }));
+    await renderDialog();
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+
+    const rows = results().getAllByRole("option").slice(4);
+    expect(rows.map((row) => row.textContent)).toEqual(queries.slice(0, 8));
+
+    fireEvent.click(rows[0]!);
+    expect(input).toHaveValue("query 0");
+    await waitFor(() => expect(screen.queryByText("Recent")).toBeNull());
+  });
+
+  it("removes one recent search without running it", async () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seededStore()));
+    const harness = await renderDialog();
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove recent search deploy" }),
+    );
+
+    expect(readGlobalSearchStore(TENANT).queries).toEqual(["freeze"]);
+    expect(results().queryByRole("option", { name: "deploy" })).toBeNull();
+    expect(results().getByRole("option", { name: "freeze" })).toBeVisible();
+    // Removing forgets the entry; it does not run it.
+    expect(input).toHaveValue("");
+    expect(input).toHaveFocus();
+    expect(harness.searchMessages).not.toHaveBeenCalled();
+    expect(harness.onClose).not.toHaveBeenCalled();
+  });
+
+  it("removes the selected recent search with Delete", async () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seededStore()));
+    await renderDialog();
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    for (let step = 0; step < 4; step += 1) {
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+    }
+    expect(input).toHaveAttribute(
+      "aria-activedescendant",
+      results().getAllByRole("option")[4]!.id,
+    );
+    expect(screen.getByText("Remove recent")).toBeVisible();
+
+    fireEvent.keyDown(input, { key: "Delete" });
+
+    expect(readGlobalSearchStore(TENANT).queries).toEqual(["freeze"]);
+    expect(results().queryByRole("option", { name: "deploy" })).toBeNull();
+    expect(input).toHaveValue("");
+    expect(input).toHaveFocus();
+  });
+
+  it("hides the recent searches while a query is being searched", async () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seededStore()));
+    await renderDialog();
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    expect(screen.getByText("Recent")).toBeVisible();
+
+    fireEvent.change(input, { target: { value: "deploy" } });
+    await waitFor(() => expect(screen.queryByText("Recent")).toBeNull());
+
+    fireEvent.change(input, { target: { value: "" } });
+    expect(await screen.findByText("Recent")).toBeVisible();
+  });
+
+  it("keeps the recent searches out of a scoped search until the chip is cleared", async () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seededStore()));
+    const harness = await renderDialog({
+      room: { id: "room-all", name: "All hands" },
+    });
+    expect(screen.queryByText("Recent")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Remove This Room scope" }),
+    ).toBeVisible();
+    expect(harness.searchMessages).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove This Room scope" }),
+    );
+
+    expect(await screen.findByText("Recent")).toBeVisible();
+    expect(results().getByRole("option", { name: "deploy" })).toBeVisible();
+    expect(results().getByRole("option", { name: "freeze" })).toBeVisible();
+  });
+
   it("accepts Cmd/Ctrl+K anywhere, including editors, but not mid-composition", () => {
     expect(
       isGlobalSearchShortcut(

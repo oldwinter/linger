@@ -23,6 +23,7 @@ import {
 export function useActiveRow({
   layoutKey,
   onClose,
+  onRemoveRecentQuery,
   openResult,
   query,
   rows,
@@ -32,6 +33,7 @@ export function useActiveRow({
 }: {
   layoutKey: string;
   onClose: () => void;
+  onRemoveRecentQuery: (text: string) => void;
   openResult: (result: SearchResult) => Promise<void>;
   query: string;
   rows: SearchResult[];
@@ -65,6 +67,14 @@ export function useActiveRow({
       event.preventDefault();
       setTab("all");
       return;
+    }
+    if (event.key === "Delete") {
+      const row = rows[activeIndex];
+      if (row?.kind === "query") {
+        event.preventDefault();
+        onRemoveRecentQuery(row.text);
+        return;
+      }
     }
     if (event.key === "Tab") {
       // Tab narrows the search to the type of the highlighted row.

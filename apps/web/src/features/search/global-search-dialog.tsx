@@ -8,6 +8,7 @@ import {
   settledResultKind,
 } from "./global-search-kind-filter";
 import { SCOPES, type GlobalSearchTab } from "./global-search-model";
+import { removeGlobalSearchQuery } from "./global-search-recent";
 import type { SearchRoomScope } from "./room-search-scope";
 import {
   GlobalSearchField,
@@ -112,6 +113,7 @@ export function GlobalSearchDialog({
   const activeRow = useActiveRow({
     layoutKey,
     onClose,
+    onRemoveRecentQuery: removeRecentQuery,
     openResult,
     query,
     rows,
@@ -140,6 +142,11 @@ export function GlobalSearchDialog({
     setRoomScope(undefined);
     setTab("all");
     setKind("all");
+    inputRef.current?.focus();
+  }
+
+  function removeRecentQuery(text: string) {
+    setStore(removeGlobalSearchQuery(tenantId, text));
     inputRef.current?.focus();
   }
 
@@ -198,6 +205,7 @@ export function GlobalSearchDialog({
         listRef={activeRow.listRef}
         onListLeave={onListLeave}
         onListScroll={onListScroll}
+        onRemoveRecent={removeRecentQuery}
         openResult={openResult}
         roomScoped={roomScope !== undefined}
         scope={scope}
@@ -205,7 +213,10 @@ export function GlobalSearchDialog({
         tab={activeTab}
         targetContext={targetContext}
       />
-      <GlobalSearchFooter openError={openError} />
+      <GlobalSearchFooter
+        openError={openError}
+        recentSelected={rows[activeRow.activeIndex]?.kind === "query"}
+      />
     </ModalDialog>
   );
 }
