@@ -24,7 +24,8 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
 - `internal/<feature>`: business behavior, transactions and data access with
   package tests: `collaboration` (Human Rooms and Messages),
   `agentregistry` (Agents, templates, Skill bindings, Another Me),
-  `voice` (voice features), and the older feature packages.
+  `messagepin` (a Room's pinned Messages), `voice` (voice features), and the
+  older feature packages.
 - `internal/store/queries`: sqlc SQL sources; generated files live in `internal/store`.
 - `internal/skill`: parses Skill Packages, resolves effective Skill sets, and
   reconciles the repository-level built-in Skill catalog into TeamHub.
