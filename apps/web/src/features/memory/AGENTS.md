@@ -21,6 +21,9 @@
 - A meeting reader may copy its transcript as plain text, one line per speaker
   turn, once the transcript text has loaded. The clipboard again holds derived
   reading state and the reader writes none.
+- A meeting reader may copy its summary as the Markdown the summary view renders
+  from. The clipboard again holds derived reading state, and a refused copy says
+  so.
 - A meeting reader's header may copy the meeting's canonical link, built by
   `meeting-routes.ts` with the origin the app is served from. The clipboard
   again holds derived reading state, and a refused copy says so.

@@ -84,7 +84,14 @@ export function MeetingReader({
     state: "copied" | "failed";
   }>();
   const linkCopyTimer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(linkCopyTimer.current), []);
+  const summaryCopyTimer = useRef<number | undefined>(undefined);
+  useEffect(
+    () => () => {
+      window.clearTimeout(linkCopyTimer.current);
+      window.clearTimeout(summaryCopyTimer.current);
+    },
+    [],
+  );
   function copyLink() {
     window.clearTimeout(linkCopyTimer.current);
     setLinkCopy(undefined);
@@ -115,6 +122,11 @@ export function MeetingReader({
     index: number;
     state: "copied" | "failed";
   }>();
+  // The summary's feedback follows the meeting showing now, as the link's does.
+  const [summaryCopy, setSummaryCopy] = useState<{
+    entryId: string;
+    state: "copied" | "failed";
+  }>();
   async function copyActions(index: number, checklist: string) {
     try {
       await navigator.clipboard.writeText(checklist);
@@ -127,6 +139,24 @@ export function MeetingReader({
     () => entry.content.replace(/^#[ \t]+[^\n]*\n?/mu, ""),
     [entry.content],
   );
+  const summaryCopyState =
+    summaryCopy?.entryId === entry.id ? summaryCopy.state : undefined;
+  // Copies the Markdown the summary is rendered from, never a second reading
+  // of `entry.content`, so the clipboard says what the view shows.
+  function copySummary() {
+    window.clearTimeout(summaryCopyTimer.current);
+    setSummaryCopy(undefined);
+    void import("@/lib/clipboard")
+      .then(({ writeClipboardText }) => writeClipboardText(summaryMarkdown))
+      .then(() => {
+        setSummaryCopy({ entryId: entry.id, state: "copied" });
+        summaryCopyTimer.current = window.setTimeout(
+          () => setSummaryCopy(undefined),
+          LINK_COPIED_MS,
+        );
+      })
+      .catch(() => setSummaryCopy({ entryId: entry.id, state: "failed" }));
+  }
   // Keywords, Meeting Summary topics and the outcome lists are shown in
   // place; the rest stays the knowledge document around them.
   const blocks = useMemo(
@@ -229,7 +259,32 @@ export function MeetingReader({
           <>
             {meeting.summary_ready ? (
               <>
-                <div className="mb-3 flex justify-end">
+                <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+                  {summaryCopyState === "copied" ? (
+                    <span
+                      className="text-xs leading-4 text-app-muted"
+                      role="status"
+                    >
+                      Copied
+                    </span>
+                  ) : null}
+                  {summaryCopyState === "failed" ? (
+                    <span
+                      className="text-xs leading-4 text-app-danger"
+                      role="alert"
+                    >
+                      Copy failed
+                    </span>
+                  ) : null}
+                  {summaryMarkdown.trim() ? (
+                    <Button
+                      onClick={copySummary}
+                      size="compact"
+                      tone="secondary"
+                    >
+                      Copy summary
+                    </Button>
+                  ) : null}
                   <Button
                     size="compact"
                     tone="secondary"

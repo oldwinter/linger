@@ -750,6 +750,58 @@ describe("MeetingPage", () => {
     expect(screen.queryByText("Copied")).toBeNull();
   });
 
+  it("copies the summary's Markdown as the reader derived it", async () => {
+    const runtime = await loggedInRuntime();
+    const summary = [
+      "## Decisions And Outcomes",
+      "",
+      "- Decision: Ship the beta.",
+      "- Completed: Cut the release branch.",
+      "",
+      "## Action Items",
+      "",
+      "- Action: Send the deck to Dana.",
+    ].join("\n");
+    const entry = meetingEntry({ content: summary }, true);
+    serveMeetings(runtime, [entry]);
+    const writeText = stubClipboard(() => Promise.resolve());
+    renderPage(runtime, `?entry=${entry.id}&file=summary`);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Copy summary" }),
+    );
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(summary));
+    expect(await screen.findByText("Copied")).toBeVisible();
+  });
+
+  it("offers Copy summary only when the summary has content", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry({ content: "" }, true);
+    serveMeetings(runtime, [entry]);
+    renderPage(runtime, `?entry=${entry.id}&file=summary`);
+
+    expect(
+      await screen.findByRole("button", { name: "Download summary" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Copy summary" })).toBeNull();
+  });
+
+  it("says when copying the summary fails instead of claiming success", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry({ content: actionSummary }, true);
+    serveMeetings(runtime, [entry]);
+    stubClipboard(() => Promise.reject(new Error("Not allowed")));
+    renderPage(runtime, `?entry=${entry.id}&file=summary`);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Copy summary" }),
+    );
+
+    expect(await screen.findByText("Copy failed")).toBeVisible();
+    expect(screen.queryByText("Copied")).toBeNull();
+  });
+
   it("offers Copy actions only when the meeting has Actions", async () => {
     const runtime = await loggedInRuntime();
     const entry = meetingEntry(
