@@ -105,6 +105,44 @@ describe("Work Items selection", () => {
     }
   });
 
+  it("keeps a failed archive report through Deselect all but not Clear", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const actor = runtime.seed.identity.actors[0]!;
+    runtime.seed.workItems = [
+      workItem(actor, { id: "workitem-alpha", title: "Alpha item" }),
+      workItem(actor, { id: "workitem-beta", title: "Beta item" }),
+    ];
+    archiveRoutes(runtime, { failFirst: "workitem-beta" });
+    renderPage(runtime);
+    await boardReady();
+
+    fireEvent.click(selectBox("Alpha item"));
+    fireEvent.click(selectBox("Beta item"));
+    fireEvent.click(
+      within(await selectedToolbar()).getByRole("button", { name: "Archive" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Archived 1 of 2 items. Failed: Beta item.",
+    );
+    expect(selectBox("Beta item")).toBeChecked();
+
+    // Deselecting leaves the report for the person who still has to retry.
+    fireEvent.click(screen.getByRole("button", { name: "Deselect all" }));
+
+    await waitFor(() => expect(selectBox("Beta item")).not.toBeChecked());
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Archived 1 of 2 items. Failed: Beta item.",
+    );
+
+    fireEvent.click(selectBox("Beta item"));
+    fireEvent.click(
+      within(await selectedToolbar()).getByRole("button", { name: "Clear" }),
+    );
+
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
   it("keeps the label in step with what the next activation does", async () => {
     const runtime = await seededRuntime();
     archiveRoutes(runtime);

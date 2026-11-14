@@ -642,7 +642,9 @@ function WorkItemBoard({
             <Button
               disabled={selection.pending}
               onClick={
-                selection.allSelected ? selection.clear : selection.selectAll
+                selection.allSelected
+                  ? selection.deselectAll
+                  : selection.selectAll
               }
               size="compact"
               title={
