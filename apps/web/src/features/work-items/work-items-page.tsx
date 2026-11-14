@@ -49,6 +49,13 @@ import {
 } from "./work-item-queries";
 import { dashboardWorkItemPath } from "./work-item-routes";
 import { createWorkItemRoomFilterModel } from "./work-item-room-filter";
+import {
+  createWorkItemDashboardSort,
+  sortWorkItems,
+  WORK_ITEM_DASHBOARD_SORTS,
+  workItemDashboardSortSearch,
+  type WorkItemDashboardSort,
+} from "./work-item-sort";
 
 interface DashboardColumn {
   id: "todo" | "in-progress" | "done" | "closed";
@@ -90,6 +97,12 @@ const assignmentLabels = {
   unassigned: "Unassigned",
 } as const;
 
+const sortLabels: Record<WorkItemDashboardSort, string> = {
+  newest: "Newest first",
+  priority: "Most urgent",
+  updated: "Recently updated",
+};
+
 export function WorkItemsPage() {
   const { client } = useTeamHubRuntime();
   const params = useParams();
@@ -121,6 +134,7 @@ export function WorkItemsPage() {
   }
   const [searchParams, setSearchParams] = useSearchParams();
   const filters = createWorkItemDashboardFilters(searchParams);
+  const sort = createWorkItemDashboardSort(searchParams.get("sort"));
   const identityQuery = useQuery(teamHubIdentityQueryOptions(client));
   const currentActorId = identityQuery.data
     ? currentDashboardActorId(identityQuery.data, tenantId)
@@ -188,12 +202,29 @@ export function WorkItemsPage() {
       roomFilter.matches(item, filters.room) &&
       (filters.assignment !== "unassigned" || item.assignees.length === 0),
   );
-  const dashboardSearch = workItemDashboardFiltersSearch(filters);
+  const orderedItems = sortWorkItems(filteredItems, sort);
+  const dashboardSearch = workItemDashboardSortSearch(
+    workItemDashboardFiltersSearch(filters),
+    sort,
+  );
   const showFilterBar =
     items.length > 0 || hasWorkItemDashboardFilters(filters);
 
   function updateFilters(next: WorkItemDashboardFilters) {
-    setSearchParams(workItemDashboardFiltersSearch(next), { replace: true });
+    setSearchParams(
+      workItemDashboardSortSearch(workItemDashboardFiltersSearch(next), sort),
+      { replace: true },
+    );
+  }
+
+  // A new order is a step the reader can undo, so it pushes a history entry.
+  function updateSort(next: WorkItemDashboardSort) {
+    setSearchParams(
+      workItemDashboardSortSearch(
+        workItemDashboardFiltersSearch(filters),
+        next,
+      ),
+    );
   }
 
   return (
@@ -292,6 +323,20 @@ export function WorkItemsPage() {
             >
               Archived
             </button>
+            <Select
+              aria-label="Sort"
+              onValueChange={(value) =>
+                updateSort(createWorkItemDashboardSort(value))
+              }
+              value={sort}
+              variant="pill"
+            >
+              {WORK_ITEM_DASHBOARD_SORTS.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {sortLabels[option]}
+                </SelectItem>
+              ))}
+            </Select>
           </div>
         ) : null}
       </header>
@@ -304,7 +349,7 @@ export function WorkItemsPage() {
                 column={column}
                 focusedCardRef={focusedCardRef}
                 focusedWorkItemId={focusedWorkItemId}
-                items={filteredItems.filter(
+                items={orderedItems.filter(
                   (item) => dashboardColumnFor(item) === column.id,
                 )}
                 key={column.id}

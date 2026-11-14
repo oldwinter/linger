@@ -7,8 +7,14 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { Suspense } from "react";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router";
+import { Suspense, type ReactNode } from "react";
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -724,6 +730,84 @@ describe("Dashboard page", () => {
       screen.getByText("This Tenant Dashboard is not available to you."),
     ).toBeVisible();
   });
+
+  it("keeps the chosen order in the URL", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, { id: "workitem-todo", title: "Plan release" }),
+    ]);
+    renderPage(runtime);
+    await screen.findByText("Plan release");
+
+    expect(screen.getByLabelText("Sort")).toHaveValue("updated");
+    fireEvent.click(screen.getByLabelText("Sort"));
+    fireEvent.click(await screen.findByRole("option", { name: "Most urgent" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/t/tenant-northstar/dashboard?sort=priority",
+      ),
+    );
+    expect(screen.getByLabelText("Sort")).toHaveValue("priority");
+  });
+
+  it("restores the previous order on back", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, { id: "workitem-todo", title: "Plan release" }),
+    ]);
+    renderPage(runtime, "/t/tenant-northstar/dashboard", <BackProbe />);
+    await screen.findByText("Plan release");
+
+    fireEvent.click(screen.getByLabelText("Sort"));
+    fireEvent.click(
+      await screen.findByRole("option", { name: "Newest first" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Sort")).toHaveValue("newest"),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).not.toHaveTextContent("sort="),
+    );
+    expect(screen.getByLabelText("Sort")).toHaveValue("updated");
+  });
+
+  it("renders cards in the chosen order inside each column", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        id: "workitem-low",
+        priority: "low",
+        title: "Low priority work",
+      }),
+      workItem(human, {
+        id: "workitem-urgent",
+        priority: "urgent",
+        title: "Urgent work",
+      }),
+      workItem(human, {
+        id: "workitem-high",
+        priority: "high",
+        title: "High priority work",
+      }),
+    ]);
+    renderPage(runtime, "/t/tenant-northstar/dashboard?sort=priority");
+
+    const todo = await screen.findByRole("region", { name: "Todo" });
+    await waitFor(() =>
+      expect(
+        within(todo)
+          .getAllByRole("link")
+          .map((card) => card.getAttribute("data-work-item-id")),
+      ).toEqual(["workitem-urgent", "workitem-high", "workitem-low"]),
+    );
+  });
 });
 
 async function testRuntime() {
@@ -735,6 +819,7 @@ async function testRuntime() {
 function renderPage(
   runtime: ReturnType<typeof createTestTeamHubRuntime>,
   initialEntry = "/t/tenant-northstar/dashboard",
+  extra?: ReactNode,
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -755,12 +840,23 @@ function renderPage(
               />
             </Routes>
             <LocationProbe />
+            {extra}
           </Suspense>
         </MemoryRouter>
       </TeamHubRuntimeProvider>
     </QueryClientProvider>,
   );
   return queryClient;
+}
+
+/** A stand-in for the browser's back button inside MemoryRouter. */
+function BackProbe() {
+  const navigate = useNavigate();
+  return (
+    <button onClick={() => void navigate(-1)} type="button">
+      Back
+    </button>
+  );
 }
 
 function LocationProbe() {
