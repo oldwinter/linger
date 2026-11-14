@@ -17,6 +17,14 @@ export function workItemStateLabel(
   return `${workItemStateLabels[item.state]} · ${resolutionLabel(item.resolution)}`;
 }
 
+/** Every priority TeamHub accepts, in the order the app offers them. */
+export const workItemPriorities: readonly TeamHubWorkItemPriority[] = [
+  "low",
+  "medium",
+  "high",
+  "urgent",
+];
+
 /** The priority as the board's chip renders it. */
 export function workItemPriorityLabel(priority: TeamHubWorkItemPriority) {
   return priority.charAt(0).toUpperCase() + priority.slice(1);

@@ -19,25 +19,12 @@ import {
   WORK_ITEM_TITLE_LIMIT,
   type WorkItemCreateDraft,
 } from "./work-item-create-draft";
+import { workItemPriorities, workItemPriorityLabel } from "./work-item-labels";
 import {
   tenantWorkItemsDashboardQueryPrefix,
   tenantWorkItemTargetQueryKey,
 } from "./work-item-queries";
 import { dashboardWorkItemPath } from "./work-item-routes";
-
-const priorities: readonly TeamHubWorkItemPriority[] = [
-  "low",
-  "medium",
-  "high",
-  "urgent",
-];
-
-const priorityLabels: Record<TeamHubWorkItemPriority, string> = {
-  high: "High",
-  low: "Low",
-  medium: "Medium",
-  urgent: "Urgent",
-};
 
 /** The Rooms the dialog offers as an origin; a Thread is a reply surface. */
 export type WorkItemCreateRoom = Pick<
@@ -235,9 +222,9 @@ export function WorkItemCreateDialog({
             }
             value={priority}
           >
-            {priorities.map((option) => (
+            {workItemPriorities.map((option) => (
               <SelectItem key={option} value={option}>
-                {priorityLabels[option]}
+                {workItemPriorityLabel(option)}
               </SelectItem>
             ))}
           </Select>
