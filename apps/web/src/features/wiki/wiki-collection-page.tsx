@@ -9,11 +9,11 @@ import {
   wikiCollectionLabels,
   type WikiCollection,
 } from "./wiki-display-state";
+import { useWikiGraphNodes } from "./wiki-graph-queries";
 import {
   editedLabel,
   entryName,
   useWikiCollectionPages,
-  useWikiGraphNodes,
   WikiBack,
   WikiEntryLink,
   WikiHomePage,
