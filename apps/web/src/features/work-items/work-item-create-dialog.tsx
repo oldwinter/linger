@@ -95,7 +95,9 @@ export function WorkItemCreateDialog({
   const idempotency = useRef<{ content: string; key: string } | null>(null);
   const [title, setTitle] = useState(initial?.title ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
-  const [priority, setPriority] = useState<TeamHubWorkItemPriority>("medium");
+  const [priority, setPriority] = useState<TeamHubWorkItemPriority>(
+    initial?.priority ?? "medium",
+  );
   const [originRoomId, setOriginRoomId] = useState(initial?.originRoomId ?? "");
   const createIssue = useMutation({
     mutationFn: (submission: Submission) =>

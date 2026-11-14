@@ -1,5 +1,6 @@
 import { messageQuoteText } from "@/features/rooms/chat/message-quote";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
+import type { TeamHubWorkItemPriority } from "@/features/teamhub/teamhub-types";
 
 /** The contract's title bound, which the create dialog enforces. */
 export const WORK_ITEM_TITLE_LIMIT = 240;
@@ -8,6 +9,8 @@ export const WORK_ITEM_TITLE_LIMIT = 240;
 export interface WorkItemCreateDraft {
   description: string;
   originRoomId: string;
+  /** The dialog's own default applies when the surface has no preference. */
+  priority?: TeamHubWorkItemPriority;
   title: string;
 }
 
@@ -39,10 +42,11 @@ export function workItemTitle(plainText: string): string {
       .split("\n")
       .map((line) => line.trim())
       .find(Boolean) ?? "";
-  return truncateTitle(firstLine, WORK_ITEM_TITLE_LIMIT);
+  return truncateWorkItemTitle(firstLine, WORK_ITEM_TITLE_LIMIT);
 }
 
-function truncateTitle(value: string, limit: number) {
+/** A title within the contract's bound, which the create dialog submits under. */
+export function truncateWorkItemTitle(value: string, limit: number) {
   if (value.length <= limit) return value;
   // Cutting between a surrogate pair would leave a lone code unit.
   const lastKept = value.charCodeAt(limit - 1);
