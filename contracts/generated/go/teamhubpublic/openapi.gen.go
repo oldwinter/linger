@@ -8867,6 +8867,9 @@ type SearchTenantMessagesParams struct {
 	Q      string  `form:"q" json:"q"`
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// RoomId Narrows the search to Messages in this Room. A Room the caller cannot read returns an empty items array instead of an error.
+	RoomId *string `form:"room_id,omitempty" json:"room_id,omitempty"`
 }
 
 // ListPersonalWikiDocumentsParams defines parameters for ListPersonalWikiDocuments.

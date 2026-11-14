@@ -2,6 +2,7 @@ import {
   ArrowRight01Icon,
   ArrowTurnBackwardIcon,
   Cancel01Icon,
+  HashtagIcon,
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
@@ -25,6 +26,7 @@ import {
   ShortcutKey,
   SkeletonRows,
 } from "./global-search-rows";
+import type { SearchRoomScope } from "./room-search-scope";
 
 type Scope = (typeof SCOPES)[GroupTab];
 
@@ -33,11 +35,13 @@ export function GlobalSearchField({
   activeIndex,
   enterScope,
   inputRef,
+  onClearRoomScope,
   onClose,
   onInputKeyDown,
   onQueryChange,
   pending,
   query,
+  roomScope,
   rowCount,
   scope,
   tab,
@@ -45,11 +49,13 @@ export function GlobalSearchField({
   activeIndex: number;
   enterScope: (next: GlobalSearchTab) => void;
   inputRef: RefObject<HTMLInputElement | null>;
+  onClearRoomScope: () => void;
   onClose: () => void;
   onInputKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
   onQueryChange: (value: string) => void;
   pending: boolean;
   query: string;
+  roomScope: SearchRoomScope | undefined;
   rowCount: number;
   scope: Scope | undefined;
   tab: GlobalSearchTab;
@@ -72,7 +78,22 @@ export function GlobalSearchField({
           />
           <Spinner className="global-search-lead-busy" size={14} />
         </span>
-        {scope && tab !== "all" ? (
+        {roomScope ? (
+          <span className="ml-1 inline-flex h-8 shrink-0 items-center gap-2 rounded-full bg-(--app-field-surface) pl-2.5 pr-1 text-xs font-medium text-foreground shadow-outline">
+            <Icon className="text-app-subtle" icon={HashtagIcon} size={16} />
+            <span className="max-w-40 truncate" title={roomScope.name}>
+              This Room
+            </span>
+            <button
+              aria-label="Remove This Room scope"
+              className="grid size-6 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
+              onClick={onClearRoomScope}
+              type="button"
+            >
+              <Icon icon={Cancel01Icon} size={12} />
+            </button>
+          </span>
+        ) : scope && tab !== "all" ? (
           <span className="ml-1 inline-flex h-8 shrink-0 items-center gap-2 rounded-full bg-(--app-field-surface) pl-2.5 pr-1 text-xs font-medium text-foreground shadow-outline">
             <Icon className="text-app-subtle" icon={scope.icon} size={16} />
             {scope.label}
@@ -133,6 +154,7 @@ export function GlobalSearchResultList({
   onListLeave,
   onListScroll,
   openResult,
+  roomScoped,
   scope,
   sections,
   tab,
@@ -151,6 +173,7 @@ export function GlobalSearchResultList({
   onListLeave: () => void;
   onListScroll: () => void;
   openResult: (result: SearchResult) => Promise<void>;
+  roomScoped: boolean;
   scope: Scope | undefined;
   sections: ResultSection[];
   tab: GlobalSearchTab;
@@ -183,14 +206,20 @@ export function GlobalSearchResultList({
         ) : sections.length === 0 ? (
           <EmptyState
             action={
-              tab !== "all" && debouncedQuery !== ""
+              tab !== "all" && !roomScoped && debouncedQuery !== ""
                 ? {
                     label: "Search everywhere",
                     onSelect: () => enterScope("all"),
                   }
                 : undefined
             }
-            detail={emptyDetail(tab, debouncedQuery)}
+            detail={
+              roomScoped
+                ? debouncedQuery === ""
+                  ? "Type a word from the message you are looking for."
+                  : "Check the spelling or try a shorter word."
+                : emptyDetail(tab, debouncedQuery)
+            }
             title={
               debouncedQuery === ""
                 ? `Search ${scope?.label.toLocaleLowerCase() ?? ""}`.trim()

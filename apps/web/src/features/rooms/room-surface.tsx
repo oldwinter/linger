@@ -5,7 +5,11 @@ import {
   useSuspenseInfiniteQuery,
   useSuspenseQuery,
 } from "@tanstack/react-query";
-import { Delete02Icon, SidebarRightIcon } from "@hugeicons/core-free-icons";
+import {
+  Delete02Icon,
+  Search01Icon,
+  SidebarRightIcon,
+} from "@hugeicons/core-free-icons";
 import {
   lazy,
   Suspense,
@@ -24,6 +28,7 @@ import {
   useLoaderData,
   useLocation,
   useMatch,
+  useOutletContext,
   useParams,
   useSearchParams,
 } from "react-router";
@@ -31,6 +36,10 @@ import {
 import { RouteContentBoundary } from "@/features/rooms/route-content-boundary";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import type {
+  RoomShellOutletContext,
+  SearchRoomScope,
+} from "@/features/search/room-search-scope";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMessagePresentation } from "@/features/teamhub/teamhub-runtime";
 import type { RoomRealtimeStatus } from "@/features/teamhub/event-transport";
@@ -262,6 +271,7 @@ function RoomSurfaceContent({
   tenantId,
 }: RoomSurfaceContentProps) {
   const { client } = useTeamHubRuntime();
+  const shell = useOutletContext<RoomShellOutletContext | undefined>();
   const [searchParams, setSearchParams] = useSearchParams();
   const isChatView = Boolean(useMatch("/t/:tenantId/rooms/:roomId/chat"));
   const { data: room } = useSuspenseQuery(
@@ -465,6 +475,7 @@ function RoomSurfaceContent({
                 isChatView={isChatView}
                 members={members.items}
                 onAppliedRoomSeq={setLastAppliedRoomSeq}
+                onOpenSearch={shell?.openRoomSearch}
                 onMessageCreated={openCanvasMessage}
                 onTeamMdPublished={openCollaboration}
                 onOpenAgent={openProfile}
@@ -726,6 +737,7 @@ function RoomHeader({
   onTeamMdPublished,
   onOpenAgent,
   onOpenDelete,
+  onOpenSearch,
   onOpenSettings,
   onTogglePanel,
   onStatusChange,
@@ -747,6 +759,7 @@ function RoomHeader({
   onTeamMdPublished: () => void;
   onOpenAgent: (actorId: string) => void;
   onOpenDelete: () => void;
+  onOpenSearch?: (room: SearchRoomScope) => void;
   onOpenSettings: () => void;
   onTogglePanel: () => void;
   onStatusChange: (status: RoomRealtimeStatus) => void;
@@ -842,6 +855,16 @@ function RoomHeader({
             }
           </Await>
         </Suspense>
+        <Button
+          aria-label="Search this Room"
+          className="!rounded-lg border-0 text-app-muted"
+          onClick={() => onOpenSearch?.({ id: roomId, name: headerName })}
+          size="compactIcon"
+          title="Search this Room"
+          tone="ghost"
+        >
+          <Icon icon={Search01Icon} size={16} />
+        </Button>
         {canDeleteDeletedAgentRoom ? (
           <Button
             aria-label="Delete Room"
