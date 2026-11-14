@@ -1096,6 +1096,63 @@ describe("ThreadPanel", () => {
       ).toBeVisible(),
     );
   });
+
+  it("copies the Thread as Markdown from its header", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMessages(runtime);
+    const fixture = await fixtureRoot(runtime);
+    // Local timestamps, so the printed clock is the same everywhere.
+    const root = {
+      ...fixture,
+      created_at: "2026-07-23T10:00:00",
+      raw_message: "Thread root",
+    };
+    const seeded = createTestTeamHubRuntime(runtime.seed);
+    runtime.server.on(
+      "GET",
+      "/v0/rooms/{roomId}/messages",
+      ({ params, request }) =>
+        params.roomId === root.room_id
+          ? seeded.server.fetch(request)
+          : {
+              items: [
+                {
+                  ...reply(params.roomId!, "reply-codex", "A reply.", 1),
+                  created_at: "2026-07-23T10:01:00",
+                },
+              ],
+              page: { has_more: false },
+              snapshot_room_seq: 0,
+            },
+    );
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(
+      wrap(
+        runtime,
+        <ThreadPanel
+          accountId="account-jenny"
+          mentionOptions={[codex]}
+          rootMessage={root}
+          tenantId="tenant-northstar"
+        />,
+      ),
+    );
+
+    await screen.findByText("A reply.");
+    fireEvent.click(screen.getByRole("button", { name: "Copy thread" }));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        [
+          "# Thread",
+          "**Codex, 2026-07-23 10:00**\nThread root",
+          "**Codex, 2026-07-23 10:01**\nA reply.",
+        ].join("\n\n"),
+      ),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent("Copied");
+  });
 });
 
 const codex: TeamHubActorRef = {

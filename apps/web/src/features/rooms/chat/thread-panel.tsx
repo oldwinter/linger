@@ -74,6 +74,7 @@ import {
   threadComposerFocusRequest,
 } from "./thread-composer-focus";
 import { ThreadTimeline } from "./thread-timeline";
+import { ThreadCopyAction } from "./thread-copy";
 import { roomMessageSender } from "./room-message-sender";
 
 const emptyAgentStatuses = new Map();
@@ -324,6 +325,12 @@ function ThreadPanelContent({
       <h2 className="sr-only" ref={headingRef} tabIndex={-1}>
         Thread
       </h2>
+      <div className="flex shrink-0 items-center justify-end px-3 pt-2">
+        <ThreadCopyAction
+          actorDisplayNames={rowContext.actorDisplayNames}
+          messages={messagesQuery.data ? threadMessages : emptyMessages}
+        />
+      </div>
       <ThreadTimeline
         canLoadEarlier={messagesQuery.hasNextPage}
         hasPending={conversation.pendingMessages.length > 0}

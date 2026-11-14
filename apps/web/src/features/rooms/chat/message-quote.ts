@@ -20,7 +20,7 @@ export function messageQuoteText(input: {
 }) {
   const author = messageQuoteAuthor(input.authorName);
   const body = messageBodyText(input.message);
-  const head = `> ${author}, ${messageQuoteTime(input.createdAt)}`;
+  const head = `> ${author}, ${messageLocalTime(input.createdAt)}`;
   if (!body) return head;
   const quoted = body
     .split("\n")
@@ -28,8 +28,11 @@ export function messageQuoteText(input: {
   return [head, ">", ...quoted].join("\n");
 }
 
-/** `YYYY-MM-DD HH:mm` in the reader's time zone, so a quote reads as a date. */
-function messageQuoteTime(timestamp: string) {
+/**
+ * `YYYY-MM-DD HH:mm` in the reader's time zone, the clock line Copy as quote
+ * and Copy thread both print.
+ */
+export function messageLocalTime(timestamp: string) {
   const date = new Date(timestamp);
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
