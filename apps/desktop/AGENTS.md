@@ -144,7 +144,13 @@ Gateway and runs Agents. The daemon exits with the app.
   credential), so the next enrollment against that origin renews the same
   Computer; choosing another server forgets the reference. If TeamHub answers
   a renewal with `404 INVALID_ENROLLMENT` the desktop enrolls a new Computer
-  once instead of looping. Before installing or resuming it moves the
+  once instead of looping. The Daemon Identity in
+  `computer/state/daemon-identity.json` stays with the Computer that first
+  presented it, since TeamHub binds it there for good: an enrollment that does
+  not renew that Computer discards it first (`daemon-identity.ts`), so the
+  daemon makes one for the Computer now enrolled, and a reset after the
+  Gateway reported the identity as another Computer's discards it too.
+  Before installing or resuming it moves the
   `COMPOSIO_API_KEY`, `SONIOX_API_KEY`, `XAI_API_KEY` and `TZ` of an unpacked
   source package's `.env` into `<home>/instances/desktop/user.env` once and
   deletes that `.env` (never a `LINGER_CHECKOUT`'s), logging only the names

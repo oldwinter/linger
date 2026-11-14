@@ -25,6 +25,7 @@ import {
   spawnDaemon,
 } from "./computer-daemon.js";
 import { ConfigStore } from "./config.js";
+import { daemonIdentityPath } from "./daemon-identity.js";
 import { DesktopIpcModule } from "./desktop-ipc.js";
 import { DiagnosticsModule } from "./diagnostics.js";
 import { EnrollmentModule } from "./enrollment.js";
@@ -270,6 +271,7 @@ async function main(): Promise<void> {
     new EnrollmentModule({
       defaultDisplayName,
       credentials,
+      daemonIdentityFile: daemonIdentityPath(daemonDirectory),
       sessionCookie: webSessionCookie,
     }),
     new WorkspaceGrantsModule({
