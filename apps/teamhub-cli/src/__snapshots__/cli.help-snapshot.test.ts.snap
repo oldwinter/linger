@@ -390,6 +390,30 @@ teamhub docs create --title "Research report" --file ./report.md
 {"command":["docs","create"],"description":"Create a Native Document in the configured Room or Task.","read_only":false,"input_schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":255,"description":"Document title."},"markdown":{"type":"string","maxLength":1048576,"description":"Small text-only Markdown body (at most 1 MiB UTF-8). Do not put Base64 or image bytes in this argument."}},"required":["title","markdown"],"additionalProperties":false,"description":"Create one native Document in the configured Room or Task."},"output_schema":{"type":"object","additionalProperties":false,"properties":{"document_id":{"type":"string"},"revision_id":{"type":"string"},"status":{"const":"created"},"duplicate_request":{"type":"boolean"},"reason":{"type":"string","minLength":1}},"required":["document_id","revision_id","status","duplicate_request"],"allOf":[{"if":{"properties":{"duplicate_request":{"const":true}}},"then":{"required":["reason"]},"else":{"not":{"required":["reason"]}}}]},"cli":{"usage":["--title <text> (--content <text> | --file <path|->) [flags]"],"arguments":[],"options":{"--title":{"description":"Required Document title, 1-255 characters."},"--content":{"description":"Inline Markdown body; outside code, \\\\n, \\\\t and \\\\\\\\ are decoded. Exclusive with --file, which is never decoded."},"--file":{"description":"Read the UTF-8 body from a regular file or - for stdin."},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true},"--operation-id":{"description":"Stable operation identity for recovery."}},"notes":[]}}
 ",
   },
+  "docs file get": {
+    "help": "exit 0
+teamhub docs file get <document-id> <block-id> [-o <path>]
+Save the original file, video or audio of a block in a Native Document.
+
+Arguments:
+  <document-id>  Native Document you can read.
+  <block-id>  File, video or audio block, from docs get --format blocks.
+
+Options:
+  -o <value>  Local path; default is the Asset's file name. Never overwrites.
+  --output <value>  Same as -o.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+Examples:
+teamhub docs file get document_example block_proposal -o ./proposal.pdf
+",
+    "schema": "exit 0
+{"command":["docs","file","get"],"description":"Save the original file, video or audio of a block in a Native Document.","read_only":true,"input_schema":{"type":"object","additionalProperties":false,"required":["document_id","block_id"],"properties":{"document_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"},"block_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"},"output":{"type":"string","minLength":1,"description":"Absolute local path resolved against cwd; defaults to the Asset's file name. Never overwrites."}}},"output_schema":{"type":"object","additionalProperties":false,"required":["document_id","block_id","asset_id","path","size_bytes"],"properties":{"document_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"},"block_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"},"asset_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"},"path":{"type":"string","minLength":1,"description":"Absolute local path resolved against cwd."},"size_bytes":{"type":"integer","minimum":1}}},"cli":{"usage":["<document-id> <block-id> [-o <path>]"],"arguments":["<document-id>  Native Document you can read.","<block-id>  File, video or audio block, from docs get --format blocks."],"options":{"-o":{"description":"Local path; default is the Asset's file name. Never overwrites."},"--output":{"description":"Same as -o."},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true},"--operation-id":{"description":"Stable operation identity for recovery."}},"notes":[]}}
+",
+  },
   "docs file put": {
     "help": "exit 0
 teamhub docs file put <document-id> <file-path> --after <block-id>
@@ -3716,6 +3740,24 @@ Uploads the file, then edits the Document; repeating with the same operation ID 
 The file's type comes from its content; an unsupported file is refused.
 Examples:
 teamhub docs file put document_example ./proposal.pdf --after block_signature
+
+teamhub docs file get <document-id> <block-id> [-o <path>]
+Save the original file, video or audio of a block in a Native Document.
+
+Arguments:
+  <document-id>  Native Document you can read.
+  <block-id>  File, video or audio block, from docs get --format blocks.
+
+Options:
+  -o <value>  Local path; default is the Asset's file name. Never overwrites.
+  --output <value>  Same as -o.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+Examples:
+teamhub docs file get document_example block_proposal -o ./proposal.pdf
 ",
   "figma": "exit 0
 figma common operations.
