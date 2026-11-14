@@ -864,6 +864,7 @@ function installSeedRoutes(server: TeamHubTestServer, seed: TeamHubTestSeed) {
     }))
     .on("GET", "/v0/rooms/{roomId}/background-tasks", () => ({ items: [] }))
     .on("GET", "/v0/rooms/{roomId}/routines", () => page([]))
+    .on("GET", "/v0/rooms/{roomId}/pins", () => ({ items: [] }))
     .on("GET", "/v0/rooms/{roomId}/messages/{messageId}/activities", () => ({
       has_native_turn: false,
       provider_kind: "codex",
