@@ -418,6 +418,7 @@ describe("Browser preferences", () => {
     "desktop-notification-pause.v1:account-a",
     "global-search-recent.v2:tenant-a",
     "library-recent-documents.v1:account-a",
+    "wiki-recent-pages.v1:account-a",
   ];
 
   it("lists every registered preference and disables Clear when nothing is stored", async () => {
@@ -440,6 +441,7 @@ describe("Browser preferences", () => {
       "Desktop notification pause",
       "Recent searches",
       "Recently opened documents",
+      "Recently opened Wiki pages",
     ]);
     expect(
       within(section).getByRole("button", { name: "Clear" }),

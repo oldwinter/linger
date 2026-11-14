@@ -20,6 +20,10 @@ import {
   clearGlobalSearchHistory,
   hasGlobalSearchHistory,
 } from "@/features/search/global-search-recent";
+import {
+  clearAllRecentWikiPages,
+  hasRecentWikiPages,
+} from "@/features/wiki/recent-wiki-pages";
 
 export interface BrowserPreference {
   /** What Clear removes, in the section's own words. */
@@ -77,5 +81,11 @@ export const browserPreferences: readonly BrowserPreference[] = [
     hasAnything: hasRecentDocuments,
     label: "Recently opened documents",
     module: "features/library/recent-documents.ts",
+  },
+  {
+    clear: clearAllRecentWikiPages,
+    hasAnything: hasRecentWikiPages,
+    label: "Recently opened Wiki pages",
+    module: "features/wiki/recent-wiki-pages.ts",
   },
 ];

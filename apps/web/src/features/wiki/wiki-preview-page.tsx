@@ -9,6 +9,7 @@ import { resolveWikiPageReference } from "./wiki-document-links";
 import { wikiPreviewPages } from "./wiki-preview-pages";
 import { usePersonalWikiRefresh } from "./wiki-refresh";
 import { wikiDocumentPath, wikiPreviewPath } from "./wiki-routes";
+import { useRecordRecentWikiPage } from "./use-recent-wiki-pages";
 import "@/features/rooms/documents/room-document-blocknote.css";
 import "./wiki-working-card.css";
 
@@ -26,6 +27,16 @@ export function WikiPreviewPage() {
   const key = wikiPageKey(path);
   const page = wikiPreviewPages(refresh.preview).find(
     (item) => item.key === key,
+  );
+  // The preview already names the page, so recording the open needs no request.
+  useRecordRecentWikiPage(
+    page
+      ? {
+          id: page.key,
+          name: page.name,
+          path: wikiPreviewPath(tenantId, page.path),
+        }
+      : undefined,
   );
   const published = documents.data?.pages
     .flatMap((item) => item.items)

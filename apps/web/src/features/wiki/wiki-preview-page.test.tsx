@@ -1,10 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { expect, it, vi } from "vitest";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
+import { teamHubIdentityQueryKey } from "@/features/rooms/room-queries";
 import { WikiPreviewPage } from "./wiki-preview-page";
+import { readRecentWikiPages } from "./recent-wiki-pages";
 import {
   serveWikiDocuments,
   serveWikiStatus,
@@ -85,5 +87,65 @@ it("opens a page being written in the published page layout", async () => {
   expect(screen.getByRole("link", { name: "ContactOut" })).toHaveAttribute(
     "href",
     "/t/tenant-northstar/documents/client-one",
+  );
+});
+
+it("records the previewed page for the Wiki home", async () => {
+  localStorage.clear();
+  const runtime = createTestTeamHubRuntime();
+  serveWikiDocuments(runtime).mockResolvedValue({
+    items: [],
+    page: { has_more: false },
+  });
+  serveWikiStatus(runtime).mockResolvedValue({
+    created_at: "2026-08-23T00:00:00.000Z",
+    id: "wiki-tenant-northstar",
+    latest_refresh_id: "refresh-1",
+    owner_actor_id: "actor-human",
+    preview_revision: 1,
+    published_generation: 1,
+    state: "refreshing",
+    tenant_id: "tenant-northstar",
+    updated_at: "2026-08-23T00:00:00.000Z",
+  });
+  runtime.server.on(
+    "GET",
+    "/v0/tenants/{tenantId}/personal-wiki/preview",
+    () => ({
+      "projects/lev8.md": `---\n${JSON.stringify({ type: "Project", title: "Lev8" })}\n---\n\n# Lev8\n`,
+    }),
+  );
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  queryClient.setQueryData(teamHubIdentityQueryKey, runtime.seed.identity);
+  const router = createMemoryRouter(
+    [{ path: "/t/:tenantId/wiki-preview", element: <WikiPreviewPage /> }],
+    {
+      initialEntries: [
+        "/t/tenant-northstar/wiki-preview?page=projects%2Flev8.md",
+      ],
+    },
+  );
+  render(
+    <QueryClientProvider client={queryClient}>
+      <TeamHubRuntimeProvider runtime={runtime}>
+        <RouterProvider router={router} />
+      </TeamHubRuntimeProvider>
+    </QueryClientProvider>,
+  );
+
+  expect(
+    await screen.findByRole("heading", { level: 1, name: "Lev8" }),
+  ).toBeVisible();
+  await waitFor(() =>
+    expect(readRecentWikiPages("account-jenny")).toEqual([
+      {
+        id: "projects/lev8",
+        name: "Lev8",
+        openedAt: expect.any(String),
+        path: "/t/tenant-northstar/wiki-preview?page=projects%2Flev8.md",
+      },
+    ]),
   );
 });

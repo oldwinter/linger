@@ -46,10 +46,11 @@ import {
   wikiPagePath,
   type WikiCollection,
 } from "./wiki-display-state";
-import { wikiPreviewPath } from "./wiki-routes";
+import { wikiDocumentPath, wikiPreviewPath } from "./wiki-routes";
 import { wikiPreviewPages } from "./wiki-preview-pages";
 import { usePersonalWikiRefresh } from "./wiki-refresh";
 import { filterWikiEntries } from "./wiki-title-filter";
+import { useRecordRecentWikiPage } from "./use-recent-wiki-pages";
 
 const entries = [
   { id: "profile", label: "Profile", icon: UserIcon },
@@ -100,6 +101,17 @@ export function WikiDirectory({
     ...documentQueryOptions(client, tenantId, documentId ?? ""),
     enabled: Boolean(documentId),
   });
+  // The open page's own query names it, so recording an open needs no request.
+  const opened = document.data;
+  useRecordRecentWikiPage(
+    opened
+      ? {
+          id: opened.id,
+          name: pageRowTitle(opened),
+          path: wikiDocumentPath(tenantId, opened.id),
+        }
+      : undefined,
+  );
   const [locked, setLocked] = useLibraryTreeState<WikiCollection | null>(
     tenantId,
     "wiki-directory",

@@ -37,3 +37,11 @@
   the collection name as the heading and one absolute link per card, in that
   order. A filtered page copies only the matches; the action stays disabled
   while the collection loads or is empty, and copying changes nothing else.
+  The Wiki home's Wiki tab shows Recently opened above the daily cards: the
+  last five pages this Account opened in this browser, newest first, with no
+  duplicates, each linking to the page, and Clear emptying the list. The
+  directory records the open published page and the preview page records the
+  page being written, both from the identity they already hold, so opening a
+  page adds no request; the strip stays out of the page while the list is
+  empty. `recent-wiki-pages.ts` owns the store and is registered in the This
+  browser preferences.

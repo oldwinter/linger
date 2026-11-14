@@ -20,6 +20,8 @@ import { WikiGraphPage } from "@/features/memory/wiki-graph-page";
 import { filterWikiGraph, wikiPageKey } from "./wiki-display-state";
 import type { WikiGraphData } from "@/features/memory/wiki-graph-model";
 import type { TeamHubPersonalProfileDocument } from "@/features/teamhub/teamhub-types";
+import { teamHubIdentityQueryKey } from "@/features/rooms/room-queries";
+import { readRecentWikiPages, writeRecentWikiPages } from "./recent-wiki-pages";
 
 // Exercise Profile navigation and content with the real renderer, independently
 // of the test server's first transform of the lazy Profile module.
@@ -141,6 +143,8 @@ async function setup(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  // The shell's route loader caches the identity before any page renders.
+  queryClient.setQueryData(teamHubIdentityQueryKey, runtime.seed.identity);
   const view = render(
     <QueryClientProvider client={queryClient}>
       <TeamHubRuntimeProvider runtime={runtime}>
@@ -426,6 +430,57 @@ describe("Wiki directory", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
     expect(screen.queryByRole("status")).toBeNull();
+  });
+  it("records an opened Wiki page without another request", async () => {
+    const { runtime } = await setup("/t/tenant-northstar/documents/alpha");
+    expect(await screen.findByRole("link", { name: "beta" })).toBeVisible();
+
+    await waitFor(() =>
+      expect(readRecentWikiPages("account-jenny")).toEqual([
+        {
+          id: "alpha",
+          name: "alpha",
+          openedAt: expect.any(String),
+          path: "/t/tenant-northstar/documents/alpha",
+        },
+      ]),
+    );
+    expect(
+      runtime.server.requestsTo("GET", "/v0/documents/{documentId}"),
+    ).toHaveLength(1);
+  });
+  it("moves a page opened from the directory to the front of the list", async () => {
+    await setup("/t/tenant-northstar/documents/alpha");
+    fireEvent.click(await screen.findByRole("link", { name: "beta" }));
+
+    await waitFor(() =>
+      expect(readRecentWikiPages("account-jenny").map((row) => row.id)).toEqual(
+        ["beta", "alpha"],
+      ),
+    );
+  });
+  it("shows recently opened pages above the daily cards", async () => {
+    writeRecentWikiPages("account-jenny", [
+      {
+        id: "alpha",
+        name: "Alpha notes",
+        openedAt: "2026-08-23T00:00:00.000Z",
+        path: "/t/tenant-northstar/documents/alpha",
+      },
+    ]);
+    await setup("/t/tenant-northstar/library/wiki?tab=wiki");
+
+    const strip = await screen.findByRole("region", {
+      name: "Recently opened Wiki pages",
+    });
+    expect(screen.getByRole("link", { name: "Alpha notes" })).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/documents/alpha",
+    );
+    const daily = screen.getByRole("heading", { name: /Daily report/ });
+    expect(
+      strip.compareDocumentPosition(daily) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
   it.each(["projects", "topics", "contacts", "clients"])(
     "shows %s with Back and no directory",
