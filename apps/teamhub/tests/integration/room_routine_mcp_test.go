@@ -79,6 +79,7 @@ func TestAgentRoomRoutineMCP(t *testing.T) {
 			ID             string `json:"id"`
 			MentionActorID string `json:"mention_actor_id"`
 			Enabled        bool   `json:"enabled"`
+			Revision       int64  `json:"revision"`
 			Schedule       struct {
 				Kind     string   `json:"kind"`
 				Weekdays []string `json:"weekdays"`
@@ -88,7 +89,7 @@ func TestAgentRoomRoutineMCP(t *testing.T) {
 		} `json:"routine"`
 	}
 	decode(t, body, &created)
-	if !created.Routine.Enabled || created.Routine.MentionActorID != "actor_acme_official" || created.Routine.Schedule.Time != "09:00" || created.Routine.Schedule.Timezone != "Asia/Shanghai" {
+	if !created.Routine.Enabled || created.Routine.Revision < 1 || created.Routine.MentionActorID != "actor_acme_official" || created.Routine.Schedule.Time != "09:00" || created.Routine.Schedule.Timezone != "Asia/Shanghai" {
 		t.Fatalf("created routine: %s", body)
 	}
 	if !slices.Equal(created.Routine.Schedule.Weekdays, []string{"monday", "tuesday", "wednesday", "thursday", "friday"}) {
@@ -136,6 +137,44 @@ func TestAgentRoomRoutineMCP(t *testing.T) {
 	status, body = postAgentInRoom(t, env, token, roomID, "/api/agent/v1/routines/enable", enable)
 	if status != http.StatusOK || !strings.Contains(string(body), `"enabled":true`) {
 		t.Fatalf("enable: %d %s", status, body)
+	}
+	var enabled struct {
+		Routine struct {
+			Revision int64 `json:"revision"`
+		} `json:"routine"`
+	}
+	decode(t, body, &enabled)
+
+	update := cloneRoutineMap(base)
+	update["invocation_id"] = routineInvocation("10")
+	update["routine_id"] = created.Routine.ID
+	update["expected_revision"] = enabled.Routine.Revision
+	update["name"] = "Updated note"
+	update["instruction"] = "Write the updated note."
+	update["schedule"] = map[string]any{"kind": "every_n_hours", "interval_hours": 3}
+	status, body = postAgentInRoom(t, env, token, roomID, "/api/agent/v1/routines/updates", update)
+	if status != http.StatusOK || !strings.Contains(string(body), `"name":"Updated note"`) || !strings.Contains(string(body), `"kind":"every_n_hours"`) {
+		t.Fatalf("update: %d %s", status, body)
+	}
+	var updated struct {
+		Routine struct {
+			Instruction string `json:"instruction"`
+			Revision    int64  `json:"revision"`
+		} `json:"routine"`
+	}
+	decode(t, body, &updated)
+	if updated.Routine.Instruction != "Write the updated note." || updated.Routine.Revision != enabled.Routine.Revision+1 {
+		t.Fatalf("updated routine: %s", body)
+	}
+
+	stale := cloneRoutineMap(base)
+	stale["invocation_id"] = routineInvocation("11")
+	stale["routine_id"] = created.Routine.ID
+	stale["expected_revision"] = enabled.Routine.Revision
+	stale["name"] = "Stale note"
+	status, body = postAgentInRoom(t, env, token, roomID, "/api/agent/v1/routines/updates", stale)
+	if status != http.StatusConflict || !strings.Contains(string(body), "version_conflict") {
+		t.Fatalf("stale update: %d %s", status, body)
 	}
 
 	run := cloneRoutineMap(base)

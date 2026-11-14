@@ -219,7 +219,7 @@ func authorizeAgentPrincipal(ctx context.Context, tx pgx.Tx, token, action strin
 // service independently enforces the action's current permissions.
 func businessAction(action string) bool {
 	switch action {
-	case "apply_document_semantic_mutation", "ask_user", "check_task", "create_document", "create_task", "create_room", "create_routine", "create_team_md", "delete_routine", "enable_routine", "get_document_comment_thread", "list_available_agents", "list_routines", "pause_routine", "replace_document_comment_text", "reply_document_comment", "run_routine", "send_direct_message", "send_emoji", "send_message", "send_message_sequence", "send_task", "show_fragment", "stop_task", "upload_artifact_tree", "upload_artifacts",
+	case "apply_document_semantic_mutation", "ask_user", "check_task", "create_document", "create_task", "create_room", "create_routine", "create_team_md", "delete_routine", "enable_routine", "get_document_comment_thread", "list_available_agents", "list_routines", "pause_routine", "replace_document_comment_text", "reply_document_comment", "run_routine", "send_direct_message", "send_emoji", "send_message", "send_message_sequence", "send_task", "show_fragment", "stop_task", "update_routine", "upload_artifact_tree", "upload_artifacts",
 		"add_room_member", "create_agent", "get_agent", "update_agent", "list_connected_apps", "search_app_tools", "execute_app_tool", "manage_auto_reminders",
 		"get_personal_profile", "write_personal_profile", "start_personal_profile_build", "get_account_profile", "update_account_profile",
 		"request_browser_connection", "read_computer_permissions", "request_computer_permission",

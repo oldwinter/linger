@@ -56,6 +56,7 @@ func (a *App) agentAPIRoutes() []contractRoute {
 		route(http.MethodPost, "/api/agent/v1/routines/pause", nil, a.pauseAgentRoutine),
 		route(http.MethodPost, "/api/agent/v1/routines/query", nil, a.listAgentRoutines),
 		route(http.MethodPost, "/api/agent/v1/routines/run", nil, a.runAgentRoutine),
+		route(http.MethodPost, "/api/agent/v1/routines/updates", nil, a.updateAgentRoutine),
 		route(http.MethodPost, "/api/agent/v1/skills/packages", nil, a.publishAgentSkillPackage),
 		route(http.MethodGet, "/api/agent/v1/skills/packages/:manifestId", nil, a.getAgentSkillPackage),
 		route(http.MethodPost, "/api/agent/v1/tasks", nil, a.createAgentTask),

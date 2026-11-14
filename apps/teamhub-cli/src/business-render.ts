@@ -367,7 +367,7 @@ export function renderBusinessResult(command: string, result: Json): string {
     const routine = result.routine as Json;
     const action = command.slice("routine ".length);
     return [
-      `${action === "run" ? "Posted routine instruction" : action === "create" ? "Created routine" : action === "pause" ? "Paused routine" : "Enabled routine"} ${String(routine.id)}`,
+      `${action === "run" ? "Posted routine instruction" : action === "create" ? "Created routine" : action === "pause" ? "Paused routine" : action === "update" ? "Updated routine" : "Enabled routine"} ${String(routine.id)}`,
       `Name: ${String(routine.name)}`,
       `Enabled: ${String(routine.enabled)}`,
       `Schedule: ${schedule(routine)}`,
