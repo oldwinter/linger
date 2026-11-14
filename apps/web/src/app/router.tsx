@@ -588,6 +588,15 @@ function createWorkspaceRoute(): RouteObject {
       createLibraryRoute(),
       {
         ErrorBoundary: PanelRouteErrorSurface,
+        lazy: async () => ({
+          Component: (
+            await import("@/features/rooms/documents/mark-moment-page")
+          ).MarkMomentPage,
+        }),
+        path: "documents/:documentId/mark",
+      },
+      {
+        ErrorBoundary: PanelRouteErrorSurface,
         lazy: loadUnifiedDocumentPage,
         path: "documents/:documentId",
       },
