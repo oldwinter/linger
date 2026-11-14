@@ -204,8 +204,9 @@ export function MeetingReader({
   ];
   return (
     <article
-      className="meeting-document mx-auto w-full max-w-4xl px-5 py-7 md:px-10"
       aria-label="Meeting"
+      className="meeting-document mx-auto w-full max-w-4xl px-5 py-7 md:px-10"
+      data-meeting-surface
     >
       <header className="mb-4 flex items-start gap-3">
         <div className="min-w-0 flex-1">

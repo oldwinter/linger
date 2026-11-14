@@ -23,6 +23,7 @@ import { Link, useParams, useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Select, SelectItem } from "@/components/ui/select";
 import { cn } from "@/lib/cn";
+import { isSurfaceKeyEvent } from "@/lib/keyboard-guard";
 import {
   teamHubIdentityQueryOptions,
   tenantRoomsQueryOptions,
@@ -53,7 +54,6 @@ import { WorkItemBoardCopyAction } from "./work-item-board-copy-action";
 import { workItemBoardCsv } from "./work-item-board-csv";
 import { WorkItemBoardCsvAction } from "./work-item-board-csv-action";
 import {
-  isWorkItemBoardKeyEvent,
   nextWorkItemCardId,
   workItemBoardMoveForKey,
 } from "./work-item-board-keyboard";
@@ -595,7 +595,7 @@ function WorkItemBoard({
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (!isWorkItemBoardKeyEvent(event)) return;
+      if (!isSurfaceKeyEvent(event)) return;
       handleBoardKey(event);
     }
     window.addEventListener("keydown", onKeyDown);

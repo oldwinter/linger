@@ -317,3 +317,141 @@ describe("MeetingAudioPlayer resume", () => {
     expect(readMeetingResume(ACCOUNT)["meeting-1"]?.position).toBe(55);
   });
 });
+
+describe("MeetingAudioPlayer keyboard", () => {
+  /** The player inside a meeting surface, as the reader renders it. */
+  function renderOnMeetingSurface() {
+    const play = vi
+      .spyOn(HTMLMediaElement.prototype, "play")
+      .mockResolvedValue(undefined);
+    const pause = vi
+      .spyOn(HTMLMediaElement.prototype, "pause")
+      .mockImplementation(() => undefined);
+    const view = render(
+      <div data-meeting-surface>
+        <MeetingAudioPlayer
+          filename="recording.m4a"
+          mediaType="audio/mp4"
+          meetingId="meeting-1"
+          onDownload={vi.fn()}
+          src="blob:recording"
+        />
+        <input aria-label="Search transcript" type="search" />
+      </div>,
+    );
+    const audio = view.container.querySelector("audio")!;
+    const surface = view.container.querySelector("[data-meeting-surface]")!;
+    // jsdom has no media engine, so the element's pause state is the test's to
+    // report.
+    let paused = true;
+    Object.defineProperty(audio, "paused", {
+      configurable: true,
+      get: () => paused,
+    });
+    function setPaused(value: boolean) {
+      paused = value;
+    }
+    return { ...view, audio, pause, play, setPaused, surface };
+  }
+
+  it("toggles playback with Space and keeps the page still", () => {
+    const { audio, pause, play, setPaused, surface } = renderOnMeetingSurface();
+
+    // A prevented keydown is what stops the page from scrolling.
+    expect(fireEvent.keyDown(surface, { key: " " })).toBe(false);
+    expect(play).toHaveBeenCalledOnce();
+
+    setPaused(false);
+    fireEvent.play(audio);
+    expect(
+      screen.getByRole("button", { name: "Pause recording" }),
+    ).toBeVisible();
+
+    expect(fireEvent.keyDown(surface, { key: " " })).toBe(false);
+    expect(pause).toHaveBeenCalledOnce();
+  });
+
+  it("moves the playhead five seconds each way and stops at both ends", () => {
+    const { audio, surface } = renderOnMeetingSurface();
+    loadDuration(audio, 125);
+    audio.currentTime = 10;
+    fireEvent.timeUpdate(audio);
+
+    fireEvent.keyDown(surface, { key: "ArrowRight" });
+    expect(audio.currentTime).toBe(15);
+    expect(screen.getByText("0:15 / 2:05")).toBeVisible();
+
+    fireEvent.keyDown(surface, { key: "ArrowLeft" });
+    expect(audio.currentTime).toBe(10);
+
+    fireEvent.keyDown(surface, { key: "ArrowLeft" });
+    fireEvent.keyDown(surface, { key: "ArrowLeft" });
+    expect(audio.currentTime).toBe(0);
+
+    audio.currentTime = 124;
+    fireEvent.keyDown(surface, { key: "ArrowRight" });
+    expect(audio.currentTime).toBe(125);
+  });
+
+  it("leaves the transcript search field its own keys", () => {
+    const { play, surface } = renderOnMeetingSurface();
+    const search = screen.getByRole("searchbox", { name: "Search transcript" });
+
+    for (const key of [" ", "ArrowLeft", "ArrowRight"]) {
+      expect(fireEvent.keyDown(search, { key })).toBe(true);
+    }
+    expect(play).not.toHaveBeenCalled();
+    expect(surface.contains(search)).toBe(true);
+  });
+
+  it("leaves a focused control its own Space", () => {
+    const { play } = renderOnMeetingSurface();
+    const button = screen.getByRole("button", { name: "Play recording" });
+
+    expect(fireEvent.keyDown(button, { key: " " })).toBe(true);
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it("leaves keys alone while a dialog is open", () => {
+    const play = vi
+      .spyOn(HTMLMediaElement.prototype, "play")
+      .mockResolvedValue(undefined);
+    const { container } = render(
+      <div data-meeting-surface>
+        <MeetingAudioPlayer
+          filename="recording.m4a"
+          mediaType="audio/mp4"
+          meetingId="meeting-1"
+          onDownload={vi.fn()}
+          src="blob:recording"
+        />
+        <dialog open>
+          <button type="button">Cancel</button>
+        </dialog>
+      </div>,
+    );
+    const surface = container.querySelector("[data-meeting-surface]")!;
+
+    expect(fireEvent.keyDown(surface, { key: " " })).toBe(true);
+    expect(fireEvent.keyDown(surface, { key: "ArrowRight" })).toBe(true);
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it("leaves modifier chords alone", () => {
+    const { play, surface } = renderOnMeetingSurface();
+
+    expect(fireEvent.keyDown(surface, { ctrlKey: true, key: " " })).toBe(true);
+    expect(fireEvent.keyDown(surface, { key: " ", shiftKey: true })).toBe(true);
+    expect(
+      fireEvent.keyDown(surface, { altKey: true, key: "ArrowRight" }),
+    ).toBe(true);
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it("keeps out of keys pressed outside the meeting", () => {
+    const { play } = renderOnMeetingSurface();
+
+    expect(fireEvent.keyDown(document.body, { key: " " })).toBe(true);
+    expect(play).not.toHaveBeenCalled();
+  });
+});
