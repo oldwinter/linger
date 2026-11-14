@@ -406,13 +406,19 @@ export async function startMemoryServer(options: {
         port: options.port ?? 0,
       });
   const http = options.http ?? ownedHost!;
-  http.mount({
+  const unmount = http.mount({
     prefixes: ["/internal/v1/"],
     fetch: (request) => app.fetch(request),
   });
   ownedHost?.finishStartup();
+  let closed = false;
   return {
     close: async () => {
+      if (closed) return;
+      closed = true;
+      // The route must leave a shared host, or a replacement role cannot
+      // mount the same prefix and the stopped indexes keep answering.
+      unmount();
       await ownedHost?.close();
     },
     url: http.url,
