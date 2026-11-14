@@ -369,6 +369,7 @@ function renderRoomMentionMenu({
           muted={false}
           name="room-a"
           roomId="room-other"
+          roomSnoozed={false}
           snoozed={false}
           tenantId={tenantId}
         />

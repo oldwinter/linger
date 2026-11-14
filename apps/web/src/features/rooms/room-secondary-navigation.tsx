@@ -65,6 +65,13 @@ import {
 } from "./room-mention-snooze";
 import { roomMarkReadCursor } from "./room-mark-read";
 import {
+  clearRoomSnooze,
+  isRoomSnoozed,
+  roomSnoozedIds,
+  useRoomSnooze,
+} from "./room-snooze";
+import { splitSnoozedRooms } from "./room-snooze-filter";
+import {
   readRoomUnreadFilter,
   unreadRoomRows,
   writeRoomUnreadFilter,
@@ -168,6 +175,7 @@ export function RoomSecondaryNavigation({
   }
   const mentionSnooze = useRoomMentionSnooze(accountId);
   const mentionMute = useRoomMentionMute(accountId);
+  const roomSnooze = useRoomSnooze(accountId);
   // Rows judge expiry against this reading, so a snooze that ends passes on
   // the next render without a cleanup step.
   const now = new Date();
@@ -205,8 +213,16 @@ export function RoomSecondaryNavigation({
       : undefined;
   const visibleChats = chats.filter((room) => visibleRoomIds.has(room.id));
   const listedChats = unreadRoomRows(visibleChats, activeRoomId, unreadOnly);
+  // A snoozed Room leaves the list until its instant passes; the active Room
+  // stays, so opening one never hides it. Hidden rows are still the same Rooms
+  // with the same unread counts, listed behind the snoozed line.
+  const { hidden: snoozedChats, visible: shownChats } = splitSnoozedRooms(
+    listedChats,
+    roomSnoozedIds(roomSnooze, now),
+    activeRoomId,
+  );
   const listRef = useRef<HTMLDivElement>(null);
-  const reorderKey = listedChats
+  const reorderKey = shownChats
     .map((room) => `${room.id}:${room.pinned_at ? 1 : 0}`)
     .join("|");
   useNavReorderFlip(listRef, reorderKey);
@@ -400,12 +416,12 @@ export function RoomSecondaryNavigation({
               }
               title="Messages"
             >
-              {unreadOnly && listedChats.length === 0 ? (
+              {unreadOnly && shownChats.length === 0 ? (
                 <UnreadFilterEmptyState
                   onShowAll={() => setUnreadFilter(false)}
                 />
               ) : null}
-              {listedChats.map((room) => {
+              {shownChats.map((room) => {
                 if (room.kind === "room") {
                   const muted = isRoomMentionMuted(mentionMute, room.id);
                   const snoozed = isRoomMentionSnoozed(
@@ -428,6 +444,11 @@ export function RoomSecondaryNavigation({
                             muted={muted}
                             name={room.name}
                             roomId={room.id}
+                            roomSnoozed={isRoomSnoozed(
+                              roomSnooze,
+                              room.id,
+                              now,
+                            )}
                             snoozed={snoozed}
                             tenantId={tenant.id}
                           />
@@ -516,6 +537,12 @@ export function RoomSecondaryNavigation({
                   </NavRow>
                 );
               })}
+              <SnoozedRoomsLine
+                onBringBack={(roomId) =>
+                  clearRoomSnooze(accountId, roomId, new Date())
+                }
+                rooms={snoozedChats}
+              />
             </NavSection>
           </>
         )}
@@ -564,6 +591,57 @@ function UnreadFilterEmptyState({ onShowAll }: { onShowAll: () => void }) {
       >
         Show all Rooms
       </button>
+    </div>
+  );
+}
+
+/** The list's one quiet line for snoozed Rooms, collapsed until asked. */
+function SnoozedRoomsLine({
+  onBringBack,
+  rooms,
+}: {
+  onBringBack: (roomId: string) => void;
+  rooms: TeamHubRoomListItem[];
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (rooms.length === 0) return null;
+  return (
+    <div className="pt-0.5">
+      <button
+        aria-expanded={expanded}
+        className="flex min-h-7 w-full items-center gap-1 rounded-md px-2 text-left text-xs leading-4 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={() => setExpanded((value) => !value)}
+        type="button"
+      >
+        <Icon
+          className={`size-3.5 shrink-0 transition-transform ${expanded ? "" : "-rotate-90"}`}
+          icon={ArrowDown01Icon}
+          size={14}
+        />
+        <span className="truncate">
+          {rooms.length} snoozed Room{rooms.length === 1 ? "" : "s"}
+        </span>
+      </button>
+      {expanded ? (
+        <ul className="mt-0.5 space-y-0.5 pr-2 pb-1 pl-6">
+          {rooms.map((room) => (
+            <li
+              className="flex items-center gap-2 text-xs leading-4 text-muted-foreground"
+              key={room.id}
+            >
+              <span className="min-w-0 flex-1 truncate">{room.name}</span>
+              <button
+                aria-label={`Bring back ${room.name}`}
+                className="shrink-0 rounded-sm font-medium text-foreground underline underline-offset-2 transition-colors hover:text-app-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => onBringBack(room.id)}
+                type="button"
+              >
+                Bring back
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
