@@ -195,6 +195,18 @@ describe("Room shell Account menu", () => {
     expect(screen.getByText("Shell content")).toBeVisible();
   });
 
+  it("leaves Cmd/Ctrl+F to the browser outside a Room", async () => {
+    await renderAccountShell({ initialEntry: "/t/tenant-northstar/apps" });
+    await act(async () => {
+      await import("@/features/search/global-search-dialog");
+    });
+
+    // No Room is open, so nothing takes the key and the find bar stays the
+    // browser's.
+    expect(fireEvent.keyDown(window, { key: "f", ctrlKey: true })).toBe(true);
+    expect(screen.queryByRole("dialog", { name: "Search" })).toBeNull();
+  });
+
   it("lets Live voice switch pages and open a search already filled in", async () => {
     await renderAccountShell({
       initialEntry: "/t/tenant-northstar/rooms/room-all/chat",
