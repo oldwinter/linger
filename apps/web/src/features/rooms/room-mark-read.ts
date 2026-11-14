@@ -1,4 +1,27 @@
+import { teamHubData } from "@/features/teamhub/teamhub-api";
+import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
+
+export interface RoomMarkReadTarget {
+  roomId: string;
+  throughRoomSeq: number;
+}
+
+/**
+ * The read-state request both the row's Mark as read and the list's Mark all
+ * as read send.
+ */
+export function markRoomReadRequest(
+  client: TeamHubClient,
+  target: RoomMarkReadTarget,
+) {
+  return teamHubData(
+    client.api.PUT("/v0/rooms/{roomId}/read-state", {
+      params: { path: { roomId: target.roomId } },
+      body: { through_room_seq: target.throughRoomSeq },
+    }),
+  );
+}
 
 /**
  * The read cursor that clears a Room's unread Messages, or undefined when the

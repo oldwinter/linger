@@ -1,4 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type QueryClient,
+  type QueryKey,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   AlarmClockIcon,
   BellIcon,
@@ -37,6 +43,12 @@ import {
   tenantRoomsQueryKey,
 } from "./room-queries";
 import { roomChatPath } from "./room-routes";
+import {
+  markAllRoomsRead,
+  markAllRoomsReadTargets,
+  type MarkAllRoomsReadReport,
+} from "./room-mark-all-read";
+import { markRoomReadRequest, type RoomMarkReadTarget } from "./room-mark-read";
 import {
   clearRoomSnooze,
   roomSnoozeUntil,
@@ -93,45 +105,110 @@ export function useRoomPin(tenantId: string) {
   });
 }
 
+/** Writes one Room's acknowledgement into the cached list. */
+function applyRoomReadState(
+  queryClient: QueryClient,
+  queryKey: QueryKey,
+  roomId: string,
+  readThroughRoomSeq: number,
+) {
+  queryClient.setQueryData<TeamHubRoomPage>(queryKey, (current) =>
+    current
+      ? {
+          ...current,
+          items: current.items.map((room) =>
+            room.id === roomId
+              ? {
+                  ...room,
+                  read_through_room_seq: Math.max(
+                    room.read_through_room_seq,
+                    readThroughRoomSeq,
+                  ),
+                  unread_mention_count: 0,
+                  unread_message_count: 0,
+                }
+              : room,
+          ),
+        }
+      : current,
+  );
+}
+
 /** Advances one Room's read cursor and clears its row without opening it. */
 export function useRoomMarkRead(tenantId: string) {
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const queryKey = tenantRoomsQueryKey(tenantId);
   return useMutation({
-    mutationFn: (intent: { roomId: string; throughRoomSeq: number }) =>
-      teamHubData(
-        client.api.PUT("/v0/rooms/{roomId}/read-state", {
-          params: { path: { roomId: intent.roomId } },
-          body: { through_room_seq: intent.throughRoomSeq },
-        }),
-      ),
+    mutationFn: (intent: RoomMarkReadTarget) =>
+      markRoomReadRequest(client, intent),
     // A list read that started before the acknowledgement would otherwise land
     // stale counts on top of the new cursor.
     onMutate: () => queryClient.cancelQueries({ queryKey }),
-    onSuccess: (state) => {
-      queryClient.setQueryData<TeamHubRoomPage>(queryKey, (current) =>
-        current
-          ? {
-              ...current,
-              items: current.items.map((room) =>
-                room.id === state.room_id
-                  ? {
-                      ...room,
-                      read_through_room_seq: Math.max(
-                        room.read_through_room_seq,
-                        state.read_through_room_seq,
-                      ),
-                      unread_mention_count: 0,
-                      unread_message_count: 0,
-                    }
-                  : room,
-              ),
-            }
-          : current,
-      );
-    },
+    onSuccess: (state) =>
+      applyRoomReadState(
+        queryClient,
+        queryKey,
+        state.room_id,
+        state.read_through_room_seq,
+      ),
   });
+}
+
+/**
+ * Marks every unread Room read through the row's own request, a few at a time.
+ * Each acknowledgement patches its row at once, and the report counts only what
+ * TeamHub accepted, so a failed Room stays unread.
+ */
+export function useMarkAllRoomsRead(tenantId: string) {
+  const { client } = useTeamHubRuntime();
+  const queryClient = useQueryClient();
+  const queryKey = tenantRoomsQueryKey(tenantId);
+  const runningRef = useRef(false);
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState<{
+    completed: number;
+    total: number;
+  }>();
+  const [report, setReport] = useState<MarkAllRoomsReadReport>();
+
+  async function markAll(rooms: readonly TeamHubRoomListItem[]) {
+    const targets = markAllRoomsReadTargets(rooms);
+    if (targets.length === 0 || runningRef.current) return;
+    runningRef.current = true;
+    setRunning(true);
+    setReport(undefined);
+    setProgress({ completed: 0, total: targets.length });
+    try {
+      await queryClient.cancelQueries({ queryKey });
+      setReport(
+        await markAllRoomsRead(
+          targets,
+          (target) => markRoomReadRequest(client, target),
+          (settlement) => {
+            if (settlement.acknowledgement) {
+              applyRoomReadState(
+                queryClient,
+                queryKey,
+                settlement.acknowledgement.roomId,
+                settlement.acknowledgement.readThroughRoomSeq,
+              );
+            }
+            setProgress({
+              completed: settlement.completed,
+              total: settlement.total,
+            });
+          },
+        ),
+      );
+    } finally {
+      runningRef.current = false;
+      setRunning(false);
+      setProgress(undefined);
+    }
+  }
+
+  return { markAll, progress, report, running };
 }
 
 // Row actions sit flat until the pointer is on the icon itself (or its menu is
