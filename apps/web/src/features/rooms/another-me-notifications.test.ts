@@ -1,8 +1,25 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { act, renderHook } from "@testing-library/react";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
 
-import { anotherMeNotice } from "./another-me-notifications";
+import {
+  anotherMeNotice,
+  useAnotherMeNotifications,
+} from "./another-me-notifications";
+import {
+  clearDesktopNotificationPause,
+  setDesktopNotificationPause,
+} from "./desktop-notification-pause";
 
 const agent = {
   id: "actor_agent",
@@ -74,5 +91,100 @@ describe("anotherMeNotice", () => {
       "msg_1",
     );
     expect(notice?.body).toHaveLength(161);
+  });
+});
+
+class FakeNotification {
+  static permission: NotificationPermission = "granted";
+  static shown: FakeNotification[] = [];
+
+  readonly body: string;
+  closed = false;
+  onclick: (() => void) | null = null;
+
+  constructor(
+    readonly title: string,
+    options?: { body?: string },
+  ) {
+    this.body = options?.body ?? "";
+    FakeNotification.shown.push(this);
+  }
+
+  close(): void {
+    this.closed = true;
+  }
+}
+
+function renderAnotherMe(
+  rooms: TeamHubRoomListItem[],
+  open: (roomId: string) => void,
+  accountId?: string,
+) {
+  return renderHook(
+    (props: { rooms: TeamHubRoomListItem[] }) =>
+      useAnotherMeNotifications({
+        accountId,
+        agentActorId: agent.id,
+        open,
+        roomId: "room_1",
+        rooms: props.rooms,
+      }),
+    { initialProps: { rooms } },
+  );
+}
+
+describe("useAnotherMeNotifications", () => {
+  beforeEach(() => {
+    FakeNotification.permission = "granted";
+    FakeNotification.shown = [];
+    vi.stubGlobal("Notification", FakeNotification);
+    vi.spyOn(document, "hasFocus").mockReturnValue(false);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  it("shows a new Another Me Message while unfocused", () => {
+    const open = vi.fn();
+    const { rerender } = renderAnotherMe(
+      [room({ id: "msg_1", raw_message: "hello" })],
+      open,
+    );
+    expect(FakeNotification.shown).toEqual([]);
+
+    rerender({
+      rooms: [room({ id: "msg_2", raw_message: "**Birthday** soon" })],
+    });
+
+    expect(FakeNotification.shown).toHaveLength(1);
+    expect(FakeNotification.shown[0]?.title).toBe("Another Me");
+    expect(FakeNotification.shown[0]?.body).toBe("Birthday soon");
+  });
+
+  it("keeps the notice back while paused and shows it after resuming", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-15T10:00:00"));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    setDesktopNotificationPause("account-a", new Date("2026-11-15T10:30:00"));
+    const open = vi.fn();
+    const { rerender } = renderAnotherMe(
+      [room({ id: "msg_1", raw_message: "hello" })],
+      open,
+      "account-a",
+    );
+    const reminder = [room({ id: "msg_2", raw_message: "Take a break" })];
+
+    rerender({ rooms: reminder });
+    expect(FakeNotification.shown).toEqual([]);
+
+    act(() => clearDesktopNotificationPause("account-a"));
+
+    expect(FakeNotification.shown).toHaveLength(1);
+    expect(FakeNotification.shown[0]?.body).toBe("Take a break");
   });
 });

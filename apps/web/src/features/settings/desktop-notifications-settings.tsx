@@ -125,8 +125,9 @@ export function DesktopNotificationsSettings({
       )}
       <p className="mt-2 text-xs text-muted-foreground">
         Unread mentions in Rooms you are not looking at appear while this window
-        is in the background, unless that Room’s mentions are snoozed. The
-        desktop app also shows the unread mention count on its icon.
+        is in the background, unless that Room’s mentions are snoozed. A pause
+        silences every desktop notification, whatever raises it. The desktop app
+        also shows the unread mention count on its icon.
       </p>
     </section>
   );
