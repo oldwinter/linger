@@ -140,6 +140,9 @@ describe("Meetings panel", () => {
     expect(
       screen.getByRole("link", { name: "Meeting Oct 1, 09:05" }),
     ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "The week in memory" }),
+    ).toHaveAttribute("href", "/t/tenant-northstar/library/week");
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(

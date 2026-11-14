@@ -2,6 +2,8 @@
 
 - Own the authenticated Human's Tenant-scoped Memory views: the Timeline graph
   with its Daily and Weekly reports, and Meetings (calendar, reader, audio).
+  The week in memory is the Monday-through-Sunday picture of meetings, dailies,
+  and Pocket notes together.
   Personal Wiki navigation in `features/wiki` links here.
 - Call TeamHub through the generated client (`client.api`) and generated
   Memory types; do not handwrite URLs or wire DTOs in components.
