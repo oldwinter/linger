@@ -652,6 +652,14 @@ function createLibraryRoute(): RouteObject {
         },
         path: "meetings",
       },
+      {
+        ErrorBoundary: PanelRouteErrorSurface,
+        lazy: async () => ({
+          Component: (await import("@/features/memory/meeting-story-page"))
+            .MeetingStoryPage,
+        }),
+        path: "meeting-story",
+      },
     ],
     path: "library",
   };

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
 import { ReadOnlyBlockNoteDocumentLoader } from "@/components/read-only-blocknote-document-loader";
 import { Button } from "@/components/ui/button";
 import { ArtifactContentRendererLoader } from "@/features/rooms/files/artifact-content-renderer-loader";
@@ -18,6 +19,7 @@ import {
   MeetingOverviewCard,
 } from "./meeting-overview-card";
 import { HideMeetingDialog } from "./hide-meeting-dialog";
+import { meetingStoryBeats, meetingStoryPath } from "./meeting-story";
 import { formatMeetingWhen, meetingWhen } from "./meetings-calendar";
 
 const meetingSummaryHiddenSectionTitles = [
@@ -71,6 +73,10 @@ export function MeetingReader({
     () => parseMeetingSummary(summaryMarkdown),
     [summaryMarkdown],
   );
+  const story = useMemo(
+    () => meetingStoryBeats(summaryMarkdown),
+    [summaryMarkdown],
+  );
   const summaryDocument = (markdown: string) => (
     <ReadOnlyBlockNoteDocumentLoader
       ariaLabel="Meeting summary document"
@@ -98,6 +104,14 @@ export function MeetingReader({
           </h2>
           <p className="mt-1 text-xs text-app-muted">Read only</p>
         </div>
+        {meeting.summary_ready && story.length > 0 ? (
+          <Link
+            className="shrink-0 text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            to={meetingStoryPath(tenantId, entry.id)}
+          >
+            Tell this story
+          </Link>
+        ) : null}
         <Button onClick={() => setDeleting(true)} size="compact" tone="ghost">
           Delete
         </Button>
