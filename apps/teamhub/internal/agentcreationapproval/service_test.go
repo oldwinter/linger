@@ -32,12 +32,12 @@ func TestValidateRoomPairArtifacts(t *testing.T) {
 	roomPair := func(callerArtifacts, effectiveArtifacts []string) (RoomCallerInput, RoomEffectivePayload) {
 		segments := []messagecreation.Segment{{Type: "text", Content: "Start here"}}
 		return RoomCallerInput{
-				Name: "Room", MemberIDs: []string{"actor_agent"}, Artifacts: callerArtifacts,
-				InitialMessageSegments: segments,
-			}, RoomEffectivePayload{
-				Name: "Room", MemberIDs: []string{"actor_agent"}, Artifacts: effectiveArtifacts,
-				InitialMessageSegments: segments,
-			}
+			Name: "Room", MemberIDs: []string{"actor_agent"}, Artifacts: callerArtifacts,
+			InitialMessageSegments: segments,
+		}, RoomEffectivePayload{
+			Name: "Room", MemberIDs: []string{"actor_agent"}, Artifacts: effectiveArtifacts,
+			InitialMessageSegments: segments,
+		}
 	}
 
 	for _, testCase := range []struct {
