@@ -1,7 +1,6 @@
 import {
   Menu,
   Tray,
-  app,
   dialog,
   nativeImage,
   type MenuItemConstructorOptions,
@@ -14,6 +13,7 @@ import tile16 from "../../resources/tray/tile-16.png";
 import tile32 from "../../resources/tray/tile-32.png";
 import type { DiagnosticsModule } from "./diagnostics.js";
 import { EnrollmentError, type EnrollmentModule } from "./enrollment.js";
+import { headlessDisplay } from "./headless.js";
 import type { Module, ModuleContext } from "./modules.js";
 import type { PowerGuardModule } from "./power-guard.js";
 import type { QuickNoteModule } from "./quick-note.js";
@@ -55,10 +55,6 @@ const icon = (tone: StatusTone, frame: number): NativeImage => {
   return image;
 };
 
-// GTK aborts the process when a tray or menu is created without a display.
-const headless = (): boolean =>
-  app.commandLine.getSwitchValue("ozone-platform") === "headless";
-
 // The system tray. The same menu opens from the title bar status.
 export class TrayModule implements Module {
   readonly name = "Tray";
@@ -88,7 +84,7 @@ export class TrayModule implements Module {
     this.#ctx = ctx;
     const setup = ctx.get<SetupWindowModule>("SetupWindow");
     try {
-      if (headless()) throw new Error("No display");
+      if (headlessDisplay()) throw new Error("No display");
       this.#tray = new Tray(this.#icon());
       this.#tray.setToolTip("Linger");
       // Windows and Linux open the window on click; macOS shows the menu.

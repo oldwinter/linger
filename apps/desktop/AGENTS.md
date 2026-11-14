@@ -41,7 +41,8 @@ Gateway and runs Agents. The daemon exits with the app.
 - `src/main/modules.ts`: `Module` interface, typed bus and the host that starts
   modules in dependency layers and stops them in reverse.
 - `src/main/*.ts`: one file per module (Enrollment, WorkspaceGrants,
-  ComputerDaemon, Status, PowerGuard, WindowManager, Tray, DesktopIpc). `status.ts`, `tray-menu.ts` and `tray-icon.ts` hold the pure
+  ComputerDaemon, Status, PowerGuard, WindowManager, Tray, GlobalShortcut,
+  DesktopIpc). `status.ts`, `tray-menu.ts` and `tray-icon.ts` hold the pure
   status summary, tray menu and tray icons, drawn from the logo PNGs in
   `resources/tray/` with a status badge.
 - `src/main/local-server.ts`: LocalServer, the setup page's Quick Install
@@ -189,6 +190,9 @@ Gateway and runs Agents. The daemon exits with the app.
   confirms and closes. A missing enrollment or session shows a plain message
   in the window. Its IPC channels are checked against that window instead of
   the server origin, so the SPA API stays server-origin only.
+  `src/main/global-shortcut.ts` opens the same window from any application
+  with CommandOrControl+Shift+N; a refused registration is logged once and
+  is not fatal.
 - `src/shell/*.html`: app-owned pages (title bar, offline/setup page, quick
   note). They have no network access and talk to the main process through
   their own preload (`src/preload/shell.ts`, `src/preload/setup.ts`,
@@ -338,4 +342,5 @@ building a package.
   `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `PI_CODING_AGENT_DIR`) replaces them,
   names compared case-insensitively for Windows.
 - Without a display, run with `--ozone-platform=headless --disable-gpu`. The
-  tray and native menus are skipped in that mode; use Xvfb to check them.
+  tray, native menus, and the quick note's global shortcut are skipped in
+  that mode; use Xvfb to check them.
