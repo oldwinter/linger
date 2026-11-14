@@ -317,6 +317,10 @@ describe("Dashboard page", () => {
 
     const focused = await screen.findByRole("link", { name: /Focused work/ });
     expect(screen.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Finish this" })).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/dashboard/workitem-focus/finish",
+    );
     expect(focused).toHaveAttribute("aria-current", "location");
     expect(focused).toHaveFocus();
   });

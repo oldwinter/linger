@@ -19,12 +19,13 @@ import { TeamHubError } from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubWorkItem } from "@/features/teamhub/teamhub-types";
 
+import { finishThisPath } from "./finish-this";
 import {
   tenantWorkItemTargetQueryOptions,
   tenantWorkItemsDashboardQueryOptions,
 } from "./work-item-queries";
-import { dashboardWorkItemPath } from "./work-item-routes";
 import { createWorkItemRoomFilterModel } from "./work-item-room-filter";
+import { dashboardWorkItemPath } from "./work-item-routes";
 
 interface DashboardColumn {
   id: "todo" | "in-progress" | "done" | "closed";
@@ -128,6 +129,14 @@ export function WorkItemsPage() {
                 ? itemCount(items.length)
                 : `${filteredItems.length} of ${items.length} items`}
             </p>
+            {focusedWorkItemId ? (
+              <Link
+                className="mt-1 inline-block text-sm text-foreground underline"
+                to={finishThisPath(tenantId, focusedWorkItemId)}
+              >
+                Finish this
+              </Link>
+            ) : null}
           </div>
           {items.length ? (
             <div

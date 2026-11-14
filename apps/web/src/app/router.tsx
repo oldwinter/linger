@@ -256,6 +256,11 @@ export function createAppRoutes(
           },
           path: "profile",
         },
+        {
+          ErrorBoundary: PanelRouteErrorSurface,
+          lazy: loadFinishThisPage,
+          path: "dashboard/:workItemId/finish",
+        },
         createWorkItemDashboardRoute(
           queryClient,
           client,
@@ -344,6 +349,12 @@ function createWorkItemDashboardRoute(
     },
     path,
   };
+}
+
+async function loadFinishThisPage() {
+  const { FinishThisPage } =
+    await import("@/features/work-items/finish-this-page");
+  return { Component: FinishThisPage };
 }
 
 async function loadConnectComputerPage() {
