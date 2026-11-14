@@ -1,9 +1,12 @@
 import type { RoomDocumentMenuActions } from "@/features/rooms/documents/room-document-actions-menu";
+import { Button } from "@/components/ui/button";
 import { Select, SelectItem } from "@/components/ui/select";
 import type { TeamHubDocumentTreeSummary } from "@/features/teamhub/teamhub-types";
-import type { ReactNode } from "react";
+import { writeClipboardText } from "@/lib/clipboard";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { documentFileTypes } from "./document-file-types";
+import { folderContentsMarkdown } from "./library-folder-contents";
 import {
   LibraryDocumentResults,
   type LibraryRowDocument,
@@ -70,6 +73,12 @@ export function LibraryFolderListing({
   tenantId: string;
   trail: readonly LibraryFolder[];
 }) {
+  const visibleDocuments = visibleLibraryDocuments(documents, {
+    fileType,
+    sortBy,
+  });
+  /** The open folder names the copy; the tab names it at the root level. */
+  const contentsHeading = folderId ? trail.at(-1)!.name : activeView.label;
   return (
     <>
       {bulkBar}
@@ -95,6 +104,12 @@ export function LibraryFolderListing({
           <SelectItem value="updated">Sort by last modified</SelectItem>
           <SelectItem value="name">Sort by name</SelectItem>
         </Select>
+        <FolderContentsCopyAction
+          disabled={browsedPending || visibleDocuments.length === 0}
+          documents={visibleDocuments}
+          folderName={contentsHeading}
+          tenantId={tenantId}
+        />
       </div>
       {folderId ? (
         <LibraryFolderBreadcrumb
@@ -129,7 +144,7 @@ export function LibraryFolderListing({
               }
             : activeView
         }
-        documents={visibleLibraryDocuments(documents, { fileType, sortBy })}
+        documents={visibleDocuments}
         documentActions={documentActions}
         error={browsedError}
         folders={folders.sort((a, b) =>
@@ -151,5 +166,74 @@ export function LibraryFolderListing({
         tenantId={tenantId}
       />
     </>
+  );
+}
+
+/** Long enough to read, matching the other copy actions. */
+const FOLDER_COPIED_MS = 1200;
+
+/**
+ * Copies the open folder's Documents, in the order and filter the list shows
+ * them, as one Markdown roster. Subfolders are rows of their own, not contents.
+ */
+function FolderContentsCopyAction({
+  disabled,
+  documents,
+  folderName,
+  tenantId,
+}: {
+  disabled: boolean;
+  documents: readonly LibraryRowDocument[];
+  folderName: string;
+  tenantId: string;
+}) {
+  const [state, setState] = useState<"copied" | "failed">();
+  const resetTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(resetTimer.current), []);
+
+  function copyContents() {
+    if (disabled) return;
+    window.clearTimeout(resetTimer.current);
+    setState(undefined);
+    void writeClipboardText(
+      folderContentsMarkdown({
+        documents,
+        folderName,
+        origin: window.location.origin,
+        tenantId,
+      }),
+    ).then(
+      () => {
+        setState("copied");
+        resetTimer.current = window.setTimeout(
+          () => setState(undefined),
+          FOLDER_COPIED_MS,
+        );
+      },
+      () => setState("failed"),
+    );
+  }
+
+  return (
+    <div className="ml-auto flex items-center gap-2">
+      {state === "copied" ? (
+        <span className="text-xs leading-4 text-app-muted" role="status">
+          Copied
+        </span>
+      ) : null}
+      {state === "failed" ? (
+        <span className="text-xs leading-4 text-app-danger" role="alert">
+          Copy failed
+        </span>
+      ) : null}
+      <Button
+        disabled={disabled}
+        onClick={copyContents}
+        size="compact"
+        tone="secondary"
+      >
+        Copy contents
+      </Button>
+    </div>
   );
 }

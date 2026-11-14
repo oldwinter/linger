@@ -2522,6 +2522,116 @@ it("renames a binary file from its tree menu and keeps failures editable", async
   );
 });
 
+describe("Copy folder contents", () => {
+  it("copies the open folder's Documents and leaves its subfolders out", async () => {
+    const runtime = await signedInRuntime();
+    const folder = seedFolder(runtime, "copy-contents-folder", {
+      name: "Design",
+    });
+    const spec = seedNativeDocument(runtime, "copy-contents-spec", {
+      parent_id: folder.id,
+    });
+    spec.title = "Spec";
+    const notes = seedNativeDocument(runtime, "copy-contents-notes", {
+      parent_id: folder.id,
+    });
+    notes.title = "Notes";
+    const nested = seedFolder(runtime, "copy-contents-nested", {
+      name: "Archive",
+      parent_id: folder.id,
+    });
+    const buried = seedNativeDocument(runtime, "copy-contents-buried", {
+      parent_id: nested.id,
+    });
+    buried.title = "Buried";
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    renderPage(runtime);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open folder Design" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Copy contents" }),
+    );
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        [
+          "# Design",
+          "",
+          `- [Spec.md](${window.location.origin}/t/tenant-northstar/documents/${spec.id})`,
+          `- [Notes.md](${window.location.origin}/t/tenant-northstar/documents/${notes.id})`,
+        ].join("\n"),
+      ),
+    );
+    expect(await screen.findByText("Copied")).toBeVisible();
+  });
+
+  it("keeps Copy contents disabled while the tree loads", async () => {
+    const runtime = await signedInRuntime();
+    runtime.server.on(
+      "GET",
+      "/v0/tenants/{tenantId}/me/document-tree",
+      () => new Promise(() => undefined),
+    );
+
+    renderPage(runtime);
+
+    expect(
+      await screen.findByRole("button", { name: "Copy contents" }),
+    ).toBeDisabled();
+  });
+
+  it("keeps Copy contents disabled in an empty folder", async () => {
+    const runtime = await signedInRuntime();
+    seedFolder(runtime, "copy-contents-empty", { name: "Empty" });
+    renderPage(runtime);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open folder Empty" }),
+    );
+
+    expect(await screen.findByText("This folder is empty")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Copy contents" }),
+    ).toBeDisabled();
+  });
+
+  it("reports a refused clipboard write instead of Copied", async () => {
+    const runtime = await signedInRuntime();
+    const folder = seedFolder(runtime, "copy-contents-denied", {
+      name: "Design",
+    });
+    const spec = seedNativeDocument(runtime, "copy-contents-denied-spec", {
+      parent_id: folder.id,
+    });
+    spec.title = "Spec";
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: vi.fn(() =>
+          Promise.reject(new Error("Clipboard is denied")),
+        ),
+      },
+    });
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: vi.fn(() => false),
+    });
+    renderPage(runtime);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open folder Design" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Copy contents" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
+    expect(screen.queryByText("Copied")).toBeNull();
+  });
+});
+
 async function chooseCreateAction(action: "New folder" | "New file") {
   fireEvent.click(
     screen.getByRole("button", { name: "Create in Owned by Me" }),
