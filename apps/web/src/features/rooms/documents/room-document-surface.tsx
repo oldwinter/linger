@@ -19,6 +19,7 @@ import { useLinkedDocumentScroll } from "./room-document-scroll";
 import { useSidebarWidth } from "@/components/ui/use-sidebar-width";
 import { DocumentDeleteDialog } from "@/features/library/document-delete-dialog";
 import { documentLogicalTitle } from "@/features/library/document-display-name";
+import { useRecordRecentDocument } from "@/features/library/use-recent-documents";
 import { useWikiDocumentLinks } from "@/features/wiki/wiki-document-links";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { TeamHubDocument } from "@/features/teamhub/teamhub-types";
@@ -52,7 +53,9 @@ export function UnifiedDocumentPage() {
 }
 
 function UnifiedDocumentPageContent() {
-  return <UnifiedDocumentPageView model={useUnifiedDocumentPageModel()} />;
+  const model = useUnifiedDocumentPageModel();
+  useRecordRecentDocument(model.document);
+  return <UnifiedDocumentPageView model={model} />;
 }
 
 export function UnifiedDocumentSidebar({

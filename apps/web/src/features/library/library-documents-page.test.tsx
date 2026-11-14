@@ -44,6 +44,8 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 import * as documentRoutePreload from "@/features/rooms/documents/document-route-preload";
 
+import { teamHubIdentityQueryKey } from "@/features/rooms/room-queries";
+
 import { LibraryLayout } from "./library-layout";
 import { LibrarySidebar } from "./library-sidebar";
 import { documentFileName } from "./document-display-name";
@@ -2597,6 +2599,8 @@ function renderPage(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  // The shell's route loader caches the identity before a Library view renders.
+  queryClient.setQueryData(teamHubIdentityQueryKey, runtime.seed.identity);
   const routes = [
     {
       element: treeOnly ? <TreeSurface /> : <LibraryDocumentsPage />,
@@ -2824,3 +2828,34 @@ function readDocument(client: TeamHubClient, documentId: string) {
     }),
   );
 }
+
+describe("Recently opened documents", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("lists stored opens above the documents tree", async () => {
+    localStorage.setItem(
+      "library-recent-documents.v1:account-jenny",
+      JSON.stringify([
+        {
+          formatLabel: "md",
+          id: "document-design",
+          name: "Design notes",
+          openedAt: "2026-07-24T10:00:00Z",
+        },
+      ]),
+    );
+    const runtime = await signedInRuntime();
+    renderPage(runtime);
+
+    const strip = screen.getByRole("region", { name: "Recently opened" });
+    expect(
+      within(strip).getByRole("link", { name: "Design notes, md" }),
+    ).toHaveAttribute("href", "/t/tenant-northstar/documents/document-design");
+    const filters = await screen.findByRole("combobox", { name: "File type" });
+    expect(
+      strip.compareDocumentPosition(filters) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+});

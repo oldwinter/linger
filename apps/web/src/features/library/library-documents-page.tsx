@@ -27,6 +27,7 @@ import { NewFolderDialog } from "./library-folder-browser";
 import { LibraryFolderListing } from "./library-folder-listing";
 import { MoveFolderPickerDialog } from "./move-folder-picker-dialog";
 import { readDroppedUploadSources } from "./library-upload-queue";
+import { RecentDocumentsStrip } from "./recent-documents-strip";
 import {
   type LibraryBulkOutcome,
   useLibraryBulkActions,
@@ -252,41 +253,44 @@ export function LibraryDocumentsPage() {
             {tab === "meetings" ? (
               <MeetingsPanel tenantId={tenantId} />
             ) : (
-              <LibraryFolderListing
-                activeView={activeView}
-                browsedError={browsedTree.error}
-                browsedPending={browsedTree.isPending}
-                bulkBar={
-                  <LibraryBulkBar
-                    canMove={bulk.canMove}
-                    canTrash={bulk.canTrash}
-                    count={bulk.count}
-                    onClear={bulk.clear}
-                    onMove={bulk.beginMove}
-                    onTrash={bulk.beginTrash}
-                    outcome={bulk.outcome}
-                    pending={bulk.pending}
-                  />
-                }
-                documentActions={documentActions}
-                documents={levelDocuments}
-                error={treeModel.error}
-                fileType={fileType}
-                folderId={folderId}
-                folders={openedFolder.folders}
-                onCopy={copy.beginCopy}
-                onDismissError={treeModel.onDismissError}
-                onFileTypeChange={setFileType}
-                onOpenFolder={openFolder}
-                onSortByChange={setSortBy}
-                onToggleSelected={bulk.toggle}
-                pendingUploads={treeModel.pendingUploads}
-                selectedDocumentIds={bulk.selectedDocumentIds}
-                sortBy={sortBy}
-                tab={tab}
-                tenantId={tenantId}
-                trail={trail}
-              />
+              <>
+                <RecentDocumentsStrip tenantId={tenantId} />
+                <LibraryFolderListing
+                  activeView={activeView}
+                  browsedError={browsedTree.error}
+                  browsedPending={browsedTree.isPending}
+                  bulkBar={
+                    <LibraryBulkBar
+                      canMove={bulk.canMove}
+                      canTrash={bulk.canTrash}
+                      count={bulk.count}
+                      onClear={bulk.clear}
+                      onMove={bulk.beginMove}
+                      onTrash={bulk.beginTrash}
+                      outcome={bulk.outcome}
+                      pending={bulk.pending}
+                    />
+                  }
+                  documentActions={documentActions}
+                  documents={levelDocuments}
+                  error={treeModel.error}
+                  fileType={fileType}
+                  folderId={folderId}
+                  folders={openedFolder.folders}
+                  onCopy={copy.beginCopy}
+                  onDismissError={treeModel.onDismissError}
+                  onFileTypeChange={setFileType}
+                  onOpenFolder={openFolder}
+                  onSortByChange={setSortBy}
+                  onToggleSelected={bulk.toggle}
+                  pendingUploads={treeModel.pendingUploads}
+                  selectedDocumentIds={bulk.selectedDocumentIds}
+                  sortBy={sortBy}
+                  tab={tab}
+                  tenantId={tenantId}
+                  trail={trail}
+                />
+              </>
             )}
           </div>
         </main>
