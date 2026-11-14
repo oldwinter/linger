@@ -217,6 +217,56 @@ export function tenantWorkItemsDashboardQueryPrefix(tenantId: string) {
   return ["teamhub", tenantId, "work-items", "dashboard"] as const;
 }
 
+interface WorkItemUpdateInput {
+  description?: string;
+  /** The revision the person saw, so a concurrent change conflicts. */
+  expectedVersion: number;
+  priority?: TeamHubWorkItem["priority"];
+  title?: string;
+}
+
+/**
+ * An update changes the facts the peek shows and the cards the board renders,
+ * so the answer replaces the target cache and both lists refetch. The timeline
+ * gains its metadata entry.
+ */
+export function useUpdateWorkItem(tenantId: string, workItemId: string) {
+  const { client } = useTeamHubRuntime();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: WorkItemUpdateInput) =>
+      teamHubData(
+        client.api.PATCH("/v0/work-items/{workItemId}", {
+          body: {
+            description: input.description,
+            expected_version: input.expectedVersion,
+            priority: input.priority,
+            title: input.title,
+          },
+          params: {
+            header: idempotencyHeader(createTeamHubIdempotencyKey()),
+            path: { workItemId },
+          },
+        }),
+      ),
+    onSuccess: (item) => {
+      queryClient.setQueryData(
+        tenantWorkItemTargetQueryKey(tenantId, workItemId),
+        item,
+      );
+      void queryClient.invalidateQueries({
+        queryKey: tenantWorkItemsDashboardQueryPrefix(tenantId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: tenantWorkItemTargetQueryKey(tenantId, workItemId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: tenantWorkItemTimelineQueryKey(tenantId, workItemId),
+      });
+    },
+  });
+}
+
 /**
  * Archiving changes the board's membership and the open peek, and the timeline
  * gains its entry, so the answer replaces the target cache and the board and

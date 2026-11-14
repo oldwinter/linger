@@ -31,6 +31,7 @@ const TRANSITION_PATH = "/v0/work-items/{workItemId}/transitions";
 const ARCHIVE_PATH = "/v0/work-items/{workItemId}/archive";
 const UNARCHIVE_PATH = "/v0/work-items/{workItemId}/unarchive";
 const ASSIGNMENT_PATH = "/v0/work-items/{workItemId}/assignments/{actorId}";
+const WORK_ITEM_PATH = "/v0/work-items/{workItemId}";
 
 describe("Work Item peek", () => {
   it("renders the Item with its comments, timeline, and allowed transitions", async () => {
@@ -817,6 +818,254 @@ describe("Work Item peek", () => {
     ).toBeEnabled();
     expect(within(dialog).queryByRole("status")).toBeNull();
     expect(within(dialog).getByText("Open")).toBeVisible();
+  });
+
+  it("saves only the fields the person changed under the item's revision", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const item = workItem(human, {
+      description: "Email login returns 500.",
+      priority: "high",
+      title: "Fix login failure",
+      version: 4,
+    });
+    seedWorkItems(runtime, [item]);
+    const posted: unknown[] = [];
+    runtime.server.on("PATCH", WORK_ITEM_PATH, ({ body }) => {
+      posted.push(body);
+      const updated: TeamHubWorkItem = {
+        ...item,
+        description: "Email login loops.",
+        title: "Fix login redirect",
+        updated_at: "2026-07-30T12:00:00Z",
+        version: 5,
+      };
+      runtime.seed.workItems = [updated];
+      return updated;
+    });
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit" }));
+    fireEvent.change(within(dialog).getByLabelText("Title"), {
+      target: { value: "  Fix login redirect  " },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Description"), {
+      target: { value: "Email login loops." },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(posted).toEqual([
+        {
+          description: "Email login loops.",
+          expected_version: 4,
+          title: "Fix login redirect",
+        },
+      ]),
+    );
+    const [request] = runtime.server.requestsTo("PATCH", WORK_ITEM_PATH);
+    expect(new URL(request!.url).pathname).toBe(
+      "/v0/work-items/workitem-login",
+    );
+    expect(request?.headers.get("Idempotency-Key")).toMatch(/^web:/u);
+
+    const updatedDialog = await screen.findByRole("dialog", {
+      name: "Fix login redirect",
+    });
+    expect(within(updatedDialog).getByText("Email login loops.")).toBeVisible();
+    expect(within(updatedDialog).getByText("high")).toBeVisible();
+    expect(
+      within(updatedDialog).queryByRole("button", { name: "Save" }),
+    ).toBeNull();
+    await waitFor(() =>
+      expect(
+        runtime.server.requestsTo("GET", WORK_ITEMS_PATH).length,
+      ).toBeGreaterThan(1),
+    );
+    expect(
+      await screen.findByRole("link", { name: /Fix login redirect/ }),
+    ).toBeVisible();
+  });
+
+  it("changes the priority alone and leaves the other fields out", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const item = workItem(human, {
+      priority: "high",
+      title: "Fix login failure",
+    });
+    seedWorkItems(runtime, [item]);
+    const posted: unknown[] = [];
+    runtime.server.on("PATCH", WORK_ITEM_PATH, ({ body }) => {
+      posted.push(body);
+      const updated: TeamHubWorkItem = {
+        ...item,
+        priority: "urgent",
+        version: 2,
+      };
+      runtime.seed.workItems = [updated];
+      return updated;
+    });
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit" }));
+    fireEvent.click(within(dialog).getByRole("combobox", { name: "Priority" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Urgent" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(posted).toEqual([{ expected_version: 1, priority: "urgent" }]),
+    );
+    expect(await within(dialog).findByText("urgent")).toBeVisible();
+    expect(within(dialog).getByText("Fix login failure")).toBeVisible();
+  });
+
+  it("does not save an empty or over-long title", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [workItem(human, { title: "Fix login failure" })]);
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit" }));
+    const title = within(dialog).getByLabelText("Title");
+    const save = within(dialog).getByRole("button", { name: "Save" });
+
+    fireEvent.change(title, { target: { value: "   " } });
+    expect(save).toBeDisabled();
+    fireEvent.click(save);
+    expect(runtime.server.requestsTo("PATCH", WORK_ITEM_PATH)).toHaveLength(0);
+
+    fireEvent.change(title, { target: { value: "t".repeat(241) } });
+    expect(save).toBeDisabled();
+    expect(
+      within(dialog).getByText("A title can be at most 240 characters long."),
+    ).toBeVisible();
+    expect(runtime.server.requestsTo("PATCH", WORK_ITEM_PATH)).toHaveLength(0);
+  });
+
+  it("cancels back to the saved values without a request", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        description: "Email login returns 500.",
+        title: "Fix login failure",
+      }),
+    ]);
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit" }));
+    fireEvent.change(within(dialog).getByLabelText("Title"), {
+      target: { value: "Draft title" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    expect(within(dialog).queryByRole("button", { name: "Save" })).toBeNull();
+    expect(within(dialog).getByText("Email login returns 500.")).toBeVisible();
+    expect(screen.getByRole("dialog")).toHaveAccessibleName(
+      "Fix login failure",
+    );
+    expect(runtime.server.requestsTo("PATCH", WORK_ITEM_PATH)).toHaveLength(0);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit" }));
+    expect(within(dialog).getByLabelText("Title")).toHaveValue(
+      "Fix login failure",
+    );
+  });
+
+  it("keeps the input and the server's message when a save is rejected", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [workItem(human, { title: "Fix login failure" })]);
+    runtime.server.on("PATCH", WORK_ITEM_PATH, () =>
+      teamHubErrorResponse(409, "CONFLICT", "Work Item changed elsewhere."),
+    );
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit" }));
+    fireEvent.change(within(dialog).getByLabelText("Title"), {
+      target: { value: "Fix login redirect" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Work Item changed elsewhere.",
+    );
+    expect(within(dialog).getByLabelText("Title")).toHaveValue(
+      "Fix login redirect",
+    );
+    expect(within(dialog).getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(screen.getByRole("dialog")).toHaveAccessibleName(
+      "Fix login failure",
+    );
+    expect(
+      screen.getByRole("link", { name: /Fix login failure/ }),
+    ).toBeVisible();
+  });
+
+  it("discards a half-typed edit when the peek closes", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [workItem(human, { title: "Fix login failure" })]);
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit" }));
+    fireEvent.change(within(dialog).getByLabelText("Title"), {
+      target: { value: "Draft title" },
+    });
+
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(runtime.server.requestsTo("PATCH", WORK_ITEM_PATH)).toHaveLength(0);
+
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const reopened = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    fireEvent.click(within(reopened).getByRole("button", { name: "Edit" }));
+    expect(within(reopened).getByLabelText("Title")).toHaveValue(
+      "Fix login failure",
+    );
   });
 });
 

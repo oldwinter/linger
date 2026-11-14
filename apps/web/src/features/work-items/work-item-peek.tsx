@@ -5,28 +5,37 @@ import {
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 
 import { Button, buttonClassName } from "@/components/ui/button";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
 import { ModalDialog } from "@/components/ui/modal-dialog";
+import { Select, SelectItem } from "@/components/ui/select";
 import { ActorAvatar } from "@/features/rooms/members/actor-avatar";
 import { teamHubIdentityQueryOptions } from "@/features/rooms/room-queries";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubWorkItem,
   TeamHubWorkItemComment,
+  TeamHubWorkItemPriority,
   TeamHubWorkItemTimelineEntry,
 } from "@/features/teamhub/teamhub-types";
 import { dateTimeFormat } from "@/lib/date-format";
 
 import { WorkItemCommentComposer } from "./work-item-comment-composer";
 import { WorkItemCopyStatus } from "./work-item-copy-status";
+import { WORK_ITEM_TITLE_LIMIT } from "./work-item-create-draft";
 import {
   createWorkItemDashboardFilters,
   currentDashboardActorId,
 } from "./work-item-dashboard-filters";
-import { workItemStateLabel, workItemStateLabels } from "./work-item-labels";
+import {
+  workItemPriorities,
+  workItemPriorityLabel,
+  workItemStateLabel,
+  workItemStateLabels,
+} from "./work-item-labels";
 import {
   tenantWorkItemCommentsQueryOptions,
   tenantWorkItemTargetQueryOptions,
@@ -35,6 +44,7 @@ import {
   useAssignWorkItem,
   useUnassignWorkItem,
   useUnarchiveWorkItem,
+  useUpdateWorkItem,
   useWorkItemTransition,
 } from "./work-item-queries";
 import { dashboardWorkItemPath } from "./work-item-routes";
@@ -94,6 +104,7 @@ export function WorkItemPeek({
     ? currentDashboardActorId(identity.data, tenantId)
     : undefined;
   const item = target.data ?? workItem;
+  const [editing, setEditing] = useState(false);
   // The row and the control read the same list, so they cannot disagree about
   // whether this Actor is an assignee.
   const assignedToMe =
@@ -233,9 +244,26 @@ export function WorkItemPeek({
           </p>
         ) : null}
 
-        <p className="whitespace-pre-wrap text-sm leading-6 text-app-body">
-          {item.description || "No description."}
-        </p>
+        {editing ? (
+          <WorkItemEditForm
+            item={item}
+            onDone={() => setEditing(false)}
+            tenantId={tenantId}
+          />
+        ) : (
+          <div className="flex items-start gap-3">
+            <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm leading-6 text-app-body">
+              {item.description || "No description."}
+            </p>
+            <Button
+              onClick={() => setEditing(true)}
+              size="compact"
+              tone="secondary"
+            >
+              Edit
+            </Button>
+          </div>
+        )}
 
         <section aria-label="Assignees" className="space-y-2">
           <h3 className="text-xs font-medium text-app-muted">Assignees</h3>
@@ -446,6 +474,143 @@ function CommentEntry({ comment }: { comment: TeamHubWorkItemComment }) {
         {comment.body}
       </p>
     </li>
+  );
+}
+
+/**
+ * Inline editing for the facts a Human can change from the peek. Saves are
+ * checked against the revision the form opened with, so a change made
+ * elsewhere conflicts instead of being overwritten. Title and description
+ * submit trimmed, as the create dialog stores them.
+ */
+function WorkItemEditForm({
+  item,
+  onDone,
+  tenantId,
+}: {
+  item: TeamHubWorkItem;
+  onDone: () => void;
+  tenantId: string;
+}) {
+  const update = useUpdateWorkItem(tenantId, item.id);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const [baseline] = useState(item);
+  const [title, setTitle] = useState(item.title);
+  const [description, setDescription] = useState(item.description);
+  const [priority, setPriority] = useState(item.priority);
+
+  useEffect(() => {
+    titleInputRef.current?.focus();
+  }, []);
+
+  const trimmedTitle = title.trim();
+  const trimmedDescription = description.trim();
+  const titleTooLong = trimmedTitle.length > WORK_ITEM_TITLE_LIMIT;
+  const changes = {
+    ...(trimmedTitle === baseline.title ? {} : { title: trimmedTitle }),
+    ...(trimmedDescription === baseline.description
+      ? {}
+      : { description: trimmedDescription }),
+    ...(priority === baseline.priority ? {} : { priority }),
+  };
+  const canSave = trimmedTitle.length > 0 && !titleTooLong;
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canSave || update.isPending) return;
+    // An edit that ends where it started has nothing to send.
+    if (!Object.keys(changes).length) {
+      onDone();
+      return;
+    }
+    update.mutate(
+      { ...changes, expectedVersion: baseline.version },
+      { onSuccess: onDone },
+    );
+  }
+
+  return (
+    <form className="space-y-3" onSubmit={handleSubmit}>
+      <label className="block">
+        <span className="mb-1.5 block text-sm font-medium text-app-ink">
+          Title
+        </span>
+        <input
+          aria-invalid={titleTooLong || undefined}
+          className={`ui-field-control w-full ${
+            titleTooLong ? "!border-app-danger" : ""
+          }`}
+          disabled={update.isPending}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder="What needs to be done?"
+          ref={titleInputRef}
+          value={title}
+        />
+      </label>
+      {titleTooLong ? (
+        <span className="block text-sm text-app-danger" role="alert">
+          A title can be at most {WORK_ITEM_TITLE_LIMIT} characters long.
+        </span>
+      ) : null}
+
+      <label className="block">
+        <span className="mb-1.5 block text-sm font-medium text-app-ink">
+          Description
+        </span>
+        <textarea
+          className="ui-field-control min-h-20 w-full"
+          disabled={update.isPending}
+          onChange={(event) => setDescription(event.target.value)}
+          placeholder="Add details"
+          value={description}
+        />
+      </label>
+
+      <label className="block text-sm font-medium text-app-body">
+        Priority
+        <Select
+          aria-label="Priority"
+          className="mt-1 w-full"
+          disabled={update.isPending}
+          onValueChange={(value) =>
+            setPriority(value as TeamHubWorkItemPriority)
+          }
+          value={priority}
+        >
+          {workItemPriorities.map((option) => (
+            <SelectItem key={option} value={option}>
+              {workItemPriorityLabel(option)}
+            </SelectItem>
+          ))}
+        </Select>
+      </label>
+
+      {update.error ? (
+        <p className="text-sm text-app-danger" role="alert">
+          {updateFailureMessage(update.error)}
+        </p>
+      ) : null}
+
+      <div className="flex items-center gap-2">
+        <Button
+          disabled={!canSave}
+          loading={update.isPending}
+          size="compact"
+          tone="primary"
+          type="submit"
+        >
+          Save
+        </Button>
+        <Button
+          disabled={update.isPending}
+          onClick={onDone}
+          size="compact"
+          tone="secondary"
+        >
+          Cancel
+        </Button>
+      </div>
+    </form>
   );
 }
 
