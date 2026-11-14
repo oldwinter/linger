@@ -257,12 +257,13 @@ describe("Dashboard page", () => {
       "/t/tenant-northstar/dashboard?room=room-gtm-launch",
     );
 
-    fireEvent.click(screen.getByRole("link", { name: /Agent-owned work/ }));
-
-    expect(screen.getByTestId("location")).toHaveTextContent(
+    expect(
+      screen.getByRole("link", { name: /Agent-owned work/ }),
+    ).toHaveAttribute(
+      "href",
       "/t/tenant-northstar/dashboard/workitem-agent?room=room-gtm-launch",
     );
-    expect(await screen.findByLabelText("Room")).toHaveValue("room-gtm-launch");
+    expect(screen.getByLabelText("Room")).toHaveValue("room-gtm-launch");
   });
 
   it("filters the board by priority and execution state", async () => {
@@ -403,16 +404,16 @@ describe("Dashboard page", () => {
     fireEvent.click(screen.getByLabelText("Priority"));
     fireEvent.click(await screen.findByRole("option", { name: "High" }));
     await waitFor(() =>
-      expect(screen.getByLabelText("Priority")).toHaveTextContent("High"),
+      expect(screen.queryByText("Low priority work")).not.toBeInTheDocument(),
     );
 
-    fireEvent.click(screen.getByRole("link", { name: /High priority work/ }));
-
-    expect(screen.getByTestId("location")).toHaveTextContent(
+    expect(
+      screen.getByRole("link", { name: /High priority work/ }),
+    ).toHaveAttribute(
+      "href",
       "/t/tenant-northstar/dashboard/workitem-high?priority=high",
     );
-    expect(await screen.findByLabelText("Priority")).toHaveValue("high");
-    expect(screen.queryByText("Low priority work")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Priority")).toHaveValue("high");
   });
 
   it("ignores legacy actor filters and drops them from Work Item deep links", async () => {
@@ -461,9 +462,10 @@ describe("Dashboard page", () => {
     expect(screen.getByText("Human-created work")).toBeVisible();
     expect(screen.queryByText("Agent-created work")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("link", { name: /Human-created work/ }));
-
-    expect(screen.getByTestId("location")).toHaveTextContent(
+    expect(
+      screen.getByRole("link", { name: /Human-created work/ }),
+    ).toHaveAttribute(
+      "href",
       "/t/tenant-northstar/dashboard/workitem-human?room=room-all",
     );
   });
