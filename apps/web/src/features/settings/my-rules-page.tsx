@@ -180,6 +180,7 @@ function RuleRow({
   rule: TeamHubProactiveRule;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const shadow = rule.status === "shadow";
   const save = async () => {
     const text = draft?.trim() ?? "";
@@ -234,7 +235,10 @@ function RuleRow({
             <Button
               aria-label="Edit rule"
               disabled={busy}
-              onClick={() => setDraft(rule.text)}
+              onClick={() => {
+                setConfirmingDelete(false);
+                setDraft(rule.text);
+              }}
               size="compactIcon"
               tone="ghost"
             >
@@ -242,10 +246,9 @@ function RuleRow({
             </Button>
             <Button
               aria-label="Delete rule"
+              aria-expanded={confirmingDelete}
               disabled={busy}
-              onClick={() =>
-                void onCommand({ kind: "delete", ruleId: rule.id })
-              }
+              onClick={() => setConfirmingDelete(true)}
               size="compactIcon"
               tone="ghost"
             >
@@ -282,6 +285,38 @@ function RuleRow({
           </div>
         </form>
       )}
+      {confirmingDelete && draft === null ? (
+        <div
+          aria-label="Confirm deleting this rule"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted px-3 py-2"
+          role="group"
+        >
+          <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+            Nightly learning will not learn this wording again unless new
+            replies ask for it.
+          </p>
+          <span className="flex shrink-0 items-center gap-1">
+            <Button
+              disabled={busy}
+              onClick={() => setConfirmingDelete(false)}
+              size="compact"
+              tone="ghost"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={busy}
+              onClick={() =>
+                void onCommand({ kind: "delete", ruleId: rule.id })
+              }
+              size="compact"
+              tone="danger"
+            >
+              Delete
+            </Button>
+          </span>
+        </div>
+      ) : null}
       {shadow ? null : (
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span>When this rule applies, Another Me may</span>

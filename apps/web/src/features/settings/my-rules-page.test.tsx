@@ -197,12 +197,17 @@ describe("My Rules", () => {
       expect(params).toMatchObject({ ruleId: activeId });
       return { ...promoted, rules: [promoted.rules[1]!] };
     });
+    const deleting = await row("Client replies → remind directly");
     fireEvent.click(
-      within(await row("Client replies → remind directly")).getByRole(
-        "button",
-        { name: "Delete rule" },
-      ),
+      within(deleting).getByRole("button", { name: "Delete rule" }),
     );
+    expect(
+      within(deleting).getByText(
+        "Nightly learning will not learn this wording again unless new replies ask for it.",
+      ),
+    ).toBeTruthy();
+    expect(runtime.server.requestsTo("DELETE", rulePath)).toHaveLength(0);
+    fireEvent.click(within(deleting).getByRole("button", { name: "Delete" }));
     expect(
       await screen.findByRole("listitem", {
         name: "Vendor invoices over 1000 → track for follow-up",
@@ -267,5 +272,26 @@ describe("My Rules", () => {
         { name: "Mandate" },
       ).textContent,
     ).toContain("Create a Work Item");
+  });
+
+  it("cancels a delete without telling TeamHub", async () => {
+    const runtime = renderPage();
+    const item = await row("Client replies → remind directly");
+    fireEvent.click(within(item).getByRole("button", { name: "Delete rule" }));
+    expect(
+      within(item).getByRole("group", { name: "Confirm deleting this rule" }),
+    ).toBeTruthy();
+    fireEvent.click(within(item).getByRole("button", { name: "Cancel" }));
+    expect(
+      within(item).queryByRole("group", {
+        name: "Confirm deleting this rule",
+      }),
+    ).toBeNull();
+    expect(runtime.server.requestsTo("DELETE", rulePath)).toHaveLength(0);
+    expect(
+      screen.getByRole("listitem", {
+        name: "Client replies → remind directly",
+      }),
+    ).toBeTruthy();
   });
 });
