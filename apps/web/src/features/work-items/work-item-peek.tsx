@@ -1,7 +1,13 @@
+import {
+  Cancel01Icon,
+  Copy01Icon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 
 import { Button, buttonClassName } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
 import { ModalDialog } from "@/components/ui/modal-dialog";
 import { ActorAvatar } from "@/features/rooms/members/actor-avatar";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
@@ -12,6 +18,7 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 import { dateTimeFormat } from "@/lib/date-format";
 
+import { WorkItemCopyStatus } from "./work-item-copy-status";
 import {
   tenantWorkItemCommentsQueryOptions,
   tenantWorkItemTargetQueryOptions,
@@ -19,6 +26,7 @@ import {
   useWorkItemTransition,
 } from "./work-item-queries";
 import { dashboardWorkItemPath } from "./work-item-routes";
+import { useWorkItemLinkCopy } from "./use-work-item-link-copy";
 
 const peekDateFormatter = dateTimeFormat({
   day: "numeric",
@@ -125,6 +133,7 @@ export function WorkItemPeek({
           ))}
         </>
       }
+      headerActions={<PeekCopyLink tenantId={tenantId} workItemId={item.id} />}
       onClose={onClose}
       title={item.title}
     >
@@ -235,6 +244,39 @@ export function WorkItemPeek({
         ) : null}
       </div>
     </ModalDialog>
+  );
+}
+
+/** Copies the same board link the card menu copies, with the same feedback. */
+function PeekCopyLink({
+  tenantId,
+  workItemId,
+}: {
+  tenantId: string;
+  workItemId: string;
+}) {
+  const { copyLink, state } = useWorkItemLinkCopy(tenantId, workItemId);
+  return (
+    <span className="relative inline-flex">
+      <button
+        aria-label="Copy link"
+        className="app-dialog-close"
+        onClick={copyLink}
+        type="button"
+      >
+        <Icon
+          icon={
+            state === "copied"
+              ? Tick02Icon
+              : state === "failed"
+                ? Cancel01Icon
+                : Copy01Icon
+          }
+          size={16}
+        />
+      </button>
+      <WorkItemCopyStatus state={state} />
+    </span>
   );
 }
 
