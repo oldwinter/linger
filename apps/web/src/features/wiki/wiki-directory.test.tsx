@@ -29,6 +29,8 @@ beforeAll(async () => {
 
 afterEach(() => {
   window.localStorage.clear();
+  Reflect.deleteProperty(navigator, "clipboard");
+  Reflect.deleteProperty(document, "execCommand");
   vi.restoreAllMocks();
 });
 const bodies: Record<string, string> = {
@@ -75,11 +77,18 @@ const moduleHeadings = [
   "Preferences",
   "Writing style",
 ];
+function stubClipboard(write: () => Promise<void>) {
+  const writeText = vi.fn(write);
+  Object.assign(navigator, { clipboard: { writeText } });
+  return writeText;
+}
+
 async function setup(
   initial = "/t/tenant-northstar/library/wiki",
   profile = profileDocument(),
   pageKeys: Record<string, string> = {},
   profileResponse?: object,
+  documentsPending = false,
 ) {
   const runtime = await loggedInWikiRuntime();
   const pages = ["alpha", "beta"].map((id) => {
@@ -87,10 +96,12 @@ async function setup(
     page.from[0]!.page_key = pageKeys[id] ?? `projects/${id}.md`;
     return page;
   });
-  serveWikiDocuments(runtime).mockResolvedValue({
-    items: pages,
-    page: { has_more: false },
-  });
+  const documents = serveWikiDocuments(runtime);
+  if (documentsPending) {
+    documents.mockReturnValue(new Promise<never>(() => {}));
+  } else {
+    documents.mockResolvedValue({ items: pages, page: { has_more: false } });
+  }
   runtime.server.on(
     "GET",
     "/v0/documents/{documentId}",
@@ -340,6 +351,81 @@ describe("Wiki directory", () => {
     expect(screen.queryByRole("link", { name: /alpha/ })).toBeNull();
     expect(screen.getByRole("link", { name: /beta/ })).toBeVisible();
     expect(screen.getByText(/Northwind delivery plan\./)).toBeVisible();
+  });
+  it("copies the collection as a Markdown list of absolute links", async () => {
+    const writeText = stubClipboard(() => Promise.resolve());
+    const { router } = await setup("/t/tenant-northstar/library/wiki/projects");
+    expect(await screen.findByRole("link", { name: /alpha/ })).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy list" }));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        [
+          "# Projects",
+          `- [alpha](${window.location.origin}/t/tenant-northstar/documents/alpha)`,
+          `- [beta](${window.location.origin}/t/tenant-northstar/documents/beta)`,
+        ].join("\n"),
+      ),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent("Copied");
+    expect(router.state.location.pathname).toBe(
+      "/t/tenant-northstar/library/wiki/projects",
+    );
+  });
+  it("copies only the pages the filter leaves", async () => {
+    const writeText = stubClipboard(() => Promise.resolve());
+    await setup("/t/tenant-northstar/library/wiki/projects");
+    const search = await screen.findByRole("searchbox", {
+      name: "Search Projects",
+    });
+    fireEvent.change(search, { target: { value: "BET" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy list" }));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        [
+          "# Projects",
+          `- [beta](${window.location.origin}/t/tenant-northstar/documents/beta)`,
+        ].join("\n"),
+      ),
+    );
+  });
+  it("disables Copy list while the collection is loading", async () => {
+    await setup(
+      "/t/tenant-northstar/library/wiki/projects",
+      undefined,
+      {},
+      undefined,
+      true,
+    );
+
+    expect(await screen.findByText("Loading Wiki Documents…")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Copy list" })).toBeDisabled();
+  });
+  it("disables Copy list when the collection has no pages", async () => {
+    await setup("/t/tenant-northstar/library/wiki/projects", undefined, {
+      alpha: "topics/alpha.md",
+      beta: "topics/beta.md",
+    });
+
+    expect(await screen.findByText("No generated projects yet.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Copy list" })).toBeDisabled();
+  });
+  it("reports a refused clipboard write", async () => {
+    stubClipboard(() => Promise.reject(new Error("Clipboard is denied")));
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: vi.fn(() => false),
+    });
+    await setup("/t/tenant-northstar/library/wiki/projects");
+    expect(await screen.findByRole("link", { name: /alpha/ })).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy list" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
+    expect(screen.queryByRole("status")).toBeNull();
   });
   it.each(["projects", "topics", "contacts", "clients"])(
     "shows %s with Back and no directory",
