@@ -19,8 +19,10 @@
   per-Account browser list that the unified document page writes when it opens a
   Document. It issues no request, and an entry without an id or name never
   renders. Each entry can be forgotten on its own, which removes only that
-  Document from this browser's list and nothing else, while Clear empties
-  the list for this Account and the settings action empties it for every Account.
+  Document from this browser's list and nothing else; forgetting the last entry
+  keeps the strip with an announced empty status so focus has somewhere to land.
+  Clear empties the list for this Account and hides the strip, and the settings
+  action empties it for every Account.
 - The sidebar appears beside an opened Document for switching: Back to
   Library, then personal Documents, Shared with me, and the independent
   read-only Meetings list. Wiki is a primary-rail destination with its own

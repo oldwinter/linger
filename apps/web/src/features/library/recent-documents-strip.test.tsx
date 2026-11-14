@@ -107,8 +107,8 @@ describe("Recently opened strip", () => {
     expect(
       within(strip)
         .getAllByRole("link")
-        .map((link) => link.textContent),
-    ).toEqual(["Design notes", "Brief"]);
+        .map((link) => link.getAttribute("aria-label")),
+    ).toEqual(["Design notes, md", "Brief, md"]);
     expect(readRecentDocuments("account-a").map((row) => row.id)).toEqual([
       "document-design",
       "document-brief",
@@ -131,7 +131,35 @@ describe("Recently opened strip", () => {
     );
   });
 
-  it("hides after the last Document is forgotten", () => {
+  it("moves focus to the next entry when one is forgotten", () => {
+    writeRecentDocuments("account-a", [
+      entry("document-design", "Design notes"),
+      entry("document-plan", "Q3 plan"),
+      entry("document-brief", "Brief"),
+    ]);
+    renderStrip();
+
+    fireEvent.click(screen.getByRole("button", { name: "Forget Q3 plan" }));
+
+    expect(screen.getByRole("button", { name: "Forget Brief" })).toHaveFocus();
+  });
+
+  it("moves focus to the previous entry when the last one is forgotten", () => {
+    writeRecentDocuments("account-a", [
+      entry("document-design", "Design notes"),
+      entry("document-plan", "Q3 plan"),
+      entry("document-brief", "Brief"),
+    ]);
+    renderStrip();
+
+    fireEvent.click(screen.getByRole("button", { name: "Forget Brief" }));
+
+    expect(
+      screen.getByRole("button", { name: "Forget Q3 plan" }),
+    ).toHaveFocus();
+  });
+
+  it("announces an empty strip after the last Document is forgotten", () => {
     writeRecentDocuments("account-a", [
       entry("document-design", "Design notes"),
     ]);
@@ -141,9 +169,37 @@ describe("Recently opened strip", () => {
       screen.getByRole("button", { name: "Forget Design notes" }),
     );
 
-    expect(
-      screen.queryByRole("region", { name: "Recently opened" }),
-    ).not.toBeInTheDocument();
+    const strip = screen.getByRole("region", { name: "Recently opened" });
+    expect(within(strip).queryAllByRole("link")).toHaveLength(0);
+    expect(within(strip).queryByRole("button", { name: "Clear" })).toBeNull();
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("No recently opened documents");
+    expect(status).toHaveFocus();
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it("navigates when the format label is clicked", () => {
+    writeRecentDocuments("account-a", [
+      entry("document-design", "Design notes"),
+    ]);
+    renderStrip();
+
+    const strip = screen.getByRole("region", { name: "Recently opened" });
+    fireEvent.click(within(strip).getByText("md"));
+
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/t/tenant-a/documents/document-design",
+    );
+  });
+
+  it("gives the Forget control a comfortable target", () => {
+    writeRecentDocuments("account-a", [
+      entry("document-design", "Design notes"),
+    ]);
+    renderStrip();
+
+    expect(
+      screen.getByRole("button", { name: "Forget Design notes" }),
+    ).toHaveClass("size-6");
   });
 });
