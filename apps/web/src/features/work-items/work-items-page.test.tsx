@@ -389,6 +389,132 @@ describe("Dashboard page", () => {
     expect(screen.getByTestId("location")).toHaveTextContent("archived=true");
   });
 
+  it("narrows the board by title words and restores it with Clear", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, { id: "workitem-plan", title: "Plan the release" }),
+      workItem(human, { id: "workitem-budget", title: "Review the budget" }),
+    ]);
+
+    renderPage(runtime);
+    await screen.findByText("Plan the release");
+    const input = screen.getByRole("searchbox", { name: "Filter by title" });
+
+    fireEvent.change(input, { target: { value: "release PLAN" } });
+
+    await waitFor(() =>
+      expect(screen.queryByText("Review the budget")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("Plan the release")).toBeVisible();
+    expect(screen.getByText("1 of 2 items")).toBeVisible();
+    expect(input).toHaveValue("release PLAN");
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/t/tenant-northstar/dashboard?q=release+PLAN",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear title filter" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Review the budget")).toBeVisible(),
+    );
+    expect(screen.getByText("2 items")).toBeVisible();
+    expect(screen.getByTestId("location")).not.toHaveTextContent("q=");
+  });
+
+  it("says when a title query matches nothing and offers one clear step", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, { id: "workitem-plan", title: "Plan the release" }),
+    ]);
+
+    renderPage(runtime);
+    await screen.findByText("Plan the release");
+
+    fireEvent.change(
+      screen.getByRole("searchbox", { name: "Filter by title" }),
+      {
+        target: { value: "nothing" },
+      },
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "No Work Items match" }),
+    ).toBeVisible();
+    expect(
+      screen.getByText("Only Work Item titles are searched."),
+    ).toBeVisible();
+    expect(screen.queryByRole("region", { name: "Todo" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear filter" }));
+
+    expect(await screen.findByText("Plan the release")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Todo" })).toBeVisible();
+    expect(
+      screen.getByRole("searchbox", { name: "Filter by title" }),
+    ).toHaveValue("");
+  });
+
+  it("restores the title query from the URL and ignores descriptions", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, { id: "workitem-plan", title: "Plan the release" }),
+      workItem(human, {
+        description: "The release is blocked.",
+        id: "workitem-login",
+        title: "Fix login failure",
+      }),
+    ]);
+
+    renderPage(runtime, "/t/tenant-northstar/dashboard?q=release");
+
+    expect(await screen.findByText("Plan the release")).toBeVisible();
+    expect(screen.queryByText("Fix login failure")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("searchbox", { name: "Filter by title" }),
+    ).toHaveValue("release");
+    expect(screen.getByTestId("location")).toHaveTextContent("?q=release");
+  });
+
+  it("replaces history per keystroke so back stays one step at a time", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, { id: "workitem-plan", title: "Plan release" }),
+    ]);
+    renderPage(runtime, "/t/tenant-northstar/dashboard", <BackProbe />);
+    await screen.findByText("Plan release");
+
+    const input = screen.getByRole("searchbox", { name: "Filter by title" });
+    for (const value of ["p", "pl", "pla", "plan"]) {
+      fireEvent.change(input, { target: { value } });
+    }
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent("q=plan"),
+    );
+
+    fireEvent.click(screen.getByLabelText("Sort"));
+    fireEvent.click(
+      await screen.findByRole("option", { name: "Newest first" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Sort")).toHaveValue("newest"),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Sort")).toHaveValue("updated"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+
+    expect(
+      screen.getByRole("searchbox", { name: "Filter by title" }),
+    ).toHaveValue("plan");
+    expect(screen.getByTestId("location")).toHaveTextContent("q=plan");
+  });
+
   it("keeps Dashboard filters in Work Item deep links", async () => {
     const runtime = await testRuntime();
     const identity = runtime.seed.identity;

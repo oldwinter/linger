@@ -16,6 +16,11 @@ export interface WorkItemDashboardFilters {
    * includes them in the board instead of replacing it with an archive list.
    */
   archived: boolean;
+  /**
+   * The typed title query, kept as written so a trailing space survives until
+   * the next word; matching splits it into words. Blank text is no filter.
+   */
+  text: string;
 }
 
 export interface WorkItemDashboardListQuery {
@@ -31,6 +36,7 @@ export const EMPTY_WORK_ITEM_DASHBOARD_FILTERS: WorkItemDashboardFilters = {
   execution: "",
   priority: "",
   room: "",
+  text: "",
 };
 
 export const WORK_ITEM_DASHBOARD_PRIORITIES = [
@@ -57,6 +63,7 @@ export const WORK_ITEM_DASHBOARD_ASSIGNMENTS = [
 export function createWorkItemDashboardFilters(
   searchParams: URLSearchParams,
 ): WorkItemDashboardFilters {
+  const text = searchParams.get("q") ?? "";
   return {
     archived: searchParams.get("archived") === "true",
     assignment:
@@ -70,6 +77,7 @@ export function createWorkItemDashboardFilters(
     priority:
       oneOf(searchParams.get("priority"), WORK_ITEM_DASHBOARD_PRIORITIES) ?? "",
     room: searchParams.get("room")?.trim() ?? "",
+    text: text.trim() ? text : "",
   };
 }
 
@@ -78,6 +86,7 @@ export function workItemDashboardFiltersSearch(
 ): string {
   const searchParams = new URLSearchParams();
   if (filters.room) searchParams.set("room", filters.room);
+  if (filters.text.trim()) searchParams.set("q", filters.text);
   if (filters.priority) searchParams.set("priority", filters.priority);
   if (filters.assignment !== "all") {
     searchParams.set("assignment", filters.assignment);
@@ -94,8 +103,24 @@ export function hasWorkItemDashboardFilters(
 }
 
 /**
- * The filters that change the Dashboard list request. Room narrows the loaded
- * board instead, so its options still offer every source Room.
+ * The Work Items whose title holds every word of the query, case-insensitively.
+ * Descriptions, comments, and Room names stay out, so the board never matches
+ * text the card does not show.
+ */
+export function matchesWorkItemText(
+  item: Pick<TeamHubWorkItem, "title">,
+  text: string,
+): boolean {
+  const words = text.toLowerCase().split(/\s+/u).filter(Boolean);
+  if (!words.length) return true;
+  const title = item.title.toLowerCase();
+  return words.every((word) => title.includes(word));
+}
+
+/**
+ * The filters that change the Dashboard list request. Room and the title query
+ * narrow the loaded board instead, so its options still offer every source
+ * Room and typing never refetches.
  */
 export function workItemDashboardListFilterSearch(
   filters: WorkItemDashboardFilters,
@@ -104,6 +129,7 @@ export function workItemDashboardListFilterSearch(
     workItemDashboardFiltersSearch(filters),
   );
   searchParams.delete("room");
+  searchParams.delete("q");
   return searchParams.toString();
 }
 
