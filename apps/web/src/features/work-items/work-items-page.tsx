@@ -35,6 +35,7 @@ import {
   type WorkItemDashboardFilters,
   type WorkItemDashboardPriority,
 } from "./work-item-dashboard-filters";
+import { WorkItemCreateAction } from "./work-item-create-dialog";
 import {
   tenantWorkItemTargetQueryOptions,
   tenantWorkItemsDashboardQueryOptions,
@@ -173,13 +174,16 @@ export function WorkItemsPage() {
   return (
     <main className="work-items-surface flex min-h-0 flex-1 flex-col overflow-hidden bg-app-surface">
       <header className="work-items-header shrink-0 border-b border-app-border px-5 py-3 sm:px-8">
-        <div>
-          <h1 className="text-2xl text-foreground">Dashboard</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            {filteredItems.length === items.length
-              ? itemCount(items.length)
-              : `${filteredItems.length} of ${items.length} items`}
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl text-foreground">Dashboard</h1>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {filteredItems.length === items.length
+                ? itemCount(items.length)
+                : `${filteredItems.length} of ${items.length} items`}
+            </p>
+          </div>
+          <WorkItemCreateAction rooms={rooms.items} tenantId={tenantId} />
         </div>
         {showFilterBar ? (
           <div

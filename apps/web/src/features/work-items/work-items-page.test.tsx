@@ -106,7 +106,7 @@ describe("Dashboard page", () => {
     expect(screen.queryByText("Delivery result")).not.toBeInTheDocument();
   });
 
-  it("does not expose Work Item mutation controls", async () => {
+  it("creates an issue without exposing other Work Item mutation controls", async () => {
     const runtime = await testRuntime();
     const identity = runtime.seed.identity;
     const human = identity.actors[0]!;
@@ -115,6 +115,7 @@ describe("Dashboard page", () => {
     renderPage(runtime);
     await screen.findByText("Fix login failure");
 
+    expect(screen.getByRole("button", { name: "New issue" })).toBeVisible();
     const filters = screen.getByRole("group", { name: "Work Item filters" });
     expect(
       within(filters).getByRole("button", { name: "Archived" }),
