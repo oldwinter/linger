@@ -95,6 +95,7 @@ export function RoomDocumentCommentsController({
   const { selectedThreadId, pendingComment } =
     useExtensionState(CommentsExtension);
   const [internalOpen, setInternalOpen] = useState(false);
+  const [showResolved, setShowResolved] = useState(false);
   const sharedOpen = useContext(CommentsOpenContext);
   const setSharedOpen = sharedOpen?.setOpen;
   const open = sharedOpen?.open ?? controlledOpen ?? internalOpen;
@@ -116,6 +117,14 @@ export function RoomDocumentCommentsController({
     setSharedOpen?.(true);
   }, [selectedThreadId, pendingComment, pendingSelection, setSharedOpen]);
 
+  useEffect(() => {
+    if (!pendingComment && !pendingSelection) return;
+    // A new comment belongs to the open list, so starting one leaves the
+    // Resolved filter the reader may have left the sidebar on.
+    // oxlint-disable-next-line react-doctor/no-adjust-state-on-prop-change -- Follow the editor's pending comment into the open list.
+    setShowResolved(false);
+  }, [pendingComment, pendingSelection]);
+
   if (threads.size === 0 && !open) return null;
 
   const panel = open ? (
@@ -133,6 +142,28 @@ export function RoomDocumentCommentsController({
           tone="ghost"
         >
           <Icon icon={Cancel01Icon} size={14} />
+        </Button>
+      </div>
+      <div
+        aria-label="Comment filter"
+        className="flex shrink-0 gap-1 px-3 pb-2"
+        role="group"
+      >
+        <Button
+          aria-pressed={!showResolved}
+          onClick={() => setShowResolved(false)}
+          size="compact"
+          tone={showResolved ? "ghost" : "subtle"}
+        >
+          Open
+        </Button>
+        <Button
+          aria-pressed={showResolved}
+          onClick={() => setShowResolved(true)}
+          size="compact"
+          tone={showResolved ? "subtle" : "ghost"}
+        >
+          Resolved
         </Button>
       </div>
       <div
@@ -165,6 +196,7 @@ export function RoomDocumentCommentsController({
             onSelectThread={(threadId) => {
               comments.selectThread(threadId, false);
             }}
+            resolved={showResolved}
             threadStore={threadStore}
           />
         )}

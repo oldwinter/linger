@@ -1,9 +1,14 @@
 import type { ThreadData } from "@blocknote/core/comments";
-import { QuoteDownIcon, RotateLeft01Icon } from "@hugeicons/core-free-icons";
+import {
+  QuoteDownIcon,
+  RotateLeft01Icon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { formatDateTime } from "@/lib/date-format";
 
 import type { TeamHubActorRef } from "@/features/teamhub/teamhub-types";
 
@@ -41,8 +46,14 @@ export function RoomDocumentCommentThread({
     [actorDirectory],
   );
   const [attachmentPending, setAttachmentPending] = useState(false);
+  const [resolutionPending, setResolutionPending] = useState(false);
+  const [resolutionError, setResolutionError] = useState<string | null>(null);
   const metadata = thread.metadata as
-    | { anchorStatus?: string; attachmentError?: string }
+    | {
+        anchorStatus?: string;
+        attachmentError?: string;
+        resolvedByName?: string;
+      }
     | undefined;
   const selectionPending = metadata?.anchorStatus === "pending";
 
@@ -52,6 +63,23 @@ export function RoomDocumentCommentThread({
       await threadStore.attachSelectionAnchor(thread.id);
     } finally {
       setAttachmentPending(false);
+    }
+  }
+
+  async function setResolution(resolved: boolean) {
+    setResolutionPending(true);
+    setResolutionError(null);
+    try {
+      if (resolved) await threadStore.resolveThread({ threadId: thread.id });
+      else await threadStore.unresolveThread({ threadId: thread.id });
+    } catch (cause) {
+      setResolutionError(
+        cause instanceof Error
+          ? cause.message
+          : "The comment thread could not be updated.",
+      );
+    } finally {
+      setResolutionPending(false);
     }
   }
 
@@ -140,6 +168,53 @@ export function RoomDocumentCommentThread({
             {attachmentPending ? "Retrying..." : "Retry linking"}
           </Button>
         </div>
+      ) : null}
+      {thread.resolved ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <p className="text-xs text-app-subtle">
+            {metadata?.resolvedByName
+              ? `Resolved by ${metadata.resolvedByName}`
+              : "Resolved"}
+            {thread.resolvedUpdatedAt ? (
+              <>
+                {" · "}
+                <time dateTime={thread.resolvedUpdatedAt.toISOString()}>
+                  {formatDateTime(thread.resolvedUpdatedAt, {
+                    dateStyle: "medium",
+                  })}
+                </time>
+              </>
+            ) : null}
+          </p>
+          {threadStore.auth.canUnresolveThread(thread) ? (
+            <Button
+              loading={resolutionPending}
+              onClick={() => void setResolution(false)}
+              size="compact"
+              tone="ghost"
+            >
+              <Icon icon={RotateLeft01Icon} size={14} />
+              Reopen
+            </Button>
+          ) : null}
+        </div>
+      ) : threadStore.auth.canResolveThread(thread) ? (
+        <div className="mt-2 flex justify-end">
+          <Button
+            loading={resolutionPending}
+            onClick={() => void setResolution(true)}
+            size="compact"
+            tone="ghost"
+          >
+            <Icon icon={Tick02Icon} size={14} />
+            Resolve
+          </Button>
+        </div>
+      ) : null}
+      {resolutionError ? (
+        <p className="mt-1 text-xs text-app-danger" role="alert">
+          {resolutionError}
+        </p>
       ) : null}
       {!thread.resolved && threadStore.auth.canAddComment(thread) ? (
         <RoomDocumentCommentReplyComposer

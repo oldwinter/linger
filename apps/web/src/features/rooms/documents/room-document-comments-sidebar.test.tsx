@@ -191,6 +191,25 @@ describe("Room Document Comments popover", () => {
     expect(screen.getByText("Kept discussion")).toBeVisible();
   });
 
+  it("shows open threads by default and reaches resolved ones from the filter", () => {
+    blockNote.threads.set("thread_1", thread("thread_1", "Open discussion"));
+    blockNote.threads.set("thread_2", {
+      ...thread("thread_2", "Resolved discussion"),
+      resolved: true,
+      resolvedBy: "actor_alice",
+      resolvedUpdatedAt: new Date("2026-08-04T00:00:00Z"),
+    });
+    renderController({ open: true, showTrigger: false });
+
+    expect(screen.getByText("Open discussion")).toBeVisible();
+    expect(screen.queryByText("Resolved discussion")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Resolved" }));
+
+    expect(screen.queryByText("Open discussion")).toBeNull();
+    expect(screen.getByText("Resolved discussion")).toBeVisible();
+  });
+
   it("keeps a failed selection link visible and retryable", () => {
     blockNote.threads.set("thread_1", {
       ...thread("thread_1", "First comment"),
