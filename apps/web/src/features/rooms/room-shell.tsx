@@ -145,6 +145,7 @@ function RoomShellReady({
     [navigate, tenantId],
   );
   useAnotherMeNotifications({
+    accountId: identity.account.id,
     rooms: roomsQuery.data?.items,
     roomId: anotherMeRoomId,
     agentActorId: anotherMe?.agent_actor_id,
