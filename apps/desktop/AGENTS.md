@@ -223,11 +223,15 @@ Gateway and runs Agents. The daemon exits with the app.
 - `src/main/computer-credential.ts`: the Gateway credential in
   `<userData>/computer/credential.json` (0600).
 - Installs from before the product was renamed Linger move once on start.
-  `index.ts` renames the packaged app's data folder from `<appData>/Simplex`
-  to `<appData>/Linger` before `app.setPath("userData")`. A `Linger` folder
-  that already holds `computer/credential.json` wins and the old folder stays
-  (logged as `desktop.legacy_user_data_kept`); one without a credential is set
-  aside as `Linger.before-move-<time>`, so the Computer keeps its identity.
+  `legacy-user-data.ts` renames the packaged app's data folder from
+  `<appData>/Simplex` to `<appData>/Linger` before `app.setPath("userData")`.
+  A rename Windows refuses because a program holds a file in the folder open
+  is retried a few times, then fails with a message naming the folder and
+  asking the person to close the programs using it; neither folder is deleted.
+  A `Linger` folder that already holds `computer/credential.json` wins and
+  the old folder stays (logged as `desktop.legacy_user_data_kept`); one
+  without a credential is set aside as `Linger.before-move-<time>`, so the
+  Computer keeps its identity.
   LocalServer runs `installer.js --migrate` when an instance record still
   carries a `simplex-` project name, before it reads
   `desktop/local-server.json`
