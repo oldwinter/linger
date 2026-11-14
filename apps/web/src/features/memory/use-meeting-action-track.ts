@@ -11,7 +11,7 @@ import {
 } from "@/features/rooms/room-queries";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
-import { meetingPath } from "./memory-queries";
+import { meetingPath } from "./meeting-routes";
 
 /** The block a Track click adds: the action, its meeting, and the link. */
 function actionBlock(input: {
