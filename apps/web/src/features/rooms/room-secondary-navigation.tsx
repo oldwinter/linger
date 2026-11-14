@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { searchShortcutLabel } from "@/features/search/search-shortcut";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
+import { cn } from "@/lib/cn";
 
 import { AgentCreateMenu } from "./agent-create-menu";
 import { AwayRecapCard } from "./away-recap-card";
@@ -50,6 +51,11 @@ import {
   RoomPinButton,
   useRoomPin,
 } from "./room-nav-actions";
+import {
+  readRoomUnreadFilter,
+  unreadRoomRows,
+  writeRoomUnreadFilter,
+} from "./room-unread-filter";
 const QuickCreateLocalAgentDialog = lazy(async () => ({
   default: (await import("./quick-create-local-agent-dialog"))
     .QuickCreateLocalAgentDialog,
@@ -119,6 +125,13 @@ export function RoomSecondaryNavigation({
   usePrefetchTemplateFlow();
   const [localAgentOpen, setLocalAgentOpen] = useState(false);
   const [templateAgentOpen, setTemplateAgentOpen] = useState(false);
+  const [unreadOnly, setUnreadOnly] = useState(() =>
+    readRoomUnreadFilter(accountId),
+  );
+  function setUnreadFilter(next: boolean) {
+    setUnreadOnly(next);
+    writeRoomUnreadFilter(accountId, next);
+  }
   const runningRooms = new Set(runningRoomIds);
   const failedRooms = new Set(failedRoomIds);
   const visibleRoomIds = new Set(
@@ -151,8 +164,9 @@ export function RoomSecondaryNavigation({
       ? anotherMeRoom
       : undefined;
   const visibleChats = chats.filter((room) => visibleRoomIds.has(room.id));
+  const listedChats = unreadRoomRows(visibleChats, activeRoomId, unreadOnly);
   const listRef = useRef<HTMLDivElement>(null);
-  const reorderKey = visibleChats
+  const reorderKey = listedChats
     .map((room) => `${room.id}:${room.pinned_at ? 1 : 0}`)
     .join("|");
   useNavReorderFlip(listRef, reorderKey);
@@ -329,18 +343,29 @@ export function RoomSecondaryNavigation({
             ) : null}
             <NavSection
               action={
-                <AgentCreateMenu
-                  onCreateFromTemplate={() => setTemplateAgentOpen(true)}
-                  onCreateRoom={onCreateRoom}
-                  onCreateAgent={() => {
-                    setLocalAgentOpen(true);
-                    onCloseMobile();
-                  }}
-                />
+                <>
+                  <UnreadFilterToggle
+                    on={unreadOnly}
+                    onToggle={() => setUnreadFilter(!unreadOnly)}
+                  />
+                  <AgentCreateMenu
+                    onCreateFromTemplate={() => setTemplateAgentOpen(true)}
+                    onCreateRoom={onCreateRoom}
+                    onCreateAgent={() => {
+                      setLocalAgentOpen(true);
+                      onCloseMobile();
+                    }}
+                  />
+                </>
               }
               title="Messages"
             >
-              {visibleChats.map((room) => {
+              {unreadOnly && listedChats.length === 0 ? (
+                <UnreadFilterEmptyState
+                  onShowAll={() => setUnreadFilter(false)}
+                />
+              ) : null}
+              {listedChats.map((room) => {
                 if (room.kind === "room")
                   return (
                     <NavRow
@@ -430,6 +455,50 @@ export function RoomSecondaryNavigation({
   );
 }
 
+/**
+ * The filter reads as a pressed toggle rather than a command, so its name stays
+ * "Unread" and its state is announced; the title names what pressing it does.
+ */
+function UnreadFilterToggle({
+  on,
+  onToggle,
+}: {
+  on: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      aria-pressed={on}
+      className={cn(
+        "flex h-6 shrink-0 items-center rounded-full px-2 text-2xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        on
+          ? "bg-(--app-unread) text-(--app-unread-foreground)"
+          : "bg-card text-muted-foreground shadow-outline hover:bg-accent hover:text-foreground",
+      )}
+      onClick={onToggle}
+      title={on ? "Show all Rooms" : "Show only unread Rooms"}
+      type="button"
+    >
+      Unread
+    </button>
+  );
+}
+
+function UnreadFilterEmptyState({ onShowAll }: { onShowAll: () => void }) {
+  return (
+    <div className="rounded-lg px-2 py-3">
+      <p className="text-xs leading-4 text-muted-foreground">No unread Rooms</p>
+      <button
+        className="mt-1 text-xs font-medium text-foreground underline underline-offset-2 transition-colors hover:text-app-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={onShowAll}
+        type="button"
+      >
+        Show all Rooms
+      </button>
+    </div>
+  );
+}
+
 function NavSection({
   action,
   children,
@@ -461,7 +530,9 @@ function NavSection({
           </button>
         </h2>
         {action ? (
-          <div className="relative flex shrink-0 items-center">{action}</div>
+          <div className="relative flex shrink-0 items-center gap-1">
+            {action}
+          </div>
         ) : null}
       </div>
       {collapsed ? null : <div className="space-y-1">{children}</div>}
