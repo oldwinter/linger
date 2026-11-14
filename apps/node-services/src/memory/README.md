@@ -711,9 +711,17 @@ that made the tool call. LLM Wiki generates candidate pages step by step through
 pnpm --filter @linger/node-services memory:daily -- --date 2026-09-01
 pnpm --filter @linger/node-services memory:weekly -- --week-start 2026-08-31
 pnpm --filter @linger/node-services memory:wiki-sync -- --date 2026-09-01
+pnpm --filter @linger/node-services memory:search "cobalt budget"
 ```
 
 The `:collect`, `:prompt` and `:apply` actions of `memory:daily` and `memory:weekly` remain for manual inspection.
+
+`search` runs one personal knowledge query against the local index and prints a line per hit: the rank the
+query assigned (`S<n>` for originals, `W<n>` for summaries, `F<n>` for Session facts), the scope
+(`original:<kind>`, `summary:<kind>` or `fact`), the title or the evidence ID, and one line of matched text.
+The query response ranks hits and carries no numeric score. It reads the Another Me subjects from the same
+database as the other commands, uses the only subject or the one named by `--memory-subject-key`, and
+`--scope originals|summaries` searches one list.
 
 `wiki-sync` indexes the Session Raw, requests the refresh and finishes once TeamHub returns its `refresh_id`; the result records
 `accepted` / `in_progress` and no longer waits for the new Revision. TeamHub queues, generates and safely publishes in

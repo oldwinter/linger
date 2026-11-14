@@ -27,6 +27,7 @@
     "memory:weekly:prompt": "node ../../scripts/with-local-env.mjs -- node --import tsx src/memory/weekly-cli.ts prompt",
     "memory:weekly:apply": "node ../../scripts/with-local-env.mjs -- node --import tsx src/memory/weekly-cli.ts apply",
     "memory:user-memory:rollback": "node ../../scripts/with-local-env.mjs -- node --import tsx src/memory/user-memory-cli.ts",
+    "memory:search": "node ../../scripts/with-local-env.mjs -- node --import tsx src/memory/search-cli.ts",
     "memory:wiki-sync": "node ../../scripts/with-local-env.mjs -- node --import tsx src/memory/wiki-sync-cli.ts"
   },
   "dependencies": {
