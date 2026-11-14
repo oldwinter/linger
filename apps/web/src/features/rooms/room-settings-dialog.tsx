@@ -12,6 +12,7 @@ import type {
   TeamHubRoom,
   TeamHubRoomUpdateInput,
 } from "@/features/teamhub/teamhub-types";
+import { writeClipboardText } from "@/lib/clipboard";
 
 import {
   requireRoomScope,
@@ -120,6 +121,8 @@ export function RoomSettingsDialog({
         </label>
       </div>
 
+      <RoomIdLine roomId={room.id} />
+
       {failure ? (
         <p className="mt-3 text-sm text-app-danger" role="alert">
           {failure.message}
@@ -194,5 +197,69 @@ export function RoomSettingsDialog({
         </section>
       </div>
     </ModalDialog>
+  );
+}
+
+/** Long enough to read, matching the other copy actions. */
+const copiedDurationMs = 1200;
+
+type RoomIdCopyState = "copied" | "failed";
+
+/**
+ * The Room's ID as a quiet, selectable line with a Copy action, for support or
+ * scripts. It reads as an aside rather than a field, so it never invites an
+ * edit, and the copied value is the ID itself with nothing around it.
+ */
+function RoomIdLine({ roomId }: { roomId: string }) {
+  const [state, setState] = useState<RoomIdCopyState>();
+  const resetTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => () => window.clearTimeout(resetTimer.current), []);
+
+  function copyId() {
+    window.clearTimeout(resetTimer.current);
+    setState(undefined);
+    void writeClipboardText(roomId)
+      .then(() => {
+        setState("copied");
+        resetTimer.current = window.setTimeout(
+          () => setState(undefined),
+          copiedDurationMs,
+        );
+      })
+      .catch(() => setState("failed"));
+  }
+
+  return (
+    <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-border px-4 py-2.5">
+      <div className="min-w-0">
+        <span className="block text-xs font-medium text-app-muted">
+          Room ID
+        </span>
+        <code className="mt-0.5 block break-all font-mono text-xs text-app-body select-all">
+          {roomId}
+        </code>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {state === "copied" ? (
+          <span className="text-xs leading-4 text-app-muted" role="status">
+            Copied
+          </span>
+        ) : null}
+        {state === "failed" ? (
+          <span className="text-xs leading-4 text-app-danger" role="alert">
+            Copy failed
+          </span>
+        ) : null}
+        <Button
+          aria-label="Copy Room ID"
+          onClick={copyId}
+          size="compact"
+          tone="ghost"
+        >
+          Copy
+        </Button>
+      </div>
+    </div>
   );
 }
