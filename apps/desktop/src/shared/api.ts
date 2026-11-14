@@ -79,6 +79,10 @@ export interface LingerDesktopApi {
     get(): Promise<DesktopSettings>;
     set(patch: { displayName?: string }): Promise<DesktopSettings>;
   };
+  // The app icon's unread mention count; zero clears the badge.
+  readonly notifications: {
+    setBadgeCount(count: number): Promise<void>;
+  };
   // The owner account of the Linger installed on this computer.
   readonly localAccount: {
     // Whether the window shows that Linger; false for any other server.
@@ -101,6 +105,7 @@ export const IPC = {
   workspaceRevoke: "workspace.revoke",
   settingsGet: "settings.get",
   settingsSet: "settings.set",
+  notificationsBadge: "notifications.badge",
   permissionAct: "permission.act",
   localAccountAvailable: "local-account.available",
   localAccountSignIn: "local-account.sign-in",
