@@ -38,6 +38,7 @@ import {
   removePocketNote,
   storeTodayPocketNote,
 } from "./pocket-note-queries";
+import { TellAnotherMe } from "./tell-another-me-control";
 import { LazyVoiceKeyDialog } from "@/features/rooms/voice-control/lazy-voice-key-dialog";
 import { usePocketDictation } from "./use-pocket-dictation";
 import {
@@ -70,6 +71,7 @@ export default function PocketNotePanel({
   anotherMeRoomId,
   closeRef,
   onClose,
+  onOpenChat,
   tenantId,
 }: {
   anchorRef: RefObject<HTMLButtonElement | null>;
@@ -77,6 +79,8 @@ export default function PocketNotePanel({
   /** Receives the guarded close, so the trigger closes the same way. */
   closeRef: RefObject<(() => void) | undefined>;
   onClose: () => void;
+  /** Opens Another Me's chat after today's note has been sent there. */
+  onOpenChat?: () => void;
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
@@ -171,6 +175,7 @@ export default function PocketNotePanel({
           initialText={todayNote?.text ?? ""}
           key={today}
           onClose={close}
+          onOpenChat={onOpenChat}
           onShowAll={() => setView({ kind: "all" })}
           tenantId={tenantId}
           today={today}
@@ -192,6 +197,7 @@ function TodayPocketNote({
   closeGuard,
   initialText,
   onClose,
+  onOpenChat,
   onShowAll,
   tenantId,
   today,
@@ -200,6 +206,7 @@ function TodayPocketNote({
   closeGuard: RefObject<CloseGuard | undefined>;
   initialText: string;
   onClose: () => void;
+  onOpenChat?: () => void;
   onShowAll: () => void;
   tenantId: string;
   today: string;
@@ -339,6 +346,12 @@ function TodayPocketNote({
     }
     startDictation();
   }
+  async function ensureSaved() {
+    const value = textRef.current;
+    if (value === savedText.current) return;
+    await save.mutateAsync(value);
+  }
+
   function startDictation() {
     setTruncated(false);
     anchor.current = editorRef.current?.selectionStart() ?? anchor.current;
@@ -412,6 +425,14 @@ function TodayPocketNote({
             connecting={dictation.connecting}
             level={dictation.level}
             onClick={toggleDictation}
+          />
+        ) : null}
+        {anotherMeRoomId && onOpenChat && !dictating ? (
+          <TellAnotherMe
+            note={text}
+            onEnsureSaved={ensureSaved}
+            onOpenChat={onOpenChat}
+            roomId={anotherMeRoomId}
           />
         ) : null}
         {keyDialogOpen ? (
