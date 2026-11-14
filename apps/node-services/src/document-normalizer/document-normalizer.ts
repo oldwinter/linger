@@ -213,6 +213,7 @@ export class WorkerDocumentNormalizer implements DocumentNormalizer {
     request: DocumentNormalizationRequest,
     signal?: AbortSignal,
   ): Promise<Uint8Array> {
+    if (signal?.aborted) throw unavailable();
     const size = request.source.byteLength;
     if (size > MAX_DOCUMENT_SOURCE_BYTES) {
       throw new DocumentNormalizationError("DOCUMENT_SOURCE_TOO_LARGE");
@@ -227,10 +228,15 @@ export class WorkerDocumentNormalizer implements DocumentNormalizer {
     try {
       const core = await import("./document-normalizer-core.js");
       if (core.isInProcessDocumentSource(request)) {
-        return await core.normalizeDocumentContent(request);
+        return await raceAbort(core.normalizeDocumentContent(request), signal);
       }
-      // Outside the conversion's deadline: the first install downloads.
-      await this.#installModels().catch(this.#onModelsUnavailable);
+      // Outside the conversion's deadline: the first install downloads. A
+      // caller that goes away stops waiting for it while the install keeps
+      // running for everyone else.
+      await raceAbort(
+        this.#installModels().catch(this.#onModelsUnavailable),
+        signal,
+      );
       const release = await this.#acquireWorker(signal);
       try {
         return await this.#convert(request, signal);
@@ -282,6 +288,7 @@ export class WorkerDocumentNormalizer implements DocumentNormalizer {
     request: DocumentNormalizationRequest,
     signal: AbortSignal | undefined,
   ): Promise<Uint8Array> {
+    if (signal?.aborted) throw unavailable();
     const controller = new AbortController();
     const abort = (): void => controller.abort();
     signal?.addEventListener("abort", abort, { once: true });
@@ -318,6 +325,42 @@ async function installOcrModels(): Promise<void> {
 
 function unavailable(): DocumentNormalizationError {
   return new DocumentNormalizationError("DOCUMENT_NORMALIZATION_UNAVAILABLE");
+}
+
+/**
+ * Settles with the work's outcome or fails as unavailable when the caller
+ * aborts first. The work keeps running for other callers, so its later
+ * outcome is consumed here and goes no further.
+ */
+function raceAbort<T>(
+  work: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  if (!signal) return work;
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => {
+      reject(unavailable());
+    };
+    const stopListening = (): void => {
+      signal.removeEventListener("abort", onAbort);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    void work.then(
+      (value) => {
+        stopListening();
+        resolve(value);
+      },
+      (error: unknown) => {
+        stopListening();
+        reject(error);
+      },
+    );
+    // An abort that fired before the listener was attached never reaches it.
+    if (signal.aborted) {
+      stopListening();
+      onAbort();
+    }
+  });
 }
 
 async function executeInWorker(

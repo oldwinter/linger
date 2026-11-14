@@ -435,6 +435,126 @@ describe("document normalization", () => {
     expect(started).toEqual(["first.pdf", "third.pdf"]);
   });
 
+  it("rejects an already-aborted request before installing models or converting", async () => {
+    const installModels = vi.fn(async () => undefined);
+    const execute = vi.fn(async () => encode("ok\n"));
+    const normalizer = new WorkerDocumentNormalizer({ execute, installModels });
+    const caller = new AbortController();
+    caller.abort();
+
+    await expect(
+      normalizer.normalizeDocument(pdf(), caller.signal),
+    ).rejects.toMatchObject({
+      code: "DOCUMENT_NORMALIZATION_UNAVAILABLE",
+      disposition: "retryable",
+    });
+    expect(installModels).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("rejects an already-aborted in-process text request", async () => {
+    const normalizer = new WorkerDocumentNormalizer({
+      execute: async () => encode("ok\n"),
+    });
+    const caller = new AbortController();
+    caller.abort();
+
+    await expect(
+      normalizer.normalizeDocument(
+        {
+          filename: "notes.txt",
+          mediaType: "text/plain",
+          source: encode("Hello"),
+        },
+        caller.signal,
+      ),
+    ).rejects.toMatchObject({
+      code: "DOCUMENT_NORMALIZATION_UNAVAILABLE",
+      disposition: "retryable",
+    });
+  });
+
+  it("settles an in-process text request when its caller aborts during conversion", async () => {
+    const normalizer = new WorkerDocumentNormalizer({
+      execute: async () => encode("ok\n"),
+    });
+    const caller = new AbortController();
+    const converting = normalizer.normalizeDocument(
+      {
+        filename: "notes.md",
+        mediaType: "text/markdown",
+        source: encode("# Notes\n"),
+      },
+      caller.signal,
+    );
+
+    caller.abort();
+    await expect(converting).rejects.toMatchObject({
+      code: "DOCUMENT_NORMALIZATION_UNAVAILABLE",
+    });
+  });
+
+  it("cancels a request waiting for model installation and frees its admission", async () => {
+    let finishInstall!: () => void;
+    const installation = new Promise<void>((resolve) => {
+      finishInstall = resolve;
+    });
+    const installModels = vi.fn(() => installation);
+    const started: string[] = [];
+    const execute = vi.fn(async (input: { filename?: string }) => {
+      started.push(input.filename ?? "");
+      return encode("ok\n");
+    });
+    const normalizer = new WorkerDocumentNormalizer({
+      execute,
+      installModels,
+      maxAdmittedBytes: MAX_DOCUMENT_SOURCE_BYTES,
+    });
+    const caller = new AbortController();
+    const cancelled = normalizer.normalizeDocument(
+      sized(1, "cancelled.pdf"),
+      caller.signal,
+    );
+    await waitFor(() => installModels.mock.calls.length === 1);
+
+    caller.abort();
+    await expect(cancelled).rejects.toMatchObject({
+      code: "DOCUMENT_NORMALIZATION_UNAVAILABLE",
+    });
+
+    // A leaked reservation would put the full budget past its limit.
+    const admitted = normalizer.normalizeDocument(
+      sized(MAX_DOCUMENT_SOURCE_BYTES, "admitted.pdf"),
+    );
+    await waitFor(() => installModels.mock.calls.length === 2);
+    finishInstall();
+
+    await expect(admitted.then(decode)).resolves.toBe("ok\n");
+    expect(started).toEqual(["admitted.pdf"]);
+  });
+
+  it("keeps a cancelled install wait settled when installation later fails", async () => {
+    let failInstall!: (error: Error) => void;
+    const installation = new Promise<void>((_resolve, reject) => {
+      failInstall = reject;
+    });
+    const installModels = vi.fn(() => installation);
+    const execute = vi.fn(async () => encode("ok\n"));
+    const normalizer = new WorkerDocumentNormalizer({ execute, installModels });
+    const caller = new AbortController();
+    const cancelled = normalizer.normalizeDocument(pdf(), caller.signal);
+    await waitFor(() => installModels.mock.calls.length === 1);
+
+    caller.abort();
+    await expect(cancelled).rejects.toMatchObject({
+      code: "DOCUMENT_NORMALIZATION_UNAVAILABLE",
+    });
+
+    failInstall(new Error("models unavailable"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("rejects a source past the byte budget until admitted sources settle", async () => {
     let finish!: () => void;
     const normalizer = new WorkerDocumentNormalizer({
