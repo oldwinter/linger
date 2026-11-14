@@ -1,4 +1,4 @@
-import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
+import { messageBodyText } from "./message-plain-text";
 
 const unknownAuthor = "Unknown author";
 
@@ -14,7 +14,7 @@ export function messageQuoteText(input: {
   message: string;
 }) {
   const author = input.authorName?.trim() || unknownAuthor;
-  const body = markdownPlainText(input.message);
+  const body = messageBodyText(input.message);
   const head = `> ${author}, ${messageQuoteTime(input.createdAt)}`;
   if (!body) return head;
   const quoted = body

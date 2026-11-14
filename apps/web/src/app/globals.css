@@ -4016,8 +4016,10 @@ button.question-choice:focus-visible {
   opacity: 1;
 }
 
-/* A Pocket Note save confirms after the pointer leaves the row's tools. */
-.message-row-actions[data-pocket-note-status] {
+/* A copy or Pocket Note confirmation stays visible after the pointer leaves
+   the Message's tools. */
+.message-row-actions[data-pocket-note-status],
+.message-row-actions[data-text-copy-status] {
   pointer-events: auto;
   opacity: 1;
 }
