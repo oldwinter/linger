@@ -132,6 +132,8 @@ interface MessageTimelineProps {
     message: TeamHubMessage,
     reactionId: TeamHubMessageReactionId,
   ) => Promise<void>;
+  onTogglePin?: (message: TeamHubMessage, pinned: boolean) => Promise<void>;
+  pinnedMessageIds?: ReadonlySet<string>;
   actorKinds?: Readonly<Record<string, "human" | "agent">>;
   onRetry: (clientId: string) => void;
   pendingMessages: PendingRoomMessage[];
@@ -175,6 +177,8 @@ export function MessageTimeline({
   onForwardMessage,
   onReply,
   onToggleReaction,
+  onTogglePin,
+  pinnedMessageIds = EMPTY_STATIC_AGENT_ACTOR_IDS,
   actorKinds = EMPTY_ACTOR_KINDS,
   onRetry,
   pendingMessages,
@@ -266,6 +270,8 @@ export function MessageTimeline({
           onForwardMessage={onForwardMessage}
           onReply={onReply}
           onToggleReaction={onToggleReaction}
+          onTogglePin={onTogglePin}
+          isPinned={pinnedMessageIds.has(message.id)}
           actorKinds={actorKinds}
           selectedAsContext={selectedContextMessageIds.has(message.id)}
           tenantId={tenantId}

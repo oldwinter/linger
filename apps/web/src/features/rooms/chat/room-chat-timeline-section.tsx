@@ -80,6 +80,8 @@ export function RoomChatTimelineSection({
       onCardDecision={actions.timelineActions.onCardDecision}
       onCloseLinkedSource={navigation.closeLinkedMessage}
       onToggleReaction={conversation.toggleReaction}
+      onTogglePin={conversation.togglePin}
+      pinnedMessageIds={conversation.pinnedMessageIds}
       actorKinds={actions.actorKinds}
       onForwardMessage={setForwardMessage}
       onMentionAuthor={interactions.mentionAuthor}

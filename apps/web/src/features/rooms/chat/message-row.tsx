@@ -7,6 +7,8 @@ import {
   MailReply01Icon,
   Message01Icon,
   MoreHorizontalIcon,
+  PinIcon,
+  PinOffIcon,
   RotateLeft01Icon,
   SentIcon,
   SmilePlusIcon,
@@ -136,6 +138,8 @@ interface MessageRowProps {
     message: TeamHubMessage,
     reactionId: TeamHubMessageReactionId,
   ) => Promise<void>;
+  onTogglePin?: (message: TeamHubMessage, pinned: boolean) => Promise<void>;
+  isPinned?: boolean;
   actorKinds?: Readonly<Record<string, "human" | "agent">>;
   presentation?: TeamHubMessagePresentation;
   tenantId: string;
@@ -232,6 +236,8 @@ function ConversationMessageRow({
   onForwardMessage,
   onReply,
   onToggleReaction,
+  onTogglePin,
+  isPinned = false,
   actorKinds = EMPTY_ACTOR_KINDS,
   presentation,
   tenantId,
@@ -325,11 +331,18 @@ function ConversationMessageRow({
   const reactionsUnderBubble = Boolean(
     reactionBar && message.reactions?.length,
   );
+  const togglePin = onTogglePin
+    ? () => {
+        void onTogglePin(message, isPinned).catch(() => undefined);
+      }
+    : undefined;
   const messageActions = (
     <ConversationMessageActions
       currentActorId={currentActorId}
       hasCardPayload={hasCardPayload}
+      isPinned={isPinned}
       message={message}
+      onTogglePin={togglePin}
       onToggleReaction={toggleReaction}
       onOpenThread={onOpenThread}
       onForwardMessage={onForwardMessage}
@@ -767,17 +780,21 @@ function MessageAuthorAvatar({
 function ConversationMessageActions({
   currentActorId,
   hasCardPayload,
+  isPinned,
   message,
   onOpenThread,
   onForwardMessage,
   onReply,
   onToggleReaction,
+  onTogglePin,
 }: Pick<
   MessageRowProps,
   "message" | "currentActorId" | "onOpenThread" | "onForwardMessage" | "onReply"
 > & {
   hasCardPayload: boolean;
+  isPinned: boolean;
   onToggleReaction?: (reactionId: TeamHubMessageReactionId) => void;
+  onTogglePin?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
@@ -809,6 +826,13 @@ function ConversationMessageActions({
           ?.focus({ preventScroll: true });
         onOpenThread(message, { focusComposer: true });
       },
+    });
+  }
+  if (onTogglePin) {
+    overflowItems.push({
+      icon: <Icon icon={isPinned ? PinOffIcon : PinIcon} size={14} />,
+      label: isPinned ? "Unpin message" : "Pin message",
+      onSelect: onTogglePin,
     });
   }
 

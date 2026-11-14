@@ -1,4 +1,4 @@
-import { type QueryKey, useQueryClient } from "@tanstack/react-query";
+import { type QueryKey, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ComponentProps, useMemo } from "react";
 
 import { teamHubData } from "@/features/teamhub/teamhub-api";
@@ -8,10 +8,14 @@ import type { TeamHubMessage } from "@/features/teamhub/teamhub-types";
 
 import type { RoomMessageSender } from "./room-message-sender";
 
-import { tenantRoomActivityQueryKey } from "../room-queries";
+import {
+  roomPinsQueryOptions,
+  tenantRoomActivityQueryKey,
+} from "../room-queries";
 import { visibleDirectPeerRunStatuses } from "./direct-peer-streaming";
 import type { AgentStreamingStatusDock } from "./message-timeline";
 import { useMessageReactionToggle } from "./message-reactions/use-message-reaction-toggle";
+import { useMessagePinToggle } from "./message-pins/use-message-pin-toggle";
 import type { RoomMessageOutboxScope } from "./room-message-outbox";
 import { useRoomAgentStreamingStatus } from "./use-room-agent-streaming-status";
 import { useRoomMessageDelivery } from "./use-room-message-delivery";
@@ -88,6 +92,20 @@ export function useRoomConversation({
     roomId,
     tenantId,
   });
+  const pins = useQuery({
+    ...roomPinsQueryOptions(client, tenantId, roomId),
+    enabled: live,
+  });
+  const pinnedMessageIds = useMemo(
+    () => new Set((pins.data?.items ?? []).map((pin) => pin.message.id)),
+    [pins.data],
+  );
+  const togglePin = useMessagePinToggle({
+    client,
+    queryClient,
+    roomId,
+    tenantId,
+  });
   const streamingRunStatuses = useMemo(
     () =>
       visibleDirectPeerRunStatuses(
@@ -136,7 +154,9 @@ export function useRoomConversation({
     delivery,
     dock,
     pendingMessages: delivery.outgoing,
+    pinnedMessageIds,
     streamingRunStatuses,
+    togglePin,
     toggleReaction,
   };
 }
