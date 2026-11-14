@@ -17,7 +17,7 @@ import {
   PinOffIcon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";

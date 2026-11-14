@@ -5,9 +5,11 @@ import {
 } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
 import { Select, SelectItem } from "@/components/ui/select";
+import { isShortcutKeyEvent } from "@/lib/keyboard-shortcut";
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useRef,
   useState,
   type CSSProperties,
@@ -40,6 +42,14 @@ const defaultRate = 1;
 const rateNoticeMs = 2000;
 /** Between time-update saves, so scrubbing does not write on every frame. */
 const resumeSaveIntervalMs = 5000;
+/** How far one arrow key moves the playhead. */
+const seekStepSeconds = 5;
+/**
+ * Controls that act on a bare Space themselves. The player leaves the key to
+ * them so the control fires once, not twice.
+ */
+const activatableSelector =
+  "a, button, summary, [role='button'], [role='tab'], [role='menuitem']";
 
 function rateLabel(rate: number) {
   return `${rate}x`;
@@ -74,6 +84,7 @@ export function MeetingAudioPlayer({
   status?: string;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const sectionRef = useRef<HTMLElement>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -168,6 +179,61 @@ export function MeetingAudioPlayer({
     else audio.pause();
   }
 
+  /** Moves the playhead five seconds and stops at either end of the recording. */
+  function seekBy(seconds: number) {
+    const audio = audioRef.current;
+    if (!audio || !Number.isFinite(audio.duration) || audio.duration <= 0) {
+      return;
+    }
+    const next = Math.min(
+      Math.max(audio.currentTime + seconds, 0),
+      audio.duration,
+    );
+    audio.currentTime = next;
+    setCurrent(next);
+    // Choosing a moment by hand takes over from the resumed one.
+    setResumeFrom(undefined);
+    if (next > 0) savePosition(next);
+    else forgetMeetingPosition(accountId, meetingId);
+  }
+
+  /**
+   * The recording answers Space and the side arrows while the person works
+   * inside the meeting, and the meeting surface decides when a key is its own.
+   */
+  const onSurfaceKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    if (!isShortcutKeyEvent(event)) return;
+    if (!audioRef.current || !ready) return;
+    if (event.key === " ") {
+      if (
+        event.target instanceof Element &&
+        event.target.closest(activatableSelector)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      toggle();
+      return;
+    }
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    seekBy(event.key === "ArrowLeft" ? -seekStepSeconds : seekStepSeconds);
+  });
+
+  useEffect(() => {
+    // The handler belongs to the meeting surface, not to the window, so it goes
+    // quiet as soon as the meeting is left.
+    const surface = sectionRef.current?.closest<HTMLElement>(
+      "[data-meeting-surface]",
+    );
+    if (!surface) return;
+    function onKeyDown(event: KeyboardEvent) {
+      onSurfaceKeyDown(event);
+    }
+    surface.addEventListener("keydown", onKeyDown);
+    return () => surface.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   /**
    * Applies a speed to the playing element and reports the one really in
    * effect. A browser that refuses the rate keeps the previous one, and the
@@ -206,6 +272,7 @@ export function MeetingAudioPlayer({
     <section
       aria-label="Meeting recording"
       className="flex items-center gap-3 rounded-xl border border-app-border bg-app-surface px-3 py-2.5"
+      ref={sectionRef}
     >
       {src ? (
         // eslint-disable-next-line jsx-a11y/media-has-caption -- user-provided media has no caption track to reference

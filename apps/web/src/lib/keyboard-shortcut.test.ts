@@ -26,18 +26,23 @@ describe("isShortcutKeyEvent", () => {
   it("leaves keys typed into a field to the field", () => {
     const input = document.createElement("input");
     const textarea = document.createElement("textarea");
-    document.body.append(input, textarea);
+    const select = document.createElement("select");
+    document.body.append(input, textarea, select);
 
     expect(isShortcutKeyEvent(press(input))).toBe(false);
     expect(isShortcutKeyEvent(press(textarea))).toBe(false);
+    expect(isShortcutKeyEvent(press(select))).toBe(false);
   });
 
   it("leaves keys pressed inside an editable region to the editor", () => {
     const editor = document.createElement("div");
     editor.setAttribute("contenteditable", "true");
+    const inside = document.createElement("span");
+    editor.append(inside);
     document.body.append(editor);
 
     expect(isShortcutKeyEvent(press(editor))).toBe(false);
+    expect(isShortcutKeyEvent(press(inside))).toBe(false);
   });
 
   it("leaves keys pressed inside a menu or dialog to it", () => {

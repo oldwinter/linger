@@ -33,6 +33,10 @@
 - A meeting reader's recording player remembers where its listener stopped, per
   meeting, in this browser only and keyed per Account. The place is offered on
   reopen, never held by TeamHub, and the This browser settings clear it.
+- While the person is inside the meeting, Space plays or pauses the recording
+  and the left and right arrows move five seconds, stopping at either end. Keys
+  pressed in a field, inside a dialog, or on a focused control stay with it, and
+  no keypress announces anything.
 - A meeting reader may send its summary to a Room as one Message from the
   header's Room picker. That Message copies derived reading state, writes no
   Memory state, and reuses its idempotency key only when retrying the same

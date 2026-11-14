@@ -255,6 +255,8 @@ describe("MeetingPage", () => {
     );
     expect(router.state.location.search).toBe(`?entry=${entry.id}`);
     const reader = await screen.findByRole("article", { name: "Meeting" });
+    // The recording player reads its keys from this surface.
+    expect(reader).toHaveAttribute("data-meeting-surface");
     expect(
       within(reader).getByRole("heading", {
         name: "Meeting · Sep 23, 14:30",
