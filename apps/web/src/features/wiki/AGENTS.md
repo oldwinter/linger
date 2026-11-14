@@ -28,8 +28,8 @@
   decisions scoped to the current Account and Tenant (`wiki-display-state.ts`, shared
   with `features/memory`). Filter displayed graph nodes and edges only; never issue
   backend mutations for these decisions.
-  The Wiki file tree filters by title as a view of the loaded list: matching pages,
-  the folders above them, and folders whose own name matches, with a no-match
-  message. Filtering never fetches, never changes the route or the open page, and
-  opens folders in view state only, so clearing the field restores the branches the
-  reader left.
+  The Wiki sidebar's collection list filters by title as a view of the loaded
+  pages: every word of the query must appear in a file's name, matches are
+  highlighted, and a no-match message takes the list's place. Filtering never
+  fetches, never changes the route or the open page, and keeps its per-collection
+  query in view state only, so clearing the field restores the full list.
