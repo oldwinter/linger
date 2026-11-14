@@ -712,6 +712,14 @@ function createSettingsRoute(): RouteObject {
       },
       {
         lazy: async () => ({
+          Component: (
+            await import("@/features/settings/shadow-rule-review-page")
+          ).ShadowRuleReviewPage,
+        }),
+        path: "my-rules/review",
+      },
+      {
+        lazy: async () => ({
           Component: (await import("@/features/local-computer/computers-page"))
             .ComputersPage,
         }),

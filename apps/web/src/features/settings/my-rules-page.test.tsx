@@ -109,6 +109,9 @@ describe("My Rules", () => {
         "AWS invoice: would follow up later, Another Me chose to tell now",
       ),
     ).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "Review 1 new rule" }),
+    ).toHaveAttribute("href", "/t/tenant-northstar/settings/my-rules/review");
     expect(screen.getByText("Acme quote")).toBeTruthy();
     expect(screen.getByText("Tell now · seen 1")).toBeTruthy();
   });
