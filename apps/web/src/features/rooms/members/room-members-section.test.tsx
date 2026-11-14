@@ -369,6 +369,151 @@ describe("RoomMembersSection", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
     expect(screen.queryByText("Copied")).toBeNull();
   });
+
+  it("narrows the list to matching names and counts the matches", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMembers(runtime);
+
+    renderPanel(runtime);
+    await screen.findByRole("region", { name: "Room members" });
+    fireEvent.change(await searchMembers(), { target: { value: "maya" } });
+
+    expect(
+      screen.getByRole("button", { name: "Open Maya Chen profile" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Open Codex profile" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("1 of 5")).toBeVisible();
+  });
+
+  it("highlights the matched part of a name", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMembers(runtime);
+
+    renderPanel(runtime);
+    await screen.findByRole("region", { name: "Room members" });
+    fireEvent.change(await searchMembers(), { target: { value: "maya" } });
+
+    expect(screen.getByText("Maya", { selector: "mark" })).toBeVisible();
+  });
+
+  it("says when no member matches and clears back to the full list", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMembers(runtime);
+
+    renderPanel(runtime);
+    await screen.findByRole("region", { name: "Room members" });
+    fireEvent.change(await searchMembers(), { target: { value: "zzz" } });
+
+    expect(screen.getByText("No members match “zzz”.")).toBeVisible();
+    expect(screen.getByText("0 of 5")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+
+    expect(await searchMembers()).toHaveValue("");
+    expect(
+      screen.getByRole("button", { name: "Open Codex profile" }),
+    ).toBeVisible();
+    expect(screen.queryByText("0 of 5")).not.toBeInTheDocument();
+  });
+
+  it("starts the search over when the panel opens again", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMembers(runtime);
+
+    const { unmount } = renderPanel(runtime);
+    await screen.findByRole("region", { name: "Room members" });
+    fireEvent.change(await searchMembers(), { target: { value: "maya" } });
+    unmount();
+
+    renderPanel(runtime);
+    await screen.findByRole("region", { name: "Room members" });
+
+    expect(await searchMembers()).toHaveValue("");
+    expect(
+      screen.getByRole("button", { name: "Open Codex profile" }),
+    ).toBeVisible();
+  });
+
+  it("starts the search over when the Room changes", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMembers(runtime);
+
+    const { rerenderPanel } = renderPanel(runtime);
+    await screen.findByRole("region", { name: "Room members" });
+    fireEvent.change(await searchMembers(), { target: { value: "maya" } });
+    expect(screen.getByText("1 of 5")).toBeVisible();
+
+    rerenderPanel({ roomId: "room-dm-codex" });
+
+    expect(
+      await screen.findByRole("button", { name: "Open Codex profile" }),
+    ).toBeVisible();
+    expect(await searchMembers()).toHaveValue("");
+    expect(
+      screen.queryByRole("button", { name: "Open Maya Chen profile" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("removes a member while a filter is active", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMembers(runtime);
+
+    renderPanel(runtime);
+    await screen.findByRole("region", { name: "Room members" });
+    fireEvent.change(await searchMembers(), { target: { value: "maya" } });
+    fireEvent.click(screen.getByRole("button", { name: "Remove Maya Chen" }));
+    fireEvent.click(
+      within(
+        screen.getByRole("dialog", { name: "Remove Maya Chen?" }),
+      ).getByRole("button", { name: "Remove" }),
+    );
+
+    expect(await screen.findByText("No members match “maya”.")).toBeVisible();
+    expect(screen.getByText("0 of 4")).toBeVisible();
+  });
+
+  it("copies the Room's members while a filter is active", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMembers(runtime);
+
+    renderPanel(runtime);
+    await screen.findByRole("region", { name: "Room members" });
+    fireEvent.change(await searchMembers(), { target: { value: "maya" } });
+    fireEvent.click(screen.getByRole("button", { name: "Copy members" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Copied");
+    expect(copy).toHaveBeenCalledWith(
+      [
+        "# Design",
+        "",
+        "- Jenny Bin (Human)",
+        "- Maya Chen (Human)",
+        "- Codex (Agent)",
+        "- Lev8 GTM (Agent)",
+        "- Jenny's Delegate (Agent)",
+      ].join("\n"),
+    );
+  });
+
+  it("filters without asking TeamHub for the members again", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMembers(runtime);
+
+    renderPanel(runtime);
+    const search = await searchMembers();
+    const before = runtime.server.requestsTo(
+      "GET",
+      "/v0/rooms/{roomId}/members",
+    ).length;
+
+    fireEvent.change(search, { target: { value: "maya" } });
+    fireEvent.change(search, { target: { value: "" } });
+
+    expect(
+      runtime.server.requestsTo("GET", "/v0/rooms/{roomId}/members"),
+    ).toHaveLength(before);
+  });
 });
 
 async function runtimeWithOnlyCurrentMember(
@@ -385,25 +530,38 @@ async function runtimeWithOnlyCurrentMember(
   return runtime;
 }
 
+interface PanelCallbacks {
+  onOpenProfile?: (actorId: string) => void;
+  roomId?: string;
+}
+
+async function searchMembers() {
+  return screen.findByRole("searchbox", { name: "Search members" });
+}
+
 function renderPanel(
   runtime: ReturnType<typeof createTestTeamHubRuntime>,
-  callbacks: {
-    onOpenProfile?: (actorId: string) => void;
-    roomId?: string;
-  } = {},
+  callbacks: PanelCallbacks = {},
 ) {
-  return render(
-    <QueryClientProvider client={createAppQueryClient()}>
-      <TeamHubRuntimeProvider runtime={runtime}>
-        <Suspense fallback={<p>Loading members</p>}>
-          <RoomMembersSection
-            onOpenProfile={callbacks.onOpenProfile}
-            roomId={callbacks.roomId ?? "room-all"}
-            roomName="Design"
-            tenantId="tenant-northstar"
-          />
-        </Suspense>
-      </TeamHubRuntimeProvider>
-    </QueryClientProvider>,
-  );
+  const queryClient = createAppQueryClient();
+  function panel(next: PanelCallbacks) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <Suspense fallback={<p>Loading members</p>}>
+            <RoomMembersSection
+              onOpenProfile={next.onOpenProfile}
+              roomId={next.roomId ?? "room-all"}
+              roomName="Design"
+              tenantId="tenant-northstar"
+            />
+          </Suspense>
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>
+    );
+  }
+  const result = render(panel(callbacks));
+  return Object.assign(result, {
+    rerenderPanel: (next: PanelCallbacks) => result.rerender(panel(next)),
+  });
 }
