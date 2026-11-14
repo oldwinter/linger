@@ -12,6 +12,7 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 import { dateTimeFormat } from "@/lib/date-format";
 
+import { WorkItemCommentComposer } from "./work-item-comment-composer";
 import {
   tenantWorkItemCommentsQueryOptions,
   tenantWorkItemTargetQueryOptions,
@@ -187,6 +188,8 @@ export function WorkItemPeek({
             ))}
           </ul>
         </section>
+
+        <WorkItemCommentComposer tenantId={tenantId} workItemId={workItem.id} />
 
         <section aria-label="Timeline" className="space-y-2">
           <h3 className="text-xs font-medium text-app-muted">Timeline</h3>
