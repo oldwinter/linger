@@ -22,6 +22,8 @@ import { AccountMenu } from "@/features/auth/account-menu";
 import { LOGOUT_ERROR_MESSAGE, useLogout } from "@/features/auth/use-logout";
 
 import { Button } from "@/components/ui/button";
+import { jumpPath } from "@/features/jump/jump-path";
+import { useJumpShortcut } from "@/features/jump/jump-shortcut";
 import { useGlobalSearchShortcut } from "@/features/search/search-shortcut";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
@@ -290,6 +292,11 @@ function RoomShellContent({
   // What a spoken search asked for; the shortcut opens an empty search.
   const [searchQuery, setSearchQuery] = useState("");
   useGlobalSearchShortcut(() => setSearchOpen(true));
+  useJumpShortcut(() => {
+    setSearchOpen(false);
+    setSearchQuery("");
+    void navigate(jumpPath(tenantId));
+  });
   // Voice page actions wait while a route is loading: lazy routes commit
   // their URL only once their code has arrived.
   const navigating = useRef(false);

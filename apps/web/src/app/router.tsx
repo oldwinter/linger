@@ -264,6 +264,13 @@ export function createAppRoutes(
         createWorkspaceRoute(),
         {
           ErrorBoundary: PanelRouteErrorSurface,
+          lazy: async () => ({
+            Component: (await import("@/features/jump/jump-page")).JumpPage,
+          }),
+          path: "jump",
+        },
+        {
+          ErrorBoundary: PanelRouteErrorSurface,
           lazy: loadConnectedAppsPage,
           path: "apps",
         },

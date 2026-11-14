@@ -89,7 +89,8 @@ describe("RoomSecondaryNavigation attention", () => {
     const assertOrder = () => {
       const links = screen
         .getAllByRole("link")
-        .map((link) => link.getAttribute("href"));
+        .map((link) => link.getAttribute("href"))
+        .filter((href) => !href?.endsWith("/jump"));
       expect(links).toEqual(
         [
           "another-me",
@@ -152,6 +153,10 @@ describe("RoomSecondaryNavigation attention", () => {
       within(quickAccess).getByRole("button", { name: "Meetings" }),
     ).toBeDisabled();
     expect(screen.getByRole("button", { name: "Search" })).toBeVisible();
+    expect(screen.getByRole("link", { name: /Jump anywhere/ })).toHaveAttribute(
+      "href",
+      "/t/tenant-a/jump",
+    );
     const chats = screen
       .getByRole("button", { name: "Messages" })
       .closest("section")!;
