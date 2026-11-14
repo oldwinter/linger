@@ -1,9 +1,14 @@
 import { createHash, randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 
 import type { components } from "@linger/wire-contracts/teamhub-public/types";
 
 import type { CredentialStore } from "./computer-credential.js";
 import type { DesktopConfig } from "./config.js";
+import {
+  discardDaemonIdentity,
+  keepsDaemonIdentity,
+} from "./daemon-identity.js";
 import type { Module, ModuleContext } from "./modules.js";
 import { sameOrigin } from "./navigation.js";
 
@@ -245,6 +250,9 @@ export interface EnrollmentOptions {
   readonly defaultDisplayName: string;
   // Where the Gateway credential is kept for the daemon.
   readonly credentials: CredentialStore;
+  // The Daemon Identity the daemon presents, which TeamHub keeps with the
+  // Computer that first presented it.
+  readonly daemonIdentityFile: string;
   readonly fetch?: typeof fetch;
 }
 
@@ -257,6 +265,10 @@ export class EnrollmentModule implements Module {
   #ctx: ModuleContext | undefined;
   #pending: Promise<{ computerId: string }> | undefined;
   #offServerChanged: (() => void) | undefined;
+  #offIdentityConflict: (() => void) | undefined;
+  // The Gateway refused this computer's Daemon Identity as another Computer's,
+  // so the identity is not the one this enrollment may keep.
+  #identityConflict = false;
 
   constructor(options: EnrollmentOptions) {
     this.#options = options;
@@ -278,6 +290,12 @@ export class EnrollmentModule implements Module {
         ctx.log.warn("enrollment.clear_failed", { error: String(error) }),
       );
     });
+    this.#offIdentityConflict = ctx.bus.on(
+      "computer.identity_conflict",
+      (conflict) => {
+        this.#identityConflict = conflict;
+      },
+    );
     // Enrollments made before the owner was kept, or whose credential did
     // not carry over from the bridge, are renewed for the same Computer.
     const config = ctx.config.get();
@@ -294,6 +312,7 @@ export class EnrollmentModule implements Module {
 
   async stop(): Promise<void> {
     this.#offServerChanged?.();
+    this.#offIdentityConflict?.();
   }
 
   // Whether the window holds a valid session for the configured server.
@@ -342,10 +361,23 @@ export class EnrollmentModule implements Module {
 
   // The local server this computer runs is set up again: the credential is
   // gone, but the Computer is kept so the next enrollment against the same
-  // origin renews it instead of creating another.
+  // origin renews it instead of creating another. A Daemon Identity the
+  // Gateway already refused as another Computer's is not this Computer's to
+  // reuse, so it goes with the credential and the daemon makes a new one.
   async resetLocalServer(): Promise<void> {
     const ctx = this.#ctx!;
     const { computerId, serverUrl } = ctx.config.get();
+    if (
+      this.#identityConflict &&
+      existsSync(this.#options.daemonIdentityFile)
+    ) {
+      discardDaemonIdentity(this.#options.daemonIdentityFile);
+      this.#identityConflict = false;
+      ctx.log.info("enrollment.identity_discarded", {
+        ...(computerId ? { computer_id: computerId } : {}),
+        reason: "identity_conflict",
+      });
+    }
     this.#options.credentials.clear();
     ctx.config.update({
       computerId: undefined,
@@ -377,6 +409,21 @@ export class EnrollmentModule implements Module {
       ...(computerId ? { computerId } : {}),
       ...(this.#options.fetch ? { fetch: this.#options.fetch } : {}),
     });
+    // The retained identity belongs to the Computer it served. TeamHub would
+    // refuse it to another Computer for good, so it goes before the daemon
+    // starts on the one this enrollment returned.
+    if (
+      !keepsDaemonIdentity({
+        computerId,
+        enrolledComputerId: enrolled.computerId,
+        present: existsSync(this.#options.daemonIdentityFile),
+      })
+    ) {
+      discardDaemonIdentity(this.#options.daemonIdentityFile);
+      ctx.log.info("enrollment.identity_discarded", {
+        computer_id: enrolled.computerId,
+      });
+    }
     this.#options.credentials.write({
       computerId: enrolled.computerId,
       gatewayUrl: enrolled.gatewayUrl,
