@@ -6,7 +6,7 @@ import {
 } from "@tanstack/react-query";
 import { Delete02Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ModalDialog } from "@/components/ui/modal-dialog";
@@ -16,6 +16,7 @@ import type {
   TeamHubActor,
   TeamHubActorRef,
 } from "@/features/teamhub/teamhub-types";
+import { writeClipboardText } from "@/lib/clipboard";
 
 import {
   roomMembersQueryOptions,
@@ -27,14 +28,21 @@ import {
 import { eligibleRoomAgents } from "../agent-admission";
 import { ActorAvatar } from "./actor-avatar";
 import { AgentStatus } from "./agent-status";
+import { roomMembersMarkdown } from "./room-members-markdown";
+
+/** Long enough to read, matching the other copy actions. */
+const MEMBERS_COPIED_MS = 1200;
 
 export function RoomMembersSection({
   onOpenProfile,
   roomId,
+  roomName,
   tenantId,
 }: {
   onOpenProfile?: (actorId: string) => void;
   roomId: string;
+  /** The heading of the copied roster names the Room. */
+  roomName: string;
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
@@ -43,11 +51,34 @@ export function RoomMembersSection({
   const [removeTarget, setRemoveTarget] = useState<TeamHubActorRef | null>(
     null,
   );
+  const [copyState, setCopyState] = useState<"copied" | "failed">();
+  const copyResetTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(copyResetTimer.current), []);
   const { data: identity } = useSuspenseQuery(
     teamHubIdentityQueryOptions(client),
   );
   const membersQuery = roomMembersQueryOptions(client, tenantId, roomId);
-  const { data: members } = useSuspenseQuery(membersQuery);
+  const membersResult = useQuery(membersQuery);
+  const memberItems = membersResult.data?.items ?? [];
+  const membersPending = membersResult.isPending;
+  const copyDisabled = membersPending || memberItems.length === 0;
+  function copyMembers() {
+    if (copyDisabled) return;
+    window.clearTimeout(copyResetTimer.current);
+    setCopyState(undefined);
+    void writeClipboardText(
+      roomMembersMarkdown({ members: memberItems, roomName }),
+    ).then(
+      () => {
+        setCopyState("copied");
+        copyResetTimer.current = window.setTimeout(
+          () => setCopyState(undefined),
+          MEMBERS_COPIED_MS,
+        );
+      },
+      () => setCopyState("failed"),
+    );
+  }
   const { data: actors } = useSuspenseQuery({
     ...tenantActorsQueryOptions(client, tenantId),
     refetchOnMount: "always",
@@ -55,7 +86,7 @@ export function RoomMembersSection({
   const currentActorId = identity.actors.find(
     (actor) => actor.tenant_id === tenantId,
   )?.id;
-  const isOwner = members.items.some(
+  const isOwner = memberItems.some(
     (member) => member.actor.id === currentActorId && member.role === "owner",
   );
   const agentDirectory = useQuery({
@@ -88,7 +119,9 @@ export function RoomMembersSection({
     return actorIds;
   }, [agentDirectory.data?.items, currentActorId]);
   const availableActors = useMemo(() => {
-    const memberIds = new Set(members.items.map((member) => member.actor.id));
+    const memberIds = new Set(
+      (membersResult.data?.items ?? []).map((member) => member.actor.id),
+    );
     const availableHumans = actors.items.filter(
       (actor) => actor.kind === "human" && !memberIds.has(actor.id),
     );
@@ -104,7 +137,7 @@ export function RoomMembersSection({
     agentAvailability.data?.items,
     agentDirectory.data?.items,
     currentActorId,
-    members.items,
+    membersResult.data?.items,
   ]);
   const refreshMembers = () =>
     queryClient.invalidateQueries({ queryKey: membersQuery.queryKey });
@@ -133,8 +166,13 @@ export function RoomMembersSection({
 
   return (
     <section aria-label="Room members" className="px-5 py-3">
+      {membersPending ? (
+        <p className="text-xs text-app-muted" role="status">
+          Loading members...
+        </p>
+      ) : null}
       <div className="space-y-1">
-        {members.items.map((member) => {
+        {memberItems.map((member) => {
           const agent = agentDirectory.data?.items.find(
             (candidate) => candidate.actor.id === member.actor.id,
           );
@@ -207,6 +245,27 @@ export function RoomMembersSection({
             </div>
           );
         })}
+      </div>
+
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <Button
+          disabled={copyDisabled}
+          onClick={copyMembers}
+          size="compact"
+          tone="secondary"
+        >
+          Copy members
+        </Button>
+        {copyState === "copied" ? (
+          <span className="text-xs leading-4 text-app-muted" role="status">
+            Copied
+          </span>
+        ) : null}
+        {copyState === "failed" ? (
+          <span className="text-xs leading-4 text-app-danger" role="alert">
+            Copy failed
+          </span>
+        ) : null}
       </div>
 
       {!addOpen && putMember.error ? (
