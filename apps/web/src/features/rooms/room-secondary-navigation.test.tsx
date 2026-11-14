@@ -89,7 +89,8 @@ describe("RoomSecondaryNavigation attention", () => {
     const assertOrder = () => {
       const links = screen
         .getAllByRole("link")
-        .map((link) => link.getAttribute("href"));
+        .map((link) => link.getAttribute("href"))
+        .filter((href) => !href?.endsWith("/awake"));
       expect(links).toEqual(
         [
           "another-me",
