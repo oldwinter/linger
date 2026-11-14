@@ -5,7 +5,13 @@ import {
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { Link } from "react-router";
 
 import { Button, buttonClassName } from "@/components/ui/button";
@@ -107,6 +113,10 @@ export function WorkItemPeek({
     : undefined;
   const item = target.data ?? workItem;
   const [editing, setEditing] = useState(false);
+  // Both lists open short; expanding is a view of what is already loaded, so it
+  // sends no request and stays with this peek's lifetime.
+  const [allComments, setAllComments] = useState(false);
+  const [allTimeline, setAllTimeline] = useState(false);
   // The row and the control read the same list, so they cannot disagree about
   // whether this Actor is an assignee.
   const assignedToMe =
@@ -150,11 +160,16 @@ export function WorkItemPeek({
     }
   }
   // Comments arrive oldest first; the peek reads as a conversation, newest on top.
-  const recentComments = (comments.data ?? [])
-    .filter((comment) => !comment.deleted_at)
-    .slice(-commentLimit)
-    .reverse();
-  const recentTimeline = (timeline.data ?? []).slice(-timelineLimit);
+  const visibleComments = (comments.data ?? []).filter(
+    (comment) => !comment.deleted_at,
+  );
+  const shownComments = allComments
+    ? [...visibleComments].reverse()
+    : visibleComments.slice(-commentLimit).reverse();
+  const timelineEntries = timeline.data ?? [];
+  const shownTimeline = allTimeline
+    ? timelineEntries
+    : timelineEntries.slice(-timelineLimit);
   const transitions = allowedTransitions(item);
 
   return (
@@ -324,14 +339,22 @@ export function WorkItemPeek({
               Comments could not be loaded.
             </p>
           ) : null}
-          {comments.isSuccess && !recentComments.length ? (
+          {comments.isSuccess && !shownComments.length ? (
             <p className="text-sm text-app-muted">No comments yet.</p>
           ) : null}
           <ul className="space-y-3">
-            {recentComments.map((comment) => (
+            {shownComments.map((comment) => (
               <CommentEntry comment={comment} key={comment.id} />
             ))}
           </ul>
+          {visibleComments.length > commentLimit ? (
+            <PeekListToggle
+              expanded={allComments}
+              noun="comment"
+              onToggle={setAllComments}
+              total={visibleComments.length}
+            />
+          ) : null}
         </section>
 
         <WorkItemCommentComposer tenantId={tenantId} workItemId={workItem.id} />
@@ -346,11 +369,11 @@ export function WorkItemPeek({
               Timeline could not be loaded.
             </p>
           ) : null}
-          {timeline.isSuccess && !recentTimeline.length ? (
+          {timeline.isSuccess && !shownTimeline.length ? (
             <p className="text-sm text-app-muted">No activity yet.</p>
           ) : null}
           <ol className="space-y-2">
-            {recentTimeline.map((entry) => (
+            {shownTimeline.map((entry) => (
               <li
                 className="flex items-baseline gap-2 text-xs text-app-muted"
                 key={timelineEntryKey(entry)}
@@ -367,6 +390,14 @@ export function WorkItemPeek({
               </li>
             ))}
           </ol>
+          {timelineEntries.length > timelineLimit ? (
+            <PeekListToggle
+              expanded={allTimeline}
+              noun="event"
+              onToggle={setAllTimeline}
+              total={timelineEntries.length}
+            />
+          ) : null}
         </section>
 
         {target.isError ? (
@@ -484,6 +515,61 @@ function CommentEntry({ comment }: { comment: TeamHubWorkItemComment }) {
         {comment.body}
       </p>
     </li>
+  );
+}
+
+/**
+ * Expands or collapses one peek list in place. The pressed control holds its
+ * screen position across the change by shifting the drawer's scroll by the same
+ * amount, so a person who was reading near the control stays there while the
+ * list grows or shrinks around it.
+ */
+function PeekListToggle({
+  expanded,
+  noun,
+  onToggle,
+  total,
+}: {
+  expanded: boolean;
+  /** The list's word, pluralized on the control; a count above the limit is two or more. */
+  noun: "comment" | "event";
+  onToggle: (expanded: boolean) => void;
+  /** Every entry already loaded for this peek. */
+  total: number;
+}) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  // Captured on click, consumed by the render that shows the new height, so an
+  // unrelated render in between cannot move the scroll.
+  const pending = useRef<{ top: number; to: boolean } | undefined>(undefined);
+  useLayoutEffect(() => {
+    const request = pending.current;
+    if (!request || request.to !== expanded) return;
+    pending.current = undefined;
+    const button = buttonRef.current;
+    if (!button) return;
+    const shift = button.getBoundingClientRect().top - request.top;
+    if (!shift) return;
+    const scroller = button.closest<HTMLElement>(".app-dialog-body");
+    if (scroller) scroller.scrollTop += shift;
+  }, [expanded]);
+  return (
+    <button
+      className={buttonClassName({ size: "compact", tone: "ghost" })}
+      onClick={() => {
+        const button = buttonRef.current;
+        if (button) {
+          pending.current = {
+            to: !expanded,
+            top: button.getBoundingClientRect().top,
+          };
+        }
+        onToggle(!expanded);
+      }}
+      ref={buttonRef}
+      type="button"
+    >
+      {expanded ? "Show fewer" : `Show all ${total} ${noun}s`}
+    </button>
   );
 }
 
