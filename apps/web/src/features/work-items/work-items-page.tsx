@@ -11,7 +11,10 @@ import { Link, useParams, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Select, SelectItem } from "@/components/ui/select";
-import { tenantRoomsQueryOptions } from "@/features/rooms/room-queries";
+import {
+  teamHubIdentityQueryOptions,
+  tenantRoomsQueryOptions,
+} from "@/features/rooms/room-queries";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { AuthenticatedRouteLoading } from "@/features/rooms/route-loading-surface";
 import { ActorAvatar } from "@/features/rooms/members/actor-avatar";
@@ -19,6 +22,19 @@ import { TeamHubError } from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubWorkItem } from "@/features/teamhub/teamhub-types";
 
+import {
+  createWorkItemDashboardFilters,
+  currentDashboardActorId,
+  hasWorkItemDashboardFilters,
+  WORK_ITEM_DASHBOARD_ASSIGNMENTS,
+  WORK_ITEM_DASHBOARD_EXECUTION_STATUSES,
+  WORK_ITEM_DASHBOARD_PRIORITIES,
+  workItemDashboardFiltersSearch,
+  type WorkItemDashboardAssignment,
+  type WorkItemDashboardExecutionStatus,
+  type WorkItemDashboardFilters,
+  type WorkItemDashboardPriority,
+} from "./work-item-dashboard-filters";
 import {
   tenantWorkItemTargetQueryOptions,
   tenantWorkItemsDashboardQueryOptions,
@@ -45,6 +61,27 @@ const dashboardDateFormatter = dateTimeFormat({
   year: "numeric",
 });
 
+const priorityLabels: Record<WorkItemDashboardPriority, string> = {
+  high: "High",
+  low: "Low",
+  medium: "Medium",
+  urgent: "Urgent",
+};
+
+const executionLabels: Record<WorkItemDashboardExecutionStatus, string> = {
+  canceled: "Agent canceled",
+  failed: "Agent failed",
+  idle: "Agent idle",
+  running: "Agent running",
+  waiting_for_approval: "Waiting for approval",
+};
+
+const assignmentLabels = {
+  all: "All",
+  mine: "Mine",
+  unassigned: "Unassigned",
+} as const;
+
 export function WorkItemsPage() {
   const { client } = useTeamHubRuntime();
   const params = useParams();
@@ -57,9 +94,21 @@ export function WorkItemsPage() {
     [focusedWorkItemId],
   );
   const [searchParams, setSearchParams] = useSearchParams();
-  const workItemsQuery = useQuery(
-    tenantWorkItemsDashboardQueryOptions(client, tenantId),
-  );
+  const filters = createWorkItemDashboardFilters(searchParams);
+  const identityQuery = useQuery(teamHubIdentityQueryOptions(client));
+  const currentActorId = identityQuery.data
+    ? currentDashboardActorId(identityQuery.data, tenantId)
+    : undefined;
+  const workItemsQuery = useQuery({
+    ...tenantWorkItemsDashboardQueryOptions(
+      client,
+      tenantId,
+      filters,
+      currentActorId,
+    ),
+    // Mine cannot be requested before the identity names the current Actor.
+    enabled: filters.assignment !== "mine" || identityQuery.isSuccess,
+  });
   const focusedWorkItemQuery = useQuery({
     ...tenantWorkItemTargetQueryOptions(
       client,
@@ -72,24 +121,30 @@ export function WorkItemsPage() {
 
   if (
     workItemsQuery.isPending ||
+    identityQuery.isPending ||
     roomsQuery.isPending ||
     (focusedWorkItemId && focusedWorkItemQuery.isPending)
   ) {
     return <WorkItemsLoading />;
   }
   const queryError =
-    workItemsQuery.error ?? focusedWorkItemQuery.error ?? roomsQuery.error;
+    workItemsQuery.error ??
+    identityQuery.error ??
+    focusedWorkItemQuery.error ??
+    roomsQuery.error;
   if (queryError) {
     return (
       <WorkItemsError
         error={queryError}
         isRetrying={
           workItemsQuery.isFetching ||
+          identityQuery.isFetching ||
           focusedWorkItemQuery.isFetching ||
           roomsQuery.isFetching
         }
         onRetry={() => {
           if (workItemsQuery.isError) void workItemsQuery.refetch();
+          if (identityQuery.isError) void identityQuery.refetch();
           if (focusedWorkItemQuery.isError) void focusedWorkItemQuery.refetch();
           if (roomsQuery.isError) void roomsQuery.refetch();
         }}
@@ -102,50 +157,117 @@ export function WorkItemsPage() {
   if (!data || !rooms) return <WorkItemsLoading />;
   const items = mergeFocusedWorkItem(data.items, focusedWorkItemQuery.data);
   const roomFilter = createWorkItemRoomFilterModel(rooms.items, items);
-  const roomId = searchParams.get("room")?.trim() ?? "";
-  const dashboardSearch = roomId
-    ? new URLSearchParams({ room: roomId }).toString()
-    : "";
-  const filteredItems = items.filter((item) =>
-    roomFilter.matches(item, roomId),
+  const filteredItems = items.filter(
+    (item) =>
+      roomFilter.matches(item, filters.room) &&
+      (filters.assignment !== "unassigned" || item.assignees.length === 0),
   );
+  const dashboardSearch = workItemDashboardFiltersSearch(filters);
+  const showFilterBar =
+    items.length > 0 || hasWorkItemDashboardFilters(filters);
 
-  function setRoomFilter(value: string) {
-    setSearchParams(
-      value ? new URLSearchParams({ room: value }) : new URLSearchParams(),
-      { replace: true },
-    );
+  function updateFilters(next: WorkItemDashboardFilters) {
+    setSearchParams(workItemDashboardFiltersSearch(next), { replace: true });
   }
 
   return (
     <main className="work-items-surface flex min-h-0 flex-1 flex-col overflow-hidden bg-app-surface">
       <header className="work-items-header shrink-0 border-b border-app-border px-5 py-3 sm:px-8">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="text-2xl text-foreground">Dashboard</h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              {filteredItems.length === items.length
-                ? itemCount(items.length)
-                : `${filteredItems.length} of ${items.length} items`}
-            </p>
-          </div>
-          {items.length ? (
-            <div
-              aria-label="Work Item filters"
-              className="w-[240px] max-w-full"
-              role="group"
-            >
-              <RoomFilter
-                onChange={setRoomFilter}
-                options={roomFilter.options}
-                value={roomId}
-              />
-            </div>
-          ) : null}
+        <div>
+          <h1 className="text-2xl text-foreground">Dashboard</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            {filteredItems.length === items.length
+              ? itemCount(items.length)
+              : `${filteredItems.length} of ${items.length} items`}
+          </p>
         </div>
+        {showFilterBar ? (
+          <div
+            aria-label="Work Item filters"
+            className="mt-3 flex flex-wrap items-center gap-2"
+            role="group"
+          >
+            <Select
+              aria-label="Room"
+              onValueChange={(room) => updateFilters({ ...filters, room })}
+              value={filters.room}
+              variant="pill"
+            >
+              <SelectItem value="">All rooms</SelectItem>
+              {roomFilter.options.map((option) => (
+                <SelectItem key={option.id} value={option.id}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </Select>
+            <Select
+              aria-label="Priority"
+              onValueChange={(priority) =>
+                updateFilters({
+                  ...filters,
+                  priority: priority as WorkItemDashboardPriority | "",
+                })
+              }
+              value={filters.priority}
+              variant="pill"
+            >
+              <SelectItem value="">All priorities</SelectItem>
+              {WORK_ITEM_DASHBOARD_PRIORITIES.map((priority) => (
+                <SelectItem key={priority} value={priority}>
+                  {priorityLabels[priority]}
+                </SelectItem>
+              ))}
+            </Select>
+            <Select
+              aria-label="Assignment"
+              onValueChange={(assignment) =>
+                updateFilters({
+                  ...filters,
+                  assignment: assignment as WorkItemDashboardAssignment,
+                })
+              }
+              value={filters.assignment}
+              variant="pill"
+            >
+              {WORK_ITEM_DASHBOARD_ASSIGNMENTS.map((assignment) => (
+                <SelectItem key={assignment} value={assignment}>
+                  {assignmentLabels[assignment]}
+                </SelectItem>
+              ))}
+            </Select>
+            <Select
+              aria-label="Execution"
+              onValueChange={(execution) =>
+                updateFilters({
+                  ...filters,
+                  execution: execution as WorkItemDashboardExecutionStatus | "",
+                })
+              }
+              value={filters.execution}
+              variant="pill"
+            >
+              <SelectItem value="">All execution states</SelectItem>
+              {WORK_ITEM_DASHBOARD_EXECUTION_STATUSES.map((execution) => (
+                <SelectItem key={execution} value={execution}>
+                  {executionLabels[execution]}
+                </SelectItem>
+              ))}
+            </Select>
+            <button
+              aria-pressed={filters.archived}
+              className="select-pill"
+              onClick={() =>
+                updateFilters({ ...filters, archived: !filters.archived })
+              }
+              type="button"
+            >
+              Archived
+            </button>
+          </div>
+        ) : null}
       </header>
 
-      {items.length ? (
+      {items.length || showFilterBar ? (
         <div className="work-items-board workspace-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-hidden p-4 sm:p-5">
           <div className="grid h-full min-w-[1180px] grid-cols-5 gap-3">
             {dashboardColumns.map((column) => (
@@ -229,35 +351,6 @@ function WorkItemsError({
         </Button>
       </div>
     </main>
-  );
-}
-
-function RoomFilter({
-  onChange,
-  options,
-  value,
-}: {
-  onChange: (value: string) => void;
-  options: Array<{ id: string; label: string }>;
-  value: string;
-}) {
-  return (
-    <label className="grid min-w-0 gap-1 text-xs font-medium text-muted-foreground">
-      Room
-      <Select
-        aria-label="Room"
-        className="h-8 w-full min-w-0 rounded-md border border-border bg-card px-2 text-sm text-foreground outline-none transition-colors hover:border-border-hover focus-visible:border-foreground focus-visible:ring-2 focus-visible:ring-ring"
-        onValueChange={onChange}
-        value={value}
-      >
-        <SelectItem value="">All rooms</SelectItem>
-        {options.map((option) => (
-          <SelectItem key={option.id} value={option.id}>
-            {option.label}
-          </SelectItem>
-        ))}
-      </Select>
-    </label>
   );
 }
 

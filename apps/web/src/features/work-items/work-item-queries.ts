@@ -1,9 +1,15 @@
-import { queryOptions } from "@tanstack/react-query";
+import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 
 import { collectTeamHubCursorPages } from "@/features/teamhub/teamhub-cursor-pages";
 import { TeamHubError } from "@/features/teamhub/teamhub-error";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
+
+import {
+  workItemDashboardListFilterSearch,
+  workItemDashboardListQuery,
+  type WorkItemDashboardFilters,
+} from "./work-item-dashboard-filters";
 
 export function tenantWorkItemTargetQueryKey(
   tenantId: string,
@@ -43,8 +49,18 @@ export function tenantWorkItemTargetQueryOptions(
   });
 }
 
-export function tenantWorkItemsDashboardQueryKey(tenantId: string) {
+export function tenantWorkItemsDashboardQueryPrefix(tenantId: string) {
   return ["teamhub", tenantId, "work-items", "dashboard"] as const;
+}
+
+export function tenantWorkItemsDashboardQueryKey(
+  tenantId: string,
+  filters: WorkItemDashboardFilters,
+) {
+  return [
+    ...tenantWorkItemsDashboardQueryPrefix(tenantId),
+    workItemDashboardListFilterSearch(filters),
+  ] as const;
 }
 
 export function tenantAgentWorkItemsQueryKey(
@@ -94,15 +110,22 @@ export function tenantAgentWorkItemsQueryOptions(
 export function tenantWorkItemsDashboardQueryOptions(
   client: Pick<TeamHubClient, "api">,
   tenantId: string,
+  filters: WorkItemDashboardFilters,
+  currentActorId?: string,
 ) {
   return queryOptions({
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const page = await collectTeamHubCursorPages((pagination) =>
         teamHubData(
           client.api.GET("/v0/tenants/{tenantId}/work-items", {
             params: {
               path: { tenantId },
-              query: { ...pagination, scope: "personal" },
+              query: {
+                ...pagination,
+                ...workItemDashboardListQuery(filters, currentActorId),
+                scope: "personal",
+              },
             },
           }),
         ),
@@ -114,7 +137,7 @@ export function tenantWorkItemsDashboardQueryOptions(
       }
       return page;
     },
-    queryKey: tenantWorkItemsDashboardQueryKey(tenantId),
+    queryKey: tenantWorkItemsDashboardQueryKey(tenantId, filters),
     refetchOnWindowFocus: true,
     staleTime: 0,
   });

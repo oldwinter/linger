@@ -89,7 +89,7 @@ describe("Room navigation", () => {
       within(primary)
         .getAllByRole("link")
         .map((link) => link.getAttribute("aria-label")),
-    ).toEqual(["Messages", "Library", "Wiki", "Connectors"]);
+    ).toEqual(["Messages", "Dashboard", "Library", "Wiki", "Connectors"]);
     expect(
       within(navigation).getByRole("button", { name: "Pocket Notes" }),
     ).toBeVisible();
@@ -155,7 +155,7 @@ describe("Room navigation", () => {
         links.map((link) =>
           link.querySelector(".primary-navigation-label")?.textContent?.trim(),
         ),
-      ).toEqual(["Messages", "Library", "Wiki", "Connectors"]);
+      ).toEqual(["Messages", "Dashboard", "Library", "Wiki", "Connectors"]);
       const toolbar = await screen.findByRole("toolbar", {
         name: "Message actions",
       });
@@ -296,8 +296,14 @@ describe("Room navigation", () => {
       within(
         screen.getByRole("navigation", { name: "Primary navigation" }),
       ).getAllByRole("link"),
-    ).toHaveLength(4);
-    for (const label of ["Messages", "Library", "Wiki", "Connectors"]) {
+    ).toHaveLength(5);
+    for (const label of [
+      "Messages",
+      "Dashboard",
+      "Library",
+      "Wiki",
+      "Connectors",
+    ]) {
       expect(
         screen
           .getByRole("link", { name: label })

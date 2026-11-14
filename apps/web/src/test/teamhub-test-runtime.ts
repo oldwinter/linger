@@ -1159,9 +1159,29 @@ function installSeedRoutes(server: TeamHubTestServer, seed: TeamHubTestSeed) {
     }))
     .on("GET", "/v0/tenants/{tenantId}/work-items", ({ query }) =>
       page(
-        seed.workItems.filter(
-          (item) => query.get("archived") === "true" || !item.archived_at,
-        ),
+        seed.workItems.filter((item) => {
+          if (query.get("archived") !== "true" && item.archived_at)
+            return false;
+          const priority = query.get("priority");
+          if (priority && item.priority !== priority) return false;
+          const executionStatus = query.get("execution_status");
+          if (
+            executionStatus &&
+            item.task_execution?.status !== executionStatus
+          ) {
+            return false;
+          }
+          const assigneeActorId = query.get("assignee_actor_id");
+          if (
+            assigneeActorId &&
+            !item.assignees.some(
+              (assignment) => assignment.actor.id === assigneeActorId,
+            )
+          ) {
+            return false;
+          }
+          return true;
+        }),
       ),
     )
     .on(
