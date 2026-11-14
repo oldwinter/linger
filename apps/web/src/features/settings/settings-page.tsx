@@ -1,6 +1,7 @@
 import {
   Idea01Icon,
   Key01Icon,
+  KeyboardIcon,
   LaptopIcon,
   UserIcon,
 } from "@hugeicons/core-free-icons";
@@ -40,6 +41,11 @@ export function SettingsLayout() {
             icon={<Icon icon={Idea01Icon} size={14} />}
             label="My Rules"
             to="my-rules"
+          />
+          <SettingsLink
+            icon={<Icon icon={KeyboardIcon} size={14} />}
+            label="Shortcuts"
+            to="shortcuts"
           />
           <SettingsLink
             icon={<Icon icon={LaptopIcon} size={14} />}

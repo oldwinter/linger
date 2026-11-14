@@ -730,6 +730,14 @@ function createSettingsRoute(): RouteObject {
       },
       {
         lazy: async () => ({
+          Component: (
+            await import("@/features/settings/shortcuts-settings-page")
+          ).ShortcutsSettingsPage,
+        }),
+        path: "shortcuts",
+      },
+      {
+        lazy: async () => ({
           Component: (await import("@/features/local-computer/computers-page"))
             .ComputersPage,
         }),
