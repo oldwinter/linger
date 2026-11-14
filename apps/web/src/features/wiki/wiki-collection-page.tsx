@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { Search01Icon } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
 import type { TeamHubDocument } from "@/features/teamhub/teamhub-types";
@@ -19,6 +19,7 @@ import {
   WikiHomePage,
 } from "./wiki-home-page";
 import { type WikiEntry, wikiPreviewPages } from "./wiki-preview-pages";
+import { matchWikiPage, wikiSearchText } from "./wiki-page-search";
 import { usePersonalWikiRefresh } from "./wiki-refresh";
 
 const GraphPage = lazy(async () => {
@@ -75,14 +76,33 @@ function WikiCollectionContent({ collection }: { collection: WikiCollection }) {
     (entry.preview
       ? entry.preview.description
       : nodes.get(entry.key)?.description) ?? "";
-  const needle = query.trim().toLowerCase();
-  const pages = needle
-    ? all.filter((entry) =>
-        `${entryName(entry)} ${description(entry)}`
-          .toLowerCase()
-          .includes(needle),
-      )
-    : all;
+  // Stripped body text is cached by page key so typing never re-strips it.
+  const searchBodies = useRef(
+    new Map<string, { source: string; text: string }>(),
+  );
+  const bodyText = (entry: WikiEntry) => {
+    const source = entry.preview
+      ? entry.preview.markdown
+      : (nodes.get(entry.key)?.body ?? "");
+    const cached = searchBodies.current.get(entry.key);
+    if (cached?.source === source) return cached.text;
+    const text = wikiSearchText(source);
+    searchBodies.current.set(entry.key, { source, text });
+    return text;
+  };
+  const needle = query.trim();
+  const pages = all.flatMap((entry) => {
+    if (!needle) return [{ entry, snippet: undefined as string | undefined }];
+    const match = matchWikiPage(
+      {
+        body: bodyText(entry),
+        description: description(entry),
+        title: entryName(entry),
+      },
+      needle,
+    );
+    return match ? [{ entry, snippet: match.snippet }] : [];
+  });
   const documentPath = (page: TeamHubDocument) =>
     `/t/${encodeURIComponent(tenantId)}/documents/${encodeURIComponent(page.id)}`;
   return (
@@ -118,7 +138,7 @@ function WikiCollectionContent({ collection }: { collection: WikiCollection }) {
         </p>
       ) : pages.length ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {pages.map((entry) => (
+          {pages.map(({ entry, snippet }) => (
             <WikiEntryLink
               className="wiki-entity-card"
               documentPath={documentPath}
@@ -130,8 +150,9 @@ function WikiCollectionContent({ collection }: { collection: WikiCollection }) {
                 {entryName(entry)}
               </span>
               <span className="mt-1 block text-sm text-muted-foreground">
-                {description(entry) ||
-                  (entry.published ? editedLabel(entry.published) : "")}
+                {snippet ??
+                  (description(entry) ||
+                    (entry.published ? editedLabel(entry.published) : ""))}
               </span>
             </WikiEntryLink>
           ))}
