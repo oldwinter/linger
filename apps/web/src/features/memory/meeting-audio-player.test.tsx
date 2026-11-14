@@ -463,6 +463,30 @@ describe("MeetingAudioPlayer keyboard", () => {
 describe("MeetingAudioPlayer speed memory", () => {
   const ACCOUNT = "account-a";
 
+  /** Opens the player before its recording, as the reader does while loading. */
+  function renderLateRecording(meetingId: string, accountId?: string) {
+    const play = vi
+      .spyOn(HTMLMediaElement.prototype, "play")
+      .mockResolvedValue(undefined);
+    const player = (src?: string) => (
+      <MeetingAudioPlayer
+        accountId={accountId}
+        filename="recording.m4a"
+        mediaType="audio/mp4"
+        meetingId={meetingId}
+        onDownload={vi.fn()}
+        src={src}
+      />
+    );
+    const view = render(player());
+    return {
+      ...view,
+      audio: () => view.container.querySelector("audio"),
+      play,
+      player,
+    };
+  }
+
   it("opens at the Account's stored speed", () => {
     writeMeetingPlaybackSpeed(ACCOUNT, 1.5);
 
@@ -494,6 +518,49 @@ describe("MeetingAudioPlayer speed memory", () => {
 
     expect(second.audio.playbackRate).toBe(1.25);
     expect(speedTrigger()).toHaveTextContent("1.25x");
+  });
+
+  it("applies the stored speed when the recording arrives after the meeting opens", () => {
+    writeMeetingPlaybackSpeed(ACCOUNT, 1.5);
+    const { audio, player, rerender } = renderLateRecording(
+      "meeting-1",
+      ACCOUNT,
+    );
+    expect(audio()).toBeNull();
+
+    rerender(player("blob:recording"));
+
+    expect(audio()?.playbackRate).toBe(1.5);
+    expect(speedTrigger()).toHaveTextContent("1.5x");
+  });
+
+  it("keeps 1x when the recording arrives late and nothing is stored", () => {
+    const { audio, player, rerender } = renderLateRecording(
+      "meeting-1",
+      ACCOUNT,
+    );
+
+    rerender(player("blob:recording"));
+
+    expect(audio()?.playbackRate).toBe(1);
+  });
+
+  it("keeps a chosen speed when the element attaches again", async () => {
+    const { audio, player, rerender } = renderLateRecording(
+      "meeting-1",
+      ACCOUNT,
+    );
+    rerender(player("blob:recording"));
+    await chooseRate("2x");
+    expect(audio()?.playbackRate).toBe(2);
+
+    // Losing the recording and getting it back mounts a fresh element.
+    rerender(player());
+    expect(audio()).toBeNull();
+    rerender(player("blob:recording"));
+
+    expect(audio()?.playbackRate).toBe(2);
+    expect(speedTrigger()).toHaveTextContent("2x");
   });
 
   it("keeps another Account's speed out of this player", () => {
