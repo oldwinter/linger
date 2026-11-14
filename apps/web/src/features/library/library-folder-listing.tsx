@@ -3,11 +3,7 @@ import { Select, SelectItem } from "@/components/ui/select";
 import type { TeamHubDocumentTreeSummary } from "@/features/teamhub/teamhub-types";
 import type { ReactNode } from "react";
 
-import { documentFileName } from "./document-display-name";
-import {
-  documentFileTypes,
-  matchesDocumentFileType,
-} from "./document-file-types";
+import { documentFileTypes } from "./document-file-types";
 import {
   LibraryDocumentResults,
   type LibraryRowDocument,
@@ -18,6 +14,7 @@ import {
   LibraryUploadSummary,
 } from "./library-folder-browser";
 import type { PendingDocumentUpload } from "./library-upload-queue";
+import { visibleLibraryDocuments } from "./library-visible-documents";
 import type { WorkspaceTab } from "./library-workspace-tabs";
 
 /**
@@ -132,13 +129,7 @@ export function LibraryFolderListing({
               }
             : activeView
         }
-        documents={documents
-          .filter((document) => matchesDocumentFileType(document, fileType))
-          .sort((a, b) =>
-            sortBy === "name"
-              ? documentFileName(a).localeCompare(documentFileName(b))
-              : b.updated_at.localeCompare(a.updated_at),
-          )}
+        documents={visibleLibraryDocuments(documents, { fileType, sortBy })}
         documentActions={documentActions}
         error={browsedError}
         folders={folders.sort((a, b) =>

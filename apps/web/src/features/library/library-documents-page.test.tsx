@@ -202,6 +202,8 @@ describe("Library Documents", () => {
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    Reflect.deleteProperty(navigator, "clipboard");
+    Reflect.deleteProperty(document, "execCommand");
     resetTenantUploadsForTest();
   });
 
@@ -2047,6 +2049,78 @@ describe("Library Documents", () => {
         name: "Select Bravo plan.md",
       }),
     ).toBeNull();
+  });
+
+  it("copies the selected documents as ordered Markdown links and keeps them selected", async () => {
+    const runtime = await signedInRuntime();
+    const alpha = seedNativeDocument(runtime, "copy-links-alpha");
+    alpha.title = "Alpha plan";
+    const bravo = seedNativeDocument(runtime, "copy-links-bravo");
+    bravo.title = "Bravo plan";
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    renderPage(runtime);
+
+    const files = await screen.findByLabelText("My pages documents");
+    fireEvent.click(
+      within(files).getByRole("checkbox", { name: "Select Bravo plan.md" }),
+    );
+    fireEvent.click(
+      within(files).getByRole("checkbox", { name: "Select Alpha plan.md" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Copy links" }));
+
+    // The list order, not the order the rows were picked, is what gets copied.
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        [
+          `- [Alpha plan.md](${window.location.origin}/t/tenant-northstar/documents/${alpha.id})`,
+          `- [Bravo plan.md](${window.location.origin}/t/tenant-northstar/documents/${bravo.id})`,
+        ].join("\n"),
+      ),
+    );
+    expect(await screen.findByText("Copied")).toBeVisible();
+    expect(
+      screen.getByRole("group", { name: "Selected documents" }),
+    ).toHaveTextContent("2 selected");
+    const remaining = await screen.findByLabelText("My pages documents");
+    expect(
+      within(remaining).getByRole("checkbox", { name: "Select Alpha plan.md" }),
+    ).toBeChecked();
+    expect(
+      within(remaining).getByRole("checkbox", { name: "Select Bravo plan.md" }),
+    ).toBeChecked();
+  });
+
+  it("reports a refused copy and keeps the selection for a retry", async () => {
+    const runtime = await signedInRuntime();
+    seedNativeDocument(runtime, "copy-failure-alpha");
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: vi.fn(() =>
+          Promise.reject(new Error("Clipboard is denied")),
+        ),
+      },
+    });
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: vi.fn(() => false),
+    });
+    renderPage(runtime);
+
+    const files = await screen.findByLabelText("My pages documents");
+    fireEvent.click(
+      within(files).getByRole("checkbox", { name: "Select untitled.md" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Copy links" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
+    expect(screen.queryByText("Copied")).toBeNull();
+    const remaining = await screen.findByLabelText("My pages documents");
+    expect(
+      within(remaining).getByRole("checkbox", { name: "Select untitled.md" }),
+    ).toBeChecked();
+    expect(screen.getByRole("button", { name: "Copy links" })).toBeEnabled();
   });
 
   it("uses one unclipped action menu per Folder and Document with typed items", async () => {

@@ -6,9 +6,13 @@ import type {
   TeamHubDocumentPlacementNode,
   TeamHubDocumentTreeSummary,
 } from "@/features/teamhub/teamhub-types";
+import { writeClipboardText } from "@/lib/clipboard";
+
+import { selectedDocumentsMarkdown } from "./library-selection-links";
 
 export interface LibraryBulkOutcome {
-  failed: number;
+  /** Whether the action failed; the message says what happened. */
+  failed: boolean;
   message: string;
 }
 
@@ -125,10 +129,7 @@ export function useLibraryBulkActions({
         ),
         key: resetKey,
       }));
-      setOutcome({
-        failed: failed.length,
-        message: describeOutcome(active.kind, active.documents.length, failed),
-      });
+      setOutcome(describeOutcome(active.kind, active.documents.length, failed));
       await onChanged();
     } finally {
       setPending(false);
@@ -169,6 +170,28 @@ export function useLibraryBulkActions({
     });
   }
 
+  /**
+   * Copies the given Documents as one Markdown link list. The caller passes
+   * them in the order the list shows them; the selection stays put so a
+   * refused clipboard write can be retried without picking the rows again.
+   */
+  async function copyLinks(documents: readonly TeamHubDocumentTreeSummary[]) {
+    if (!documents.length) return;
+    setOutcome(null);
+    try {
+      await writeClipboardText(
+        selectedDocumentsMarkdown({
+          documents,
+          origin: window.location.origin,
+          tenantId,
+        }),
+      );
+      setOutcome({ failed: false, message: "Copied" });
+    } catch {
+      setOutcome({ failed: true, message: "Copy failed" });
+    }
+  }
+
   return {
     beginMove,
     beginTrash,
@@ -176,6 +199,7 @@ export function useLibraryBulkActions({
     canTrash: selected.some((document) => document.capabilities.delete),
     cancel: () => setTargets(null),
     clear,
+    copyLinks,
     count: selected.length,
     isSelected: (documentId: string) => selectedIds.has(documentId),
     moving: targets?.kind === "move" ? targets.documents : null,
@@ -193,13 +217,18 @@ function describeOutcome(
   kind: BulkTargets["kind"],
   total: number,
   failed: readonly TeamHubDocumentTreeSummary[],
-) {
+): LibraryBulkOutcome {
   const verb = kind === "move" ? "Moved" : "Moved to trash";
   const succeeded = total - failed.length;
-  if (failed.length === 0) return `${verb} ${documentCount(total)}.`;
-  return `${verb} ${succeeded} of ${documentCount(total)}. Failed: ${failed
-    .map((document) => document.title)
-    .join(", ")}.`;
+  return {
+    failed: failed.length > 0,
+    message:
+      failed.length === 0
+        ? `${verb} ${documentCount(total)}.`
+        : `${verb} ${succeeded} of ${documentCount(total)}. Failed: ${failed
+            .map((document) => document.title)
+            .join(", ")}.`,
+  };
 }
 
 function documentCount(count: number) {
