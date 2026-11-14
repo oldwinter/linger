@@ -36,9 +36,35 @@ import * as previewLoader from "../files/artifact-preview-loader";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 
+const originalClipboardDescriptor = Object.getOwnPropertyDescriptor(
+  navigator,
+  "clipboard",
+);
+const originalExecCommand = document.execCommand;
+
+/** Replaces the browser clipboard for one copy action. */
+function setClipboard(clipboard: {
+  writeText: (value: string) => Promise<void>;
+}) {
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: clipboard,
+  });
+}
+
 describe("Room Message timeline cards", () => {
   afterEach(() => {
     vi.useRealTimers();
+    if (originalClipboardDescriptor) {
+      Object.defineProperty(
+        navigator,
+        "clipboard",
+        originalClipboardDescriptor,
+      );
+    } else {
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
+    document.execCommand = originalExecCommand;
   });
 
   it("keeps a bubble for a Human's text and for an Agent's reply", () => {
@@ -681,7 +707,7 @@ describe("Room Message timeline cards", () => {
     expect(authorButton.firstElementChild?.tagName).toBe("svg");
     expect(
       screen.getAllByRole("tooltip").map((tooltip) => tooltip.textContent),
-    ).toEqual(["Copy message"]);
+    ).toEqual(["Copy message", "Copy as quote"]);
     fireEvent.click(
       screen.getByRole("button", { name: "More message actions" }),
     );
@@ -779,6 +805,48 @@ describe("Room Message timeline cards", () => {
       screen.queryByRole("button", { name: "Reply to thread" }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy message" })).toBeVisible();
+  });
+
+  it("copies a Message as a quoted block with its author and time", async () => {
+    const writeText = vi.fn(async () => undefined);
+    setClipboard({ writeText });
+    renderTimeline({
+      ...ordinaryAgentMessage(),
+      created_at: "2026-11-14T09:12:00",
+    });
+    const button = screen.getByRole("button", { name: "Copy as quote" });
+    fireEvent.click(button);
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        ["> Codex, 2026-11-14 09:12", ">", "> An ordinary Agent answer"].join(
+          "\n",
+        ),
+      ),
+    );
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(
+      within(button.parentElement as HTMLElement).getByRole("tooltip"),
+    ).toHaveTextContent("Copied");
+  });
+
+  it("says a quote copy failed instead of claiming it was copied", async () => {
+    setClipboard({
+      writeText: vi.fn(async () => {
+        throw new Error("Clipboard denied");
+      }),
+    });
+    document.execCommand = vi.fn(() => false);
+    renderTimeline(ordinaryAgentMessage());
+    const button = screen.getByRole("button", { name: "Copy as quote" });
+    fireEvent.click(button);
+
+    await waitFor(() =>
+      expect(
+        within(button.parentElement as HTMLElement).getByRole("tooltip"),
+      ).toHaveTextContent("Copy failed"),
+    );
+    expect(screen.getByRole("button", { name: "Copy as quote" })).toBeVisible();
   });
 
   it("shows a parent reply record after Thread replies exist", () => {
