@@ -21,7 +21,13 @@ after a reboot and reads the outcome from the single JSON line on stdout. It
 also restarts running services when the instance's `user.env` no longer
 matches the configuration they started with.
 
-Every mode first converts an install from before the rename to Linger
+`--stop` (with `--instance`) is the desktop uninstall's and Windows setup's: it stops the
+manager the desktop started for that instance (its `/api/stop` cancels a
+running job) and the instance's services, deletes nothing, and prints one
+JSON line with what failed. It needs nothing beside `installer.js`, so
+setup can run it from a copy on an earlier release's `Linger.exe`.
+
+Every other mode first converts an install from before the rename to Linger
 (`migrateLegacyInstallation`); `--migrate` does only that and exits, for the
 desktop client.
 
