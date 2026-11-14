@@ -1,4 +1,8 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQuery,
+} from "@tanstack/react-query";
 import {
   act,
   fireEvent,
@@ -29,6 +33,7 @@ import * as avatarImages from "./members/actor-avatar-image";
 import { writeRoomComposerDraft, type RoomComposerDraft } from "./room-drafts";
 import { clearRoomUnreadFilter } from "./room-unread-filter";
 import { RoomSecondaryNavigation } from "./room-secondary-navigation";
+import { tenantRoomsQueryKey } from "./room-queries";
 import {
   ROOM_SNOOZE_HOUR_MS,
   clearRoomSnoozes,
@@ -1829,3 +1834,187 @@ describe("Room navigation draft hint", () => {
     expect(subscribe).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("Room navigation Mark all as read", () => {
+  it("disables the action when no Room has unread Messages", () => {
+    renderMarkAllRead([room("room-read", 0, 0)]);
+
+    expect(
+      screen.getByRole("button", { name: "Mark all Rooms as read" }),
+    ).toBeDisabled();
+  });
+
+  it("marks every unread Room with its own cursor and reports the total", async () => {
+    const navigation = renderMarkAllRead([
+      unreadNavRoom("room-a", 12, 9),
+      unreadNavRoom("room-b", 7, 3),
+      room("room-read", 0, 0),
+    ]);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Mark all Rooms as read" }),
+    );
+
+    await waitFor(() => expect(navigation.requests).toHaveLength(2));
+    expect(navigation.requests).toEqual(
+      expect.arrayContaining([
+        { roomId: "room-a", throughRoomSeq: 12 },
+        { roomId: "room-b", throughRoomSeq: 7 },
+      ]),
+    );
+    navigation.respondAll();
+
+    expect(await screen.findByText("2 Rooms marked read.")).toBeVisible();
+    expect(screen.queryByLabelText(/unread message/u)).toBeNull();
+  });
+
+  it("keeps a failed Room unread and reports the split", async () => {
+    const navigation = renderMarkAllRead(
+      [unreadNavRoom("room-a", 12, 9), unreadNavRoom("room-fail", 7, 3)],
+      { failRoomId: "room-fail" },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Mark all Rooms as read" }),
+    );
+    await waitFor(() => expect(navigation.requests).toHaveLength(2));
+    navigation.respondAll();
+
+    expect(await screen.findByText("1 marked read, 1 failed.")).toBeVisible();
+    expect(screen.queryByLabelText("3 unread messages")).toBeNull();
+    expect(screen.getByLabelText("4 unread messages")).toBeVisible();
+  });
+
+  it("shows progress and cannot be started twice while it runs", async () => {
+    const navigation = renderMarkAllRead([
+      unreadNavRoom("room-a", 12, 9),
+      unreadNavRoom("room-b", 7, 3),
+    ]);
+    const button = screen.getByRole("button", {
+      name: "Mark all Rooms as read",
+    });
+    fireEvent.click(button);
+    await waitFor(() => expect(navigation.requests).toHaveLength(2));
+
+    fireEvent.click(button);
+    expect(navigation.requests).toHaveLength(2);
+    expect(screen.getByText("Marking 0 of 2…")).toBeVisible();
+
+    navigation.respondNext();
+    expect(await screen.findByText("Marking 1 of 2…")).toBeVisible();
+
+    navigation.respondNext();
+    expect(await screen.findByText("2 Rooms marked read.")).toBeVisible();
+  });
+
+  it("keeps the per-Room Mark as read item", async () => {
+    renderMarkAllRead([unreadNavRoom("room-a", 12, 9)]);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "More actions for room-a" }),
+    );
+
+    expect(
+      await screen.findByRole("menuitem", { name: "Mark as read" }),
+    ).toBeVisible();
+  });
+});
+
+function unreadNavRoom(
+  id: string,
+  latestRoomSeq: number,
+  readThroughRoomSeq: number,
+): TeamHubRoomListItem {
+  return {
+    ...room(id, latestRoomSeq - readThroughRoomSeq, 0),
+    latest_message: {
+      author: {
+        display_name: "Jenny",
+        id: "actor-jenny",
+        kind: "human",
+        tenant_id: "tenant-a",
+      },
+      created_at: "2026-07-24T09:30:00Z",
+      id: `message-${id}`,
+      raw_message: "Newest message",
+      room_seq: latestRoomSeq,
+    },
+    read_through_room_seq: readThroughRoomSeq,
+  };
+}
+
+/** Renders the list against a TeamHub whose read-state answers wait on demand. */
+function renderMarkAllRead(
+  rooms: TeamHubRoomListItem[],
+  options: { failRoomId?: string } = {},
+) {
+  const requests: Array<{ roomId: string; throughRoomSeq: number }> = [];
+  const responses: Array<() => void> = [];
+  const server = new TeamHubTestServer()
+    .allowUnhandledRoutes()
+    .on("PUT", "/v0/rooms/{roomId}/read-state", ({ body, params }) => {
+      const throughRoomSeq = (body as { through_room_seq: number })
+        .through_room_seq;
+      requests.push({ roomId: params.roomId!, throughRoomSeq });
+      return new Promise<unknown>((resolve) => {
+        responses.push(() =>
+          resolve(
+            params.roomId === options.failRoomId
+              ? teamHubErrorResponse(
+                  500,
+                  "READ_STATE_FAILED",
+                  "Read state failed.",
+                )
+              : {
+                  read_through_room_seq: throughRoomSeq,
+                  room_id: params.roomId,
+                  updated_at: "2026-07-24T10:00:00Z",
+                },
+          ),
+        );
+      });
+    });
+  const runtime = {
+    ...liveRuntime(),
+    client: createHttpTeamHubClient({
+      fetchRequest: server.fetch,
+      onAuthenticationRequired: () => undefined,
+    }),
+  };
+  renderInDocument(
+    <QueryClientProvider client={new QueryClient()}>
+      <TeamHubRuntimeProvider runtime={runtime}>
+        <MemoryRouter>
+          <CachedRoomsNavigation rooms={rooms} />
+        </MemoryRouter>
+      </TeamHubRuntimeProvider>
+    </QueryClientProvider>,
+  );
+  return {
+    requests,
+    respondAll: () => {
+      while (responses.length > 0) responses.shift()!();
+    },
+    respondNext: () => responses.shift()!(),
+  };
+}
+
+/** The list as its parent feeds it: a subscriber to the Room list cache. */
+function CachedRoomsNavigation({ rooms }: { rooms: TeamHubRoomListItem[] }) {
+  const { data } = useQuery({
+    initialData: { items: rooms, page: { has_more: false } },
+    queryFn: () => ({ items: rooms, page: { has_more: false } }),
+    queryKey: tenantRoomsQueryKey("tenant-a"),
+    staleTime: Infinity,
+  });
+  return (
+    <RoomSecondaryNavigation
+      onCloseMobile={() => undefined}
+      onCreateRoom={() => undefined}
+      rooms={data.items}
+      tenant={{
+        id: "tenant-a",
+        name: "Northstar",
+        created_at: "2026-07-24T09:00:00Z",
+      }}
+    />
+  );
+}

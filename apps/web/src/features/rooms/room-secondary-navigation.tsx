@@ -7,6 +7,7 @@ import {
   PinIcon,
   Search01Icon,
   SidebarLeftIcon,
+  TickDouble02Icon,
 } from "@hugeicons/core-free-icons";
 import {
   type CSSProperties,
@@ -55,8 +56,10 @@ import {
   pinnedFirst,
   RoomMentionMenu,
   RoomPinButton,
+  useMarkAllRoomsRead,
   useRoomPin,
 } from "./room-nav-actions";
+import { markAllRoomsReadTargets } from "./room-mark-all-read";
 import {
   isRoomMentionMuted,
   isRoomMentionSnoozed,
@@ -212,6 +215,10 @@ export function RoomSecondaryNavigation({
       ),
   );
   const roomPin = useRoomPin(tenant.id);
+  const markAllRead = useMarkAllRoomsRead(tenant.id);
+  // Every chat row can acknowledge a cursor, including a filtered-out or
+  // snoozed one: the action clears the Room, not just what the list shows.
+  const unreadRoomCount = markAllRoomsReadTargets(chats).length;
   function togglePin(room: TeamHubRoomListItem) {
     roomPin.mutate({ pinned: !room.pinned_at, roomId: room.id });
   }
@@ -420,17 +427,44 @@ export function RoomSecondaryNavigation({
             ) : null}
             <NavSection
               action={
-                <AgentCreateMenu
-                  onCreateFromTemplate={() => setTemplateAgentOpen(true)}
-                  onCreateRoom={onCreateRoom}
-                  onCreateAgent={() => {
-                    setLocalAgentOpen(true);
-                    onCloseMobile();
-                  }}
-                />
+                <>
+                  <Button
+                    aria-label="Mark all Rooms as read"
+                    className="!rounded-lg border-0 text-app-muted"
+                    disabled={unreadRoomCount === 0}
+                    loading={markAllRead.running}
+                    onClick={() => void markAllRead.markAll(chats)}
+                    size="compactIcon"
+                    title="Mark all as read"
+                    tone="ghost"
+                  >
+                    <Icon icon={TickDouble02Icon} size={16} />
+                  </Button>
+                  <AgentCreateMenu
+                    onCreateFromTemplate={() => setTemplateAgentOpen(true)}
+                    onCreateRoom={onCreateRoom}
+                    onCreateAgent={() => {
+                      setLocalAgentOpen(true);
+                      onCloseMobile();
+                    }}
+                  />
+                </>
               }
               title="Messages"
             >
+              {markAllRead.running && markAllRead.progress ? (
+                <p className="px-2 text-xs text-app-muted" role="status">
+                  Marking {markAllRead.progress.completed} of{" "}
+                  {markAllRead.progress.total}…
+                </p>
+              ) : markAllRead.report ? (
+                <p
+                  className={`px-2 text-xs ${markAllRead.report.failed ? "text-app-danger" : "text-app-muted"}`}
+                  role={markAllRead.report.failed ? "alert" : "status"}
+                >
+                  {markAllRead.report.message}
+                </p>
+              ) : null}
               <RoomFilterChoice mode={filterMode} onChange={setFilterMode} />
               {filterMode !== "all" && shownChats.length === 0 ? (
                 <FilterEmptyState
