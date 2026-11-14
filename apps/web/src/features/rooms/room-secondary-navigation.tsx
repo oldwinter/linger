@@ -63,6 +63,7 @@ import {
   useRoomMentionMute,
   useRoomMentionSnooze,
 } from "./room-mention-snooze";
+import { RoomListCopyMenu } from "./room-list-copy-menu";
 import { roomMarkReadCursor } from "./room-mark-read";
 import {
   clearRoomSnooze,
@@ -314,6 +315,7 @@ export function RoomSecondaryNavigation({
               anotherMeRoomId={anotherMeRoomId}
               tenantId={tenant.id}
             />
+            <RoomListCopyMenu rooms={shownChats} tenantId={tenant.id} />
           </div>
           <button
             aria-label="Hide Chat list"
@@ -338,6 +340,7 @@ export function RoomSecondaryNavigation({
             anotherMeRoomId={anotherMeRoomId}
             tenantId={tenant.id}
           />
+          <RoomListCopyMenu rooms={shownChats} tenantId={tenant.id} />
           <button
             aria-keyshortcuts="Control+k Meta+k"
             aria-label="Search"
