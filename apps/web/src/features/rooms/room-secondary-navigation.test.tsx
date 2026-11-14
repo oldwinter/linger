@@ -8,7 +8,7 @@ import {
 } from "@testing-library/react";
 import { type ReactElement, type ReactNode, useState } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   TeamHubRuntimeProvider,
@@ -954,5 +954,152 @@ describe("Room navigation composer focus", () => {
       "/t/tenant-a/rooms/room-other/chat|null",
     );
     matchMedia.mockRestore();
+  });
+});
+
+describe("Room navigation unread filter", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  function renderList({
+    accountId,
+    activeRoomId,
+    rooms,
+  }: {
+    accountId?: string;
+    activeRoomId?: string;
+    rooms: TeamHubRoomListItem[];
+  }) {
+    return render(
+      <MemoryRouter>
+        <RoomSecondaryNavigation
+          accountId={accountId}
+          activeRoomId={activeRoomId}
+          onCloseMobile={() => undefined}
+          onCreateRoom={() => undefined}
+          rooms={rooms}
+          tenant={{
+            created_at: "2026-07-24T09:00:00Z",
+            id: "tenant-a",
+            name: "Northstar",
+          }}
+        />
+      </MemoryRouter>,
+    );
+  }
+
+  /** The away recap names the same Rooms, so row queries stay inside the list. */
+  function messagesSection() {
+    return screen.getByRole("button", { name: "Messages" }).closest("section")!;
+  }
+
+  it("keeps unread Rooms and the active Room, and remembers the choice", () => {
+    renderList({
+      accountId: "account-a",
+      activeRoomId: "room-active",
+      rooms: [
+        room("room-active", 0, 0),
+        room("room-unread", 2, 0),
+        room("room-mentioned", 0, 1),
+        room("room-read", 0, 0),
+      ],
+    });
+    const headingRow = screen
+      .getByRole("button", { name: "Messages" })
+      .closest("div")!;
+    const toggle = within(headingRow).getByRole("button", { name: "Unread" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(
+      within(headingRow).getByRole("button", { name: "Create chat" }),
+    ).toBeVisible();
+    expect(
+      within(messagesSection()).getByRole("link", { name: "room-read" }),
+    ).toBeVisible();
+
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    for (const name of ["room-active", "room-unread", "room-mentioned"]) {
+      expect(
+        within(messagesSection()).getByRole("link", { name }),
+      ).toBeVisible();
+    }
+    expect(
+      within(messagesSection()).queryByRole("link", { name: "room-read" }),
+    ).not.toBeInTheDocument();
+    expect(localStorage.getItem("room-unread-filter.v1:account-a")).toBe(
+      "true",
+    );
+
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(
+      within(messagesSection()).getByRole("link", { name: "room-read" }),
+    ).toBeVisible();
+    expect(localStorage.getItem("room-unread-filter.v1:account-a")).toBe(
+      "false",
+    );
+  });
+
+  it("restores the choice stored for the Account", () => {
+    localStorage.setItem("room-unread-filter.v1:account-a", "true");
+    renderList({
+      accountId: "account-a",
+      activeRoomId: "room-active",
+      rooms: [room("room-active", 0, 0), room("room-read", 0, 0)],
+    });
+
+    expect(screen.getByRole("button", { name: "Unread" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(
+      within(messagesSection()).queryByRole("link", { name: "room-read" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("explains an empty filter and shows every Room again", () => {
+    renderList({ rooms: [room("room-read", 0, 0)] });
+    fireEvent.click(screen.getByRole("button", { name: "Unread" }));
+
+    expect(
+      within(messagesSection()).getByText("No unread Rooms"),
+    ).toBeVisible();
+    expect(
+      within(messagesSection()).queryByRole("link", { name: "room-read" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      within(messagesSection()).getByRole("button", { name: "Show all Rooms" }),
+    );
+
+    expect(
+      within(messagesSection()).getByRole("link", { name: "room-read" }),
+    ).toBeVisible();
+    expect(
+      within(messagesSection()).queryByText("No unread Rooms"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Unread" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  it("shows every Room when the stored choice cannot be parsed", () => {
+    localStorage.setItem("room-unread-filter.v1:account-a", "{not json");
+    renderList({
+      accountId: "account-a",
+      rooms: [room("room-read", 0, 0)],
+    });
+
+    expect(screen.getByRole("button", { name: "Unread" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(
+      within(messagesSection()).getByRole("link", { name: "room-read" }),
+    ).toBeVisible();
   });
 });
