@@ -1,19 +1,22 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { formatPlaybackTime, MeetingAudioPlayer } from "./meeting-audio-player";
+import { readMeetingResume, rememberMeetingPosition } from "./meeting-resume";
 
 afterEach(() => vi.restoreAllMocks());
+beforeEach(() => localStorage.clear());
 
 const rateLabels = ["0.75x", "1x", "1.25x", "1.5x", "2x"];
 
-function renderPlayer(meetingId = "meeting-1") {
+function renderPlayer(meetingId = "meeting-1", accountId?: string) {
   const play = vi
     .spyOn(HTMLMediaElement.prototype, "play")
     .mockResolvedValue(undefined);
   const onDownload = vi.fn();
   const player = (id: string) => (
     <MeetingAudioPlayer
+      accountId={accountId}
       filename="recording.m4a"
       mediaType="audio/mp4"
       meetingId={id}
@@ -24,6 +27,15 @@ function renderPlayer(meetingId = "meeting-1") {
   const view = render(player(meetingId));
   const audio = view.container.querySelector("audio")!;
   return { ...view, audio, onDownload, play, player };
+}
+
+/** Gives the loaded element a duration, as metadata does for a real file. */
+function loadDuration(audio: HTMLAudioElement, duration: number) {
+  Object.defineProperty(audio, "duration", {
+    configurable: true,
+    value: duration,
+  });
+  fireEvent.loadedMetadata(audio);
 }
 
 /** Opens the speed list and picks one rate. */
@@ -198,5 +210,110 @@ describe("MeetingAudioPlayer", () => {
     unmount();
 
     expect(audio.playbackRate).toBe(1);
+  });
+});
+
+describe("MeetingAudioPlayer resume", () => {
+  const ACCOUNT = "account-a";
+
+  it("starts paused at the remembered place inside the recording", () => {
+    rememberMeetingPosition(ACCOUNT, "meeting-1", 80, 1_000);
+    const { audio } = renderPlayer("meeting-1", ACCOUNT);
+
+    loadDuration(audio, 125);
+
+    expect(audio.currentTime).toBe(80);
+    expect(screen.getByText(/Resumed at 1:20 \/ 2:05/)).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Play recording" }),
+    ).toBeVisible();
+  });
+
+  it("starts at zero near the end of the recording", () => {
+    rememberMeetingPosition(ACCOUNT, "meeting-1", 123, 1_000);
+    const { audio } = renderPlayer("meeting-1", ACCOUNT);
+
+    loadDuration(audio, 125);
+
+    expect(audio.currentTime).toBe(0);
+    expect(screen.queryByText(/Resumed at/)).not.toBeInTheDocument();
+  });
+
+  it("keeps another Account's position out of this player", () => {
+    rememberMeetingPosition("account-b", "meeting-1", 80, 1_000);
+    const { audio } = renderPlayer("meeting-1", ACCOUNT);
+
+    loadDuration(audio, 125);
+
+    expect(audio.currentTime).toBe(0);
+    expect(screen.queryByText(/Resumed at/)).not.toBeInTheDocument();
+  });
+
+  it("saves the place as soon as playback pauses", () => {
+    const { audio } = renderPlayer("meeting-1", ACCOUNT);
+    loadDuration(audio, 125);
+    audio.currentTime = 42;
+
+    fireEvent.pause(audio);
+
+    expect(readMeetingResume(ACCOUNT)["meeting-1"]?.position).toBe(42);
+  });
+
+  it("writes at most once per interval while time updates stream in", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    const { audio } = renderPlayer("meeting-1", ACCOUNT);
+    loadDuration(audio, 125);
+
+    audio.currentTime = 10;
+    fireEvent.timeUpdate(audio);
+    expect(readMeetingResume(ACCOUNT)["meeting-1"]?.position).toBe(10);
+
+    now.mockReturnValue(1_002_000);
+    audio.currentTime = 20;
+    fireEvent.timeUpdate(audio);
+    expect(readMeetingResume(ACCOUNT)["meeting-1"]?.position).toBe(10);
+
+    now.mockReturnValue(1_006_000);
+    audio.currentTime = 30;
+    fireEvent.timeUpdate(audio);
+    expect(readMeetingResume(ACCOUNT)["meeting-1"]?.position).toBe(30);
+  });
+
+  it("starts over from the beginning and forgets the place", () => {
+    rememberMeetingPosition(ACCOUNT, "meeting-1", 80, 1_000);
+    const { audio } = renderPlayer("meeting-1", ACCOUNT);
+    loadDuration(audio, 125);
+    expect(audio.currentTime).toBe(80);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Start from the beginning" }),
+    );
+
+    expect(audio.currentTime).toBe(0);
+    expect(screen.queryByText(/Resumed at/)).not.toBeInTheDocument();
+    expect(readMeetingResume(ACCOUNT)["meeting-1"]).toBeUndefined();
+  });
+
+  it("forgets the place when the listener drags back to the start", () => {
+    rememberMeetingPosition(ACCOUNT, "meeting-1", 80, 1_000);
+    const { audio } = renderPlayer("meeting-1", ACCOUNT);
+    loadDuration(audio, 125);
+
+    fireEvent.change(screen.getByRole("slider", { name: "Seek recording" }), {
+      target: { value: "0" },
+    });
+
+    expect(audio.currentTime).toBe(0);
+    expect(readMeetingResume(ACCOUNT)["meeting-1"]).toBeUndefined();
+  });
+
+  it("saves the place when the player closes", () => {
+    const { audio, unmount } = renderPlayer("meeting-1", ACCOUNT);
+    loadDuration(audio, 125);
+    audio.currentTime = 55;
+
+    unmount();
+
+    expect(readMeetingResume(ACCOUNT)["meeting-1"]?.position).toBe(55);
   });
 });

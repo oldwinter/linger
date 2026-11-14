@@ -3,6 +3,10 @@ import {
   hasRecentDocuments,
 } from "@/features/library/recent-documents";
 import {
+  clearMeetingResume,
+  hasMeetingResume,
+} from "@/features/memory/meeting-resume";
+import {
   clearDesktopNotificationPauses,
   hasDesktopNotificationPauses,
 } from "@/features/rooms/desktop-notification-pause";
@@ -77,5 +81,11 @@ export const browserPreferences: readonly BrowserPreference[] = [
     hasAnything: hasRecentDocuments,
     label: "Recently opened documents",
     module: "features/library/recent-documents.ts",
+  },
+  {
+    clear: clearMeetingResume,
+    hasAnything: hasMeetingResume,
+    label: "Meeting listening positions",
+    module: "features/memory/meeting-resume.ts",
   },
 ];
