@@ -199,7 +199,7 @@ class FakeNotification {
 
 function renderNotifications(
   rooms: TeamHubRoomListItem[],
-  open: (roomId: string) => void,
+  open: (roomId: string, messageId?: string) => void,
 ) {
   return renderHook(
     (props: { rooms: TeamHubRoomListItem[] }) =>
@@ -249,7 +249,7 @@ describe("useRoomMentionNotifications", () => {
 
     act(() => notification?.onclick?.());
     expect(focus).toHaveBeenCalledOnce();
-    expect(open).toHaveBeenCalledWith("a");
+    expect(open).toHaveBeenCalledWith("a", "msg_2");
     expect(notification?.closed).toBe(true);
 
     rerender({

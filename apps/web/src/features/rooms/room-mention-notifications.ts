@@ -6,7 +6,8 @@ import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
 const BODY_LIMIT = 160;
 
 export interface RoomMentionNotice {
-  messageId: string;
+  /** The Message that announced the mention; absent for a Room-level notice. */
+  messageId?: string;
   roomId: string;
   title: string;
   body: string;
@@ -79,15 +80,16 @@ function desktopBadge(): DesktopBadge | undefined {
 /**
  * Announces a new unread mention while this window is not in front, and keeps
  * the app icon's badge on the total unread mentions. Clicking a notification
- * brings the window back on its Room. Mentions read while focused are dropped
- * rather than shown late, because the Room list already showed them.
+ * brings the window back on its Room, and on the Message it announced when the
+ * notice names one. Mentions read while focused are dropped rather than shown
+ * late, because the Room list already showed them.
  */
 export function useRoomMentionNotifications({
   open,
   roomId,
   rooms,
 }: {
-  open: (roomId: string) => void;
+  open: (roomId: string, messageId?: string) => void;
   roomId: string | undefined;
   rooms: readonly TeamHubRoomListItem[] | undefined;
 }) {
@@ -113,7 +115,7 @@ export function useRoomMentionNotifications({
       });
       notification.onclick = () => {
         window.focus();
-        open(notice.roomId);
+        open(notice.roomId, notice.messageId);
         notification.close();
       };
     }
