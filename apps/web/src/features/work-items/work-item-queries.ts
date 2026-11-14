@@ -218,6 +218,70 @@ export function tenantWorkItemsDashboardQueryPrefix(tenantId: string) {
 }
 
 /**
+ * Archiving changes the board's membership and the open peek, and the timeline
+ * gains its entry, so the answer replaces the target cache and the board and
+ * timeline refetch. The Item is never copied into local state that could drift.
+ */
+function refreshAfterArchive(
+  queryClient: ReturnType<typeof useQueryClient>,
+  tenantId: string,
+  workItemId: string,
+  item: TeamHubWorkItem,
+) {
+  queryClient.setQueryData(
+    tenantWorkItemTargetQueryKey(tenantId, workItemId),
+    item,
+  );
+  void queryClient.invalidateQueries({
+    queryKey: tenantWorkItemsDashboardQueryPrefix(tenantId),
+  });
+  void queryClient.invalidateQueries({
+    queryKey: tenantWorkItemTargetQueryKey(tenantId, workItemId),
+  });
+  void queryClient.invalidateQueries({
+    queryKey: tenantWorkItemTimelineQueryKey(tenantId, workItemId),
+  });
+}
+
+export function useArchiveWorkItem(tenantId: string, workItemId: string) {
+  const { client } = useTeamHubRuntime();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (expectedVersion: number) =>
+      teamHubData(
+        client.api.POST("/v0/work-items/{workItemId}/archive", {
+          body: { expected_version: expectedVersion },
+          params: {
+            header: idempotencyHeader(createTeamHubIdempotencyKey()),
+            path: { workItemId },
+          },
+        }),
+      ),
+    onSuccess: (item) =>
+      refreshAfterArchive(queryClient, tenantId, workItemId, item),
+  });
+}
+
+export function useUnarchiveWorkItem(tenantId: string, workItemId: string) {
+  const { client } = useTeamHubRuntime();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (expectedVersion: number) =>
+      teamHubData(
+        client.api.POST("/v0/work-items/{workItemId}/unarchive", {
+          body: { expected_version: expectedVersion },
+          params: {
+            header: idempotencyHeader(createTeamHubIdempotencyKey()),
+            path: { workItemId },
+          },
+        }),
+      ),
+    onSuccess: (item) =>
+      refreshAfterArchive(queryClient, tenantId, workItemId, item),
+  });
+}
+
+/**
  * An Assignment is one Actor's durable fact, shown by the peek's Assignees row
  * and filtered by the board, so both refetch instead of either keeping a local
  * copy of the list. The timeline gains the assignment activity.
