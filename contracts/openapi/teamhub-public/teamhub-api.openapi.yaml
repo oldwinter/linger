@@ -2163,6 +2163,42 @@ paths:
           $ref: '../components/common.yaml#/components/responses/Unauthenticated'
         '404':
           $ref: '../components/common.yaml#/components/responses/NotFound'
+  /v0/tenants/{tenantId}/personal-wiki/refresh:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    post:
+      tags: [Personal Wiki]
+      operationId: refreshPersonalWiki
+      summary: Request a refresh of the authenticated Human's Personal Wiki from Memory.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '../components/personal-wiki.yaml#/components/schemas/PersonalWikiRefreshRequest'
+      responses:
+        '202':
+          description: The refresh is accepted or already running.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/personal-wiki.yaml#/components/schemas/PersonalWikiRefresh'
+        '200':
+          description: The Wiki already matches its sources, or has no source yet.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/personal-wiki.yaml#/components/schemas/PersonalWikiRefresh'
+        '400':
+          $ref: '../components/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components/common.yaml#/components/responses/Unauthenticated'
+        '404':
+          $ref: '../components/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../components/common.yaml#/components/responses/Conflict'
+        '503':
+          $ref: '../components/common.yaml#/components/responses/ServiceUnavailable'
   /v0/tenants/{tenantId}/personal-wiki/preview:
     parameters:
       - $ref: '#/components/parameters/TenantId'

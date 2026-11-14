@@ -10,7 +10,7 @@
   they reuse the shared BlockNote visual language but do not become Room
   Documents or bypass Wiki source versioning.
 - A Wiki page is a read-only Markdown file Document: open it with the file preview and the knowledge presentation, never a collaboration session.
-- Web observes generation state. It does not call LLM Wiki directly or orchestrate compilation.
+- Web observes generation state. A Human may ask TeamHub to start a refresh; Web shows its outcome and lets the same polling report progress. Web does not call LLM Wiki directly or orchestrate compilation.
 
 - Wiki navigation owns Profile, Timeline, Projects, Topics, People, and Companies. Timeline, People
   and Companies are the display labels for the existing `graph`, `contacts` and

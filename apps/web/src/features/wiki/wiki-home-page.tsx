@@ -20,6 +20,7 @@ import {
   type WikiPreviewPage,
 } from "./wiki-preview-pages";
 import { WikiProfileEditButton } from "./wiki-profile-edit-button";
+import { WikiRefreshButton } from "./wiki-refresh-button";
 import { usePersonalWikiRefresh, type WikiRefreshStatus } from "./wiki-refresh";
 import { WikiRefreshBanner } from "./wiki-refresh-status";
 import { useAnotherMeActorId } from "./wiki-working-card";
@@ -158,7 +159,12 @@ export function WikiHomePage() {
             ))}
             {indicator}
           </div>
-          {tab === "wiki" ? null : (
+          {tab === "wiki" ? (
+            <WikiRefreshButton
+              refreshing={refresh.refreshing}
+              tenantId={tenantId}
+            />
+          ) : (
             <WikiProfileEditButton tenantId={tenantId} />
           )}
         </header>

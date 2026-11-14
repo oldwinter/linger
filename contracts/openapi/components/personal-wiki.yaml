@@ -4,6 +4,30 @@ components:
       type: string
       description: refreshing while a refresh runs or its follow-up is queued; failed when the latest refresh failed or conflicted.
       enum: [idle, refreshing, failed]
+    PersonalWikiRefreshOutcome:
+      type: string
+      description: >-
+        accepted when the refresh was admitted and runs now; already_latest when every source is
+        already in the published Wiki; in_progress when a refresh is already running; no_sources
+        when the Wiki has no source to refresh from yet.
+      enum: [accepted, already_latest, in_progress, no_sources]
+    PersonalWikiRefresh:
+      type: object
+      additionalProperties: false
+      required: [outcome]
+      properties:
+        outcome:
+          $ref: "#/components/schemas/PersonalWikiRefreshOutcome"
+    PersonalWikiRefreshRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        date:
+          type: string
+          format: date
+          description: >-
+            The business date the refresh is for. It scopes the request's idempotency, not the
+            sources; omit it for the current date.
     PersonalWiki:
       type: object
       additionalProperties: false

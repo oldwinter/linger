@@ -97,6 +97,10 @@ export type TeamHubVoiceTranscriptEvent =
 export type TeamHubVoiceTranscriptEventPage =
   components["schemas"]["VoiceTranscriptEventPage"];
 export type TeamHubPersonalWiki = components["schemas"]["PersonalWiki"];
+export type TeamHubPersonalWikiRefresh =
+  components["schemas"]["PersonalWikiRefresh"];
+export type TeamHubPersonalWikiRefreshOutcome =
+  components["schemas"]["PersonalWikiRefreshOutcome"];
 export type TeamHubMemoryEntry = components["schemas"]["MemoryEntry"];
 export type TeamHubExternalConnection =
   components["schemas"]["ExternalConnection"];
