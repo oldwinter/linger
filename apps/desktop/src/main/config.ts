@@ -22,6 +22,12 @@ const desktopConfig = z.object({
   computerId: z.string().optional(),
   tenantId: z.string().optional(),
   ownerActorId: z.string().optional(),
+  // The Computer a reset local server enrolls again: the next enrollment
+  // against that origin renews it instead of creating another. Never holds
+  // the credential.
+  renewalEnrollment: z
+    .object({ computerId: z.string().min(1), origin: z.string().url() })
+    .optional(),
   workspaceGrants: z.array(workspaceGrant).default([]),
   // Always-on mode: keep the system awake even when idle.
   preventSleep: z.boolean().default(false),

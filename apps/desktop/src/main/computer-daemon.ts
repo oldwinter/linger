@@ -10,7 +10,11 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import { finished } from "node:stream";
 
-import type { RuntimeState } from "../shared/api.js";
+import {
+  DAEMON_IDENTITY_CONFLICT,
+  type ComputerConnectionError,
+  type RuntimeState,
+} from "../shared/api.js";
 import type {
   ComputerCredential,
   CredentialStore,
@@ -110,6 +114,13 @@ export const connectionState = (gatewayState: string): string => {
   }
 };
 
+// The status line's optional connection_error, which the Gateway sets when it
+// refuses this computer's Daemon Identity as another Computer's.
+export const connectionError = (
+  value: unknown,
+): ComputerConnectionError | undefined =>
+  value === DAEMON_IDENTITY_CONFLICT ? DAEMON_IDENTITY_CONFLICT : undefined;
+
 const RUNTIME_PATHS = {
   codex: "LINGER_CODEX_PATH",
   claude: "LINGER_CLAUDE_PATH",
@@ -193,6 +204,7 @@ export class ComputerDaemonModule implements Module {
   #child: DaemonChild | undefined;
   #state: RuntimeState = "stopped";
   #connection = "disconnected";
+  #connectionError: ComputerConnectionError | undefined;
   #running = 0;
   #failures = 0;
   #startedAt = 0;
@@ -223,6 +235,12 @@ export class ComputerDaemonModule implements Module {
   // while no daemon runs.
   connection(): string {
     return this.#connection;
+  }
+
+  // Why the Gateway refused this computer besides the connection state, while
+  // the daemon reports one.
+  connectionError(): ComputerConnectionError | undefined {
+    return this.#connectionError;
   }
 
   // Why the daemon keeps exiting before it reports a status, once it failed
@@ -338,6 +356,7 @@ export class ComputerDaemonModule implements Module {
     const configFile = this.#writeConfig(config, credential, env);
     this.#setState("starting");
     this.#setConnection("connecting");
+    this.#setConnectionError(undefined);
     this.#startedAt = Date.now();
     const child = this.#options.spawn(configFile, {
       ...env,
@@ -354,6 +373,7 @@ export class ComputerDaemonModule implements Module {
         op?: unknown;
         permission?: unknown;
         gateway_state?: unknown;
+        connection_error?: unknown;
         active_operations?: unknown;
       };
       try {
@@ -374,6 +394,7 @@ export class ComputerDaemonModule implements Module {
       this.#startFailures = 0;
       this.#setFailure(undefined);
       this.#setState("ready");
+      this.#setConnectionError(connectionError(status.connection_error));
       if (typeof status.gateway_state === "string")
         this.#setConnection(connectionState(status.gateway_state));
       if (typeof status.active_operations === "number")
@@ -384,6 +405,7 @@ export class ComputerDaemonModule implements Module {
       this.#child = undefined;
       this.#setRunning(0);
       this.#setConnection("disconnected");
+      this.#setConnectionError(undefined);
       if (this.#stopping) return;
       if (Date.now() - this.#startedAt >= HEALTHY_AFTER_MS) this.#failures = 0;
       this.#failures += 1;
@@ -464,6 +486,7 @@ export class ComputerDaemonModule implements Module {
     this.#child = undefined;
     this.#setRunning(0);
     this.#setConnection("disconnected");
+    this.#setConnectionError(undefined);
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
         this.#ctx?.log.warn("computer_daemon.kill");
@@ -524,6 +547,15 @@ export class ComputerDaemonModule implements Module {
     if (this.#connection === connection) return;
     this.#connection = connection;
     this.#ctx?.bus.emit("computer.connection", connection);
+  }
+
+  #setConnectionError(error: ComputerConnectionError | undefined): void {
+    if (this.#connectionError === error) return;
+    this.#connectionError = error;
+    this.#ctx?.bus.emit(
+      "computer.identity_conflict",
+      error === DAEMON_IDENTITY_CONFLICT,
+    );
   }
 
   #setState(state: RuntimeState): void {

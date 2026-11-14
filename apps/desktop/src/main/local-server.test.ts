@@ -21,6 +21,7 @@ import { NODE_RUNTIME_VERSION } from "../../../../scripts/local-computer-node-di
 import { rename } from "node:fs/promises";
 
 import {
+  IDENTITY_CONFLICT_MESSAGE,
   LOCAL_INSTANCE,
   LOCAL_STEPS,
   LocalServerModule,
@@ -298,6 +299,7 @@ const fixture = (
   const loadServer = vi.fn();
   const enroll = vi.fn(async () => {});
   const unenroll = vi.fn(async () => {});
+  const resetLocalServer = vi.fn(async () => {});
   let context: ModuleContext | undefined;
   const signIn = vi.fn(async () => {});
   // The installed server proves itself unless a test says otherwise.
@@ -344,6 +346,7 @@ const fixture = (
         ...stubModule("Enrollment"),
         enroll,
         unenroll,
+        resetLocalServer,
         start: async (ctx: ModuleContext) => {
           context = ctx;
         },
@@ -366,6 +369,7 @@ const fixture = (
     bus,
     enroll,
     unenroll,
+    resetLocalServer,
     config: () => context!.config.get(),
     signIn,
     proveServer,
@@ -966,6 +970,40 @@ describe("LocalServerModule", () => {
     );
     await expect(setup).rejects.toThrow(
       "The Computer service on this computer cannot start: read Computer config: private path grants access to another user (S-1-5-11). computer-daemon.log in the logs has details.",
+    );
+    expect(f.module.status().phase).toBe("failed");
+    await f.host.stop("quit");
+  });
+
+  it("stops waiting once the Gateway refuses this computer's identity", async () => {
+    const polls = { anotherMe: 0 };
+    const server = (async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/v0/me")
+        return Response.json({ actors: [{ kind: "human", tenant_id: "t1" }] });
+      if (url.pathname === "/v0/tenants/t1/another-me") {
+        polls.anotherMe += 1;
+        return Response.json({});
+      }
+      return new Response(null, { status: 404 });
+    }) as typeof fetch;
+    const f = fixture(
+      (home) => ({
+        ...withCheckout(home),
+        fetch: server,
+        sessionCookie: async () => "session=s",
+        pollMs: 1,
+      }),
+      { computerId: "cmp_1" },
+      checkout,
+    );
+    await f.host.start();
+    const setup = f.module.begin();
+    await vi.waitFor(() => expect(polls.anotherMe).toBeGreaterThan(0));
+    f.host.ctx.bus.emit("computer.identity_conflict", true);
+    await expect(setup).rejects.toThrow(IDENTITY_CONFLICT_MESSAGE);
+    expect(IDENTITY_CONFLICT_MESSAGE).toContain(
+      "already registered to another Computer",
     );
     expect(f.module.status().phase).toBe("failed");
     await f.host.stop("quit");
@@ -2182,7 +2220,7 @@ describe("LocalServerModule after a restart", () => {
     await f.host.stop("quit");
   });
 
-  it("forgets the installation and its enrollment when the person sets up again", async () => {
+  it("forgets the installation and keeps this Computer for renewal when the person sets up again", async () => {
     const f = fixture({}, enrolled, (home) => {
       record(home);
       writeFileSync(path.join(home, "resume-fails"), "");
@@ -2197,7 +2235,8 @@ describe("LocalServerModule after a restart", () => {
     expect(existsSync(path.join(f.home, "desktop", "local-server.json"))).toBe(
       false,
     );
-    expect(f.unenroll).toHaveBeenCalledOnce();
+    expect(f.resetLocalServer).toHaveBeenCalledOnce();
+    expect(f.unenroll).not.toHaveBeenCalled();
     expect(f.config().serverUrl).toBeUndefined();
     expect(f.loadServer).toHaveBeenCalledOnce();
     // Try Again has nothing left to start.

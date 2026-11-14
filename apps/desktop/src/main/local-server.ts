@@ -365,7 +365,9 @@ export class LocalServerModule implements Module {
   #offRetry: (() => void) | undefined;
   #offReset: (() => void) | undefined;
   #offDaemon: (() => void) | undefined;
+  #offIdentityConflict: (() => void) | undefined;
   #daemonFailure: string | undefined;
+  #identityConflict = false;
   #signIn: RuntimeSignIn | undefined;
   // The installer that runs the sign-in, and what the person asked for
   // while the step waits.
@@ -408,6 +410,12 @@ export class LocalServerModule implements Module {
     this.#offDaemon = ctx.bus.on("computer.failed", (reason) => {
       this.#daemonFailure = reason;
     });
+    this.#offIdentityConflict = ctx.bus.on(
+      "computer.identity_conflict",
+      (conflict) => {
+        this.#identityConflict = conflict;
+      },
+    );
     this.#offRetry = ctx.bus.on("local-server.retry", () => {
       if (this.#phase === "failed" && record) {
         void this.#resume(record, this.#abort.signal);
@@ -423,6 +431,7 @@ export class LocalServerModule implements Module {
     this.#offRetry?.();
     this.#offReset?.();
     this.#offDaemon?.();
+    this.#offIdentityConflict?.();
     // The installer manager keeps running a started installation; it exits
     // by itself once idle.
     this.#abort.abort();
@@ -1842,6 +1851,12 @@ export class LocalServerModule implements Module {
         });
         throw new Error(computerServiceFailed(this.#daemonFailure));
       }
+      // The Gateway knows this identity as another Computer's, so waiting
+      // for this one to connect cannot help.
+      if (this.#identityConflict) {
+        this.#ctx?.log.warn("local_server.identity_conflict", {});
+        throw new Error(IDENTITY_CONFLICT_MESSAGE);
+      }
       // The Another Me has an Agent once the server created it; there is no
       // status to wait for.
       const anotherMe = (await get(`${base}/another-me`)) as
@@ -1920,9 +1935,10 @@ export class LocalServerModule implements Module {
 
   // The person gave up on the installation the window used, whose services
   // do not start (it may have been removed or left broken by an uninstall):
-  // forget it and this computer's enrollment with it, and show setup. Its
-  // Install sets this computer up again in the same location, keeping what
-  // is left of that instance.
+  // forget it and show setup. The enrollment is released for renewal, so the
+  // new installation enrolls this same Computer. Its Install sets this
+  // computer up again in the same location, keeping what is left of that
+  // instance.
   async #reset(): Promise<void> {
     const ctx = this.#ctx!;
     try {
@@ -1931,7 +1947,7 @@ export class LocalServerModule implements Module {
       this.#outdated = undefined;
       this.#set("idle", "");
       ctx.log.info("local_server.reset");
-      await ctx.get<EnrollmentModule>("Enrollment").unenroll();
+      await ctx.get<EnrollmentModule>("Enrollment").resetLocalServer();
       ctx.config.update({ serverUrl: undefined });
       ctx.get<WindowManagerModule>("WindowManager").loadServer();
     } catch (error) {
@@ -2168,6 +2184,11 @@ const RUNTIME_STATES: Record<string, string> = {
 // be read.
 export const computerServiceFailed = (reason: string): string =>
   `The Computer service on this computer cannot start: ${reason.replace(/[.\s]+$/, "")}. computer-daemon.log in the logs has details.`;
+
+// The Runner Gateway refused this computer's Daemon Identity because another
+// Computer already registered it. Only a new setup enrolls it again.
+export const IDENTITY_CONFLICT_MESSAGE =
+  "This computer's identity is already registered to another Computer. Reset the local server and set it up again.";
 
 export const anotherMeMissing = (
   computer: ReportedComputer | undefined | null,

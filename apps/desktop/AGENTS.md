@@ -137,8 +137,13 @@ Gateway and runs Agents. The daemon exits with the app.
   before the computer enrolled is not resumed: setup shows again and Install
   finishes it, reusing a finished job only while its origin answers (a stopped
   server gets a new job, which starts the services again). The start failure
-  page's Set Up Again forgets the record, unenrolls the computer, clears the
-  server address and shows setup; the instance and its data stay. Before installing or resuming it moves the
+  page's Set Up Again forgets the record, clears the
+  server address and shows setup; the instance and its data stay. It keeps the
+  Computer id and the server origin as a renewal reference (never the
+  credential), so the next enrollment against that origin renews the same
+  Computer; choosing another server forgets the reference. If TeamHub answers
+  a renewal with `404 INVALID_ENROLLMENT` the desktop enrolls a new Computer
+  once instead of looping. Before installing or resuming it moves the
   `COMPOSIO_API_KEY`, `SONIOX_API_KEY`, `XAI_API_KEY` and `TZ` of an unpacked
   source package's `.env` into `<home>/instances/desktop/user.env` once and
   deletes that `.env` (never a `LINGER_CHECKOUT`'s), logging only the names
@@ -190,7 +195,11 @@ Gateway and runs Agents. The daemon exits with the app.
   credential in `LINGER_COMPUTER_TOKEN` (`gateway.token_env`). The config's
   `desktop` section puts the daemon in Desktop mode: no self-update, it exits
   when its stdin closes, and it reports `{"type":"status",...}` lines on
-  stdout, which drive the tray and the SPA status. Its log goes to
+  stdout, which drive the tray and the SPA status. Its optional
+  `connection_error: "daemon_identity_conflict"` means the Gateway refused the
+  Daemon Identity as another Computer's: the status shows the conflict, the
+  SPA receives it, and setup stops waiting with a message to reset the local
+  server and set it up again. Its log goes to
   `<userData>/logs/computer-daemon.log`. Crashes restart with backoff; new
   folders or a new name restart it once tasks finish.
   On macOS it writes `{"type":"hello","features":["permissions.v1"]}` to
