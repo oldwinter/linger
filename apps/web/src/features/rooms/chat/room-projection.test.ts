@@ -6,7 +6,7 @@ import type {
   TeamHubRoomEvent,
 } from "@/features/teamhub/teamhub-types";
 import { presentTeamHubMessageAttachments } from "@/features/teamhub/teamhub-runtime";
-import { tenantWorkItemsDashboardQueryKey } from "@/features/work-items/work-item-queries";
+import { tenantWorkItemsDashboardQueryPrefix } from "@/features/work-items/work-item-queries";
 import type { TeamHubWorkItem } from "@/features/teamhub/teamhub-types";
 
 import {
@@ -226,7 +226,7 @@ describe("Room projection", () => {
 
   it("invalidates the Tenant Dashboard when a Work Item changes", async () => {
     const queryClient = new QueryClient();
-    const queryKey = tenantWorkItemsDashboardQueryKey("tenant-1");
+    const queryKey = tenantWorkItemsDashboardQueryPrefix("tenant-1");
     queryClient.setQueryData(queryKey, {
       items: [roomWorkItem()],
       page: { has_more: false },

@@ -1,5 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { Suspense } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { describe, expect, it, vi } from "vitest";
@@ -108,11 +115,17 @@ describe("Dashboard page", () => {
     renderPage(runtime);
     await screen.findByText("Fix login failure");
 
+    const filters = screen.getByRole("group", { name: "Work Item filters" });
     expect(
-      screen.queryByRole("button", {
-        name: /create|edit|archive|assign(?:ment)?|comment|start (?:agent )?run|cancel (?:agent )?run/i,
-      }),
-    ).not.toBeInTheDocument();
+      within(filters).getByRole("button", { name: "Archived" }),
+    ).toBeVisible();
+    expect(
+      screen
+        .queryAllByRole("button", {
+          name: /create|edit|archive|assign(?:ment)?|comment|start (?:agent )?run|cancel (?:agent )?run/i,
+        })
+        .filter((button) => !filters.contains(button)),
+    ).toEqual([]);
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
@@ -250,6 +263,156 @@ describe("Dashboard page", () => {
       "/t/tenant-northstar/dashboard/workitem-agent?room=room-gtm-launch",
     );
     expect(await screen.findByLabelText("Room")).toHaveValue("room-gtm-launch");
+  });
+
+  it("filters the board by priority and execution state", async () => {
+    const runtime = await testRuntime();
+    const identity = runtime.seed.identity;
+    const human = identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        id: "workitem-high",
+        priority: "high",
+        title: "High priority work",
+      }),
+      workItem(human, {
+        id: "workitem-low",
+        priority: "low",
+        title: "Low priority work",
+      }),
+      workItem(human, {
+        id: "workitem-running",
+        priority: "high",
+        task_execution: taskExecution("running"),
+        title: "Running work",
+      }),
+    ]);
+
+    renderPage(runtime);
+    await screen.findByText("High priority work");
+
+    fireEvent.click(screen.getByLabelText("Priority"));
+    fireEvent.click(await screen.findByRole("option", { name: "High" }));
+
+    await waitFor(() =>
+      expect(screen.queryByText("Low priority work")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("High priority work")).toBeVisible();
+    expect(screen.getByText("Running work")).toBeVisible();
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/t/tenant-northstar/dashboard?priority=high",
+    );
+
+    fireEvent.click(screen.getByLabelText("Execution"));
+    fireEvent.click(
+      await screen.findByRole("option", { name: "Agent running" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByText("High priority work")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("Running work")).toBeVisible();
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "?priority=high&execution=running",
+    );
+  });
+
+  it("filters by assignment and includes archived Work Items on request", async () => {
+    const runtime = await testRuntime();
+    const identity = runtime.seed.identity;
+    const human = identity.actors[0]!;
+    const agent = runtime.seed.actors.find(
+      (actor) => actor.id === "actor-codex",
+    )!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        assignees: [assignment(human)],
+        id: "workitem-mine",
+        title: "My work",
+      }),
+      workItem(human, { id: "workitem-unassigned", title: "Unassigned work" }),
+      workItem(human, {
+        assignees: [assignment(agent)],
+        id: "workitem-agent",
+        title: "Agent work",
+      }),
+      workItem(human, {
+        archived_at: "2026-07-30T09:00:00Z",
+        id: "workitem-archived",
+        title: "Archived work",
+      }),
+    ]);
+
+    renderPage(runtime);
+    await screen.findByText("My work");
+    expect(screen.queryByText("Archived work")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Assignment"));
+    fireEvent.click(await screen.findByRole("option", { name: "Mine" }));
+
+    await waitFor(() =>
+      expect(screen.queryByText("Agent work")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("My work")).toBeVisible();
+    expect(screen.queryByText("Unassigned work")).not.toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "?assignment=mine",
+    );
+
+    fireEvent.click(screen.getByLabelText("Assignment"));
+    fireEvent.click(await screen.findByRole("option", { name: "Unassigned" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Unassigned work")).toBeVisible(),
+    );
+    expect(screen.queryByText("My work")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Assignment"));
+    fireEvent.click(await screen.findByRole("option", { name: "All" }));
+    await waitFor(() => expect(screen.getByText("Agent work")).toBeVisible());
+
+    fireEvent.click(screen.getByRole("button", { name: "Archived" }));
+
+    expect(await screen.findByText("Archived work")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Archived" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent("archived=true");
+  });
+
+  it("keeps Dashboard filters in Work Item deep links", async () => {
+    const runtime = await testRuntime();
+    const identity = runtime.seed.identity;
+    const human = identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        id: "workitem-high",
+        priority: "high",
+        title: "High priority work",
+      }),
+      workItem(human, {
+        id: "workitem-low",
+        priority: "low",
+        title: "Low priority work",
+      }),
+    ]);
+
+    renderPage(runtime);
+    await screen.findByText("High priority work");
+    fireEvent.click(screen.getByLabelText("Priority"));
+    fireEvent.click(await screen.findByRole("option", { name: "High" }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Priority")).toHaveTextContent("High"),
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: /High priority work/ }));
+
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/t/tenant-northstar/dashboard/workitem-high?priority=high",
+    );
+    expect(await screen.findByLabelText("Priority")).toHaveValue("high");
+    expect(screen.queryByText("Low priority work")).not.toBeInTheDocument();
   });
 
   it("ignores legacy actor filters and drops them from Work Item deep links", async () => {
@@ -642,6 +805,31 @@ function workItem(
 
 const WORK_ITEMS_PATH = "/v0/tenants/{tenantId}/work-items";
 const WORK_ITEM_PATH = "/v0/work-items/{workItemId}";
+
+function assignment(
+  actor: TeamHubWorkItem["created_by"],
+): TeamHubWorkItem["assignees"][number] {
+  return {
+    actor,
+    assigned_at: "2026-07-30T00:00:00Z",
+    assigned_by: actor,
+  };
+}
+
+function taskExecution(
+  status: NonNullable<TeamHubWorkItem["task_execution"]>["status"],
+): NonNullable<TeamHubWorkItem["task_execution"]> {
+  return {
+    control_revision: 0,
+    control_settled_revision: 0,
+    desired_control: "run",
+    execution_revision: 1,
+    execution_updated_at: "2026-07-30T00:00:00Z",
+    generation: 1,
+    pending_control: false,
+    status,
+  };
+}
 
 /** Serves these Work Items from the test server. */
 function seedWorkItems(runtime: TestTeamHubRuntime, items: TeamHubWorkItem[]) {

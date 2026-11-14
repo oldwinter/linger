@@ -4,6 +4,7 @@ import { Link, useLocation, useParams } from "react-router";
 
 import {
   BookOpen01Icon,
+  DashboardSquare01Icon,
   LibrariesIcon,
   Message01Icon,
   Plug01Icon,
@@ -81,6 +82,9 @@ export function RoomNavigation({
     roomIdFromPath(effectivePathname, tenant.id) ?? roomId;
   const roomNavigationVisible = effectivePathname.startsWith(
     `/t/${tenant.id}/rooms`,
+  );
+  const dashboardVisible = effectivePathname.startsWith(
+    `/t/${tenant.id}/dashboard`,
   );
   const secondaryNavigationVisible =
     roomNavigationVisible && !(desktopShell && listCollapsed);
@@ -193,6 +197,13 @@ export function RoomNavigation({
                   ? `/t/${tenant.id}/rooms/${roomId}/chat`
                   : `/t/${tenant.id}/rooms`
               }
+            />
+            <RailLink
+              active={dashboardVisible}
+              icon={<RoomRailGlyph icon={DashboardSquare01Icon} />}
+              label="Dashboard"
+              onNavigate={onCloseMobile}
+              to={`/t/${tenant.id}/dashboard`}
             />
             <RailLink
               active={workspaceVisible}
