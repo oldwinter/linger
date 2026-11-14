@@ -59,7 +59,11 @@ import {
 } from "../../../../scripts/local-computer-node-distributions.mjs";
 import type { Module, ModuleContext } from "./modules.js";
 import { sameOrigin } from "./navigation.js";
-import { humanTenant, type EnrollmentModule } from "./enrollment.js";
+import {
+  humanTenant,
+  IDENTITY_CONFLICT_MESSAGE,
+  type EnrollmentModule,
+} from "./enrollment.js";
 import type { WindowManagerModule } from "./window-manager.js";
 import {
   installerKeyChanges,
@@ -2185,11 +2189,6 @@ const RUNTIME_STATES: Record<string, string> = {
 // be read.
 export const computerServiceFailed = (reason: string): string =>
   `The Computer service on this computer cannot start: ${reason.replace(/[.\s]+$/, "")}. computer-daemon.log in the logs has details.`;
-
-// The Runner Gateway refused this computer's Daemon Identity because another
-// Computer already registered it. Only a new setup enrolls it again.
-export const IDENTITY_CONFLICT_MESSAGE =
-  "This computer's identity is already registered to another Computer. Reset the local server and set it up again.";
 
 export const anotherMeMissing = (
   computer: ReportedComputer | undefined | null,
