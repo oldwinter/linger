@@ -8,6 +8,7 @@ import {
   Link01Icon,
   PinIcon,
   PinOffIcon,
+  Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -85,6 +86,47 @@ export function useRoomPin(tenantId: string) {
   });
 }
 
+/** Advances one Room's read cursor and clears its row without opening it. */
+export function useRoomMarkRead(tenantId: string) {
+  const { client } = useTeamHubRuntime();
+  const queryClient = useQueryClient();
+  const queryKey = tenantRoomsQueryKey(tenantId);
+  return useMutation({
+    mutationFn: (intent: { roomId: string; throughRoomSeq: number }) =>
+      teamHubData(
+        client.api.PUT("/v0/rooms/{roomId}/read-state", {
+          params: { path: { roomId: intent.roomId } },
+          body: { through_room_seq: intent.throughRoomSeq },
+        }),
+      ),
+    // A list read that started before the acknowledgement would otherwise land
+    // stale counts on top of the new cursor.
+    onMutate: () => queryClient.cancelQueries({ queryKey }),
+    onSuccess: (state) => {
+      queryClient.setQueryData<TeamHubRoomPage>(queryKey, (current) =>
+        current
+          ? {
+              ...current,
+              items: current.items.map((room) =>
+                room.id === state.room_id
+                  ? {
+                      ...room,
+                      read_through_room_seq: Math.max(
+                        room.read_through_room_seq,
+                        state.read_through_room_seq,
+                      ),
+                      unread_mention_count: 0,
+                      unread_message_count: 0,
+                    }
+                  : room,
+              ),
+            }
+          : current,
+      );
+    },
+  });
+}
+
 // Row actions sit flat until the pointer is on the icon itself (or its menu is
 // open); the row's own hover tint is enough to announce them.
 const roomNavActionClass =
@@ -140,6 +182,36 @@ function RoomLinkCopyStatus({ state }: { state: RoomLinkCopyState }) {
       </span>
     );
   return null;
+}
+
+/** The row action, present only when the Room has a cursor to acknowledge. */
+function roomMarkReadItems(
+  markRead: ReturnType<typeof useRoomMarkRead>,
+  roomId: string,
+  throughRoomSeq: number | undefined,
+): ActionMenuItem[] {
+  if (throughRoomSeq === undefined) return [];
+  return [
+    {
+      disabled: markRead.isPending,
+      icon: <Icon icon={Tick02Icon} size={14} />,
+      label: "Mark as read",
+      onSelect: () => {
+        if (markRead.isPending) return;
+        markRead.reset();
+        markRead.mutate({ roomId, throughRoomSeq });
+      },
+    },
+  ];
+}
+
+function RoomMarkReadStatus({ failed }: { failed: boolean }) {
+  if (!failed) return null;
+  return (
+    <span className="text-xs leading-4 text-app-danger" role="alert">
+      Could not mark as read.
+    </span>
+  );
 }
 
 /** The Room header's overflow menu. */
@@ -205,17 +277,22 @@ export function RoomPinButton({
  */
 export function RoomMentionMenu({
   accountId,
+  markReadThrough,
   muted,
   name,
   roomId,
   snoozed,
+  tenantId,
 }: {
   accountId?: string;
+  markReadThrough?: number;
   muted: boolean;
   name: string;
   roomId: string;
   snoozed: boolean;
+  tenantId: string;
 }) {
+  const markRead = useRoomMarkRead(tenantId);
   function snooze(choice: "hour" | "morning") {
     const now = new Date();
     setRoomMentionSnooze(
@@ -225,56 +302,64 @@ export function RoomMentionMenu({
       now,
     );
   }
-  const items: ActionMenuItem[] = muted
-    ? [
-        {
-          icon: <Icon icon={BellIcon} size={14} />,
-          label: "Unmute mentions",
-          onSelect: () => unmuteRoomMention(accountId, roomId),
-        },
-      ]
-    : [
-        {
-          icon: <Icon icon={Clock01Icon} size={14} />,
-          label: "Snooze mentions for 1 hour",
-          onSelect: () => snooze("hour"),
-        },
-        {
-          icon: <Icon icon={AlarmClockIcon} size={14} />,
-          label: "Snooze mentions until tomorrow morning",
-          onSelect: () => snooze("morning"),
-        },
-        ...(snoozed
-          ? [
-              {
-                icon: <Icon icon={BellOffIcon} size={14} />,
-                label: "Turn off snoozing",
-                onSelect: () =>
-                  clearRoomMentionSnooze(accountId, roomId, new Date()),
-                separatorBefore: true,
-              },
-            ]
-          : []),
-        {
-          icon: <Icon icon={BellOffIcon} size={14} />,
-          label: "Mute mentions",
-          onSelect: () => muteRoomMention(accountId, roomId, new Date()),
-          separatorBefore: true,
-        },
-      ];
+  const items: ActionMenuItem[] = [
+    ...roomMarkReadItems(markRead, roomId, markReadThrough),
+    ...(muted
+      ? [
+          {
+            icon: <Icon icon={BellIcon} size={14} />,
+            label: "Unmute mentions",
+            onSelect: () => unmuteRoomMention(accountId, roomId),
+            separatorBefore: true,
+          },
+        ]
+      : [
+          {
+            icon: <Icon icon={Clock01Icon} size={14} />,
+            label: "Snooze mentions for 1 hour",
+            onSelect: () => snooze("hour"),
+          },
+          {
+            icon: <Icon icon={AlarmClockIcon} size={14} />,
+            label: "Snooze mentions until tomorrow morning",
+            onSelect: () => snooze("morning"),
+          },
+          ...(snoozed
+            ? [
+                {
+                  icon: <Icon icon={BellOffIcon} size={14} />,
+                  label: "Turn off snoozing",
+                  onSelect: () =>
+                    clearRoomMentionSnooze(accountId, roomId, new Date()),
+                  separatorBefore: true,
+                },
+              ]
+            : []),
+          {
+            icon: <Icon icon={BellOffIcon} size={14} />,
+            label: "Mute mentions",
+            onSelect: () => muteRoomMention(accountId, roomId, new Date()),
+            separatorBefore: true,
+          },
+        ]),
+  ];
   return (
-    <ActionMenu
-      buttonClassName={roomNavActionClass}
-      items={items}
-      label={`More actions for ${name}`}
-      placement="right-start"
-    />
+    <>
+      <RoomMarkReadStatus failed={markRead.isError} />
+      <ActionMenu
+        buttonClassName={roomNavActionClass}
+        items={items}
+        label={`More actions for ${name}`}
+        placement="right-start"
+      />
+    </>
   );
 }
 
 /** The Agent chat row's menu: pin state, then removing the Agent itself. */
 export function AgentRowMenu({
   agentId,
+  markReadThrough,
   name,
   onTogglePin,
   pinned,
@@ -282,6 +367,7 @@ export function AgentRowMenu({
   tenantId,
 }: {
   agentId: string | undefined;
+  markReadThrough?: number;
   name: string;
   onTogglePin: () => void;
   pinned: boolean;
@@ -303,8 +389,10 @@ export function AgentRowMenu({
   );
   const canDelete = canDeleteTenantAgent(registration, currentActorId);
   const link = useRoomLinkCopy(tenantId, roomId);
+  const markRead = useRoomMarkRead(tenantId);
   return (
     <>
+      <RoomMarkReadStatus failed={markRead.isError} />
       <RoomLinkCopyStatus state={link.state} />
       <ActionMenu
         buttonClassName={roomNavActionClass}
@@ -323,6 +411,7 @@ export function AgentRowMenu({
             label: "Copy Room link",
             onSelect: link.copy,
           },
+          ...roomMarkReadItems(markRead, roomId, markReadThrough),
           {
             danger: true,
             disabled: !canDelete,
