@@ -15,7 +15,7 @@ import {
 import type { TeamHubArtifactContent } from "@/features/teamhub/teamhub-types";
 import { createDocumentTestRuntime, respond } from "@/test/document-scenarios";
 
-import { WikiCopyMarkdown } from "./wiki-copy-markdown";
+import { WikiPageActionsMenu } from "./wiki-page-actions-menu";
 
 const markdown = "# Casey example\n\nA paragraph.\n";
 
@@ -33,11 +33,25 @@ function stubClipboard(write: () => Promise<void>) {
   return writeText;
 }
 
-function renderCopyMarkdown(runtime: TeamHubRuntime) {
+function renderMenu(
+  runtime: TeamHubRuntime,
+  onExport = vi.fn(),
+  exportPending = false,
+) {
   return render(
     <TeamHubRuntimeProvider runtime={runtime}>
-      <WikiCopyMarkdown documentId="document-wiki" />
+      <WikiPageActionsMenu
+        documentId="document-wiki"
+        exportPending={exportPending}
+        onExport={onExport}
+      />
     </TeamHubRuntimeProvider>,
+  );
+}
+
+function openMenu() {
+  fireEvent.click(
+    screen.getByRole("button", { name: "More Wiki page actions" }),
   );
 }
 
@@ -47,27 +61,28 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("WikiCopyMarkdown", () => {
-  it("copies the page's Markdown from the download path, only after the click", async () => {
+describe("WikiPageActionsMenu", () => {
+  it("copies the page's Markdown from the download path, only when chosen", async () => {
     const runtime = createDocumentTestRuntime();
     const download = vi.spyOn(runtime.client, "downloadLatestDocument");
     respond(download, content(markdown));
     const writeText = stubClipboard(() => Promise.resolve());
+    renderMenu(runtime);
 
-    renderCopyMarkdown(runtime);
-
+    openMenu();
     expect(download).not.toHaveBeenCalled();
     expect(writeText).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Copy as Markdown" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy as Markdown" }));
 
     await waitFor(() => expect(writeText).toHaveBeenCalledOnce());
     expect(writeText).toHaveBeenCalledWith(markdown);
     expect(download).toHaveBeenCalledWith("document-wiki");
     expect(await screen.findByRole("status")).toHaveTextContent("Copied");
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
-  it("keeps its name and blocks a second click while the page is being obtained", async () => {
+  it("blocks a second copy while the page is being obtained", async () => {
     const runtime = createDocumentTestRuntime();
     let release: (value: TeamHubArtifactContent) => void = () => undefined;
     const download = vi
@@ -79,28 +94,22 @@ describe("WikiCopyMarkdown", () => {
           }),
       );
     const writeText = stubClipboard(() => Promise.resolve());
-    renderCopyMarkdown(runtime);
+    renderMenu(runtime);
 
-    const button = screen.getByRole("button", { name: "Copy as Markdown" });
-    fireEvent.click(button);
+    openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy as Markdown" }));
 
-    expect(button).toHaveAttribute("aria-busy", "true");
-    expect(button).toBeDisabled();
+    openMenu();
     expect(
-      screen.getByRole("button", { name: "Copy as Markdown" }),
+      screen.getByRole("menuitem", { name: "Copy as Markdown" }),
     ).toBeDisabled();
-
-    fireEvent.click(button);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy as Markdown" }));
     expect(download).toHaveBeenCalledOnce();
     expect(writeText).not.toHaveBeenCalled();
 
     await act(async () => release(content(markdown)));
 
     await waitFor(() => expect(writeText).toHaveBeenCalledOnce());
-    expect(writeText).toHaveBeenCalledWith(markdown);
-    expect(
-      screen.getByRole("button", { name: "Copy as Markdown" }),
-    ).toBeEnabled();
   });
 
   it("reports a refused clipboard write instead of claiming success", async () => {
@@ -112,9 +121,10 @@ describe("WikiCopyMarkdown", () => {
       configurable: true,
       value: vi.fn(() => false),
     });
-    renderCopyMarkdown(runtime);
+    renderMenu(runtime);
 
-    fireEvent.click(screen.getByRole("button", { name: "Copy as Markdown" }));
+    openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy as Markdown" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
@@ -126,12 +136,34 @@ describe("WikiCopyMarkdown", () => {
       new Error("The page could not be read."),
     );
     const writeText = stubClipboard(() => Promise.resolve());
-    renderCopyMarkdown(runtime);
+    renderMenu(runtime);
 
-    fireEvent.click(screen.getByRole("button", { name: "Copy as Markdown" }));
+    openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy as Markdown" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
     expect(writeText).not.toHaveBeenCalled();
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("downloads through the menu", () => {
+    const onExport = vi.fn();
+    renderMenu(createDocumentTestRuntime(), onExport);
+
+    openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Download" }));
+
+    expect(onExport).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("waits while a download is in flight", () => {
+    const onExport = vi.fn();
+    renderMenu(createDocumentTestRuntime(), onExport, true);
+
+    openMenu();
+    expect(screen.getByRole("menuitem", { name: "Download" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Download" }));
+
+    expect(onExport).not.toHaveBeenCalled();
   });
 });

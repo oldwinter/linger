@@ -1,22 +1,21 @@
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import { documentDownloadContent } from "@/features/rooms/documents/document-download-content";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { writeClipboardText } from "@/lib/clipboard";
 
-import { useWikiCopyFeedback, WikiCopyFeedback } from "./wiki-copy-feedback";
+import { useWikiCopyFeedback } from "./wiki-copy-feedback";
 
 /**
  * Copies what Download saves for this Wiki page, on request and only then: the
  * page's Markdown, whole and unmodified. The page stays read-only.
  */
-export function WikiCopyMarkdown({ documentId }: { documentId: string }) {
+export function useWikiCopyMarkdown(documentId: string) {
   const { client } = useTeamHubRuntime();
   const feedback = useWikiCopyFeedback();
   const [pending, setPending] = useState(false);
 
-  async function copyMarkdown() {
+  async function copy() {
     if (pending) return;
     setPending(true);
     feedback.begin();
@@ -32,17 +31,5 @@ export function WikiCopyMarkdown({ documentId }: { documentId: string }) {
     }
   }
 
-  return (
-    <>
-      <WikiCopyFeedback state={feedback.state} />
-      <Button
-        loading={pending}
-        onClick={() => void copyMarkdown()}
-        size="compact"
-        tone="ghost"
-      >
-        Copy as Markdown
-      </Button>
-    </>
-  );
+  return { copy, feedback, pending };
 }
