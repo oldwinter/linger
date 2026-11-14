@@ -29,7 +29,12 @@ import {
   type TestRouteHandler,
 } from "@/test/teamhub-test-server";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
-import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
+import type {
+  TeamHubMemoryEntry,
+  TeamHubMessage,
+  TeamHubMessageCreateInput,
+  TeamHubRoomListItem,
+} from "@/features/teamhub/teamhub-types";
 
 import { meetingPath } from "./meeting-routes";
 import { MeetingPage } from "./meeting-page";
@@ -710,7 +715,254 @@ describe("MeetingPage", () => {
       await screen.findByRole("article", { name: "Meeting" }),
     ).toBeVisible();
   });
+
+  it("lists Rooms and sends the meeting's summary to the chosen Room", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry({ content: sharedSummary }, true);
+    serveMeetings(runtime, [entry]);
+    mockRoomList(runtime);
+    const posts = capturePosts(runtime);
+    renderPage(runtime, `?entry=${entry.id}`);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Send to Room" }),
+    );
+    expect(
+      await screen.findByRole("menuitem", { name: "product-v0" }),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("menuitem", { name: "product-v0" }));
+
+    expect(await screen.findByText("Sent to product-v0.")).toBeVisible();
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(posts).toHaveLength(1);
+    expect(posts[0]!.body.raw_message).toBe(sharedMessage(entry));
+    expect(posts[0]!.idempotencyKey).toBe(
+      `meeting-share:${entry.id}:${entry.updated_at}:room-product-v0`,
+    );
+  });
+
+  it("keeps the picker open on a refusal and reuses the key when retried", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry({ content: sharedSummary }, true);
+    serveMeetings(runtime, [entry]);
+    mockRoomList(runtime);
+    const keys: (string | null)[] = [];
+    runtime.server.on(
+      "POST",
+      "/v0/rooms/{roomId}/messages",
+      ({ params, request }) => {
+        keys.push(request.headers.get("Idempotency-Key"));
+        return keys.length === 1
+          ? teamHubErrorResponse(
+              403,
+              "FORBIDDEN",
+              "You are not allowed to post in this Room.",
+            )
+          : Response.json(sentMessage(params.roomId!, keys.length), {
+              status: 201,
+            });
+      },
+    );
+    renderPage(runtime, `?entry=${entry.id}`);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Send to Room" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "product-v0" }),
+    );
+
+    expect(
+      await screen.findByText("You are not allowed to post in this Room."),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("menuitem", { name: "product-v0" }));
+
+    expect(await screen.findByText("Sent to product-v0.")).toBeVisible();
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBe(keys[1]);
+  });
+
+  it("gives each Room its own idempotency key", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry({ content: sharedSummary }, true);
+    serveMeetings(runtime, [entry]);
+    mockRoomList(runtime);
+    const keys: (string | null)[] = [];
+    runtime.server.on(
+      "POST",
+      "/v0/rooms/{roomId}/messages",
+      ({ params, request }) => {
+        keys.push(request.headers.get("Idempotency-Key"));
+        return keys.length === 1
+          ? teamHubErrorResponse(
+              403,
+              "FORBIDDEN",
+              "You are not allowed to post in this Room.",
+            )
+          : Response.json(sentMessage(params.roomId!, keys.length), {
+              status: 201,
+            });
+      },
+    );
+    renderPage(runtime, `?entry=${entry.id}`);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Send to Room" }),
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "all" }));
+    expect(
+      await screen.findByText("You are not allowed to post in this Room."),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("menuitem", { name: "product-v0" }));
+
+    expect(await screen.findByText("Sent to product-v0.")).toBeVisible();
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
+    expect(keys[1]).toBe(
+      `meeting-share:${entry.id}:${entry.updated_at}:room-product-v0`,
+    );
+  });
+
+  it("offers Send to Room only once the summary is ready", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry({ content: sharedSummary });
+    serveMeetings(runtime, [entry]);
+    renderPage(runtime, `?entry=${entry.id}`);
+
+    expect(
+      await screen.findByRole("article", { name: "Meeting" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Send to Room" })).toBeNull();
+  });
+
+  it("disables the Rooms while the summary is being sent", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry({ content: sharedSummary }, true);
+    serveMeetings(runtime, [entry]);
+    mockRoomList(runtime);
+    let answer: ((response: Response) => void) | undefined;
+    runtime.server.on(
+      "POST",
+      "/v0/rooms/{roomId}/messages",
+      () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    renderPage(runtime, `?entry=${entry.id}`);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Send to Room" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "product-v0" }),
+    );
+
+    await vi.waitFor(() =>
+      expect(
+        screen.getByRole("menuitem", { name: "product-v0" }),
+      ).toBeDisabled(),
+    );
+    act(() =>
+      answer!(
+        Response.json(sentMessage("room-product-v0", 1), { status: 201 }),
+      ),
+    );
+    expect(await screen.findByText("Sent to product-v0.")).toBeVisible();
+  });
 });
+
+/** The summary the reader shows for the seeded meeting, with its own title. */
+const sharedSummary = [
+  "# Meeting 14-30-05",
+  "",
+  "## Decisions And Outcomes",
+  "",
+  "- Decision: Ship the beta.",
+].join("\n");
+
+/** The Message sent for the seeded meeting: title, summary, then its link. */
+function sharedMessage(entry: TeamHubMemoryEntry) {
+  return [
+    "# Meeting · Sep 23, 14:30",
+    "## Decisions And Outcomes\n\n- Decision: Ship the beta.",
+    new URL(
+      meetingPath("tenant-northstar", entry.id),
+      window.location.origin,
+    ).toString(),
+  ].join("\n\n");
+}
+
+function capturePosts(runtime: ReturnType<typeof createTestTeamHubRuntime>) {
+  const posts: {
+    body: TeamHubMessageCreateInput;
+    idempotencyKey: string | null;
+  }[] = [];
+  runtime.server.on(
+    "POST",
+    "/v0/rooms/{roomId}/messages",
+    ({ body, params, request }) => {
+      posts.push({
+        body: body as TeamHubMessageCreateInput,
+        idempotencyKey: request.headers.get("Idempotency-Key"),
+      });
+      return Response.json(sentMessage(params.roomId!, posts.length), {
+        status: 201,
+      });
+    },
+  );
+  return posts;
+}
+
+function mockRoomList(runtime: ReturnType<typeof createTestTeamHubRuntime>) {
+  const handler = vi.fn(() => ({
+    items: [room("room-all", "all"), room("room-product-v0", "product-v0")],
+    page: { has_more: false },
+  }));
+  runtime.server.on("GET", "/v0/tenants/{tenantId}/rooms", handler);
+  return handler;
+}
+
+function room(id: string, name: string): TeamHubRoomListItem {
+  return {
+    created_at: "2026-07-23T08:00:00Z",
+    created_by: {
+      display_name: "Jenny Bin",
+      id: "actor-jenny",
+      kind: "human",
+      tenant_id: "tenant-northstar",
+    },
+    description: "",
+    id,
+    kind: "room",
+    latest_room_seq: 0,
+    name,
+    read_through_room_seq: 0,
+    tenant_id: "tenant-northstar",
+    unread_mention_count: 0,
+    unread_message_count: 0,
+    updated_at: "2026-07-23T08:00:00Z",
+  };
+}
+
+function sentMessage(roomId: string, index: number): TeamHubMessage {
+  return {
+    attachments: [],
+    author: {
+      display_name: "Jenny Bin",
+      id: "actor-jenny",
+      kind: "human",
+      tenant_id: "tenant-northstar",
+    },
+    created_at: "2026-09-23T07:00:00Z",
+    id: `message-meeting-${index}`,
+    message_kind: "conversation",
+    raw_message: "",
+    room_id: roomId,
+    segments: [],
+    tenant_id: "tenant-northstar",
+  };
+}
 
 async function loggedInRuntime() {
   const runtime = createTestTeamHubRuntime();

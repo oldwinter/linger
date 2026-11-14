@@ -18,8 +18,13 @@ import {
   MeetingOverviewCard,
 } from "./meeting-overview-card";
 import { HideMeetingDialog } from "./hide-meeting-dialog";
-import { formatMeetingWhen, meetingWhen } from "./meetings-calendar";
+import {
+  formatMeetingWhen,
+  meetingTitle,
+  meetingWhen,
+} from "./meetings-calendar";
 import { meetingPath } from "./meeting-routes";
+import { MeetingShareAction } from "./meeting-share-action";
 import { useMeetingActionTrack } from "./use-meeting-action-track";
 
 const meetingSummaryHiddenSectionTitles = [
@@ -65,11 +70,7 @@ export function MeetingReader({
         ? "summary"
         : "transcript";
   const when = meetingWhen(entry.path);
-  // The Session page's H1 is a generated recording ID, not a reader title, so
-  // the page and a staged Action both name it by its date and time.
-  const title = when
-    ? `Meeting · ${formatMeetingWhen(when.date, when.time)}`
-    : entry.title;
+  const title = meetingTitle(entry);
   const trackAction = useMeetingActionTrack({
     meetingId: entry.id,
     meetingTitle: title,
@@ -168,6 +169,13 @@ export function MeetingReader({
           <Button onClick={copyLink} size="compact" tone="ghost">
             Copy link
           </Button>
+          {meeting.summary_ready ? (
+            <MeetingShareAction
+              entry={entry}
+              key={entry.id}
+              tenantId={tenantId}
+            />
+          ) : null}
           <Button onClick={() => setDeleting(true)} size="compact" tone="ghost">
             Delete
           </Button>
