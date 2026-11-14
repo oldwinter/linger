@@ -65,6 +65,7 @@ import { useRoomTimelineScroll } from "./use-room-timeline-scroll";
 import { useDocumentCardMetadata } from "../files/use-document-card-metadata";
 import { readRoomComposerDraft, writeRoomComposerDraft } from "../room-drafts";
 import { RoomRejoinBanner } from "../room-participation";
+import { roomChatPath } from "../room-routes";
 import { panelTabTitle } from "../task-sidebar/panel-tab-title";
 import {
   roomMembersQueryOptions,
@@ -81,7 +82,8 @@ import {
   threadComposerFocusRequest,
 } from "./thread-composer-focus";
 import { ThreadTimeline } from "./thread-timeline";
-import { ThreadCopyAction } from "./thread-copy";
+import { ThreadCopyAction, ThreadLinkCopyAction } from "./thread-copy";
+import { threadReplyLabel, threadSummary } from "./thread-summary";
 import { roomMessageSender } from "./room-message-sender";
 
 const emptyAgentStatuses = new Map();
@@ -209,6 +211,24 @@ function ThreadPanelContent({
   }, [composerFocusRequested, threadRoomId]);
 
   const replies = useMemo(() => messages.filter(isTimelineMessage), [messages]);
+  // The app's other participant lists keep the viewer (Room Document presence,
+  // reactions), so this one counts every author and names them as the rows do.
+  const headerSummary = useMemo(() => {
+    if (!messagesQuery.data) return undefined;
+    const participant = (author: TeamHubMessage["author"]) => ({
+      id: author.id,
+      name: rowContext.actorDisplayNames[author.id] ?? author.display_name,
+    });
+    return threadSummary({
+      replies: replies.map((message) => participant(message.author)),
+      rootAuthor: participant(rootMessage.author),
+    });
+  }, [
+    messagesQuery.data,
+    replies,
+    rootMessage.author,
+    rowContext.actorDisplayNames,
+  ]);
   const present = useMemo(
     () => createDirectRoomMessagePresenter(directPeer),
     [directPeer],
@@ -341,6 +361,16 @@ function ThreadPanelContent({
         >
           Thread
         </h2>
+        {headerSummary ? (
+          <p
+            className="min-w-0 flex-1 truncate text-xs text-app-subtle"
+            title={`${threadReplyLabel(headerSummary.replyCount)} · ${headerSummary.participants.join(", ")}`}
+          >
+            {`${threadReplyLabel(headerSummary.replyCount)} · ${headerSummary.short}`}
+          </p>
+        ) : (
+          <span className="min-w-0 flex-1" />
+        )}
         <div className="flex shrink-0 items-center gap-1">
           {threadRoomId && openRoomSearch ? (
             <Button
@@ -363,6 +393,11 @@ function ThreadPanelContent({
           <ThreadCopyAction
             actorDisplayNames={rowContext.actorDisplayNames}
             messages={messagesQuery.data ? threadMessages : emptyMessages}
+          />
+          <ThreadLinkCopyAction
+            path={
+              threadRoomId ? roomChatPath(tenantId, threadRoomId) : undefined
+            }
           />
         </div>
       </header>
