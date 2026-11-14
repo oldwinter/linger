@@ -1,5 +1,6 @@
 import {
   ArrowLeft01Icon,
+  ArrowUp01Icon,
   Cancel01Icon,
   Copy01Icon,
   Delete02Icon,
@@ -55,6 +56,7 @@ import { LazyVoiceKeyDialog } from "@/features/rooms/voice-control/lazy-voice-ke
 import { appendToPocketNote } from "./pocket-note-append";
 import { pocketNoteCopyText } from "./pocket-note-copy";
 import { groupPocketNotesByMonth } from "./pocket-note-months";
+import { todayNoteOutOfView } from "./pocket-note-today-jump";
 import { usePocketDictation } from "./use-pocket-dictation";
 import {
   PocketNoteEditor,
@@ -65,6 +67,8 @@ import { searchPocketNotes } from "./pocket-note-search";
 const autosaveDelayMs = 800;
 /** Long enough to read, matching the other copy actions. */
 const copiedFeedbackMs = 1200;
+/** Long enough for the eye to find today's card, short enough to forget. */
+const todayMarkMs = 1200;
 const maximumNoteLength = 20000;
 const panelWidth = 360;
 const panelGap = 12;
@@ -655,19 +659,80 @@ function AllPocketNotes({
     ? items
     : [{ date: today, text: "", updated_at: "" }, ...items];
   const search = searchPocketNotes(cards, query);
+
+  const listRef = useRef<HTMLDivElement>(null);
+  const todayCardRef = useRef<HTMLLIElement>(null);
+  const [jumpOffered, setJumpOffered] = useState(false);
+  const [todayMarked, setTodayMarked] = useState(false);
+  const markTimer = useRef<number | undefined>(undefined);
+  // Today's page is only worth jumping to once it has been written; the list
+  // still shows an empty Today card before that.
+  const hasTodayNote = items.some((item) => item.date === today);
+
+  const measureJump = useEffectEvent(() => {
+    setJumpOffered(
+      hasTodayNote &&
+        todayNoteOutOfView(
+          listRef.current?.getBoundingClientRect(),
+          todayCardRef.current?.getBoundingClientRect(),
+        ),
+    );
+  });
+
+  // The card moves as pages load and as the search filters, not only on
+  // scroll, so the offer follows each render of the list.
+  useLayoutEffect(() => {
+    measureJump();
+  }, [hasTodayNote, items, query]);
+
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const onScroll = () => measureJump();
+    list.addEventListener("scroll", onScroll, { passive: true });
+    return () => list.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => () => window.clearTimeout(markTimer.current), []);
+
+  /**
+   * Brings today's page back into the list's view without touching the search,
+   * the open page, or the stored notes; the card is marked just long enough to
+   * be found.
+   */
+  function jumpToToday() {
+    const card = todayCardRef.current;
+    if (!card) return;
+    card.scrollIntoView({ block: "nearest" });
+    setJumpOffered(false);
+    setTodayMarked(true);
+    window.clearTimeout(markTimer.current);
+    markTimer.current = window.setTimeout(
+      () => setTodayMarked(false),
+      todayMarkMs,
+    );
+  }
+
   return (
     <>
       <PocketNoteHeader
         action={
-          items.length > 0 ? (
-            <HeaderButton
-              disabled={downloading || loadingMore}
-              label="Download all"
-              onClick={onDownloadAll}
-            >
-              <Icon icon={Download01Icon} size={16} />
-            </HeaderButton>
-          ) : undefined
+          <>
+            {jumpOffered ? (
+              <HeaderButton label="Jump to today" onClick={jumpToToday}>
+                <Icon icon={ArrowUp01Icon} size={16} />
+              </HeaderButton>
+            ) : null}
+            {items.length > 0 ? (
+              <HeaderButton
+                disabled={downloading || loadingMore}
+                label="Download all"
+                onClick={onDownloadAll}
+              >
+                <Icon icon={Download01Icon} size={16} />
+              </HeaderButton>
+            ) : null}
+          </>
         }
         onClose={onClose}
         subtitle={`${items.length}${hasMore ? "+" : ""} ${items.length === 1 && !hasMore ? "page" : "pages"}`}
@@ -700,7 +765,11 @@ function AllPocketNotes({
           </button>
         ) : null}
       </label>
-      <div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+      <div
+        className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-4"
+        data-pocket-notes-scroll=""
+        ref={listRef}
+      >
         {search.matched ? (
           <div className="flex flex-col gap-3">
             {groupPocketNotesByMonth(search.items).map((group, index) => (
@@ -717,7 +786,19 @@ function AllPocketNotes({
                         : formatPocketNoteDate(note.date);
                     const preview = markdownPlainText(note.text);
                     return (
-                      <li className="group relative" key={note.date}>
+                      <li
+                        className={cn(
+                          "group relative",
+                          note.date === today &&
+                            todayMarked &&
+                            "pocket-note-today-marked",
+                        )}
+                        data-pocket-note-today={
+                          note.date === today ? "" : undefined
+                        }
+                        key={note.date}
+                        ref={note.date === today ? todayCardRef : undefined}
+                      >
                         <button
                           className="flex h-[118px] w-full flex-col rounded-xl border border-border bg-card p-3 text-left transition-colors hover:border-border-hover hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
                           onClick={() => onOpen(note)}

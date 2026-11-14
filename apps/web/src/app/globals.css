@@ -5211,6 +5211,13 @@ button.question-choice:focus-visible {
   line-height: 1.6;
 }
 
+/* Today's page after the All-notes jump: a ring around the card, held by state
+   rather than a keyframe so it also reads with reduced motion. */
+.pocket-note-today-marked {
+  border-radius: 0.75rem;
+  box-shadow: 0 0 0 2px hsl(var(--town-comment-amber) / 0.85);
+}
+
 /* Five thin bars beside the dictation control. They follow the voice level,
    and breathe gently while the connection is still being made. */
 .pocket-dictation-meter {

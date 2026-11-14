@@ -106,6 +106,7 @@ function renderPanel(
       </TeamHubRuntimeProvider>
     </QueryClientProvider>,
   );
+  return { runtime };
 }
 
 async function openAllNotes() {
@@ -415,6 +416,127 @@ describe("PocketNotePanel month groups", () => {
     );
     expect(screen.getByText("First note")).toBeVisible();
     expect(screen.getByRole("heading", { name: "October 2026" })).toBeVisible();
+  });
+});
+
+describe("PocketNotePanel jump to today", () => {
+  const notes = () => [
+    note("2026-10-01", "First note"),
+    note("2026-09-30", "Yesterday's idea"),
+  ];
+
+  function box(top: number, bottom: number): DOMRect {
+    return {
+      bottom,
+      height: bottom - top,
+      left: 0,
+      right: 320,
+      top,
+      width: 320,
+      x: 0,
+      y: top,
+      toJSON: () => ({}),
+    };
+  }
+
+  /**
+   * jsdom has no layout, so each test states where the list and today's card
+   * sit and then lets the scroll listener read them.
+   */
+  function placeList({
+    card,
+    container,
+  }: {
+    card: [number, number];
+    container: [number, number];
+  }) {
+    const list = document.querySelector<HTMLElement>(
+      "[data-pocket-notes-scroll]",
+    );
+    const todayCard = document.querySelector<HTMLElement>(
+      "[data-pocket-note-today]",
+    );
+    if (!list || !todayCard) throw new Error("The All-notes list is not open");
+    vi.spyOn(list, "getBoundingClientRect").mockReturnValue(box(...container));
+    vi.spyOn(todayCard, "getBoundingClientRect").mockReturnValue(box(...card));
+    fireEvent.scroll(list);
+    return { list, todayCard };
+  }
+
+  const jumpButton = () =>
+    screen.queryByRole("button", { name: "Jump to today" });
+
+  it("offers the jump while today's card is out of view and drops it back in view", async () => {
+    renderPanel(async () => page(notes()));
+    await openAllNotes();
+    expect(jumpButton()).not.toBeInTheDocument();
+
+    placeList({ card: [600, 718], container: [100, 540] });
+    expect(jumpButton()).toBeVisible();
+
+    placeList({ card: [120, 238], container: [100, 540] });
+    expect(jumpButton()).not.toBeInTheDocument();
+  });
+
+  it("offers no jump when today has no note", async () => {
+    renderPanel(async () => page([note("2026-09-30", "Yesterday's idea")]));
+    await openAllNotes();
+
+    placeList({ card: [600, 718], container: [100, 540] });
+
+    expect(jumpButton()).not.toBeInTheDocument();
+  });
+
+  it("hides the jump while a search leaves today out", async () => {
+    renderPanel(async () => page(notes()));
+    await openAllNotes();
+    placeList({ card: [600, 718], container: [100, 540] });
+    expect(jumpButton()).toBeVisible();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search notes" }), {
+      target: { value: "yesterday" },
+    });
+
+    expect(jumpButton()).not.toBeInTheDocument();
+  });
+
+  it("scrolls today's card into view, marks it, and writes nothing", async () => {
+    const { runtime } = renderPanel(async () => page(notes()));
+    await openAllNotes();
+    const { todayCard } = placeList({
+      card: [600, 718],
+      container: [100, 540],
+    });
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(todayCard, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    const before = runtime.server.requests.length;
+
+    fireEvent.click(screen.getByRole("button", { name: "Jump to today" }));
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+    expect(todayCard).toHaveClass("pocket-note-today-marked");
+    expect(jumpButton()).not.toBeInTheDocument();
+    expect(runtime.server.requests).toHaveLength(before);
+    await waitFor(() =>
+      expect(todayCard).not.toHaveClass("pocket-note-today-marked"),
+    );
+  });
+
+  it("keeps a search that shows today after the jump", async () => {
+    renderPanel(async () => page(notes()));
+    await openAllNotes();
+    const search = screen.getByRole("searchbox", { name: "Search notes" });
+    fireEvent.change(search, { target: { value: "first" } });
+    placeList({ card: [600, 718], container: [100, 540] });
+
+    fireEvent.click(screen.getByRole("button", { name: "Jump to today" }));
+
+    expect(search).toHaveValue("first");
+    expect(screen.getByRole("button", { name: /First note/ })).toBeVisible();
+    expect(screen.queryByText("Yesterday's idea")).not.toBeInTheDocument();
   });
 });
 
