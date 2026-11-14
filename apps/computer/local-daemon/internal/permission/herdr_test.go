@@ -96,6 +96,12 @@ func TestHerdrDelegationsNameTheTextAPaneReceives(t *testing.T) {
 		{`herdr pane send-text w1:p1 "$(cat message)"`, nil, true},
 		{`herdr agent prompt reviewer "Use $HOME"`, nil, true},
 		{`ls && herdr pane run w2:p2 "$(cat cmd)"`, nil, true},
+		// Shell whitespace and quoted words still name the same subcommand.
+		{`herdr pane  run w2:p2 "$(cat cmd)"`, nil, true},
+		{"herdr pane\trun w2:p2 \"$(cat cmd)\"", nil, true},
+		{"herdr pane \\\nrun w2:p2 \"$(cat cmd)\"", nil, true},
+		{`herdr pane 'run' w2:p2 "$(cat cmd)"`, nil, true},
+		{`herdr agent  'prompt' reviewer "$(cat task)"`, nil, true},
 		{`echo "$HOME"`, nil, false},
 	} {
 		delegations, unread := HerdrDelegations(test.command)
