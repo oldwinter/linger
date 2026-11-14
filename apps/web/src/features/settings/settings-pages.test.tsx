@@ -8,7 +8,15 @@ import {
   within,
 } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import {
   createTestTeamHubRuntime,
@@ -48,6 +56,10 @@ beforeEach(() => {
       setItem: (key: string, value: string) => values.set(key, value),
     } satisfies Storage,
   });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe("Settings surfaces", () => {
@@ -358,6 +370,19 @@ describe("Settings surfaces", () => {
     expect(
       screen.queryByRole("article", { name: "Profile content" }),
     ).toBeNull();
+  });
+
+  it("shows the desktop notification state on the Account page", async () => {
+    vi.stubGlobal("Notification", { permission: "denied" });
+    const runtime = await testRuntime();
+    renderSettings(runtime);
+
+    expect(
+      await screen.findByRole("heading", { name: "Desktop notifications" }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/Allow notifications for this site/u),
+    ).toBeVisible();
   });
 });
 
