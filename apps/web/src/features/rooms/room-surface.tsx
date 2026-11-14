@@ -880,6 +880,7 @@ function RoomHeader({
         <PinnedMessagesControl
           onJump={onJumpToPinnedMessage}
           roomId={roomId}
+          roomName={headerName}
           tenantId={tenantId}
         />
         {canDeleteDeletedAgentRoom ? (
