@@ -22,14 +22,19 @@ import { dateTimeFormat } from "@/lib/date-format";
 
 import { WorkItemCommentComposer } from "./work-item-comment-composer";
 import { WorkItemCopyStatus } from "./work-item-copy-status";
-import { currentDashboardActorId } from "./work-item-dashboard-filters";
+import {
+  createWorkItemDashboardFilters,
+  currentDashboardActorId,
+} from "./work-item-dashboard-filters";
 import { workItemStateLabel, workItemStateLabels } from "./work-item-labels";
 import {
   tenantWorkItemCommentsQueryOptions,
   tenantWorkItemTargetQueryOptions,
   tenantWorkItemTimelineQueryOptions,
+  useArchiveWorkItem,
   useAssignWorkItem,
   useUnassignWorkItem,
+  useUnarchiveWorkItem,
   useWorkItemTransition,
 } from "./work-item-queries";
 import { dashboardWorkItemPath } from "./work-item-routes";
@@ -82,6 +87,8 @@ export function WorkItemPeek({
   const transition = useWorkItemTransition(tenantId, workItem.id);
   const assign = useAssignWorkItem(tenantId, workItem.id);
   const unassign = useUnassignWorkItem(tenantId, workItem.id);
+  const archive = useArchiveWorkItem(tenantId, workItem.id);
+  const unarchive = useUnarchiveWorkItem(tenantId, workItem.id);
   const identity = useQuery(teamHubIdentityQueryOptions(client));
   const currentActorId = identity.data
     ? currentDashboardActorId(identity.data, tenantId)
@@ -102,6 +109,31 @@ export function WorkItemPeek({
     } else {
       unassign.reset();
       assign.mutate(currentActorId);
+    }
+  }
+  const archived = Boolean(item.archived_at);
+  const archivePending = archive.isPending || unarchive.isPending;
+  const archiveError = archive.error ?? unarchive.error;
+  const boardShowsArchived = createWorkItemDashboardFilters(
+    new URLSearchParams(search),
+  ).archived;
+  // The drawer outlives the card, so archiving says where the Item went
+  // instead of leaving a board behind it that silently lost a card.
+  const archiveStatus = unarchive.isSuccess
+    ? "Unarchived."
+    : archive.isSuccess
+      ? boardShowsArchived
+        ? "Archived."
+        : "Archived. The board hides it until the Archived filter is on."
+      : undefined;
+  function toggleArchive() {
+    if (archivePending) return;
+    if (archived) {
+      archive.reset();
+      unarchive.mutate(item.version);
+    } else {
+      unarchive.reset();
+      archive.mutate(item.version);
     }
   }
   // Comments arrive oldest first; the peek reads as a conversation, newest on top.
@@ -156,6 +188,15 @@ export function WorkItemPeek({
               {option.label}
             </Button>
           ))}
+          <Button
+            aria-busy={archivePending || undefined}
+            disabled={archivePending}
+            onClick={toggleArchive}
+            size="compact"
+            tone="secondary"
+          >
+            {archived ? "Unarchive" : "Archive"}
+          </Button>
         </>
       }
       headerActions={
@@ -180,6 +221,17 @@ export function WorkItemPeek({
             Updated {peekDateFormatter.format(new Date(item.updated_at))}
           </span>
         </div>
+
+        {archiveStatus ? (
+          <p className="text-xs text-app-muted" role="status">
+            {archiveStatus}
+          </p>
+        ) : null}
+        {archiveError ? (
+          <p className="text-xs text-app-danger" role="alert">
+            {updateFailureMessage(archiveError)}
+          </p>
+        ) : null}
 
         <p className="whitespace-pre-wrap text-sm leading-6 text-app-body">
           {item.description || "No description."}

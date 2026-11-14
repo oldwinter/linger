@@ -28,6 +28,8 @@ const WORK_ITEMS_PATH = "/v0/tenants/{tenantId}/work-items";
 const COMMENTS_PATH = "/v0/work-items/{workItemId}/comments";
 const TIMELINE_PATH = "/v0/work-items/{workItemId}/timeline";
 const TRANSITION_PATH = "/v0/work-items/{workItemId}/transitions";
+const ARCHIVE_PATH = "/v0/work-items/{workItemId}/archive";
+const UNARCHIVE_PATH = "/v0/work-items/{workItemId}/unarchive";
 const ASSIGNMENT_PATH = "/v0/work-items/{workItemId}/assignments/{actorId}";
 
 describe("Work Item peek", () => {
@@ -588,6 +590,233 @@ describe("Work Item peek", () => {
     expect(
       within(dialog).getByRole("button", { name: "Assign to me" }),
     ).toBeEnabled();
+  });
+
+  it("archives the Item and says the Archived filter shows it", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const item = workItem(human, { title: "Fix login failure" });
+    seedWorkItems(runtime, [
+      item,
+      workItem(human, {
+        id: "workitem-other",
+        number: 43,
+        title: "Other work",
+      }),
+    ]);
+    const posted: unknown[] = [];
+    runtime.server.on("POST", ARCHIVE_PATH, ({ body }) => {
+      posted.push(body);
+      const archivedItem: TeamHubWorkItem = {
+        ...item,
+        archived_at: "2026-07-30T12:00:00Z",
+        updated_at: "2026-07-30T12:00:00Z",
+        version: 2,
+      };
+      runtime.seed.workItems = runtime.seed.workItems.map((candidate) =>
+        candidate.id === item.id ? archivedItem : candidate,
+      );
+      return archivedItem;
+    });
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Archive" }));
+
+    await waitFor(() => expect(posted).toEqual([{ expected_version: 1 }]));
+    const [request] = runtime.server.requestsTo("POST", ARCHIVE_PATH);
+    expect(new URL(request!.url).pathname).toBe(
+      "/v0/work-items/workitem-login/archive",
+    );
+    expect(request?.headers.get("Idempotency-Key")).toMatch(/^web:/u);
+    expect(await within(dialog).findByRole("status")).toHaveTextContent(
+      "Archived. The board hides it until the Archived filter is on.",
+    );
+    expect(
+      within(dialog).getByRole("button", { name: "Unarchive" }),
+    ).toBeVisible();
+    expect(
+      within(dialog).queryByRole("button", { name: "Archive" }),
+    ).toBeNull();
+    await waitFor(() =>
+      expect(
+        runtime.server.requestsTo("GET", WORK_ITEMS_PATH).length,
+      ).toBeGreaterThan(1),
+    );
+
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByRole("link", { name: /Fix login failure/ }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Archived" }));
+
+    expect(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    ).toBeVisible();
+  });
+
+  it("archives without pointing at a filter that is already on", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const item = workItem(human, { title: "Fix login failure" });
+    seedWorkItems(runtime, [item]);
+    runtime.server.on("POST", ARCHIVE_PATH, () => {
+      const archivedItem: TeamHubWorkItem = {
+        ...item,
+        archived_at: "2026-07-30T12:00:00Z",
+        updated_at: "2026-07-30T12:00:00Z",
+        version: 2,
+      };
+      runtime.seed.workItems = [archivedItem];
+      return archivedItem;
+    });
+
+    renderPage(runtime, "/t/tenant-northstar/dashboard?archived=true");
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Archive" }));
+
+    const status = await within(dialog).findByRole("status");
+    expect(status.textContent).toBe("Archived.");
+  });
+
+  it("unarchives the Item and returns it to the board", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const item = workItem(human, {
+      archived_at: "2026-07-30T09:00:00Z",
+      title: "Fix login failure",
+    });
+    seedWorkItems(runtime, [item]);
+    const posted: unknown[] = [];
+    runtime.server.on("POST", UNARCHIVE_PATH, ({ body }) => {
+      posted.push(body);
+      const updated: TeamHubWorkItem = {
+        ...item,
+        updated_at: "2026-07-30T12:00:00Z",
+        version: 2,
+      };
+      delete updated.archived_at;
+      runtime.seed.workItems = [updated];
+      return updated;
+    });
+
+    renderPage(runtime, "/t/tenant-northstar/dashboard?archived=true");
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Unarchive" }));
+
+    await waitFor(() => expect(posted).toEqual([{ expected_version: 1 }]));
+    const [request] = runtime.server.requestsTo("POST", UNARCHIVE_PATH);
+    expect(new URL(request!.url).pathname).toBe(
+      "/v0/work-items/workitem-login/unarchive",
+    );
+    expect(request?.headers.get("Idempotency-Key")).toMatch(/^web:/u);
+    expect(runtime.server.requestsTo("POST", ARCHIVE_PATH)).toHaveLength(0);
+    expect(await within(dialog).findByRole("status")).toHaveTextContent(
+      "Unarchived.",
+    );
+    expect(
+      within(dialog).getByRole("button", { name: "Archive" }),
+    ).toBeVisible();
+    expect(
+      within(dialog).queryByRole("button", { name: "Unarchive" }),
+    ).toBeNull();
+
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    expect(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    ).toBeVisible();
+  });
+
+  it("blocks a second archive click while the request is in flight", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const item = workItem(human, { title: "Fix login failure" });
+    seedWorkItems(runtime, [item]);
+    let finish: () => void = () => undefined;
+    runtime.server.on(
+      "POST",
+      ARCHIVE_PATH,
+      () =>
+        new Promise((resolve) => {
+          finish = () => {
+            const archivedItem: TeamHubWorkItem = {
+              ...item,
+              archived_at: "2026-07-30T12:00:00Z",
+              updated_at: "2026-07-30T12:00:00Z",
+              version: 2,
+            };
+            runtime.seed.workItems = [archivedItem];
+            resolve(archivedItem);
+          };
+        }),
+    );
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    const control = within(dialog).getByRole("button", { name: "Archive" });
+
+    fireEvent.click(control);
+    await waitFor(() => expect(control).toBeDisabled());
+    expect(control).toHaveAttribute("aria-busy", "true");
+    fireEvent.click(control);
+
+    finish();
+    await waitFor(() => expect(control).toBeEnabled());
+    expect(runtime.server.requestsTo("POST", ARCHIVE_PATH)).toHaveLength(1);
+  });
+
+  it("shows the server's message when archiving fails and keeps the Item", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [workItem(human, { title: "Fix login failure" })]);
+    runtime.server.on("POST", ARCHIVE_PATH, () =>
+      teamHubErrorResponse(409, "CONFLICT", "Work Item changed elsewhere."),
+    );
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Archive" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Work Item changed elsewhere.",
+    );
+    expect(
+      screen.getByRole("dialog", { name: "Fix login failure" }),
+    ).toBeVisible();
+    expect(
+      within(dialog).getByRole("button", { name: "Archive" }),
+    ).toBeEnabled();
+    expect(within(dialog).queryByRole("status")).toBeNull();
+    expect(within(dialog).getByText("Open")).toBeVisible();
   });
 });
 
