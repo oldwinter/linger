@@ -2,6 +2,7 @@ import {
   ArrowLeft01Icon,
   Cancel01Icon,
   Delete02Icon,
+  Download01Icon,
   GridViewIcon,
   Mic01Icon,
   StopIcon,
@@ -9,6 +10,7 @@ import {
 import { MessageMarkdown } from "../chat/message-markdown";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import { spokenSeparator } from "../chat/voice-mode/spoken-text";
+import { triggerArtifactDownload } from "../files/artifact-preview-loader";
 import { Icon } from "@/components/ui/icon";
 import {
   useInfiniteQuery,
@@ -38,6 +40,10 @@ import {
   removePocketNote,
   storeTodayPocketNote,
 } from "./pocket-note-queries";
+import {
+  POCKET_NOTES_FILENAME,
+  pocketNotesMarkdown,
+} from "./pocket-notes-export";
 import { LazyVoiceKeyDialog } from "@/features/rooms/voice-control/lazy-voice-key-dialog";
 import { usePocketDictation } from "./use-pocket-dictation";
 import {
@@ -136,6 +142,36 @@ export default function PocketNotePanel({
   const items = notes.data?.pages.flatMap((page) => page.items) ?? [];
   const today = firstPage?.today;
   const todayNote = items.find((item) => item.date === today);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadFailed, setDownloadFailed] = useState(false);
+
+  /**
+   * Loads every page still on the server before writing the file, so the
+   * download holds all of the person's notes. A page that fails to load saves
+   * nothing.
+   */
+  async function downloadAll() {
+    setDownloadFailed(false);
+    setDownloading(true);
+    try {
+      let result = await notes.fetchNextPage();
+      while (!result.isError && result.hasNextPage) {
+        result = await notes.fetchNextPage();
+      }
+      if (result.isError) throw result.error;
+      const pages = result.data?.pages.flatMap((page) => page.items) ?? [];
+      triggerArtifactDownload(
+        new Blob([pocketNotesMarkdown(pages)], {
+          type: "text/markdown;charset=utf-8",
+        }),
+        POCKET_NOTES_FILENAME,
+      );
+    } catch {
+      setDownloadFailed(true);
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return createPortal(
     <div
@@ -151,10 +187,13 @@ export default function PocketNotePanel({
         </p>
       ) : view.kind === "all" ? (
         <AllPocketNotes
+          downloadFailed={downloadFailed}
+          downloading={downloading}
           hasMore={notes.hasNextPage}
           items={items}
           loadingMore={notes.isFetchingNextPage}
           onClose={onClose}
+          onDownloadAll={() => void downloadAll()}
           onLoadMore={() => void notes.fetchNextPage()}
           onOpen={(note) =>
             setView(
@@ -506,19 +545,25 @@ function PastPocketNote({
 }
 
 function AllPocketNotes({
+  downloadFailed,
+  downloading,
   hasMore,
   items,
   loadingMore,
   onClose,
+  onDownloadAll,
   onLoadMore,
   onOpen,
   tenantId,
   today,
 }: {
+  downloadFailed: boolean;
+  downloading: boolean;
   hasMore: boolean;
   items: TeamHubPocketNote[];
   loadingMore: boolean;
   onClose: () => void;
+  onDownloadAll: () => void;
   onLoadMore: () => void;
   onOpen: (note: TeamHubPocketNote) => void;
   tenantId: string;
@@ -547,10 +592,26 @@ function AllPocketNotes({
   return (
     <>
       <PocketNoteHeader
+        action={
+          items.length > 0 ? (
+            <HeaderButton
+              disabled={downloading || loadingMore}
+              label="Download all"
+              onClick={onDownloadAll}
+            >
+              <Icon icon={Download01Icon} size={16} />
+            </HeaderButton>
+          ) : undefined
+        }
         onClose={onClose}
         subtitle={`${items.length}${hasMore ? "+" : ""} ${items.length === 1 && !hasMore ? "page" : "pages"}`}
         title="All notes"
       />
+      {downloadFailed ? (
+        <p className="shrink-0 px-4 pb-2 text-xs text-app-danger" role="alert">
+          Couldn’t download notes. Try again.
+        </p>
+      ) : null}
       <div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-4">
         <ul className="grid grid-cols-2 gap-2.5">
           {cards.map((note) => {
@@ -638,11 +699,13 @@ function AllPocketNotes({
 }
 
 function PocketNoteHeader({
+  action,
   leading,
   onClose,
   subtitle,
   title,
 }: {
+  action?: ReactNode;
   leading?: ReactNode;
   onClose: () => void;
   subtitle: string;
@@ -657,6 +720,7 @@ function PocketNoteHeader({
         </p>
         <p className="truncate text-xs leading-4 text-app-muted">{subtitle}</p>
       </div>
+      {action}
       <HeaderButton label="Close notes" onClick={onClose}>
         <Icon icon={Cancel01Icon} size={16} />
       </HeaderButton>
@@ -666,17 +730,20 @@ function PocketNoteHeader({
 
 function HeaderButton({
   children,
+  disabled,
   label,
   onClick,
 }: {
   children: ReactNode;
+  disabled?: boolean;
   label: string;
   onClick: () => void;
 }) {
   return (
     <button
       aria-label={label}
-      className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+      className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus disabled:pointer-events-none disabled:opacity-40"
+      disabled={disabled}
       onClick={onClick}
       title={label}
       type="button"
