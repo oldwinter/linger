@@ -293,6 +293,12 @@ describe("MeetingPage", () => {
       await screen.findByRole("button", { name: "To-do list" }),
     ).toBeVisible();
     expect(screen.queryByRole("button", { name: "Document mode" })).toBeNull();
+    expect(
+      await screen.findByRole("link", { name: "Turn to-dos into reminders" }),
+    ).toHaveAttribute(
+      "href",
+      `/t/tenant-northstar/library/meeting-reminders?entry=${entry.id}`,
+    );
   });
 
   it("shows topic cards inside a Session page summary", async () => {

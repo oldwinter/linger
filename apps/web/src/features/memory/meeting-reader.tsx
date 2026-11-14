@@ -1,4 +1,6 @@
+import { useQuery } from "@tanstack/react-query";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
 import { ReadOnlyBlockNoteDocumentLoader } from "@/components/read-only-blocknote-document-loader";
 import { Button } from "@/components/ui/button";
 import { ArtifactContentRendererLoader } from "@/features/rooms/files/artifact-content-renderer-loader";
@@ -8,6 +10,7 @@ import {
   triggerArtifactDownload,
   type LoadedArtifactPreview,
 } from "@/features/rooms/files/artifact-preview-loader";
+import { anotherMeQueryOptions } from "@/features/rooms/room-queries";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 import { MeetingAudioPlayer } from "./meeting-audio-player";
@@ -18,6 +21,7 @@ import {
   MeetingOverviewCard,
 } from "./meeting-overview-card";
 import { HideMeetingDialog } from "./hide-meeting-dialog";
+import { meetingRemindersPath, meetingTodoTexts } from "./meeting-reminders";
 import { formatMeetingWhen, meetingWhen } from "./meetings-calendar";
 
 const meetingSummaryHiddenSectionTitles = [
@@ -52,6 +56,8 @@ export function MeetingReader({
   tenantId: string;
 }) {
   const meeting = entry.meeting!;
+  const { client } = useTeamHubRuntime();
+  const anotherMe = useQuery(anotherMeQueryOptions(client, tenantId));
   const [deleting, setDeleting] = useState(false);
   const tab: MeetingTab =
     file === "summary" || file === "transcript"
@@ -69,6 +75,10 @@ export function MeetingReader({
   // place; the rest stays the knowledge document around them.
   const blocks = useMemo(
     () => parseMeetingSummary(summaryMarkdown),
+    [summaryMarkdown],
+  );
+  const todos = useMemo(
+    () => meetingTodoTexts(summaryMarkdown),
     [summaryMarkdown],
   );
   const summaryDocument = (markdown: string) => (
@@ -98,6 +108,14 @@ export function MeetingReader({
           </h2>
           <p className="mt-1 text-xs text-app-muted">Read only</p>
         </div>
+        {todos.length > 0 && anotherMe.data?.room_id ? (
+          <Link
+            className="shrink-0 text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            to={meetingRemindersPath(tenantId, entry.id)}
+          >
+            Turn to-dos into reminders
+          </Link>
+        ) : null}
         <Button onClick={() => setDeleting(true)} size="compact" tone="ghost">
           Delete
         </Button>
