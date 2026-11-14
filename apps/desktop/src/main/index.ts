@@ -1,4 +1,4 @@
-import { existsSync, renameSync } from "node:fs";
+import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,6 +39,7 @@ import {
   migrateLegacyComputer,
   retireLegacyBridge,
 } from "./legacy-migration.js";
+import { moveLegacyUserData, type UserDataMove } from "./legacy-user-data.js";
 import { fileLogger, type Logger } from "./log.js";
 import { MacPermissions } from "./mac-permissions.js";
 import { EventBus, ModuleHost, type Module } from "./modules.js";
@@ -74,9 +75,11 @@ else if (app.isPackaged) {
       userData,
     );
   } catch (error) {
+    // A blocked move already says which folder to close; anything else keeps
+    // its own message.
     dialog.showErrorBox(
       "Linger could not start",
-      `Could not move the app data folder to ${userData}: ${error instanceof Error ? error.message : String(error)}`,
+      error instanceof Error ? error.message : String(error),
     );
     app.exit(1);
   }
@@ -449,37 +452,4 @@ async function daemonEnv(log: Logger): Promise<Record<string, string>> {
     if (value) env[name] = value;
   }
   return env;
-}
-
-interface UserDataMove {
-  readonly outcome: "moved" | "kept";
-  readonly legacy: string;
-  readonly userData: string;
-  /** Where a Linger folder without a Computer credential was set aside. */
-  readonly setAside?: string;
-}
-
-// The data folder of the app as it was named before the rename moves once to
-// its Linger name. A Linger folder that already holds a Computer credential
-// wins and the old one stays; one without a credential is set aside, so the
-// Computer keeps its identity instead of enrolling again under a new id.
-function moveLegacyUserData(
-  legacy: string,
-  userData: string,
-): UserDataMove | undefined {
-  if (!existsSync(legacy)) return undefined;
-  if (existsSync(path.join(userData, "computer", "credential.json")))
-    return { outcome: "kept", legacy, userData };
-  let setAside: string | undefined;
-  if (existsSync(userData)) {
-    setAside = `${userData}.before-move-${Date.now()}`;
-    renameSync(userData, setAside);
-  }
-  renameSync(legacy, userData);
-  return {
-    outcome: "moved",
-    legacy,
-    userData,
-    ...(setAside ? { setAside } : {}),
-  };
 }
