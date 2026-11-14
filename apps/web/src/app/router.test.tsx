@@ -93,6 +93,10 @@ describe("Web app route contract", () => {
         .path,
     ).toBe("dashboard/:workItemId");
     expect(
+      matchRoutes(routes, "/t/tenant-a/dashboard/work-item-a/line")?.at(-1)
+        ?.route.path,
+    ).toBe("dashboard/:workItemId/line");
+    expect(
       matchRoutes(routes, "/t/tenant-a/rooms/room-a/chat")?.at(-1)?.route.path,
     ).toBe("chat");
   });

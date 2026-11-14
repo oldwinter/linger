@@ -256,6 +256,11 @@ export function createAppRoutes(
           },
           path: "profile",
         },
+        {
+          ErrorBoundary: PanelRouteErrorSurface,
+          lazy: loadLeaveALinePage,
+          path: "dashboard/:workItemId/line",
+        },
         createWorkItemDashboardRoute(
           queryClient,
           client,
@@ -344,6 +349,12 @@ function createWorkItemDashboardRoute(
     },
     path,
   };
+}
+
+async function loadLeaveALinePage() {
+  const { LeaveALinePage } =
+    await import("@/features/work-items/leave-a-line-page");
+  return { Component: LeaveALinePage };
 }
 
 async function loadConnectComputerPage() {

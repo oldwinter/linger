@@ -23,6 +23,7 @@ import {
   tenantWorkItemTargetQueryOptions,
   tenantWorkItemsDashboardQueryOptions,
 } from "./work-item-queries";
+import { leaveALinePath } from "./leave-a-line";
 import { dashboardWorkItemPath } from "./work-item-routes";
 import { createWorkItemRoomFilterModel } from "./work-item-room-filter";
 
@@ -128,6 +129,14 @@ export function WorkItemsPage() {
                 ? itemCount(items.length)
                 : `${filteredItems.length} of ${items.length} items`}
             </p>
+            {focusedWorkItemId ? (
+              <Link
+                className="mt-1 inline-block text-sm text-foreground underline"
+                to={leaveALinePath(tenantId, focusedWorkItemId)}
+              >
+                Leave a line
+              </Link>
+            ) : null}
           </div>
           {items.length ? (
             <div
