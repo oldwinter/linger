@@ -25,6 +25,11 @@
   access to it, and an account's copies go at logout. Close this tab's sessions on a copy before
   deleting it, and close on `versionchange` so other tabs never block a
   deletion. It stays free of editor dependencies because logout imports it.
+- A readable Document's header may send it to a Room as one Message carrying
+  the Document's title and canonical link. The content stays in the Document;
+  the Message copies none of it, and the send reuses its idempotency key only
+  when retrying the same Room. A Room that refuses the post keeps the picker
+  open with the server's message rather than being dropped from the list.
 - Test state invariants through the collaboration-session interface and test
   the real browser workflow with Playwright. Do not inspect provider or
   IndexedDB internals from component tests.
