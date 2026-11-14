@@ -175,9 +175,7 @@ describe("PocketNoteLauncher", () => {
     fireEvent.click(screen.getByRole("button", { name: "Pocket Notes" }));
     fireEvent.click(await screen.findByRole("button", { name: "All notes" }));
     expect(screen.getByRole("button", { name: /Today/ })).toBeInTheDocument();
-    fireEvent.click(
-      screen.getByRole("button", { name: /^(?!Delete).*Sep 30/ }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /^Sep 30/ }));
 
     expect(screen.getByText("Yesterday's idea")).toBeInTheDocument();
     expect(screen.getByText("Read only")).toBeInTheDocument();
@@ -211,9 +209,7 @@ describe("PocketNoteLauncher", () => {
         "2026-09-30",
       ),
     );
-    expect(
-      await screen.findByRole("button", { name: /Sep 1\b/ }),
-    ).toBeVisible();
+    expect(await screen.findByRole("button", { name: /^Sep 1/ })).toBeVisible();
   });
 
   it("deletes a past day from its All notes card after confirming, but never today", async () => {

@@ -164,6 +164,39 @@ describe("PocketNotePanel download", () => {
     expect(screen.getByRole("button", { name: "Download all" })).toBeEnabled();
   });
 
+  it("saves one page beside its delete action", async () => {
+    renderPanel(async () => page([note("2026-09-30", "Yesterday's idea")]));
+    await openAllNotes();
+    fireEvent.click(screen.getByRole("button", { name: "Download Sep 30" }));
+
+    expect(download.triggerArtifactDownload).toHaveBeenCalledOnce();
+    const [blob, filename] = download.triggerArtifactDownload.mock.calls[0] as [
+      Blob,
+      string,
+    ];
+    expect(filename).toBe("pocket-note-2026-09-30.md");
+    expect(await blob.text()).toBe("## 2026-09-30\n\nYesterday's idea");
+    // The download leaves the delete confirmation closed.
+    expect(
+      screen.getByRole("button", { name: "Delete Sep 30" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("reports a failed single download and saves nothing", async () => {
+    download.triggerArtifactDownload.mockImplementation(() => {
+      throw new Error("no object URL");
+    });
+    renderPanel(async () => page([note("2026-09-30", "Yesterday's idea")]));
+    await openAllNotes();
+    fireEvent.click(screen.getByRole("button", { name: "Download Sep 30" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Couldn’t download notes. Try again.",
+    );
+    expect(download.triggerArtifactDownload).toHaveBeenCalledOnce();
+  });
+
   it("offers no download when there are no pages", async () => {
     renderPanel(async () => page([]));
     await openAllNotes();
