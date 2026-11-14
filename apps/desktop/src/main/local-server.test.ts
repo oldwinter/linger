@@ -21,7 +21,6 @@ import { NODE_RUNTIME_VERSION } from "../../../../scripts/local-computer-node-di
 import { rename } from "node:fs/promises";
 
 import {
-  IDENTITY_CONFLICT_MESSAGE,
   LOCAL_INSTANCE,
   LOCAL_STEPS,
   LocalServerModule,
@@ -40,6 +39,7 @@ import {
   type LocalServerIdentity,
   type LocalServerOptions,
 } from "./local-server.js";
+import { IDENTITY_CONFLICT_MESSAGE } from "./enrollment.js";
 import type { DesktopConfig } from "./config.js";
 import { EventBus, type ModuleContext } from "./modules.js";
 import {

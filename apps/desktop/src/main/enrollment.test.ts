@@ -10,6 +10,7 @@ import {
   EnrollmentError,
   EnrollmentModule,
   enrollComputer,
+  IDENTITY_CONFLICT_MESSAGE,
 } from "./enrollment.js";
 import { EventBus } from "./modules.js";
 import { stubModule, tempDirectory, testHost } from "./test-support.js";
@@ -408,6 +409,117 @@ describe("EnrollmentModule", () => {
     await f.module.resetLocalServer();
 
     expect(existsSync(f.identityFile)).toBe(true);
+  });
+
+  it("keeps the conflict across a daemon restart", async () => {
+    const f = enrollmentModule(enrolled);
+    f.credentials.write({
+      computerId: "computer_1",
+      gatewayUrl: "wss://linger.example.com/v1/runner",
+      token: TOKEN,
+    });
+    f.writeIdentity();
+    await f.host.start();
+    f.bus.emit("computer.identity_conflict", true);
+
+    // A daemon that exits and starts again reports no error before it has
+    // heard from the Gateway, which says nothing about the identity.
+    f.bus.emit("computer.connection", "disconnected");
+    f.bus.emit("computer.identity_conflict", false);
+    f.bus.emit("computer.connection", "connecting");
+
+    expect(f.module.identityConflict()).toBe(true);
+    await f.module.resetLocalServer();
+    expect(existsSync(f.identityFile)).toBe(false);
+  });
+
+  it("keeps the Daemon Identity once the Gateway accepts this Computer", async () => {
+    const f = enrollmentModule(enrolled);
+    f.credentials.write({
+      computerId: "computer_1",
+      gatewayUrl: "wss://linger.example.com/v1/runner",
+      token: TOKEN,
+    });
+    f.writeIdentity();
+    await f.host.start();
+    f.bus.emit("computer.identity_conflict", true);
+
+    // The other Computer was removed and this one connected with its identity,
+    // which proves the identity is this Computer's.
+    f.bus.emit("computer.connection", "online");
+
+    expect(f.module.identityConflict()).toBe(false);
+    await f.module.resetLocalServer();
+    expect(existsSync(f.identityFile)).toBe(true);
+  });
+
+  it("refuses to reconnect while the Gateway reports the conflict", async () => {
+    const server = fakeServer();
+    const f = enrollmentModule(enrolled, server.fetch);
+    f.credentials.write({
+      computerId: "computer_1",
+      gatewayUrl: "wss://linger.example.com/v1/runner",
+      token: TOKEN,
+    });
+    f.writeIdentity();
+    await f.host.start();
+    f.bus.emit("computer.identity_conflict", true);
+
+    await expect(f.module.enroll()).rejects.toMatchObject({
+      code: "IDENTITY_IN_USE",
+      message: IDENTITY_CONFLICT_MESSAGE,
+    });
+    // Nothing was requested and nothing was discarded: the identity is still
+    // the one another Computer may hold.
+    expect(server.calls).toHaveLength(0);
+    expect(existsSync(f.identityFile)).toBe(true);
+
+    // Set Up Again is the way out: it discards the refused identity, and the
+    // next enrollment starts clean.
+    await f.module.resetLocalServer();
+    await f.module.enroll();
+    expect(f.host.ctx.config.get().computerId).toBe("computer_1");
+    expect(existsSync(f.identityFile)).toBe(false);
+  });
+
+  it("keeps the Daemon Identity when the credential cannot be written", async () => {
+    const server = fakeServer({
+      renewal: {
+        status: 404,
+        body: { error: { code: "INVALID_ENROLLMENT" } },
+      },
+    });
+    const f = enrollmentModule(
+      { ...enrolled, computerId: "computer_old" },
+      server.fetch,
+    );
+    f.credentials.write({
+      computerId: "computer_old",
+      gatewayUrl: "wss://linger.example.com/v1/runner",
+      token: TOKEN,
+    });
+    f.writeIdentity();
+    await f.host.start();
+    await f.module.resetLocalServer();
+    const write = vi
+      .spyOn(f.credentials, "write")
+      .mockImplementationOnce(() => {
+        throw new Error("credential write failed");
+      });
+
+    await expect(f.module.enroll()).rejects.toThrow("credential write failed");
+
+    // The enrollment did not land, so the reset and the identity still stand.
+    expect(f.host.ctx.config.get().renewalEnrollment?.computerId).toBe(
+      "computer_old",
+    );
+    expect(existsSync(f.identityFile)).toBe(true);
+
+    // Retrying completes the same recovery.
+    write.mockRestore();
+    await f.module.enroll();
+    expect(f.host.ctx.config.get().computerId).toBe("computer_1");
+    expect(existsSync(f.identityFile)).toBe(false);
   });
 
   it("forgets the renewal when another server is set", async () => {
