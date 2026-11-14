@@ -18,7 +18,7 @@ build:assets` to check the initial JS budget.
 
 - `src/app`: routes, providers, route error boundaries, and global CSS.
 - `src/features/teamhub`: Human API, Session, error, and realtime adapters.
-- `src/features/rooms`: Room routes, Chat, Timeline, the right sidebar (Agent Info, Activity, Thread, Document) and membership UI.
+- `src/features/rooms`: Room routes, Chat, Timeline, the right sidebar (Agent Info, Activity, Thread, Document) and membership UI. While agents are working, the room list gathers those rooms and says whether each is still on your message or already replying.
 - `src/test`: unit-test support, including the in-process TeamHub test server.
 - `e2e`: Playwright product workflows; every spec runs on the real TeamHub and
   Document Runtime stack (`make check-e2e-room-document`).

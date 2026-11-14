@@ -40,6 +40,8 @@ import {
 } from "./members/agent-avatar";
 import { RoomAvatar } from "./members/room-avatar";
 import { PocketNoteLauncher } from "./pocket-notes/pocket-note-launcher";
+import { WorkingNowStrip } from "./working-now-strip";
+import { workingNowRooms } from "./working-now";
 import { RecordingEntry } from "./voice-control/recording-entry";
 import { useNavReorderFlip } from "./use-nav-reorder-flip";
 
@@ -299,6 +301,11 @@ export function RoomSecondaryNavigation({
         ref={listRef}
       >
         {onCollapse ? searchButton : null}
+        <WorkingNowStrip
+          onNavigate={onCloseMobile}
+          rooms={workingNowRooms(rooms, runningRoomIds)}
+          tenantId={tenant.id}
+        />
         {/* While the list loads only its skeleton shows; the card and list
             land together once everything has settled. */}
         {navigationStatus ?? (

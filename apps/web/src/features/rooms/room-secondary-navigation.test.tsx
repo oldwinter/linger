@@ -513,6 +513,75 @@ describe("Room navigation working indicator", () => {
     expect(
       screen.queryByRole("img", { name: "Agent working" }),
     ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: "Working now" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("gathers working rooms and follows the latest message", () => {
+    const asked = room("room-codex", 0, 0);
+    asked.direct_peer = {
+      display_name: "Codex",
+      id: "actor-codex",
+      kind: "agent",
+      tenant_id: "tenant-a",
+    };
+    asked.kind = "direct";
+    asked.latest_message = {
+      author: {
+        display_name: "Jenny",
+        id: "actor-jenny",
+        kind: "human",
+        tenant_id: "tenant-a",
+      },
+      created_at: "2026-07-24T10:00:00Z",
+      id: "message-1",
+      raw_message: "Ship the brief",
+      room_seq: 2,
+    };
+    const replying = {
+      ...asked,
+      latest_message: {
+        ...asked.latest_message,
+        author: {
+          display_name: "Codex",
+          id: "actor-codex",
+          kind: "agent" as const,
+          tenant_id: "tenant-a",
+        },
+        id: "message-2",
+        raw_message: "On it.",
+      },
+    };
+    const navigation = (current = asked) => (
+      <MemoryRouter>
+        <RoomSecondaryNavigation
+          onCloseMobile={() => undefined}
+          onCreateRoom={() => undefined}
+          rooms={[current]}
+          runningRoomIds={[current.id]}
+          tenant={{
+            created_at: "2026-07-24T09:00:00Z",
+            id: "tenant-a",
+            name: "Northstar",
+          }}
+        />
+      </MemoryRouter>
+    );
+    const view = render(navigation());
+    const strip = screen.getByRole("region", { name: "Working now" });
+    expect(strip).toHaveTextContent("On your message");
+    expect(strip).toHaveTextContent("Ship the brief");
+    expect(
+      within(strip).getByRole("link", { name: "Codex, On your message" }),
+    ).toHaveAttribute("href", "/t/tenant-a/rooms/room-codex/chat");
+    view.rerender(navigation(replying));
+    expect(
+      screen.getByRole("region", { name: "Working now" }),
+    ).toHaveTextContent("Replying");
+    expect(
+      screen.getByRole("region", { name: "Working now" }),
+    ).toHaveTextContent("On it.");
   });
 
   it("shows a failed mark that yields to a working spinner", () => {
