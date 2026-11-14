@@ -15,6 +15,7 @@ import type {
 import { formatDateTime, formatUpdatedAt } from "@/lib/date-format";
 
 import { documentFileName } from "./document-display-name";
+import { libraryWeekPath } from "./library-week";
 import { type LibraryFolder, LibraryFolderRow } from "./library-folder-browser";
 import type { LibrarySection } from "./library-sidebar";
 import type { PendingDocumentUpload } from "./library-upload-queue";
@@ -44,7 +45,15 @@ export function RecentDocumentCards({
   const recentShowUnlinked = anyLinked(documents);
   return (
     <section aria-label="Recent" className="workspace-recent">
-      <h3 className="workspace-recent-title">Recent</h3>
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 className="workspace-recent-title">Recent</h3>
+        <Link
+          className="text-xs text-app-muted underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+          to={libraryWeekPath(tenantId)}
+        >
+          What changed this week
+        </Link>
+      </div>
       {pending ? (
         <p className="flex items-center gap-2 py-6 text-sm text-app-muted">
           <Spinner size={15} />

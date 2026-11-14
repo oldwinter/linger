@@ -2,7 +2,9 @@
 
 - Own the Tenant-scoped Library layout and its Home file tree.
 - The Library home (`/library`) is for finding Documents: no sidebar, a Recent
-  card row, and My pages / Shared with me / Meetings tabs (`?tab=`). The
+  card row, and My pages / Shared with me / Meetings tabs (`?tab=`). What
+  changed this week (`/library/changed`) is the Monday-through-Sunday list of
+  files the library updated, opened from that Recent row. The
   Meetings list is a tab, not a route; `/library/meetings?entry=<meeting id>`
   opens one read-only meeting, and without `entry` it redirects to the tab.
 - My pages and Shared with me list their tree one Folder level at a time
