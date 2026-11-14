@@ -25,6 +25,7 @@ import {
 } from "./meetings-calendar";
 import { meetingPath } from "./meeting-routes";
 import { MeetingShareAction } from "./meeting-share-action";
+import { meetingTranscriptText } from "./meeting-transcript-text";
 import { useMeetingActionTrack } from "./use-meeting-action-track";
 
 const meetingSummaryHiddenSectionTitles = [
@@ -335,6 +336,30 @@ function MeetingVersionReader({
   const [error, setError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   const [downloading, setDownloading] = useState(false);
+  // Copying needs the transcript's text, not just its Version metadata; the
+  // Download control takes the raw body instead.
+  const transcriptText =
+    variant === "document" ? preview?.textContent : undefined;
+  const [copyState, setCopyState] = useState<"copied" | "failed">();
+  const copyTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(copyTimer.current), []);
+  function copyTranscript() {
+    if (!transcriptText) return;
+    window.clearTimeout(copyTimer.current);
+    setCopyState(undefined);
+    void import("@/lib/clipboard")
+      .then(({ writeClipboardText }) =>
+        writeClipboardText(meetingTranscriptText(transcriptText)),
+      )
+      .then(() => {
+        setCopyState("copied");
+        copyTimer.current = window.setTimeout(
+          () => setCopyState(undefined),
+          LINK_COPIED_MS,
+        );
+      })
+      .catch(() => setCopyState("failed"));
+  }
   const transfer = useRef<AbortController | null>(null);
   const siblingRetries = useRef(0);
   useEffect(() => {
@@ -342,6 +367,7 @@ function MeetingVersionReader({
     transfer.current = controller;
     let dispose: (() => void) | undefined;
     setPreview(undefined);
+    setCopyState(undefined);
     setError(undefined);
     void loadArtifactPreview({
       client,
@@ -403,7 +429,29 @@ function MeetingVersionReader({
     }
   }
   const header = (
-    <div className="mb-3 flex justify-end">
+    <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+      {variant === "document" ? (
+        <>
+          {copyState === "copied" ? (
+            <span className="text-xs leading-4 text-app-muted" role="status">
+              Copied
+            </span>
+          ) : null}
+          {copyState === "failed" ? (
+            <span className="text-xs leading-4 text-app-danger" role="alert">
+              Copy failed
+            </span>
+          ) : null}
+          <Button
+            disabled={!transcriptText}
+            onClick={copyTranscript}
+            size="compact"
+            tone="secondary"
+          >
+            Copy transcript
+          </Button>
+        </>
+      ) : null}
       <Button
         aria-label={`Download ${filename}`}
         size="compact"
