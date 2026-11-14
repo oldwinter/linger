@@ -27,6 +27,21 @@ export function retainVisibleWorkItemSelection(
   return new Set(retained);
 }
 
+/** Every card the board shows, never one a filter or collapsed column hid. */
+export function selectAllVisibleWorkItems(
+  visibleIds: readonly string[],
+): ReadonlySet<string> {
+  return new Set(visibleIds);
+}
+
+/** Whether the selection already holds every card the board shows. */
+export function hasSelectedAllVisibleWorkItems(
+  selectedIds: ReadonlySet<string>,
+  visibleIds: readonly string[],
+): boolean {
+  return visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+}
+
 export interface WorkItemArchiveOutcome {
   /** Whether any Item failed; the message says which. */
   failed: boolean;

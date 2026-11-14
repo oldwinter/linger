@@ -30,7 +30,7 @@ describe("Work Items selection", () => {
     renderPage(runtime);
     await boardReady();
 
-    expect(toolbar()).toBeNull();
+    expectNoSelection();
 
     fireEvent.click(selectBox("Alpha item"));
     fireEvent.click(selectBox("Beta item"));
@@ -40,6 +40,104 @@ describe("Work Items selection", () => {
     expect(selectBox("Beta item")).toBeChecked();
     expect(selectBox("Gamma item")).not.toBeChecked();
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("selects every visible card in one step", async () => {
+    const runtime = await seededRuntime();
+    archiveRoutes(runtime);
+    renderPage(runtime);
+    await boardReady();
+
+    fireEvent.click(selectAllButton());
+
+    expect(await screen.findByText("4 selected")).toBeVisible();
+    for (const title of [
+      "Alpha item",
+      "Beta item",
+      "Gamma item",
+      "Closed item",
+    ]) {
+      expect(selectBox(title)).toBeChecked();
+    }
+    expect(screen.getByRole("button", { name: "Deselect all" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Select all" })).toBeNull();
+  });
+
+  it("selects only the cards a filter leaves visible", async () => {
+    const runtime = await seededRuntime();
+    archiveRoutes(runtime);
+    renderPage(runtime);
+    const filter = await boardReady();
+
+    fireEvent.change(filter, { target: { value: "Gamma" } });
+    await waitFor(() =>
+      expect(screen.queryByRole("link", { name: /Alpha item/ })).toBeNull(),
+    );
+
+    fireEvent.click(selectAllButton());
+
+    expect(await screen.findByText("1 selected")).toBeVisible();
+    expect(selectBox("Gamma item")).toBeChecked();
+    expect(
+      screen.queryByRole("checkbox", { name: "Select Alpha item" }),
+    ).toBeNull();
+  });
+
+  it("clears every card on a second activation", async () => {
+    const runtime = await seededRuntime();
+    archiveRoutes(runtime);
+    renderPage(runtime);
+    await boardReady();
+
+    fireEvent.click(selectAllButton());
+    expect(await screen.findByText("4 selected")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Deselect all" }));
+
+    await waitFor(expectNoSelection);
+    for (const title of [
+      "Alpha item",
+      "Beta item",
+      "Gamma item",
+      "Closed item",
+    ]) {
+      expect(selectBox(title)).not.toBeChecked();
+    }
+  });
+
+  it("keeps the label in step with what the next activation does", async () => {
+    const runtime = await seededRuntime();
+    archiveRoutes(runtime);
+    renderPage(runtime);
+    await boardReady();
+
+    fireEvent.click(selectBox("Alpha item"));
+    expect(await screen.findByText("1 selected")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Select all" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Deselect all" })).toBeNull();
+
+    fireEvent.click(selectAllButton());
+    expect(await screen.findByText("4 selected")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Deselect all" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Select all" })).toBeNull();
+  });
+
+  it("archives every visible card and reports that count", async () => {
+    const runtime = await seededRuntime();
+    archiveRoutes(runtime);
+    renderPage(runtime);
+    await boardReady();
+
+    fireEvent.click(selectAllButton());
+    expect(await screen.findByText("4 selected")).toBeVisible();
+    fireEvent.click(
+      within(await selectedToolbar()).getByRole("button", { name: "Archive" }),
+    );
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Archived 4 items.",
+    );
+    expect(runtime.server.requestsTo("POST", ARCHIVE_PATH)).toHaveLength(4);
   });
 
   it("clears the selection from the toolbar", async () => {
@@ -54,7 +152,7 @@ describe("Work Items selection", () => {
       within(await selectedToolbar()).getByRole("button", { name: "Clear" }),
     );
 
-    await waitFor(() => expect(toolbar()).toBeNull());
+    await waitFor(expectNoSelection);
     expect(selectBox("Alpha item")).not.toBeChecked();
     expect(selectBox("Beta item")).not.toBeChecked();
   });
@@ -79,7 +177,7 @@ describe("Work Items selection", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(
       "Archived 2 items.",
     );
-    expect(toolbar()?.textContent).toBe("Archived 2 items.");
+    expect(toolbar()?.textContent).toContain("Archived 2 items.");
     expect(screen.queryByText("2 selected")).toBeNull();
     const posts = runtime.server.requestsTo("POST", ARCHIVE_PATH);
     expect(posts).toHaveLength(2);
@@ -135,7 +233,7 @@ describe("Work Items selection", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(
       "Archived 1 item.",
     );
-    expect(toolbar()?.textContent).toBe("Archived 1 item.");
+    expect(toolbar()?.textContent).toContain("Archived 1 item.");
     await waitFor(() =>
       expect(screen.queryByRole("link", { name: /Beta item/ })).toBeNull(),
     );
@@ -153,11 +251,11 @@ describe("Work Items selection", () => {
 
     fireEvent.change(filter, { target: { value: "Beta" } });
 
-    await waitFor(() => expect(toolbar()).toBeNull());
+    await waitFor(expectNoSelection);
     fireEvent.change(filter, { target: { value: "" } });
 
     expect(selectBox("Alpha item")).not.toBeChecked();
-    expect(toolbar()).toBeNull();
+    expectNoSelection();
   });
 
   it("drops a selected card when its column collapses", async () => {
@@ -171,7 +269,7 @@ describe("Work Items selection", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse closed" }));
 
-    await waitFor(() => expect(toolbar()).toBeNull());
+    await waitFor(expectNoSelection);
 
     fireEvent.click(screen.getByRole("button", { name: "Expand closed" }));
     expect(selectBox("Closed item")).not.toBeChecked();
@@ -189,7 +287,7 @@ describe("Work Items selection", () => {
     fireEvent.click(
       within(await selectedToolbar()).getByRole("button", { name: "Clear" }),
     );
-    await waitFor(() => expect(toolbar()).toBeNull());
+    await waitFor(expectNoSelection);
   });
 
   it("keeps the keyboard ring when a card is selected", async () => {
@@ -247,11 +345,25 @@ describe("Work Items selection", () => {
 });
 
 function toolbar() {
-  return screen.queryByRole("group", { name: "Selected Work Items" });
+  return screen.queryByRole("group", { name: "Work Item selection" });
 }
 
 async function selectedToolbar() {
-  return screen.findByRole("group", { name: "Selected Work Items" });
+  return screen.findByRole("group", { name: "Work Item selection" });
+}
+
+function selectAllButton() {
+  return screen.getByRole("button", { name: "Select all" });
+}
+
+/** The toolbar with nothing selected: every visible card is offered, none held. */
+function expectNoSelection() {
+  const selectionBar = toolbar();
+  expect(selectionBar).not.toBeNull();
+  expect(within(selectionBar!).queryByText(/\d+ selected/u)).toBeNull();
+  expect(
+    within(selectionBar!).getByRole("button", { name: "Select all" }),
+  ).toBeVisible();
 }
 
 function selectBox(title: string) {

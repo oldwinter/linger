@@ -624,14 +624,31 @@ function WorkItemBoard({
 
   return (
     <>
-      {hasSelection || selection.outcome ? (
+      {shownItems.length > 0 || selection.outcome ? (
         <div
-          aria-label="Selected Work Items"
+          aria-label="Work Item selection"
           className="flex shrink-0 flex-wrap items-center gap-2 border-b border-app-border px-4 py-2 text-sm sm:px-5"
           role="group"
         >
           {hasSelection ? (
             <span className="text-app-body">{selection.count} selected</span>
+          ) : null}
+          {shownItems.length > 0 ? (
+            <Button
+              disabled={selection.pending}
+              onClick={
+                selection.allSelected ? selection.clear : selection.selectAll
+              }
+              size="compact"
+              title={
+                selection.allSelected
+                  ? "Clear the selection"
+                  : "Select every card the board shows"
+              }
+              tone="secondary"
+            >
+              {selection.allSelected ? "Deselect all" : "Select all"}
+            </Button>
           ) : null}
           {hasSelection ? (
             <Button
