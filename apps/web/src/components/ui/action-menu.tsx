@@ -327,7 +327,9 @@ export function ActionMenu({
                 ) : null}
               </div>
             </>,
-            document.body,
+            // A modal dialog makes everything outside it inert, so a menu for a
+            // trigger inside one stays in the dialog to be visible and clickable.
+            triggerRef.current?.closest("dialog[open]") ?? document.body,
           )
         : null}
     </>
