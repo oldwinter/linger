@@ -31,6 +31,7 @@ import { dateTimeFormat } from "@/lib/date-format";
 
 import { WorkItemAssigneePicker } from "./work-item-assignee-picker";
 import { WorkItemCommentComposer } from "./work-item-comment-composer";
+import { workItemCommentsMarkdown } from "./work-item-comments-markdown";
 import { WorkItemCopyStatus } from "./work-item-copy-status";
 import { WORK_ITEM_TITLE_LIMIT } from "./work-item-create-draft";
 import {
@@ -57,7 +58,11 @@ import {
 } from "./work-item-queries";
 import { dashboardWorkItemPath } from "./work-item-routes";
 import { WorkItemShareAction } from "./work-item-share-action";
-import { useWorkItemCopy, type WorkItemCopyState } from "./use-work-item-copy";
+import {
+  useWorkItemClipboardCopy,
+  useWorkItemCopy,
+  type WorkItemCopyState,
+} from "./use-work-item-copy";
 
 const peekDateFormatter = dateTimeFormat({
   day: "numeric",
@@ -117,6 +122,7 @@ export function WorkItemPeek({
   // sends no request and stays with this peek's lifetime.
   const [allComments, setAllComments] = useState(false);
   const [allTimeline, setAllTimeline] = useState(false);
+  const commentsCopy = useWorkItemClipboardCopy();
   // The row and the control read the same list, so they cannot disagree about
   // whether this Actor is an assignee.
   const assignedToMe =
@@ -171,6 +177,20 @@ export function WorkItemPeek({
     ? timelineEntries
     : timelineEntries.slice(-timelineLimit);
   const transitions = allowedTransitions(item);
+  // The note carries the whole loaded discussion, whatever the short view shows.
+  function copyComments() {
+    commentsCopy.copy(
+      workItemCommentsMarkdown({
+        comments: [...visibleComments].reverse().map((comment) => ({
+          authorName: comment.author.display_name,
+          body: comment.body,
+          createdAt: comment.created_at,
+        })),
+        title: item.title,
+      }),
+      "Copied",
+    );
+  }
 
   return (
     <ModalDialog
@@ -328,9 +348,19 @@ export function WorkItemPeek({
         </section>
 
         <section aria-label="Recent comments" className="space-y-2">
-          <h3 className="text-xs font-medium text-app-muted">
-            Recent comments
-          </h3>
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs font-medium text-app-muted">
+              Recent comments
+            </h3>
+            <PeekCopyButton
+              copiedLabel={commentsCopy.copiedLabel}
+              disabled={!visibleComments.length}
+              icon={Copy01Icon}
+              label="Copy comments"
+              onCopy={copyComments}
+              state={commentsCopy.state}
+            />
+          </div>
           {comments.isPending ? (
             <p className="text-xs text-app-muted">Loading comments…</p>
           ) : null}
@@ -461,12 +491,15 @@ function PeekCopyMarkdown({
 /** One header copy control: its own icon, its own feedback line. */
 function PeekCopyButton({
   copiedLabel,
+  disabled = false,
   icon,
   label,
   onCopy,
   state,
 }: {
   copiedLabel?: string;
+  /** Blocks the action until it has something to copy. */
+  disabled?: boolean;
   icon: IconSvgElement;
   label: string;
   onCopy: () => void;
@@ -476,7 +509,8 @@ function PeekCopyButton({
     <span className="relative inline-flex">
       <button
         aria-label={label}
-        className="app-dialog-close"
+        className="app-dialog-close disabled:opacity-50"
+        disabled={disabled}
         onClick={onCopy}
         type="button"
       >
