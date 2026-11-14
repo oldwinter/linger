@@ -28,6 +28,7 @@ const WORK_ITEMS_PATH = "/v0/tenants/{tenantId}/work-items";
 const COMMENTS_PATH = "/v0/work-items/{workItemId}/comments";
 const TIMELINE_PATH = "/v0/work-items/{workItemId}/timeline";
 const TRANSITION_PATH = "/v0/work-items/{workItemId}/transitions";
+const ASSIGNMENT_PATH = "/v0/work-items/{workItemId}/assignments/{actorId}";
 
 describe("Work Item peek", () => {
   it("renders the Item with its comments, timeline, and allowed transitions", async () => {
@@ -416,6 +417,177 @@ describe("Work Item peek", () => {
     expect(next!.headers.get("Idempotency-Key")).not.toBe(
       failed!.headers.get("Idempotency-Key"),
     );
+  });
+
+  it("assigns the Item to the current Actor from the peek", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const item = workItem(human, { title: "Fix login failure" });
+    seedWorkItems(runtime, [item]);
+    runtime.server.on("PUT", ASSIGNMENT_PATH, () => {
+      runtime.seed.workItems = [
+        { ...item, assignees: [assignment(human)], version: 2 },
+      ];
+      return assignment(human);
+    });
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    expect(within(dialog).getByText("Unassigned")).toBeVisible();
+    expect(
+      within(dialog).queryByRole("button", { name: "Unassign me" }),
+    ).toBeNull();
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Assign to me" }),
+    );
+
+    await waitFor(() =>
+      expect(runtime.server.requestsTo("PUT", ASSIGNMENT_PATH)).toHaveLength(1),
+    );
+    const [request] = runtime.server.requestsTo("PUT", ASSIGNMENT_PATH);
+    expect(new URL(request!.url).pathname).toBe(
+      `/v0/work-items/workitem-login/assignments/${human.id}`,
+    );
+    expect(request?.headers.get("Idempotency-Key")).toMatch(/^web:/u);
+    expect(await within(dialog).findByText(human.display_name)).toBeVisible();
+    expect(within(dialog).queryByText("Unassigned")).toBeNull();
+    expect(
+      await within(dialog).findByRole("button", { name: "Unassign me" }),
+    ).toBeVisible();
+    await waitFor(() =>
+      expect(
+        runtime.server.requestsTo("GET", WORK_ITEMS_PATH).length,
+      ).toBeGreaterThan(1),
+    );
+  });
+
+  it("unassigns only the current Actor", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const agent = runtime.seed.actors.find(
+      (actor) => actor.id === "actor-codex",
+    )!;
+    const item = workItem(human, {
+      assignees: [assignment(human), assignment(agent)],
+      title: "Fix login failure",
+    });
+    seedWorkItems(runtime, [item]);
+    runtime.server.on("DELETE", ASSIGNMENT_PATH, ({ params }) => {
+      runtime.seed.workItems = [
+        {
+          ...item,
+          assignees: item.assignees.filter(
+            ({ actor }) => actor.id !== params.actorId,
+          ),
+          version: 2,
+        },
+      ];
+      return undefined;
+    });
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    expect(within(dialog).getByText(human.display_name)).toBeVisible();
+    expect(within(dialog).getByText("Codex")).toBeVisible();
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Unassign me" }),
+    );
+
+    await waitFor(() =>
+      expect(runtime.server.requestsTo("DELETE", ASSIGNMENT_PATH)).toHaveLength(
+        1,
+      ),
+    );
+    const [request] = runtime.server.requestsTo("DELETE", ASSIGNMENT_PATH);
+    expect(new URL(request!.url).pathname).toBe(
+      `/v0/work-items/workitem-login/assignments/${human.id}`,
+    );
+    await waitFor(() =>
+      expect(within(dialog).queryByText(human.display_name)).toBeNull(),
+    );
+    expect(within(dialog).getByText("Codex")).toBeVisible();
+    expect(
+      await within(dialog).findByRole("button", { name: "Assign to me" }),
+    ).toBeVisible();
+  });
+
+  it("blocks a second assignment click while the request is in flight", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [workItem(human, { title: "Fix login failure" })]);
+    let finish: () => void = () => undefined;
+    runtime.server.on(
+      "PUT",
+      ASSIGNMENT_PATH,
+      () =>
+        new Promise((resolve) => {
+          finish = () => resolve(assignment(human));
+        }),
+    );
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    const control = within(dialog).getByRole("button", {
+      name: "Assign to me",
+    });
+
+    fireEvent.click(control);
+    await waitFor(() => expect(control).toBeDisabled());
+    expect(control).toHaveAttribute("aria-busy", "true");
+    fireEvent.click(control);
+
+    finish();
+    await waitFor(() => expect(control).toBeEnabled());
+    expect(runtime.server.requestsTo("PUT", ASSIGNMENT_PATH)).toHaveLength(1);
+  });
+
+  it("shows the server's message when an assignment fails", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [workItem(human, { title: "Fix login failure" })]);
+    runtime.server.on("PUT", ASSIGNMENT_PATH, () =>
+      teamHubErrorResponse(
+        409,
+        "CONFLICT",
+        "This Actor cannot be assigned right now.",
+      ),
+    );
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Fix login failure/ }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Fix login failure",
+    });
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Assign to me" }),
+    );
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "This Actor cannot be assigned right now.",
+    );
+    expect(within(dialog).getByText("Unassigned")).toBeVisible();
+    expect(
+      within(dialog).getByRole("button", { name: "Assign to me" }),
+    ).toBeEnabled();
   });
 });
 
