@@ -20,7 +20,10 @@ import type {
   TeamHubRoomListItem,
 } from "@/features/teamhub/teamhub-types";
 import { createHttpTeamHubClient } from "@/features/teamhub/teamhub-client";
-import { TeamHubTestServer } from "@/test/teamhub-test-server";
+import {
+  TeamHubTestServer,
+  teamHubErrorResponse,
+} from "@/test/teamhub-test-server";
 
 import * as avatarImages from "./members/actor-avatar-image";
 import { writeRoomComposerDraft, type RoomComposerDraft } from "./room-drafts";
@@ -743,48 +746,57 @@ describe("Another Me before its Computer connects", () => {
   });
 });
 
-describe("Room navigation pins", () => {
-  function renderPinnedNavigation(
-    rooms: TeamHubRoomListItem[],
-    // Identity and Agent reads fail unless a test routes them, which leaves
-    // Agent deletion unavailable.
-    server = new TeamHubTestServer().allowUnhandledRoutes(),
-  ) {
-    const updateRoomPin = vi.fn((roomId: string, pinned: boolean) => ({
-      room_id: roomId,
-      ...(pinned ? { pinned_at: "2026-07-25T00:00:00Z" } : {}),
-    }));
-    server.on("PUT", "/v0/rooms/{roomId}/pin", ({ body, params }) =>
-      updateRoomPin(params.roomId!, (body as { pinned: boolean }).pinned),
-    );
-    const runtime = {
-      ...liveRuntime(),
-      client: createHttpTeamHubClient({
-        fetchRequest: server.fetch,
-        onAuthenticationRequired: () => undefined,
-      }),
-    };
-    renderInDocument(
-      <QueryClientProvider client={new QueryClient()}>
-        <TeamHubRuntimeProvider runtime={runtime}>
-          <MemoryRouter>
-            <RoomSecondaryNavigation
-              onCloseMobile={() => undefined}
-              onCreateRoom={() => undefined}
-              rooms={rooms}
-              tenant={{
-                id: "tenant-a",
-                name: "Northstar",
-                created_at: "2026-07-24T09:00:00Z",
-              }}
-            />
-          </MemoryRouter>
-        </TeamHubRuntimeProvider>
-      </QueryClientProvider>,
-    );
-    return updateRoomPin;
-  }
+/** Renders the list against a test TeamHub that answers the pin write. */
+function renderPinnedNavigation(
+  rooms: TeamHubRoomListItem[],
+  // Identity and Agent reads fail unless a test routes them, which leaves
+  // Agent deletion unavailable.
+  server = new TeamHubTestServer().allowUnhandledRoutes(),
+  options: {
+    accountId?: string;
+    pinUpdate?: (roomId: string, pinned: boolean) => unknown;
+  } = {},
+) {
+  const updateRoomPin = vi.fn(
+    options.pinUpdate ??
+      ((roomId: string, pinned: boolean) =>
+        pinned
+          ? { room_id: roomId, pinned_at: "2026-07-25T00:00:00Z" }
+          : { room_id: roomId }),
+  );
+  server.on("PUT", "/v0/rooms/{roomId}/pin", ({ body, params }) =>
+    updateRoomPin(params.roomId!, (body as { pinned: boolean }).pinned),
+  );
+  const runtime = {
+    ...liveRuntime(),
+    client: createHttpTeamHubClient({
+      fetchRequest: server.fetch,
+      onAuthenticationRequired: () => undefined,
+    }),
+  };
+  renderInDocument(
+    <QueryClientProvider client={new QueryClient()}>
+      <TeamHubRuntimeProvider runtime={runtime}>
+        <MemoryRouter>
+          <RoomSecondaryNavigation
+            accountId={options.accountId}
+            onCloseMobile={() => undefined}
+            onCreateRoom={() => undefined}
+            rooms={rooms}
+            tenant={{
+              id: "tenant-a",
+              name: "Northstar",
+              created_at: "2026-07-24T09:00:00Z",
+            }}
+          />
+        </MemoryRouter>
+      </TeamHubRuntimeProvider>
+    </QueryClientProvider>,
+  );
+  return updateRoomPin;
+}
 
+describe("Room navigation pins", () => {
   it("leads each section with pinned chats, the most recently pinned first", () => {
     const agent = {
       ...deletedDirectRoom(),
@@ -897,6 +909,128 @@ describe("Room navigation pins", () => {
     // The strip ignores the pointer whenever the row is not hovered, and a
     // dialog inheriting that renders but cannot be clicked.
     expect(dialog.closest(".row-reveal-action")).toBeNull();
+  });
+});
+
+describe("Room navigation snoozed Room pins", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  function snooze(roomId: string) {
+    setRoomSnooze(
+      "account-a",
+      roomId,
+      new Date(Date.now() + ROOM_SNOOZE_HOUR_MS),
+      new Date(),
+    );
+  }
+
+  it("unpins a pinned snoozed Room without bringing it back", async () => {
+    const pinned = {
+      ...room("room-pinned", 0, 0),
+      pinned_at: "2026-07-01T00:00:00Z",
+    };
+    snooze(pinned.id);
+    const updateRoomPin = renderPinnedNavigation(
+      [room("room-open", 0, 0), pinned],
+      undefined,
+      { accountId: "account-a" },
+    );
+
+    const line = screen.getByRole("button", { name: "1 snoozed Room" });
+    expect(line).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.queryByRole("button", { name: "Unpin room-pinned" }),
+    ).toBeNull();
+
+    fireEvent.click(line);
+
+    // The row keeps the same marker and height; only the control is added,
+    // and the collapsed summary above it does not change.
+    expect(line).toHaveAttribute("aria-expanded", "true");
+    expect(line).toHaveTextContent("1 snoozed Room");
+    const unpin = screen.getByRole("button", { name: "Unpin room-pinned" });
+    const row = unpin.closest("li")!;
+    expect(within(row).getByRole("img", { name: "Pinned" })).toBeVisible();
+
+    fireEvent.click(unpin);
+
+    await waitFor(() =>
+      expect(updateRoomPin).toHaveBeenCalledWith("room-pinned", false),
+    );
+    // Unpinning writes only the pin, so the Room stays snoozed.
+    expect(screen.queryByRole("link", { name: "room-pinned" })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "1 snoozed Room" }),
+    ).toBeVisible();
+    expect(
+      JSON.parse(localStorage.getItem("room-snooze.v1:account-a")!),
+    ).toHaveProperty("room-pinned");
+  });
+
+  it("offers no Unpin for a snoozed Room that is not pinned", () => {
+    snooze("room-plain");
+    renderPinnedNavigation([room("room-plain", 0, 0)], undefined, {
+      accountId: "account-a",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "1 snoozed Room" }));
+
+    expect(
+      screen.getByRole("button", { name: "Bring back room-plain" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Unpin room-plain" }),
+    ).toBeNull();
+  });
+
+  it("brings a pinned snoozed Room back without unpinning it", async () => {
+    const pinned = {
+      ...room("room-pinned", 0, 0),
+      pinned_at: "2026-07-01T00:00:00Z",
+    };
+    snooze(pinned.id);
+    const updateRoomPin = renderPinnedNavigation([pinned], undefined, {
+      accountId: "account-a",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "1 snoozed Room" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Bring back room-pinned" }),
+    );
+
+    const restored = await screen.findByRole("link", { name: "room-pinned" });
+    expect(within(restored).getByRole("img", { name: "Pinned" })).toBeVisible();
+    expect(updateRoomPin).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /snoozed Room/ })).toBeNull();
+  });
+
+  it("keeps the pin and reports when unpinning fails", async () => {
+    const server = new TeamHubTestServer().allowUnhandledRoutes();
+    const pinned = {
+      ...room("room-pinned", 0, 0),
+      pinned_at: "2026-07-01T00:00:00Z",
+    };
+    snooze(pinned.id);
+    const updateRoomPin = renderPinnedNavigation([pinned], server, {
+      accountId: "account-a",
+      pinUpdate: () =>
+        teamHubErrorResponse(500, "UNAVAILABLE", "Pin write failed."),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "1 snoozed Room" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unpin room-pinned" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not unpin the Room.",
+    );
+    expect(updateRoomPin).toHaveBeenCalledWith("room-pinned", false);
+    const row = screen
+      .getByRole("button", { name: "Unpin room-pinned" })
+      .closest("li")!;
+    expect(within(row).getByRole("img", { name: "Pinned" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: "room-pinned" })).toBeNull();
   });
 });
 

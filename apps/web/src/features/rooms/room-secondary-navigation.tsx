@@ -215,6 +215,19 @@ export function RoomSecondaryNavigation({
   function togglePin(room: TeamHubRoomListItem) {
     roomPin.mutate({ pinned: !room.pinned_at, roomId: room.id });
   }
+  // A snoozed row's Unpin writes through the same pin mutation as the row
+  // button, so only this attempt's failure needs its own report.
+  const [unpinFailed, setUnpinFailed] = useState(false);
+  function unpinSnoozedRoom(roomId: string) {
+    setUnpinFailed(false);
+    roomPin.mutate(
+      { pinned: false, roomId },
+      {
+        onError: () => setUnpinFailed(true),
+        onSuccess: () => setUnpinFailed(false),
+      },
+    );
+  }
   const visibleAnotherMeRoom =
     anotherMeRoom && visibleRoomIds.has(anotherMeRoom.id)
       ? anotherMeRoom
@@ -545,7 +558,9 @@ export function RoomSecondaryNavigation({
                 onBringBack={(roomId) =>
                   clearRoomSnooze(accountId, roomId, new Date())
                 }
+                onUnpin={unpinSnoozedRoom}
                 rooms={snoozedChats}
+                unpinFailed={unpinFailed}
               />
             </NavSection>
           </>
@@ -639,10 +654,14 @@ function FilterEmptyState({
 /** The list's one quiet line for snoozed Rooms, collapsed until asked. */
 function SnoozedRoomsLine({
   onBringBack,
+  onUnpin,
   rooms,
+  unpinFailed,
 }: {
   onBringBack: (roomId: string) => void;
+  onUnpin: (roomId: string) => void;
   rooms: TeamHubRoomListItem[];
+  unpinFailed: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   if (rooms.length === 0) return null;
@@ -664,24 +683,47 @@ function SnoozedRoomsLine({
         </span>
       </button>
       {expanded ? (
-        <ul className="mt-0.5 space-y-0.5 pr-2 pb-1 pl-6">
-          {rooms.map((room) => (
-            <li
-              className="flex items-center gap-2 text-xs leading-4 text-muted-foreground"
-              key={room.id}
-            >
-              <span className="min-w-0 flex-1 truncate">{room.name}</span>
-              <button
-                aria-label={`Bring back ${room.name}`}
-                className="shrink-0 rounded-sm font-medium text-foreground underline underline-offset-2 transition-colors hover:text-app-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => onBringBack(room.id)}
-                type="button"
+        <>
+          <ul className="mt-0.5 space-y-0.5 pr-2 pb-1 pl-6">
+            {rooms.map((room) => (
+              <li
+                className="flex items-center gap-2 text-xs leading-4 text-muted-foreground"
+                key={room.id}
               >
-                Bring back
-              </button>
-            </li>
-          ))}
-        </ul>
+                <span className="min-w-0 flex-1 truncate">{room.name}</span>
+                {room.pinned_at ? <RoomPinnedMarker /> : null}
+                {room.pinned_at ? (
+                  // Pinning is the only thing this removes; the Room stays
+                  // snoozed, and Bring back never touches the pin.
+                  <button
+                    aria-label={`Unpin ${room.name}`}
+                    className="shrink-0 rounded-sm font-medium text-foreground underline underline-offset-2 transition-colors hover:text-app-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => onUnpin(room.id)}
+                    type="button"
+                  >
+                    Unpin
+                  </button>
+                ) : null}
+                <button
+                  aria-label={`Bring back ${room.name}`}
+                  className="shrink-0 rounded-sm font-medium text-foreground underline underline-offset-2 transition-colors hover:text-app-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => onBringBack(room.id)}
+                  type="button"
+                >
+                  Bring back
+                </button>
+              </li>
+            ))}
+          </ul>
+          {unpinFailed ? (
+            <p
+              className="px-2 pb-1 text-xs leading-4 text-app-danger"
+              role="alert"
+            >
+              Could not unpin the Room.
+            </p>
+          ) : null}
+        </>
       ) : null}
     </div>
   );
@@ -764,6 +806,19 @@ function NavRow({
   );
 }
 
+/** The same marker on a Room row and on its snoozed row. */
+function RoomPinnedMarker() {
+  return (
+    <span
+      aria-label="Pinned"
+      className="room-pin-badge town-pill-pop ml-0.5 flex shrink-0 text-muted-foreground"
+      role="img"
+    >
+      <Icon icon={PinIcon} size={12} />
+    </span>
+  );
+}
+
 function RoomRowTitle({
   children,
   draftName,
@@ -792,15 +847,7 @@ function RoomRowTitle({
           Draft
         </span>
       ) : null}
-      {pinned ? (
-        <span
-          aria-label="Pinned"
-          className="room-pin-badge town-pill-pop ml-0.5 flex shrink-0 text-muted-foreground"
-          role="img"
-        >
-          <Icon icon={PinIcon} size={12} />
-        </span>
-      ) : null}
+      {pinned ? <RoomPinnedMarker /> : null}
       {quietHint ? (
         <span
           className="shrink-0 text-2xs font-medium leading-4 text-muted-foreground"
