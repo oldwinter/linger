@@ -10,6 +10,9 @@
   Meetings through TeamHub's
   `DELETE /v0/tenants/{tenantId}/me/meetings/{captureSessionId}`. Web observes Memory generation state; it does not call the
   Memory service directly or orchestrate generation.
+- Tracking a meeting Action stages an unsent draft in the Human's Another Me
+  Chat and opens it; the reader still sends nothing itself and creates no Work
+  Item.
 - Timeline is the display label for the existing `graph` entry; keep its route
   and data key. Keep/Delete stay browser-local display decisions through
   `features/wiki/wiki-display-state.ts`: filter displayed graph nodes and edges
