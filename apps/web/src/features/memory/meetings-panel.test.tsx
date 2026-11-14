@@ -198,6 +198,10 @@ describe("Meetings panel", () => {
     ).toEqual(["Meeting Oct 1, 09:05", "Meeting Oct 1, 17:41", "Summary"]);
     const entry =
       "/t/tenant-northstar/library/meetings?entry=meeting_000000000000000000000002";
+    expect(screen.getByRole("link", { name: "Up next" })).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/library/up-next",
+    );
     expect(
       within(today).getByRole("link", { name: "Meeting Oct 1, 17:41" }),
     ).toHaveAttribute("href", entry);

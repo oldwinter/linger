@@ -127,7 +127,7 @@ function workspaceSection(pathname: string): LibrarySection | null {
   const rest = pathname.match(/^\/t\/[^/]+\/library(?=\/|$)(.*)$/)?.[1];
   if (rest === undefined) return null;
   if (rest.startsWith("/wiki")) return "wiki";
-  // An open meeting keeps the Library sidebar beside it.
-  if (rest.startsWith("/meetings")) return null;
+  // An open meeting, and the clock to the next one, keep the Library sidebar beside them.
+  if (rest.startsWith("/meetings") || rest.startsWith("/up-next")) return null;
   return "overview";
 }

@@ -2,7 +2,8 @@
 
 - Own the authenticated Human's Tenant-scoped Memory views: the Timeline graph
   with its Daily and Weekly reports, and Meetings (calendar, reader, audio).
-  Personal Wiki navigation in `features/wiki` links here.
+  Personal Wiki navigation in `features/wiki` links here. Up next is the live
+  clock to the closest meeting.
 - Call TeamHub through the generated client (`client.api`) and generated
   Memory types; do not handwrite URLs or wire DTOs in components.
 - Meetings, reports and graph entries are read-only derived reading state, not
