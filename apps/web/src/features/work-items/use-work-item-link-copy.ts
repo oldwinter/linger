@@ -4,23 +4,23 @@ import { writeClipboardText } from "@/lib/clipboard";
 
 import { dashboardWorkItemPath } from "./work-item-routes";
 
-export type WorkItemLinkCopyState = "idle" | "copied" | "failed";
+export type WorkItemCopyState = "idle" | "copied" | "failed";
 
 const feedbackDuration = 1200;
 
 /**
- * Copies the Item's dashboard link and reports whether the clipboard accepted
- * it, so a refused write never reads as success.
+ * Copies Work Item content and reports whether the clipboard accepted it, so a
+ * refused write never reads as success.
  */
-export function useWorkItemLinkCopy(tenantId: string, workItemId: string) {
-  const [state, setState] = useState<WorkItemLinkCopyState>("idle");
+export function useWorkItemClipboardCopy() {
+  const [state, setState] = useState<WorkItemCopyState>("idle");
   const resetTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => () => window.clearTimeout(resetTimer.current), []);
 
-  function copyLink() {
+  function copy(text: string) {
     window.clearTimeout(resetTimer.current);
-    void writeClipboardText(dashboardWorkItemPath(tenantId, workItemId))
+    void writeClipboardText(text)
       .then(() => setState("copied"))
       .catch(() => setState("failed"))
       .finally(() => {
@@ -31,5 +31,14 @@ export function useWorkItemLinkCopy(tenantId: string, workItemId: string) {
       });
   }
 
-  return { copyLink, state };
+  return { copy, state };
+}
+
+/** Copies the Item's dashboard link through the shared clipboard feedback. */
+export function useWorkItemLinkCopy(tenantId: string, workItemId: string) {
+  const { copy, state } = useWorkItemClipboardCopy();
+  return {
+    copyLink: () => copy(dashboardWorkItemPath(tenantId, workItemId)),
+    state,
+  };
 }
