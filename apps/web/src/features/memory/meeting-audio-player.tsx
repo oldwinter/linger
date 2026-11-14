@@ -111,6 +111,9 @@ export function MeetingAudioPlayer({
   const attachAudio = useCallback(
     (element: HTMLAudioElement | null) => {
       audioRef.current = element;
+      // The element mounts only once the recording has a src, which can be
+      // later than the meeting change that read this Account's speed.
+      if (element) element.playbackRate = readMeetingPlaybackSpeed(accountId);
       return () => {
         if (!element) return;
         element.playbackRate = DEFAULT_MEETING_PLAYBACK_RATE;
