@@ -10,6 +10,7 @@ import {
   StopIcon,
 } from "@hugeicons/core-free-icons";
 import { useState, type PointerEvent, type ReactNode } from "react";
+import { Link, useInRouterContext, useParams } from "react-router";
 import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,6 +23,7 @@ import { VoiceRecoveryPanel } from "./voice-recovery-panel";
 import { VoiceRecordingTime } from "./voice-recording-time";
 import { VoiceTranscriptViewport } from "./voice-transcript-viewport";
 import styles from "./voice-focus.module.css";
+import { hearingPath } from "./hearing-path";
 import {
   armSubtitle,
   armTitle,
@@ -433,6 +435,7 @@ export function VoiceFocusSurface({
                 key={capture?.id ?? "idle"}
               >
                 <div className="flex w-full flex-col items-center gap-4 px-5 py-3">
+                  <SeeItLargeLink show={!idle} />
                   <div
                     aria-label="Voice focus transcript"
                     aria-live="polite"
@@ -594,6 +597,25 @@ const speakerColors = [
   "text-fawn-700",
   "text-lichen-700",
 ];
+
+function SeeItLargeLink({ show }: { show: boolean }) {
+  const inside = useInRouterContext();
+  if (!show || !inside) return null;
+  return <SeeItLargeRouteLink />;
+}
+
+function SeeItLargeRouteLink() {
+  const tenantId = useParams().tenantId;
+  if (!tenantId) return null;
+  return (
+    <Link
+      className="self-start text-xs text-app-muted underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+      to={hearingPath(tenantId)}
+    >
+      See it large
+    </Link>
+  );
+}
 
 function speakerColor(label: string) {
   const index = Number(label.match(/(\d+)$/)?.[1] ?? 1);
