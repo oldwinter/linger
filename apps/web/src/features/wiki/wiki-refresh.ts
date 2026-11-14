@@ -1,4 +1,9 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type QueryClient,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
 import { personalWikiDocumentsQueryKey } from "@/features/teamhub/document-queries";
@@ -13,6 +18,40 @@ export interface WikiRefreshStatus {
 }
 
 const wikiRefreshPollIntervalMs = 2_000;
+
+/** Reloads everything a finished refresh changes, whoever started it. */
+function invalidateWikiAfterRefresh(
+  queryClient: QueryClient,
+  tenantId: string,
+) {
+  void queryClient.invalidateQueries({
+    queryKey: ["teamhub", tenantId, "personal-wiki"],
+  });
+  void queryClient.invalidateQueries({
+    queryKey: ["teamhub", tenantId, "personal-memory"],
+  });
+  void queryClient.invalidateQueries({
+    queryKey: personalWikiDocumentsQueryKey(tenantId),
+  });
+}
+
+/**
+ * Asks TeamHub to refresh the Wiki now. The running state, the pages, and the
+ * polling that follows come from the same queries as a server-started refresh.
+ */
+export function useRequestWikiRefresh(tenantId: string) {
+  const { client } = useTeamHubRuntime();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      teamHubData(
+        client.api.POST("/v0/tenants/{tenantId}/personal-wiki/refresh", {
+          params: { path: { tenantId } },
+        }),
+      ),
+    onSuccess: () => invalidateWikiAfterRefresh(queryClient, tenantId),
+  });
+}
 
 /**
  * Observes the refreshes the server runs on its own (after a meeting, the
@@ -77,15 +116,7 @@ export function usePersonalWikiRefresh(tenantId: string): WikiRefreshStatus {
     seenGeneration.current = generation;
     refreshStateSeen.current = refreshing;
     if (!published && !ended) return;
-    void queryClient.invalidateQueries({
-      queryKey: ["teamhub", tenantId, "personal-wiki"],
-    });
-    void queryClient.invalidateQueries({
-      queryKey: ["teamhub", tenantId, "personal-memory"],
-    });
-    void queryClient.invalidateQueries({
-      queryKey: personalWikiDocumentsQueryKey(tenantId),
-    });
+    invalidateWikiAfterRefresh(queryClient, tenantId);
   }, [queryClient, refreshing, tenantId, wiki.data?.published_generation]);
 
   return {

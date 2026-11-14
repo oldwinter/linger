@@ -2375,6 +2375,30 @@ func (e PersonalProfileSourceSelectionKind) Valid() bool {
 	}
 }
 
+// Defines values for PersonalWikiRefreshOutcome.
+const (
+	PersonalWikiRefreshOutcomeAccepted      PersonalWikiRefreshOutcome = "accepted"
+	PersonalWikiRefreshOutcomeAlreadyLatest PersonalWikiRefreshOutcome = "already_latest"
+	PersonalWikiRefreshOutcomeInProgress    PersonalWikiRefreshOutcome = "in_progress"
+	PersonalWikiRefreshOutcomeNoSources     PersonalWikiRefreshOutcome = "no_sources"
+)
+
+// Valid indicates whether the value is a known member of the PersonalWikiRefreshOutcome enum.
+func (e PersonalWikiRefreshOutcome) Valid() bool {
+	switch e {
+	case PersonalWikiRefreshOutcomeAccepted:
+		return true
+	case PersonalWikiRefreshOutcomeAlreadyLatest:
+		return true
+	case PersonalWikiRefreshOutcomeInProgress:
+		return true
+	case PersonalWikiRefreshOutcomeNoSources:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PersonalWikiState.
 const (
 	PersonalWikiStateFailed     PersonalWikiState = "failed"
@@ -3268,13 +3292,13 @@ func (e VoiceCaptureStatus) Valid() bool {
 
 // Defines values for VoiceDictationCommitReceiptStatus.
 const (
-	Accepted VoiceDictationCommitReceiptStatus = "accepted"
+	VoiceDictationCommitReceiptStatusAccepted VoiceDictationCommitReceiptStatus = "accepted"
 )
 
 // Valid indicates whether the value is a known member of the VoiceDictationCommitReceiptStatus enum.
 func (e VoiceDictationCommitReceiptStatus) Valid() bool {
 	switch e {
-	case Accepted:
+	case VoiceDictationCommitReceiptStatusAccepted:
 		return true
 	default:
 		return false
@@ -6560,6 +6584,21 @@ type PersonalWiki struct {
 	UpdatedAt *Timestamp `json:"updated_at,omitempty"`
 }
 
+// PersonalWikiRefresh defines model for PersonalWikiRefresh.
+type PersonalWikiRefresh struct {
+	// Outcome accepted when the refresh was admitted and runs now; already_latest when every source is already in the published Wiki; in_progress when a refresh is already running; no_sources when the Wiki has no source to refresh from yet.
+	Outcome PersonalWikiRefreshOutcome `json:"outcome"`
+}
+
+// PersonalWikiRefreshOutcome accepted when the refresh was admitted and runs now; already_latest when every source is already in the published Wiki; in_progress when a refresh is already running; no_sources when the Wiki has no source to refresh from yet.
+type PersonalWikiRefreshOutcome string
+
+// PersonalWikiRefreshRequest defines model for PersonalWikiRefreshRequest.
+type PersonalWikiRefreshRequest struct {
+	// Date The business date the refresh is for. It scopes the request's idempotency, not the sources; omit it for the current date.
+	Date *openapi_types.Date `json:"date,omitempty"`
+}
+
 // PersonalWikiState refreshing while a refresh runs or its follow-up is queued; failed when the latest refresh failed or conflicted.
 type PersonalWikiState string
 
@@ -9281,6 +9320,9 @@ type ReplacePersonalProfileJSONRequestBody = PersonalProfileReplaceRequest
 
 // UploadPersonalWikiDocumentMultipartRequestBody defines body for UploadPersonalWikiDocument for multipart/form-data ContentType.
 type UploadPersonalWikiDocumentMultipartRequestBody = DocumentUploadRequest
+
+// RefreshPersonalWikiJSONRequestBody defines body for RefreshPersonalWiki for application/json ContentType.
+type RefreshPersonalWikiJSONRequestBody = PersonalWikiRefreshRequest
 
 // CreateRoomJSONRequestBody defines body for CreateRoom for application/json ContentType.
 type CreateRoomJSONRequestBody = HumanRoomCreateRequest

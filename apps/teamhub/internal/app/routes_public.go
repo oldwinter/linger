@@ -206,6 +206,7 @@ func (a *App) publicRoutes() []contractRoute {
 		route(http.MethodGet, "/v0/tenants/:tenantId/personal-profile-generations", nil, session, a.listPersonalProfileGenerations),
 		route(http.MethodPost, "/v0/tenants/:tenantId/personal-profile-generations", nil, session, a.createPersonalProfileGeneration),
 		route(http.MethodGet, "/v0/tenants/:tenantId/personal-wiki", nil, session, a.getPersonalWiki),
+		route(http.MethodPost, "/v0/tenants/:tenantId/personal-wiki/refresh", nil, session, a.refreshPersonalWiki),
 		route(http.MethodGet, "/v0/tenants/:tenantId/personal-wiki/preview", httpapi.GetPersonalWikiPreviewParams{}, session, a.getPersonalWikiPreview),
 		route(http.MethodGet, "/v0/tenants/:tenantId/personal-wiki/documents", httpapi.ListPersonalWikiDocumentsParams{}, session, a.listPersonalWikiDocuments),
 		route(http.MethodPut, "/v0/tenants/:tenantId/personal-wiki/documents/:documentId", nil, session, a.bindDocumentToPersonalWiki),

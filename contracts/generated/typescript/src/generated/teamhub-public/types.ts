@@ -1801,6 +1801,25 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v0/tenants/{tenantId}/personal-wiki/refresh": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Request a refresh of the authenticated Human's Personal Wiki from Memory. */
+    post: operations["refreshPersonalWiki"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v0/tenants/{tenantId}/personal-wiki/preview": {
     parameters: {
       query?: never;
@@ -6361,6 +6380,25 @@ export interface components {
       current_revision_id?: components["schemas"]["Id"];
       created_at?: components["schemas"]["Timestamp"];
       updated_at?: components["schemas"]["Timestamp"];
+    };
+    PersonalWikiRefreshRequest: {
+      /**
+       * Format: date
+       * @description The business date the refresh is for. It scopes the request's idempotency, not the sources; omit it for the current date.
+       */
+      date?: string;
+    };
+    /**
+     * @description accepted when the refresh was admitted and runs now; already_latest when every source is already in the published Wiki; in_progress when a refresh is already running; no_sources when the Wiki has no source to refresh from yet.
+     * @enum {string}
+     */
+    PersonalWikiRefreshOutcome:
+      | "accepted"
+      | "already_latest"
+      | "in_progress"
+      | "no_sources";
+    PersonalWikiRefresh: {
+      outcome: components["schemas"]["PersonalWikiRefreshOutcome"];
     };
     /** @enum {string} */
     MemoryEntryKind: "daily" | "weekly" | "meeting";
@@ -10927,6 +10965,46 @@ export interface operations {
       };
       401: components["responses"]["Unauthenticated"];
       404: components["responses"]["NotFound"];
+    };
+  };
+  refreshPersonalWiki: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["PersonalWikiRefreshRequest"];
+      };
+    };
+    responses: {
+      /** @description The Wiki already matches its sources, or has no source yet. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PersonalWikiRefresh"];
+        };
+      };
+      /** @description The refresh is accepted or already running. */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PersonalWikiRefresh"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      503: components["responses"]["ServiceUnavailable"];
     };
   };
   getPersonalWikiPreview: {

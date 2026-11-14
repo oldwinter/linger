@@ -2,7 +2,9 @@ package app
 
 import (
 	"errors"
+	"io"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/document"
@@ -30,6 +32,45 @@ func (a *App) getPersonalWiki(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, personalWikiModel(wiki))
+}
+
+// refreshPersonalWiki admits the signed-in Human's own refresh of their Wiki.
+// A request while a refresh runs reports it instead of admitting another one;
+// the current date scopes the intent, so unchanged sources read as latest.
+func (a *App) refreshPersonalWiki(c *gin.Context) {
+	wiki, err := a.currentPersonalWiki(c)
+	if a.writePersonalWikiError(c, "authorize Personal Wiki refresh", err) {
+		return
+	}
+	var request httpapi.PersonalWikiRefreshRequest
+	if err := decodeStrictJSON(http.MaxBytesReader(c.Writer, c.Request.Body, 4096), &request,
+		"request body must contain one JSON object"); err != nil && !errors.Is(err, io.EOF) {
+		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "Wiki refresh request is invalid")
+		return
+	}
+	date := time.Now().UTC().Format(time.DateOnly)
+	if request.Date != nil {
+		date = request.Date.String()
+	}
+	if wiki.State == "refreshing" {
+		c.JSON(http.StatusAccepted, httpapi.PersonalWikiRefresh{
+			Outcome: httpapi.PersonalWikiRefreshOutcomeInProgress,
+		})
+		return
+	}
+	result, err := a.documents.RequestMemoryWikiRefresh(c.Request.Context(), document.RequestMemoryWikiRefreshInput{
+		TenantID: wiki.TenantID, OwnerActorID: wiki.OwnerActorID, Date: date,
+	})
+	if a.writePersonalWikiRefreshError(c, "request Personal Wiki refresh", err) {
+		return
+	}
+	outcome := httpapi.PersonalWikiRefreshOutcome(result.Refresh.Status)
+	status := http.StatusAccepted
+	if outcome == httpapi.PersonalWikiRefreshOutcomeAlreadyLatest ||
+		outcome == httpapi.PersonalWikiRefreshOutcomeNoSources {
+		status = http.StatusOK
+	}
+	c.JSON(status, httpapi.PersonalWikiRefresh{Outcome: outcome})
 }
 
 func (a *App) getPersonalKnowledgeGraphVisualization(c *gin.Context) {
@@ -203,6 +244,28 @@ func personalWikiModel(wiki document.PersonalWiki) httpapi.PersonalWiki {
 		model.CurrentRevisionId = &wiki.CurrentRevisionID
 	}
 	return model
+}
+
+func (a *App) writePersonalWikiRefreshError(c *gin.Context, action string, err error) bool {
+	if err == nil {
+		return false
+	}
+	var oversizedRefresh *document.WikiRefreshTooLargeError
+	switch {
+	case errors.As(err, &oversizedRefresh):
+		a.writeError(c, http.StatusBadRequest, "WIKI_REFRESH_TOO_LARGE", oversizedRefresh.Error())
+	case errors.Is(err, document.ErrInvalidInput):
+		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "Wiki refresh request is invalid")
+	case errors.Is(err, document.ErrNotFound):
+		a.writeError(c, http.StatusNotFound, "NOT_FOUND", "Personal Wiki refresh is unavailable for this account")
+	case errors.Is(err, document.ErrVersionConflict), errors.Is(err, document.ErrIdempotencyConflict):
+		a.writeError(c, http.StatusConflict, "CONFLICT", "Wiki refresh conflicts with current state")
+	case errors.Is(err, document.ErrObjectStoreUnavailable), errors.Is(err, document.ErrRuntimeUnavailable):
+		a.writeError(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Wiki refresh is unavailable")
+	default:
+		a.internalError(c, action, err)
+	}
+	return true
 }
 
 func (a *App) writePersonalWikiError(c *gin.Context, action string, err error) bool {

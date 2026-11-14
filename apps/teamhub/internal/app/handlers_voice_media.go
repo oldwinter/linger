@@ -99,7 +99,7 @@ func (a *App) commitVoiceDictationTurn(c *gin.Context) {
 	)) {
 		return
 	}
-	c.JSON(http.StatusAccepted, httpapi.VoiceDictationCommitReceipt{RequestId: request.RequestId, Status: httpapi.Accepted})
+	c.JSON(http.StatusAccepted, httpapi.VoiceDictationCommitReceipt{RequestId: request.RequestId, Status: httpapi.VoiceDictationCommitReceiptStatusAccepted})
 }
 
 // ownVoiceSession admits only the login session that created the VoiceSession;
