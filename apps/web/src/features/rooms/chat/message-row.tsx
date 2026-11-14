@@ -8,6 +8,7 @@ import {
   MailReply01Icon,
   Message01Icon,
   MoreHorizontalIcon,
+  NoteEditIcon,
   PinIcon,
   PinOffIcon,
   RotateLeft01Icon,
@@ -17,6 +18,7 @@ import {
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { AnimatePresence, motion } from "motion/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
 
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
@@ -24,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { FileTypeIcon } from "@/features/library/workspace-file-icon";
 import { isDocumentCardSegment } from "@/features/teamhub/teamhub-message-content";
+import { useOptionalTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubDocumentPreviewTarget,
   TeamHubMessagePresentation,
@@ -58,6 +61,7 @@ import {
 } from "../files/message-file-item";
 import { ActorAvatar } from "../members/actor-avatar";
 import { AgentStatusAvatar } from "../members/agent-status-avatar";
+import { saveMessageToPocketNote } from "../pocket-notes/save-message-to-pocket-note";
 import { roomMessagePath } from "../room-routes";
 import { useRoomRenderTiming } from "../room-render-timing";
 import {
@@ -816,8 +820,45 @@ function ConversationMessageActions({
     "idle",
   );
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  const runtime = useOptionalTeamHubRuntime();
+  const queryClient = useQueryClient();
+  const [pocketSave, setPocketSave] = useState<
+    "idle" | "saving" | "saved" | "failed"
+  >("idle");
+  // Set before the request, so a second click in the same tick joins it.
+  const pocketSaving = useRef(false);
   const actionsRef = useRef<HTMLDivElement>(null);
   const overflowItems: ActionMenuItem[] = [];
+
+  useEffect(() => {
+    if (pocketSave !== "saved" && pocketSave !== "failed") return;
+    const timer = window.setTimeout(
+      () => setPocketSave("idle"),
+      pocketSave === "saved" ? 2000 : 4000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [pocketSave]);
+
+  function saveToPocketNote() {
+    if (!runtime || pocketSaving.current) return;
+    pocketSaving.current = true;
+    setPocketSave("saving");
+    void saveMessageToPocketNote({
+      authorName,
+      client: runtime.client,
+      createdAt: message.created_at,
+      message,
+      queryClient,
+      tenantId,
+    })
+      .then(
+        () => setPocketSave("saved"),
+        () => setPocketSave("failed"),
+      )
+      .finally(() => {
+        pocketSaving.current = false;
+      });
+  }
 
   function copyText(text: string) {
     void import("@/lib/clipboard")
@@ -834,6 +875,14 @@ function ConversationMessageActions({
     label: "Copy link",
     onSelect: () => copyText(roomMessagePath(tenantId, message)),
   });
+  if (runtime) {
+    overflowItems.push({
+      disabled: pocketSave === "saving",
+      icon: <Icon icon={NoteEditIcon} size={14} />,
+      label: "Save to Pocket Note",
+      onSelect: saveToPocketNote,
+    });
+  }
 
   if (onForwardMessage) {
     overflowItems.push({
@@ -874,6 +923,11 @@ function ConversationMessageActions({
     <div
       ref={actionsRef}
       className="message-row-actions message-row-actions-beside z-10 flex shrink-0 items-center gap-0.5"
+      data-pocket-note-status={
+        pocketSave === "saved" || pocketSave === "failed"
+          ? pocketSave
+          : undefined
+      }
       data-reaction-picker-open={reactionPickerOpen || undefined}
     >
       {onToggleReaction ? (
@@ -957,6 +1011,21 @@ function ConversationMessageActions({
           menuClassName="fixed z-[100] w-48 rounded-md bg-popover p-1 font-(family-name:--app-room-font) text-sm shadow-md"
           trigger={<Icon icon={MoreHorizontalIcon} size={16} />}
         />
+      ) : null}
+      {pocketSave === "saved" || pocketSave === "failed" ? (
+        <span
+          className={cn(
+            "ml-1 whitespace-nowrap rounded-md px-2 py-1 text-xs leading-[18px]",
+            pocketSave === "saved"
+              ? "bg-primary text-primary-foreground"
+              : "border border-[var(--app-status-danger-border)] bg-[var(--app-status-danger-surface)] text-destructive",
+          )}
+          role="status"
+        >
+          {pocketSave === "saved"
+            ? "Saved to Pocket Note"
+            : "Couldn’t save to Pocket Note"}
+        </span>
       ) : null}
     </div>
   );

@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -85,21 +86,26 @@ describe("Room Message presentations", () => {
       workspaceAgentIds: new Set<string>(),
     };
     const streaming = { ...message("message-1", "Hello"), attachments: [] };
+    const queryClient = new QueryClient();
     const { container, rerender } = render(
-      <MessageRow {...rowProps} message={streaming} />,
+      <QueryClientProvider client={queryClient}>
+        <MessageRow {...rowProps} message={streaming} />
+      </QueryClientProvider>,
     );
     const body = container.querySelector(".message-row-body");
     expect(body).toHaveTextContent("Hello");
 
     rerender(
-      <MessageRow
-        {...rowProps}
-        message={{
-          ...streaming,
-          raw_message: "Hello world",
-          segments: [{ content: "Hello world", type: "text" }],
-        }}
-      />,
+      <QueryClientProvider client={queryClient}>
+        <MessageRow
+          {...rowProps}
+          message={{
+            ...streaming,
+            raw_message: "Hello world",
+            segments: [{ content: "Hello world", type: "text" }],
+          }}
+        />
+      </QueryClientProvider>,
     );
 
     expect(container.querySelector(".message-row-body")).toBe(body);

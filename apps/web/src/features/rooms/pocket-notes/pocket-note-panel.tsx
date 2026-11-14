@@ -45,6 +45,7 @@ import {
   pocketNotesMarkdown,
 } from "./pocket-notes-export";
 import { LazyVoiceKeyDialog } from "@/features/rooms/voice-control/lazy-voice-key-dialog";
+import { appendToPocketNote } from "./pocket-note-append";
 import { usePocketDictation } from "./use-pocket-dictation";
 import {
   PocketNoteEditor,
@@ -207,10 +208,10 @@ export default function PocketNotePanel({
         <TodayPocketNote
           anotherMeRoomId={anotherMeRoomId}
           closeGuard={closeGuard}
-          initialText={todayNote?.text ?? ""}
           key={today}
           onClose={close}
           onShowAll={() => setView({ kind: "all" })}
+          storedText={todayNote?.text ?? ""}
           tenantId={tenantId}
           today={today}
         />
@@ -229,15 +230,16 @@ export default function PocketNotePanel({
 function TodayPocketNote({
   anotherMeRoomId,
   closeGuard,
-  initialText,
   onClose,
   onShowAll,
+  storedText,
   tenantId,
   today,
 }: {
   anotherMeRoomId?: string;
   closeGuard: RefObject<CloseGuard | undefined>;
-  initialText: string;
+  /** Today's saved text, which a save from elsewhere can change underneath. */
+  storedText: string;
   onClose: () => void;
   onShowAll: () => void;
   tenantId: string;
@@ -245,10 +247,11 @@ function TodayPocketNote({
 }) {
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
-  const [text, setText] = useState(initialText);
-  const textRef = useRef(initialText);
-  const savedText = useRef(initialText);
-  const pendingText = useRef(initialText);
+  const [text, setText] = useState(storedText);
+  const textRef = useRef(storedText);
+  const savedText = useRef(storedText);
+  const pendingText = useRef(storedText);
+  const storedRef = useRef(storedText);
   const editorRef = useRef<PocketNoteEditorHandle>(null);
   const liveRef = useRef<HTMLSpanElement>(null);
   const anchor = useRef(0);
@@ -265,6 +268,7 @@ function TodayPocketNote({
       ),
     onSuccess: (note) => {
       savedText.current = note.text;
+      storedRef.current = note.text;
       storeTodayPocketNote(queryClient, tenantId, note);
     },
   });
@@ -332,6 +336,30 @@ function TodayPocketNote({
       closeGuard.current = undefined;
     };
   });
+
+  // A save from the Message menu writes the same page. With nothing unsaved
+  // the editor takes the new text; with a draft it keeps the person's words and
+  // gains only the appended block, so the next autosave carries both.
+  useEffect(() => {
+    if (storedText === storedRef.current) return;
+    const previous = storedRef.current;
+    storedRef.current = storedText;
+    if (textRef.current === savedText.current) {
+      savedText.current = storedText;
+      pendingText.current = storedText;
+      textRef.current = storedText;
+      setText(storedText);
+      return;
+    }
+    if (!storedText.startsWith(previous)) return;
+    const merged = appendToPocketNote(
+      textRef.current,
+      storedText.slice(previous.length),
+    );
+    textRef.current = merged;
+    pendingText.current = merged;
+    setText(merged);
+  }, [storedText]);
 
   useEffect(() => {
     pendingText.current = text;
