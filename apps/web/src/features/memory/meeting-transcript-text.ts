@@ -17,11 +17,15 @@ const STRUCTURAL_LINE = /^(?:#{1,6}(?:\s|$)|>)/u;
  * renderer writes them when diarization is unavailable.
  */
 export function meetingTranscriptText(markdown: string): string {
+  return meetingTranscriptTurns(markdown).join("\n");
+}
+
+/** The transcript's turns alone, in spoken order, without the cues between them. */
+export function meetingTranscriptTurns(markdown: string): string[] {
   return markdown
     .split(/\r?\n\s*\r?\n/u)
     .map(turnText)
-    .filter((line): line is string => line !== null)
-    .join("\n");
+    .filter((line): line is string => line !== null);
 }
 
 function turnText(block: string): string | null {

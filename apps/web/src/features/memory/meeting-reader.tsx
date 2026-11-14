@@ -1,6 +1,13 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowDown01Icon,
+  ArrowUp01Icon,
+  Cancel01Icon,
+  Search01Icon,
+} from "@hugeicons/core-free-icons";
 import { ReadOnlyBlockNoteDocumentLoader } from "@/components/read-only-blocknote-document-loader";
 import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
 import { ArtifactContentRendererLoader } from "@/features/rooms/files/artifact-content-renderer-loader";
 import {
   downloadArtifactPreview,
@@ -25,7 +32,19 @@ import {
 } from "./meetings-calendar";
 import { meetingPath } from "./meeting-routes";
 import { MeetingShareAction } from "./meeting-share-action";
-import { meetingTranscriptText } from "./meeting-transcript-text";
+import {
+  applyMeetingTranscriptMarks,
+  scrollMeetingTranscriptTurn,
+} from "./meeting-transcript-highlight";
+import {
+  nextMatchPosition,
+  previousMatchPosition,
+  searchMeetingTranscript,
+} from "./meeting-transcript-search";
+import {
+  meetingTranscriptText,
+  meetingTranscriptTurns,
+} from "./meeting-transcript-text";
 import { useMeetingActionTrack } from "./use-meeting-action-track";
 
 const meetingSummaryHiddenSectionTitles = [
@@ -395,6 +414,59 @@ function MeetingVersionReader({
   // Download control takes the raw body instead.
   const transcriptText =
     variant === "document" ? preview?.textContent : undefined;
+  const transcriptRoot = useRef<HTMLDivElement>(null);
+  const [query, setQuery] = useState("");
+  const [position, setPosition] = useState(0);
+  const turns = useMemo(
+    () => (transcriptText ? meetingTranscriptTurns(transcriptText) : []),
+    [transcriptText],
+  );
+  const match = useMemo(
+    () => searchMeetingTranscript(turns, query),
+    [query, turns],
+  );
+  const searching = query.trim() !== "";
+  // A new query starts at its first match; a shorter result list clamps a
+  // position left over from the previous query.
+  const current = match.count ? Math.min(position, match.count - 1) : 0;
+  useEffect(() => setPosition(0), [query]);
+  useEffect(() => {
+    if (!searching || !match.count) return;
+    const root = transcriptRoot.current;
+    if (!root) return;
+    let cleanup = () => {};
+    const apply = () => {
+      cleanup();
+      cleanup = applyMeetingTranscriptMarks({
+        current,
+        match,
+        root,
+        turns,
+      });
+    };
+    apply();
+    // The document renders lazily, so the marks follow its blocks appearing.
+    const observer = new MutationObserver(apply);
+    observer.observe(root, {
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+    return () => {
+      observer.disconnect();
+      cleanup();
+    };
+  }, [current, match, searching, turns]);
+  const currentTurn = match.count ? match.indices[current] : undefined;
+  useEffect(() => {
+    if (!searching || currentTurn === undefined) return;
+    const root = transcriptRoot.current;
+    if (!root) return;
+    const frame = requestAnimationFrame(() =>
+      scrollMeetingTranscriptTurn(root, currentTurn, turns.length),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [currentTurn, searching, turns.length]);
   const [copyState, setCopyState] = useState<"copied" | "failed">();
   const copyTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(copyTimer.current), []);
@@ -550,6 +622,66 @@ function MeetingVersionReader({
       presentation="knowledge"
     />
   );
+  const searchBar =
+    variant === "document" ? (
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <label className="flex h-8 min-w-0 flex-1 basis-56 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground transition-colors hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring/40">
+          <Icon icon={Search01Icon} size={14} />
+          <input
+            aria-label="Search transcript"
+            className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-60"
+            disabled={!transcriptText}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search transcript"
+            role="searchbox"
+            type="text"
+            value={query}
+          />
+          {query ? (
+            <button
+              aria-label="Clear transcript search"
+              className="flex size-5 shrink-0 items-center justify-center rounded-full hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+              onClick={() => setQuery("")}
+              type="button"
+            >
+              <Icon icon={Cancel01Icon} size={12} />
+            </button>
+          ) : null}
+        </label>
+        {searching ? (
+          <span className="text-xs tabular-nums text-app-muted" role="status">
+            {match.count
+              ? `${match.count} ${match.count === 1 ? "match" : "matches"}`
+              : "No matches"}
+          </span>
+        ) : null}
+        {searching && match.count ? (
+          <span className="text-xs tabular-nums text-app-muted">
+            {current + 1} of {match.count}
+          </span>
+        ) : null}
+        <Button
+          aria-label="Previous match"
+          disabled={!match.count}
+          onClick={() =>
+            setPosition(previousMatchPosition(current, match.count))
+          }
+          size="compactIcon"
+          tone="ghost"
+        >
+          <Icon icon={ArrowUp01Icon} size={14} />
+        </Button>
+        <Button
+          aria-label="Next match"
+          disabled={!match.count}
+          onClick={() => setPosition(nextMatchPosition(current, match.count))}
+          size="compactIcon"
+          tone="ghost"
+        >
+          <Icon icon={ArrowDown01Icon} size={14} />
+        </Button>
+      </div>
+    ) : null;
   if (variant === "player") {
     if (error)
       return (
@@ -592,8 +724,9 @@ function MeetingVersionReader({
   }
   return (
     <>
+      {searchBar}
       {header}
-      {body}
+      <div ref={transcriptRoot}>{body}</div>
     </>
   );
 }

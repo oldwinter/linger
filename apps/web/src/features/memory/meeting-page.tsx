@@ -112,6 +112,7 @@ export function MeetingPage() {
         <section
           aria-label="Meeting content"
           className="workspace-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto"
+          data-meeting-scroll
           ref={contentRef}
           onClickCapture={openAnchor}
           onKeyDownCapture={(event) => {

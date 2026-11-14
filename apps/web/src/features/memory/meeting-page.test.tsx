@@ -750,6 +750,142 @@ describe("MeetingPage", () => {
     expect(screen.queryByText("Copied")).toBeNull();
   });
 
+  it("shows the search match count and the honest no-match state", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry();
+    serveMeetings(runtime, [entry]);
+    renderPage(runtime, `?entry=${entry.id}&file=transcript`);
+
+    const reader = await screen.findByRole("article", { name: "Meeting" });
+    const search = within(reader).getByRole("searchbox", {
+      name: "Search transcript",
+    });
+    await waitFor(() => expect(search).toBeEnabled());
+
+    fireEvent.change(search, { target: { value: "like" } });
+    expect(within(reader).getByRole("status")).toHaveTextContent("2 matches");
+    expect(within(reader).getByText("1 of 2")).toBeVisible();
+
+    fireEvent.change(search, { target: { value: "BLINKS" } });
+    expect(within(reader).getByRole("status")).toHaveTextContent("1 match");
+
+    fireEvent.change(search, {
+      target: { value: "blinks screenshot" },
+    });
+    expect(within(reader).getByRole("status")).toHaveTextContent("No matches");
+    expect(
+      within(reader).getByRole("button", { name: "Next match" }),
+    ).toBeDisabled();
+    expect(
+      within(reader).getByRole("button", { name: "Previous match" }),
+    ).toBeDisabled();
+  });
+
+  it("moves between matches with Previous and Next, wrapping at both ends", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry();
+    serveMeetings(runtime, [entry]);
+    renderPage(runtime, `?entry=${entry.id}&file=transcript`);
+
+    const reader = await screen.findByRole("article", { name: "Meeting" });
+    const search = within(reader).getByRole("searchbox", {
+      name: "Search transcript",
+    });
+    await waitFor(() => expect(search).toBeEnabled());
+    fireEvent.change(search, { target: { value: "like" } });
+
+    const next = within(reader).getByRole("button", { name: "Next match" });
+    const previous = within(reader).getByRole("button", {
+      name: "Previous match",
+    });
+    expect(within(reader).getByText("1 of 2")).toBeVisible();
+    fireEvent.click(next);
+    expect(within(reader).getByText("2 of 2")).toBeVisible();
+    fireEvent.click(next);
+    expect(within(reader).getByText("1 of 2")).toBeVisible();
+    fireEvent.click(previous);
+    expect(within(reader).getByText("2 of 2")).toBeVisible();
+  });
+
+  it("paints the marks inside the rendered transcript turns", async () => {
+    const registry = new Map<string, unknown>();
+    const scope = globalThis as {
+      CSS?: unknown;
+      Highlight?: unknown;
+    };
+    const previousCss = scope.CSS;
+    const previousHighlight = scope.Highlight;
+    scope.CSS = { highlights: registry };
+    scope.Highlight = FakeHighlight;
+    onTestFinished(() => {
+      scope.CSS = previousCss;
+      scope.Highlight = previousHighlight;
+    });
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry();
+    serveMeetings(runtime, [entry]);
+    renderPage(runtime, `?entry=${entry.id}&file=transcript`);
+
+    const reader = await screen.findByRole("article", { name: "Meeting" });
+    const search = within(reader).getByRole("searchbox", {
+      name: "Search transcript",
+    });
+    await waitFor(() => expect(search).toBeEnabled());
+    fireEvent.change(search, { target: { value: "recording" } });
+
+    await waitFor(() =>
+      expect(
+        (
+          registry.get("meeting-transcript-current") as FakeHighlight
+        ).ranges.map((range) => range.toString()),
+      ).toEqual(["recording"]),
+    );
+  });
+
+  it("clears the search without touching the transcript or the tab", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry();
+    serveMeetings(runtime, [entry]);
+    const writeText = stubClipboard(() => Promise.resolve());
+    renderPage(runtime, `?entry=${entry.id}&file=transcript`);
+
+    const reader = await screen.findByRole("article", { name: "Meeting" });
+    const transcript = await within(reader).findByRole("article", {
+      name: "Read-only Markdown document",
+    });
+    const transcriptText = transcript.textContent;
+    const search = within(reader).getByRole("searchbox", {
+      name: "Search transcript",
+    });
+    await waitFor(() => expect(search).toBeEnabled());
+    fireEvent.change(search, { target: { value: "like" } });
+    expect(within(reader).getByRole("status")).toHaveTextContent("2 matches");
+
+    fireEvent.click(
+      within(reader).getByRole("button", { name: "Clear transcript search" }),
+    );
+
+    expect(search).toHaveValue("");
+    expect(within(reader).queryByRole("status")).toBeNull();
+    expect(
+      within(reader).getByRole("tab", { name: "Transcript" }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(
+      within(reader).getByRole("article", {
+        name: "Read-only Markdown document",
+      }).textContent,
+    ).toBe(transcriptText);
+
+    fireEvent.click(
+      within(reader).getByRole("button", { name: "Copy transcript" }),
+    );
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        expect.stringContaining("Look, it blinks, but it does not tell you"),
+      ),
+    );
+  });
+
   it("copies the summary's Markdown as the reader derived it", async () => {
     const runtime = await loggedInRuntime();
     const summary = [
@@ -1139,4 +1275,11 @@ function renderPage(
     </QueryClientProvider>,
   );
   return router;
+}
+
+class FakeHighlight {
+  readonly ranges: Range[];
+  constructor(...ranges: Range[]) {
+    this.ranges = ranges;
+  }
 }
