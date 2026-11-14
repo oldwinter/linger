@@ -27,6 +27,9 @@
 - A meeting reader's header may copy the meeting's canonical link, built by
   `meeting-routes.ts` with the origin the app is served from. The clipboard
   again holds derived reading state, and a refused copy says so.
+- A meeting reader's recording player may change its playback speed for that
+  playback only: every meeting opens at 1x, nothing is stored, and a refused
+  rate keeps the previous one and says so.
 - A meeting reader may send its summary to a Room as one Message from the
   header's Room picker. That Message copies derived reading state, writes no
   Memory state, and reuses its idempotency key only when retrying the same
