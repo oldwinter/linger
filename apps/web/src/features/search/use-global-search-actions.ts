@@ -11,6 +11,7 @@ import { useNavigate } from "react-router";
 
 import { registerVoiceSearch } from "@/features/rooms/chat/voice-mode/voice-ui-bridge";
 import { tenantRoomsQueryKey } from "@/features/rooms/room-queries";
+import { roomChatPath } from "@/features/rooms/room-routes";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 
@@ -18,7 +19,6 @@ import {
   HIGHLIGHT_MAX_LENGTH,
   QUERY_RECORD_DELAY_MS,
   resultTarget,
-  roomChatPath,
   voiceResultName,
   type GlobalSearchTab,
   type SearchResult,

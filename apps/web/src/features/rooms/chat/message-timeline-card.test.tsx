@@ -2389,7 +2389,7 @@ describe("Room Message timeline cards", () => {
     expect(screen.queryByText("Live activities")).toBeNull();
   });
 
-  it("keeps Reply to thread, Forward, and Reply in the More message menu", () => {
+  it("keeps Copy link, Forward, Reply, and Reply to thread in the More message menu", () => {
     const message = ordinaryAgentMessage();
     renderTimeline(message, {
       onForwardMessage: vi.fn(),
@@ -2404,7 +2404,12 @@ describe("Room Message timeline cards", () => {
     );
     expect(
       screen.getAllByRole("menuitem").map((item) => item.textContent),
-    ).toEqual(["Forward message", "Reply to message", "Reply to thread"]);
+    ).toEqual([
+      "Copy link",
+      "Forward message",
+      "Reply to message",
+      "Reply to thread",
+    ]);
   });
 
   it("keeps nested multi-Agent Runtime outputs in canonical Room order", () => {
