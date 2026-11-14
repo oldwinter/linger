@@ -58,6 +58,7 @@ import {
   workItemBoardMoveForKey,
 } from "./work-item-board-keyboard";
 import { workItemBoardMarkdown } from "./work-item-board-markdown";
+import { WorkItemBoardViewLinkAction } from "./work-item-board-view-link-action";
 import { WorkItemCardMenu } from "./work-item-card-menu";
 import {
   WorkItemCreateAction,
@@ -300,6 +301,11 @@ export function WorkItemsPage() {
               disabled={!filteredItems.length}
             />
             <WorkItemBoardCopyAction markdown={boardMarkdown} />
+            <WorkItemBoardViewLinkAction
+              filters={filters}
+              sort={sort}
+              tenantId={tenantId}
+            />
             <WorkItemCreateAction rooms={rooms.items} tenantId={tenantId} />
           </div>
         </div>
