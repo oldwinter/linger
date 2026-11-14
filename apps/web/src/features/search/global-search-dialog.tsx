@@ -3,11 +3,16 @@ import { useState } from "react";
 import { ModalDialog } from "@/components/ui/modal-dialog";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
+import {
+  resultKindOptions,
+  settledResultKind,
+} from "./global-search-kind-filter";
 import { SCOPES, type GlobalSearchTab } from "./global-search-model";
 import type { SearchRoomScope } from "./room-search-scope";
 import {
   GlobalSearchField,
   GlobalSearchFooter,
+  GlobalSearchKindFilter,
   GlobalSearchResultList,
 } from "./global-search-sections";
 import {
@@ -40,6 +45,7 @@ export function GlobalSearchDialog({
 }) {
   const { client } = useTeamHubRuntime();
   const [roomScope, setRoomScope] = useState(room);
+  const [kind, setKind] = useState<GlobalSearchTab>("all");
   const {
     debounced,
     enterScope,
@@ -71,11 +77,20 @@ export function GlobalSearchDialog({
     tab: activeTab,
     tenantId,
   });
+  const kindOptions = resultKindOptions({
+    groups,
+    roomScoped: roomScope !== undefined,
+    tab: activeTab,
+  });
+  // Filtering happens over the rows already loaded, so the chosen kind never
+  // changes the request; a kind whose rows are gone settles on All.
+  const activeKind = settledResultKind(kind, kindOptions);
   const { layoutKey, rows, rowsKey, sections, showingStart } =
     useResultSections({
       debouncedQuery,
       docsLoading,
       groups,
+      kind: activeKind,
       messagesLoading,
       setStore,
       store,
@@ -124,10 +139,15 @@ export function GlobalSearchDialog({
   function clearRoomScope() {
     setRoomScope(undefined);
     setTab("all");
+    setKind("all");
     inputRef.current?.focus();
   }
 
   const scope = activeTab === "all" ? undefined : SCOPES[activeTab];
+  // The chips report rows already loaded, so they wait for a search or a
+  // scope that browses a list.
+  const showKindFilter =
+    !showingStart && (debouncedQuery !== "" || rows.length > 0);
 
   return (
     <ModalDialog
@@ -155,6 +175,16 @@ export function GlobalSearchDialog({
         scope={scope}
         tab={activeTab}
       />
+      {showKindFilter ? (
+        <GlobalSearchKindFilter
+          kind={activeKind}
+          onSelect={(next) => {
+            setKind(next);
+            inputRef.current?.focus();
+          }}
+          options={kindOptions}
+        />
+      ) : null}
       <GlobalSearchResultList
         activeIndex={activeRow.activeIndex}
         debouncedQuery={debouncedQuery}

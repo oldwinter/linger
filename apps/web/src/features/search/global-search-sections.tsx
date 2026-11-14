@@ -9,7 +9,9 @@ import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
 
 import { Icon } from "@/components/ui/icon";
 import { Spinner } from "@/components/ui/spinner";
+import { cn } from "@/lib/cn";
 
+import type { ResultKindOption } from "./global-search-kind-filter";
 import {
   emptyDetail,
   SCOPES,
@@ -136,6 +138,51 @@ export function GlobalSearchField({
         data-loading={pending || undefined}
       />
     </>
+  );
+}
+
+/** The kind chips above the results, with the rows already loaded per kind. */
+export function GlobalSearchKindFilter({
+  kind,
+  onSelect,
+  options,
+}: {
+  kind: GlobalSearchTab;
+  onSelect: (kind: GlobalSearchTab) => void;
+  options: readonly ResultKindOption[];
+}) {
+  return (
+    <div
+      aria-label="Filter search results by kind"
+      className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/60 px-3 py-1.5"
+      role="group"
+    >
+      {options.map((option) => {
+        const label = option.tab === "all" ? "All" : SCOPES[option.tab].label;
+        const pressed = option.tab === kind;
+        const empty = option.count === 0;
+        return (
+          <button
+            aria-label={`${label} ${option.count}`}
+            aria-pressed={pressed}
+            className={cn(
+              "inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-transparent px-2.5 text-xs font-medium transition-colors duration-150",
+              pressed
+                ? "bg-(--app-field-surface) text-foreground shadow-outline"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              !pressed && empty && "opacity-45 disabled:pointer-events-none",
+            )}
+            disabled={!pressed && empty}
+            key={option.tab}
+            onClick={() => onSelect(option.tab)}
+            type="button"
+          >
+            <span>{label}</span>
+            <span className="tabular-nums text-app-subtle">{option.count}</span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
