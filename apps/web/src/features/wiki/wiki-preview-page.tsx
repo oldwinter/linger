@@ -3,6 +3,7 @@ import { ReadOnlyBlockNoteDocumentLoader } from "@/components/read-only-blocknot
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 
 import { useWikiDocuments } from "./knowledge-sidebar-trees";
+import { WikiConnectionsPanel } from "./wiki-connections-panel";
 import { wikiPageKey, wikiPagePath } from "./wiki-display-state";
 import { resolveWikiPageReference } from "./wiki-document-links";
 import { wikiPreviewPages } from "./wiki-preview-pages";
@@ -105,6 +106,11 @@ export function WikiPreviewPage() {
                 resolveLink={resolveLink}
               />
             </div>
+            <WikiConnectionsPanel
+              className="room-document-content-lane mx-auto"
+              pageKey={key}
+              tenantId={tenantId}
+            />
           </div>
         </div>
       </main>

@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Spinner } from "@/components/ui/spinner";
 import { documentLogicalTitle } from "@/features/library/document-display-name";
+import { WikiConnectionsPanel } from "@/features/wiki/wiki-connections-panel";
+import { wikiPageKey, wikiPagePath } from "@/features/wiki/wiki-display-state";
 import type { useWikiDocumentLinks } from "@/features/wiki/wiki-document-links";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
@@ -109,6 +111,13 @@ export function UnifiedDocumentBody({
       ) : (
         <DocumentBodySkeleton />
       )}
+      {isWikiPage && document ? (
+        <WikiConnectionsPanel
+          className="room-document-layout room-document-layout--knowledge mx-auto"
+          pageKey={wikiPageKey(wikiPagePath(document))}
+          tenantId={model.tenantId}
+        />
+      ) : null}
     </div>
   );
 }

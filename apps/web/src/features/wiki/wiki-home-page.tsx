@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft02Icon,
   ArrowRight02Icon,
@@ -9,10 +8,10 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { Icon } from "@/components/ui/icon";
 import { useTabIndicator } from "@/components/ui/tab-indicator";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
-import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubDocument } from "@/features/teamhub/teamhub-types";
 import { documentFileName } from "@/features/library/document-display-name";
 import { useWikiDocuments } from "./knowledge-sidebar-trees";
+import { useWikiGraphNodes } from "./wiki-graph-queries";
 import { WikiDailyCard } from "./wiki-daily-card";
 import {
   wikiEntries,
@@ -32,7 +31,6 @@ import {
   wikiPagePath,
   type WikiCollection,
 } from "./wiki-display-state";
-import { parseEmbeddedWikiGraph } from "@/features/memory/wiki-graph-model";
 import {
   reportDate,
   usePeriodReports,
@@ -79,25 +77,6 @@ export function editedLabel(page: TeamHubDocument) {
   return Number.isNaN(date.valueOf())
     ? ""
     : `Edited ${dateFormatter.format(date)}`;
-}
-
-/** Graph nodes by Wiki page key; descriptions and links feed the cards. */
-export function useWikiGraphNodes(tenantId: string) {
-  const { client } = useTeamHubRuntime();
-  const graph = useQuery({
-    queryFn: () => client.getPersonalKnowledgeGraphVisualization(tenantId),
-    queryKey: ["teamhub", tenantId, "personal-wiki", "graph"],
-    retry: false,
-  });
-  return useMemo(
-    () =>
-      new Map(
-        (graph.data ? parseEmbeddedWikiGraph(graph.data)?.nodes : [])?.map(
-          (node) => [node.id, node],
-        ),
-      ),
-    [graph.data],
-  );
 }
 
 export function useWikiCollectionPages(tenantId: string) {
