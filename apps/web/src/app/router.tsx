@@ -642,6 +642,14 @@ function createLibraryRoute(): RouteObject {
         path: "wiki/:collection?",
       },
       {
+        ErrorBoundary: PanelRouteErrorSurface,
+        lazy: async () => ({
+          Component: (await import("@/features/memory/carry-decision-page"))
+            .CarryDecisionPage,
+        }),
+        path: "carry-decision",
+      },
+      {
         // One meeting opens by `entry`; the list is the Workspace Meetings tab.
         ErrorBoundary: PanelRouteErrorSurface,
         lazy: loadMeetingPage,

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
 import { ReadOnlyBlockNoteDocumentLoader } from "@/components/read-only-blocknote-document-loader";
 import { Button } from "@/components/ui/button";
 import { ArtifactContentRendererLoader } from "@/features/rooms/files/artifact-content-renderer-loader";
@@ -11,6 +12,7 @@ import {
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 import { MeetingAudioPlayer } from "./meeting-audio-player";
+import { carryDecisionPath, meetingDecisions } from "./carry-decision";
 import { parseMeetingSummary } from "./meeting-overview";
 import {
   MeetingKeywords,
@@ -69,6 +71,10 @@ export function MeetingReader({
   // place; the rest stays the knowledge document around them.
   const blocks = useMemo(
     () => parseMeetingSummary(summaryMarkdown),
+    [summaryMarkdown],
+  );
+  const decisions = useMemo(
+    () => meetingDecisions(summaryMarkdown),
     [summaryMarkdown],
   );
   const summaryDocument = (markdown: string) => (
@@ -149,7 +155,15 @@ export function MeetingReader({
           <>
             {meeting.summary_ready ? (
               <>
-                <div className="mb-3 flex justify-end">
+                <div className="mb-3 flex items-center justify-end gap-3">
+                  {decisions.length ? (
+                    <Link
+                      className="text-sm text-app-ink underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                      to={carryDecisionPath(tenantId, entry.id)}
+                    >
+                      Carry a decision
+                    </Link>
+                  ) : null}
                   <Button
                     size="compact"
                     tone="secondary"
