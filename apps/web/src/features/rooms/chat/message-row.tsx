@@ -4,6 +4,7 @@ import {
   AtIcon,
   Cancel01Icon,
   Copy01Icon,
+  Link01Icon,
   MailReply01Icon,
   Message01Icon,
   MoreHorizontalIcon,
@@ -57,6 +58,7 @@ import {
 } from "../files/message-file-item";
 import { ActorAvatar } from "../members/actor-avatar";
 import { AgentStatusAvatar } from "../members/agent-status-avatar";
+import { roomMessagePath } from "../room-routes";
 import { useRoomRenderTiming } from "../room-render-timing";
 import {
   messageBodyBlocks,
@@ -350,6 +352,7 @@ function ConversationMessageRow({
       onOpenThread={onOpenThread}
       onForwardMessage={onForwardMessage}
       onReply={onReply}
+      tenantId={tenantId}
     />
   );
   const presentationAttachments = Array.isArray(presentation?.attachments)
@@ -791,9 +794,15 @@ function ConversationMessageActions({
   onReply,
   onToggleReaction,
   onTogglePin,
+  tenantId,
 }: Pick<
   MessageRowProps,
-  "message" | "currentActorId" | "onOpenThread" | "onForwardMessage" | "onReply"
+  | "message"
+  | "currentActorId"
+  | "onOpenThread"
+  | "onForwardMessage"
+  | "onReply"
+  | "tenantId"
 > & {
   /** The name the row shows for the author, quoted with the Message text. */
   authorName: string;
@@ -809,6 +818,22 @@ function ConversationMessageActions({
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
   const overflowItems: ActionMenuItem[] = [];
+
+  function copyText(text: string) {
+    void import("@/lib/clipboard")
+      .then(({ writeClipboardText }) => writeClipboardText(text))
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      })
+      .catch(() => setCopied(false));
+  }
+
+  overflowItems.push({
+    icon: <Icon icon={Link01Icon} size={14} />,
+    label: "Copy link",
+    onSelect: () => copyText(roomMessagePath(tenantId, message)),
+  });
 
   if (onForwardMessage) {
     overflowItems.push({
@@ -878,17 +903,7 @@ function ConversationMessageActions({
       ) : null}
       <MessageActionButton
         aria-label="Copy message"
-        onClick={() => {
-          void import("@/lib/clipboard")
-            .then(({ writeClipboardText }) =>
-              writeClipboardText(message.raw_message),
-            )
-            .then(() => {
-              setCopied(true);
-              window.setTimeout(() => setCopied(false), 1200);
-            })
-            .catch(() => setCopied(false));
-        }}
+        onClick={() => copyText(message.raw_message)}
         tooltip={copied ? "Copied" : "Copy message"}
       >
         {copied ? (
