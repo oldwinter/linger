@@ -43,7 +43,7 @@ export function RecentDocumentsStrip({ tenantId }: { tenantId: string }) {
       <ul className="flex min-w-0 flex-wrap items-center gap-1.5">
         {entries.map((entry) => (
           <li key={entry.id}>
-            <span className="flex max-w-64 items-center gap-1.5 rounded-full bg-card py-1 pr-1 pl-2.5 text-xs text-foreground shadow-outline">
+            <span className="flex max-w-64 items-center gap-1.5 rounded-full bg-card py-1 pr-1 pl-2.5 text-xs text-foreground shadow-outline transition-colors hover:bg-accent">
               <Link
                 aria-label={`${entry.name}, ${entry.formatLabel}`}
                 className="min-w-0 truncate rounded-full transition-colors hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
