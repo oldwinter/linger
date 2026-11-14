@@ -98,6 +98,18 @@ const getOutputSchema = {
   },
 };
 
+const fileGetInputSchema = {
+  ...getInputSchema,
+  properties: {
+    ...getInputSchema.properties,
+    output: {
+      ...localPath,
+      description:
+        "Absolute local path resolved against cwd; defaults to the Asset's file name. Never overwrites.",
+    },
+  },
+};
+
 const filePutInputSchema = {
   type: "object",
   additionalProperties: false,
@@ -141,27 +153,95 @@ async function uploadAsset(
   return id(uploaded.asset_id, "Asset");
 }
 
-/** Finds an image block anywhere in a blocks export and returns its Asset. */
-function imageAsset(blocks: unknown, blockId: string): string {
+interface DocumentBlock {
+  id?: unknown;
+  type?: unknown;
+  props?: { url?: unknown };
+  children?: unknown;
+}
+
+interface SavedAsset {
+  path: string;
+  size_bytes: number;
+}
+
+/** Finds a block anywhere in a blocks export and returns the Asset it carries. */
+function blockAsset(
+  blocks: unknown,
+  blockId: string,
+): { type: unknown; assetId?: string } {
   const pending = Array.isArray(blocks) ? [...blocks] : [];
   while (pending.length) {
-    const block = pending.shift() as {
-      id?: unknown;
-      type?: unknown;
-      props?: { url?: unknown };
-      children?: unknown;
-    };
+    const block = pending.shift() as DocumentBlock;
     if (block?.id === blockId) {
-      const url = block.type === "image" ? block.props?.url : undefined;
+      const url = block.props?.url;
       const match =
         typeof url === "string" ? /^document-asset:(.+)$/u.exec(url) : null;
-      if (!match || !idPattern.test(match[1]!))
-        throw inputError(`Block ${blockId} is not an image of this Document.`);
-      return match[1]!;
+      return {
+        type: block.type,
+        assetId: match && idPattern.test(match[1]!) ? match[1]! : undefined,
+      };
     }
     if (Array.isArray(block?.children)) pending.push(...block.children);
   }
   throw new CliError("not_found", `Block ${blockId} was not found.`);
+}
+
+/** Finds an image block anywhere in a blocks export and returns its Asset. */
+function imageAsset(blocks: unknown, blockId: string): string {
+  const { type, assetId } = blockAsset(blocks, blockId);
+  if (type !== "image" || !assetId)
+    throw inputError(`Block ${blockId} is not an image of this Document.`);
+  return assetId;
+}
+
+const fileBlockTypes = new Set(["file", "video", "audio"]);
+
+/** Finds a file, video or audio block anywhere in a blocks export. */
+function fileAsset(blocks: unknown, blockId: string): string {
+  const { type, assetId } = blockAsset(blocks, blockId);
+  if (type === "image")
+    throw inputError(`Block ${blockId} is an image; use docs image get.`);
+  if (!fileBlockTypes.has(type as string))
+    throw inputError(
+      `Block ${blockId} is not a file, video or audio block of this Document.`,
+    );
+  if (!assetId) throw inputError(`Block ${blockId} has no file Asset.`);
+  return assetId;
+}
+
+/** Fetches an Asset's bytes and writes them without overwriting a local file. */
+async function saveAsset(
+  context: CommandExecutionContext,
+  documentId: string,
+  assetId: string,
+  requestedPath: unknown,
+  fallbackFilename: string,
+): Promise<SavedAsset> {
+  const response = await context.client.request(
+    `/api/agent/v1/files/${documentId}/assets/${assetId}/content`,
+  );
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const encoded = response.headers.get("x-document-filename") ?? "";
+  const named = path.basename(
+    Buffer.from(encoded, "base64url").toString("utf8"),
+  );
+  const output =
+    typeof requestedPath === "string"
+      ? requestedPath
+      : path.resolve(
+          context.cwd,
+          named && named !== "." ? named : fallbackFilename,
+        );
+  // Never overwrite a local file.
+  await writeFile(output, bytes, { flag: "wx" }).catch(
+    (error: NodeJS.ErrnoException) => {
+      throw error.code === "EEXIST"
+        ? inputError(`${output} already exists; choose another path with -o.`)
+        : error;
+    },
+  );
+  return { path: output, size_bytes: bytes.length };
 }
 
 export const documentImageCommandDefinitions: readonly CommandDefinition[] = [
@@ -344,37 +424,18 @@ export const documentImageCommandDefinitions: readonly CommandDefinition[] = [
         )
       ).json()) as { blocks?: unknown };
       const assetId = imageAsset(exported.blocks, String(input.block_id));
-      const response = await context.client.request(
-        `/api/agent/v1/files/${documentId}/assets/${assetId}/content`,
-      );
-      const bytes = Buffer.from(await response.arrayBuffer());
-      const encoded = response.headers.get("x-document-filename") ?? "";
-      const named = path.basename(
-        Buffer.from(encoded, "base64url").toString("utf8"),
-      );
-      const output =
-        typeof input.output === "string"
-          ? input.output
-          : path.resolve(
-              context.cwd,
-              named && named !== "." ? named : `${assetId}.img`,
-            );
-      // Never overwrite a local file.
-      await writeFile(output, bytes, { flag: "wx" }).catch(
-        (error: NodeJS.ErrnoException) => {
-          throw error.code === "EEXIST"
-            ? inputError(
-                `${output} already exists; choose another path with -o.`,
-              )
-            : error;
-        },
+      const saved = await saveAsset(
+        context,
+        documentId,
+        assetId,
+        input.output,
+        `${assetId}.img`,
       );
       return {
         document_id: documentId,
         block_id: input.block_id,
         asset_id: assetId,
-        path: output,
-        size_bytes: bytes.length,
+        ...saved,
       };
     },
     render: (result) =>
@@ -485,5 +546,69 @@ export const documentImageCommandDefinitions: readonly CommandDefinition[] = [
       ]
         .filter((line) => line !== undefined)
         .join("\n"),
+  },
+  {
+    command: ["docs", "file", "get"],
+    toolName: "get_document_file",
+    description:
+      "Save the original file, video or audio of a block in a Native Document.",
+    readOnly: true,
+    usage: ["<document-id> <block-id> [-o <path>]"],
+    arguments: [
+      "<document-id>  Native Document you can read.",
+      "<block-id>  File, video or audio block, from docs get --format blocks.",
+    ],
+    options: {
+      "-o": {
+        description:
+          "Local path; default is the Asset's file name. Never overwrites.",
+      },
+      "--output": { description: "Same as -o." },
+    },
+    examples: [
+      "teamhub docs file get document_example block_proposal -o ./proposal.pdf",
+    ],
+    inputSchema: fileGetInputSchema,
+    outputSchema: getOutputSchema,
+    async normalize(args, reader) {
+      assertPositionals(args, 2);
+      const output = option(args, "-o") ?? option(args, "--output");
+      const documentId = id(args.positionals[0], "Document");
+      return {
+        input: {
+          document_id: documentId,
+          block_id: id(args.positionals[1], "block"),
+          ...(output === undefined
+            ? {}
+            : { output: path.resolve(reader.cwd, output) }),
+        },
+        target: { type: "document", id: documentId },
+        scope: { kind: "document", id: documentId },
+      };
+    },
+    async execute(input, context) {
+      const documentId = String(input.document_id);
+      const exported = (await (
+        await context.client.request(
+          `/api/agent/v1/files/${documentId}/content?format=blocks`,
+        )
+      ).json()) as { blocks?: unknown };
+      const assetId = fileAsset(exported.blocks, String(input.block_id));
+      const saved = await saveAsset(
+        context,
+        documentId,
+        assetId,
+        input.output,
+        assetId,
+      );
+      return {
+        document_id: documentId,
+        block_id: input.block_id,
+        asset_id: assetId,
+        ...saved,
+      };
+    },
+    render: (result) =>
+      `Saved file Asset ${displayText(result.asset_id)} of block ${displayText(result.block_id)} to ${displayText(result.path)} (${displayText(result.size_bytes)} bytes)`,
   },
 ];

@@ -232,6 +232,140 @@ describe("docs image commands", () => {
     );
   });
 
+  it("saves a file block's original, accepts video, and never overwrites a file", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "docs-file-get-"));
+    const pdf = Buffer.from("%PDF-1.7 proposal");
+    const clip = Buffer.from("video bytes");
+    const blocks = [
+      { id: "intro", type: "paragraph", children: [] },
+      {
+        id: "block_proposal",
+        type: "file",
+        props: {
+          url: "document-asset:document_asset_plan",
+          name: "proposal.pdf",
+        },
+      },
+      {
+        id: "block_clip",
+        type: "video",
+        props: { url: "document-asset:document_asset_clip" },
+      },
+    ];
+    const request = vi.fn(async (endpoint: string) => {
+      if (endpoint.endsWith("format=blocks"))
+        return Response.json({ schema_version: 1, blocks });
+      return new Response(
+        endpoint.endsWith("document_asset_clip/content") ? clip : pdf,
+        {
+          headers: {
+            "x-document-filename": Buffer.from(
+              endpoint.endsWith("document_asset_clip/content")
+                ? "clip.mp4"
+                : "proposal.pdf",
+            ).toString("base64url"),
+          },
+        },
+      );
+    });
+    const context = {
+      client: { request },
+      cwd,
+      stateRoot: cwd,
+    } as unknown as CommandExecutionContext;
+    const get = definition("docs", "file", "get");
+
+    const normalized = await normalize(
+      cwd,
+      ["docs", "file", "get"],
+      ["document_one", "block_proposal"],
+    );
+    expect(normalized).toMatchObject({
+      target: { type: "document", id: "document_one" },
+      scope: { kind: "document", id: "document_one" },
+    });
+    expect(await get.execute!(normalized.input, context)).toEqual({
+      document_id: "document_one",
+      block_id: "block_proposal",
+      asset_id: "document_asset_plan",
+      path: path.join(cwd, "proposal.pdf"),
+      size_bytes: pdf.length,
+    });
+    expect(request).toHaveBeenLastCalledWith(
+      "/api/agent/v1/files/document_one/assets/document_asset_plan/content",
+    );
+    expect(await readFile(path.join(cwd, "proposal.pdf"))).toEqual(pdf);
+    await expect(get.execute!(normalized.input, context)).rejects.toThrow(
+      "already exists",
+    );
+
+    const downloaded = await normalize(
+      cwd,
+      ["docs", "file", "get"],
+      ["document_one", "block_proposal", "-o", "download.pdf"],
+    );
+    expect(await get.execute!(downloaded.input, context)).toMatchObject({
+      path: path.join(cwd, "download.pdf"),
+      size_bytes: pdf.length,
+    });
+
+    const video = await normalize(
+      cwd,
+      ["docs", "file", "get"],
+      ["document_one", "block_clip"],
+    );
+    expect(await get.execute!(video.input, context)).toMatchObject({
+      asset_id: "document_asset_clip",
+      path: path.join(cwd, "clip.mp4"),
+      size_bytes: clip.length,
+    });
+  });
+
+  it("rejects image, non-media and assetless blocks", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "docs-file-get-"));
+    const get = definition("docs", "file", "get");
+    const normalized = await normalize(
+      cwd,
+      ["docs", "file", "get"],
+      ["document_one", "block_file"],
+    );
+    const contextFor = (blocks: unknown) =>
+      ({
+        client: {
+          request: vi.fn(async () => Response.json({ blocks })),
+        },
+        cwd,
+        stateRoot: cwd,
+      }) as unknown as CommandExecutionContext;
+    await expect(
+      get.execute!(
+        normalized.input,
+        contextFor([
+          {
+            id: "block_file",
+            type: "image",
+            props: { url: "document-asset:document_asset_old" },
+          },
+        ]),
+      ),
+    ).rejects.toThrow("docs image get");
+    await expect(
+      get.execute!(
+        normalized.input,
+        contextFor([{ id: "block_file", type: "paragraph" }]),
+      ),
+    ).rejects.toThrow("not a file, video or audio block");
+    await expect(
+      get.execute!(
+        normalized.input,
+        contextFor([{ id: "block_file", type: "file", props: {} }]),
+      ),
+    ).rejects.toThrow("has no file Asset");
+    await expect(
+      get.execute!(normalized.input, contextFor([])),
+    ).rejects.toThrow("was not found");
+  });
+
   it("lets docs update place an existing Asset", async () => {
     const normalized = await normalize(
       "/work",
