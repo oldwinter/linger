@@ -25,12 +25,16 @@ import type { TeamHubPersonalProfileDocument } from "@/features/teamhub/teamhub-
 // of the test server's first transform of the lazy Profile module.
 beforeAll(async () => {
   await import("./wiki-profile-page");
-});
+}, 120_000);
 
 afterEach(() => {
   window.localStorage.clear();
   vi.restoreAllMocks();
 });
+const bodies: Record<string, string> = {
+  "projects/alpha": "# Alpha notes\n\nA calm overview of the migration.",
+  "projects/beta": "## Beta notes\n\nNorthwind delivery plan.",
+};
 const graph: WikiGraphData = {
   types: ["Project"],
   nodes: ["projects/alpha", "projects/beta"].map((id) => ({
@@ -39,7 +43,7 @@ const graph: WikiGraphData = {
     category: "Project",
     description: "",
     tags: [],
-    body: "",
+    body: bodies[id] ?? "",
     size: 1,
     links: ["projects/alpha"],
     backlinks: ["projects/beta"],
@@ -325,6 +329,17 @@ describe("Wiki directory", () => {
     expect(screen.getByRole("link", { name: /beta/ })).toBeVisible();
     fireEvent.change(search, { target: { value: "gamma" } });
     expect(screen.getByText("No projects match “gamma”.")).toBeVisible();
+  });
+  it("filters a collection page by body text", async () => {
+    await setup("/t/tenant-northstar/library/wiki/projects");
+    const search = await screen.findByRole("searchbox", {
+      name: "Search Projects",
+    });
+    expect(await screen.findByRole("link", { name: /alpha/ })).toBeVisible();
+    fireEvent.change(search, { target: { value: "NORTHWIND" } });
+    expect(screen.queryByRole("link", { name: /alpha/ })).toBeNull();
+    expect(screen.getByRole("link", { name: /beta/ })).toBeVisible();
+    expect(screen.getByText(/Northwind delivery plan\./)).toBeVisible();
   });
   it.each(["projects", "topics", "contacts", "clients"])(
     "shows %s with Back and no directory",
