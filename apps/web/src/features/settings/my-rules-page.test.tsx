@@ -11,6 +11,7 @@ import type {
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 
 import { MyRulesPage } from "./my-rules-page";
+import { RuleMandatePage } from "./rule-mandate-page";
 
 const activeId = "pr_0000000000000000000000000000000a";
 const shadowId = "pr_0000000000000000000000000000000b";
@@ -81,6 +82,10 @@ function renderPage() {
               {
                 element: <MyRulesPage />,
                 path: "/t/:tenantId/settings/my-rules",
+              },
+              {
+                element: <RuleMandatePage />,
+                path: "/t/:tenantId/settings/my-rules/:ruleId",
               },
             ],
             { initialEntries: ["/t/tenant-northstar/settings/my-rules"] },
@@ -221,8 +226,8 @@ describe("My Rules", () => {
     const runtime = renderPage();
     expect(
       within(await row("Vendor invoices → track for follow-up")).queryByRole(
-        "combobox",
-        { name: "Mandate" },
+        "link",
+        { name: /What Another Me may do/ },
       ),
     ).toBeNull();
     const granted: TeamHubProactiveRuleBook = {
@@ -251,9 +256,17 @@ describe("My Rules", () => {
       return granted;
     });
     const active = await row("Client replies → remind directly");
-    fireEvent.click(within(active).getByRole("combobox", { name: "Mandate" }));
     fireEvent.click(
-      await screen.findByRole("option", { name: "Create a Work Item" }),
+      within(active).getByRole("link", {
+        name: "What Another Me may do: Only remind",
+      }),
+    );
+    fireEvent.click(
+      await screen.findByRole("radio", { name: /Create a Work Item/ }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Another Me also opens a Work Item for you.",
     );
     const actions = await screen.findByRole("list", {
       name: "Actions taken under this rule",
@@ -261,11 +274,5 @@ describe("My Rules", () => {
     expect(
       within(actions).getByText("#7 Answer the Acme reply: created for gmail"),
     ).toBeTruthy();
-    expect(
-      within(await row("Client replies → remind directly")).getByRole(
-        "combobox",
-        { name: "Mandate" },
-      ).textContent,
-    ).toContain("Create a Work Item");
   });
 });

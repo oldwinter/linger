@@ -7,22 +7,21 @@ import {
 } from "@hugeicons/core-free-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { useParams } from "react-router";
+import { Link, useParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { Select, SelectItem } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubProactiveAction,
-  TeamHubProactiveMandate,
   TeamHubProactiveRule,
   TeamHubProactiveRuleBook,
 } from "@/features/teamhub/teamhub-types";
 
+import { mandateChoiceTitle } from "./rule-mandate";
 import {
   myRulesQueryKey,
   myRulesQueryOptions,
@@ -35,12 +34,6 @@ const actionLabel: Record<TeamHubProactiveAction, string> = {
   notify: "Tell now",
   track: "Follow up later",
   silent: "Stay silent",
-};
-
-const mandateLabel: Record<TeamHubProactiveMandate, string> = {
-  none: "Only remind",
-  create: "Create a Work Item",
-  create_and_delegate: "Create and delegate",
 };
 
 const leaningLabel = {
@@ -81,6 +74,7 @@ export function MyRulesPage() {
           book={rules.data}
           busy={command.isPending}
           onCommand={(input) => command.mutateAsync(input)}
+          tenantId={tenantId}
         />
       )}
       {command.isError ? (
@@ -96,10 +90,12 @@ function RuleBook({
   book,
   busy,
   onCommand,
+  tenantId,
 }: {
   book: TeamHubProactiveRuleBook;
   busy: boolean;
   onCommand: (input: MyRulesCommand) => Promise<unknown>;
+  tenantId: string;
 }) {
   return (
     <>
@@ -126,6 +122,7 @@ function RuleBook({
                 )}
                 onCommand={onCommand}
                 rule={rule}
+                tenantId={tenantId}
               />
             ))}
           </ul>
@@ -172,12 +169,14 @@ function RuleRow({
   mandates,
   onCommand,
   rule,
+  tenantId,
 }: {
   busy: boolean;
   divergences: TeamHubProactiveRuleBook["divergences"];
   mandates: TeamHubProactiveRuleBook["mandates"];
   onCommand: (input: MyRulesCommand) => Promise<unknown>;
   rule: TeamHubProactiveRule;
+  tenantId: string;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
   const shadow = rule.status === "shadow";
@@ -283,30 +282,12 @@ function RuleRow({
         </form>
       )}
       {shadow ? null : (
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span>When this rule applies, Another Me may</span>
-          <Select
-            aria-label="Mandate"
-            disabled={busy}
-            onValueChange={(mandate) =>
-              void onCommand({
-                kind: "mandate",
-                ruleId: rule.id,
-                mandate: mandate as TeamHubProactiveMandate,
-              })
-            }
-            value={rule.mandate}
-            variant="pill"
-          >
-            {(["none", "create", "create_and_delegate"] as const).map(
-              (mandate) => (
-                <SelectItem key={mandate} value={mandate}>
-                  {mandateLabel[mandate]}
-                </SelectItem>
-              ),
-            )}
-          </Select>
-        </div>
+        <Link
+          className="text-xs text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          to={`/t/${encodeURIComponent(tenantId)}/settings/my-rules/${encodeURIComponent(rule.id)}`}
+        >
+          {`What Another Me may do: ${mandateChoiceTitle(rule.mandate)}`}
+        </Link>
       )}
       {mandates.length > 0 ? (
         <ul
