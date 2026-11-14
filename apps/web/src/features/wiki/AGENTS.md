@@ -12,6 +12,9 @@
 - A Wiki page is a read-only Markdown file Document: open it with the file preview and the knowledge presentation, never a collaboration session.
 - Web observes generation state. It does not call LLM Wiki directly or orchestrate compilation.
 
+- What Another Me remembers compares the current Profile revision with the
+  previous one: name, each module, and the Background timeline. History from
+  TeamHub is newest first and includes the current revision.
 - Wiki navigation owns Profile, Timeline, Projects, Topics, People, and Companies. Timeline, People
   and Companies are the display labels for the existing `graph`, `contacts` and
   `clients` entries; keep their routes and data keys.

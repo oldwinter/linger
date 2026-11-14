@@ -1,6 +1,6 @@
 import { WikiProfileSourcesRow } from "./wiki-profile-sources";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams, useSearchParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import { ReadOnlyBlockNoteDocument } from "@/components/read-only-blocknote-document";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -24,6 +24,7 @@ import {
   WikiWorkingLine,
 } from "./wiki-working-card";
 import { WikiProfileEditor } from "./wiki-profile-editor";
+import { rememberedPath } from "./remembered-changes";
 import "./wiki-profile-page.css";
 
 type ProfilePart =
@@ -257,6 +258,16 @@ export function WikiProfilePage() {
           </dl>
         </aside>
         <div className="wiki-profile-body min-w-0 xl:order-1">
+          {current ? (
+            <p className="mb-4">
+              <Link
+                className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                to={rememberedPath(tenantId)}
+              >
+                What Another Me remembers
+              </Link>
+            </p>
+          ) : null}
           {building && parts.length ? (
             <WikiWorkingLine
               actorId={anotherMe}
