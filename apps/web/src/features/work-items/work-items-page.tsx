@@ -41,6 +41,7 @@ import {
   type WorkItemDashboardFilters,
   type WorkItemDashboardPriority,
 } from "./work-item-dashboard-filters";
+import { WorkItemCardMenu } from "./work-item-card-menu";
 import { WorkItemCreateAction } from "./work-item-create-dialog";
 import { WorkItemPeek } from "./work-item-peek";
 import {
@@ -464,12 +465,12 @@ function WorkItemColumn({
           id={isClosed ? "work-item-column-closed-items" : undefined}
         >
           {items.map((item) => (
-            <li key={item.id}>
+            <li className="group/card relative" key={item.id}>
               <Link
                 aria-current={
                   item.id === focusedWorkItemId ? "location" : undefined
                 }
-                className="work-item-card block px-3 py-2.5 text-app-ink outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                className="work-item-card block py-2.5 pl-3 pr-9 text-app-ink outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
                 data-work-item-id={item.id}
                 onClick={(event) => {
                   // A plain click peeks at the Item; keyboard activation does
@@ -557,6 +558,9 @@ function WorkItemColumn({
                   </span>
                 </span>
               </Link>
+              <span className="pointer-events-none absolute right-1.5 top-1.5 opacity-0 transition-opacity group-focus-within/card:pointer-events-auto group-focus-within/card:opacity-100 group-hover/card:pointer-events-auto group-hover/card:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
+                <WorkItemCardMenu item={item} tenantId={tenantId} />
+              </span>
             </li>
           ))}
         </ul>
