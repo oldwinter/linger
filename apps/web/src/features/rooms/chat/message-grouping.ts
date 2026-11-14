@@ -50,6 +50,13 @@ export function isTimelineMessage(message: TeamHubMessage) {
   );
 }
 
+/** The Room Messages the timeline renders, in order. */
+export function timelineMessages(
+  messages: readonly TeamHubMessage[],
+): TeamHubMessage[] {
+  return messages.filter(isTimelineMessage);
+}
+
 /** A Room notice or a settled card's system line is a centered line, never
  * part of an author's group, so the next Message shows its author again. */
 export function isRoomNotice(message: TeamHubMessage) {

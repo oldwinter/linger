@@ -5980,6 +5980,9 @@ type Message struct {
 	// RoomId Opaque, case-sensitive identifier. Clients must not infer type or time from it.
 	RoomId Id `json:"room_id"`
 
+	// RoomSeq The Message's position in the Room's event sequence. A reader compares it with the Room's read_through_room_seq to place unread Messages. Present on every Message the public API returns.
+	RoomSeq *int64 `json:"room_seq,omitempty"`
+
 	// RoutineName Human-only display label for an Agent Message produced by a fired Room Routine. Omitted when provenance or the name is unavailable.
 	RoutineName *string          `json:"routine_name,omitempty"`
 	Segments    []MessageSegment `json:"segments"`

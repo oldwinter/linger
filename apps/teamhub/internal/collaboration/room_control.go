@@ -329,7 +329,7 @@ func (s *Service) SearchMessages(ctx context.Context, accountID, tenantID, query
 			DisplayName: item.AuthorDisplayName, AccountID: item.AuthorAccountID,
 			Handle: item.AuthorHandle, CreatedAt: item.AuthorCreatedAt,
 		}
-		model, err := messageModel(item.ID, item.TenantID, item.RoomID, item.Body, item.Segments, item.MessageKind, item.CardContextMessageID, item.ReplyToMessageID, item.CardTitle, item.CardKind, item.CreatedAt, author)
+		model, err := messageModel(item.ID, item.TenantID, item.RoomID, item.RoomSeq, item.Body, item.Segments, item.MessageKind, item.CardContextMessageID, item.ReplyToMessageID, item.CardTitle, item.CardKind, item.CreatedAt, author)
 		if err != nil {
 			return httpapi.MessageSearchPage{}, internal("decode message content", err)
 		}

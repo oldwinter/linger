@@ -5314,6 +5314,11 @@ export interface components {
       id: components["schemas"]["Id"];
       tenant_id: components["schemas"]["Id"];
       room_id: components["schemas"]["Id"];
+      /**
+       * Format: int64
+       * @description The Message's position in the Room's event sequence. A reader compares it with the Room's read_through_room_seq to place unread Messages. Present on every Message the public API returns.
+       */
+      room_seq?: number;
       author: components["schemas"]["ActorRef"];
       message_kind: components["schemas"]["MessageKind"];
       /** @description Exact display text reconstructed by concatenating segment content in array order. */

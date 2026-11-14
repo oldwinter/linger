@@ -24,6 +24,7 @@ import {
 import { useRoomMessageInteractions } from "./use-room-message-interactions";
 import { useAnotherMeOnboarding } from "./use-another-me-onboarding";
 import { useRoomTimelineScroll } from "./use-room-timeline-scroll";
+import { useRoomReadBoundary } from "./use-room-read-boundary";
 import type { RoomChatData } from "./use-room-chat-data";
 
 /**
@@ -153,6 +154,7 @@ export function useRoomChatConversationState({
     pendingMessageCount: delivery.outgoing.length + (voiceLiveDraft ? 1 : 0),
     progressVersion: `${agentStreaming.progressVersion}:${voiceLiveDraft?.statusLabel ?? ""}:${voiceLiveDraft?.text ?? ""}`,
   });
+  const readBoundary = useRoomReadBoundary(tenantId, roomId);
   return {
     agentAvailability,
     agentDirectory,
@@ -175,6 +177,7 @@ export function useRoomChatConversationState({
     orderedMessages,
     presentedMessages,
     skillOptions,
+    readBoundary,
     timeline,
     updateVoiceLiveDraft,
     voiceLiveDraft,

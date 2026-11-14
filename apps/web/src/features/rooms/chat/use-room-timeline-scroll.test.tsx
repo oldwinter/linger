@@ -339,3 +339,59 @@ describe("Room timeline lane resize", () => {
     expect(timeline.scrollTop).toBe(1500);
   });
 });
+
+describe("Unread divider visibility", () => {
+  function rect(top: number, height: number) {
+    return new DOMRect(0, top, 100, height);
+  }
+
+  function DividerTimeline({ messageCount = 3 }: { messageCount?: number }) {
+    const scroll = useRoomTimelineScroll({
+      firstMessageId: "first",
+      linkedMessageId: null,
+      messageCount,
+      pendingMessageCount: 0,
+    });
+    return (
+      <>
+        <button onClick={scroll.jumpToUnreadDivider}>Jump to divider</button>
+        <output data-testid="divider-visible">
+          {String(scroll.unreadDividerVisible)}
+        </output>
+        <div
+          aria-label="Room timeline"
+          ref={scroll.timelineRef}
+          onScroll={(event) => scroll.recordTimelineScroll(event.currentTarget)}
+        >
+          <div data-testid="unread-divider" ref={scroll.unreadDividerRef} />
+        </div>
+      </>
+    );
+  }
+
+  it("follows whether the divider is inside the viewport", () => {
+    render(<DividerTimeline />);
+    const timeline = screen.getByLabelText("Room timeline");
+    const divider = screen.getByTestId("unread-divider");
+    vi.spyOn(timeline, "getBoundingClientRect").mockReturnValue(rect(0, 200));
+    const dividerRect = vi.spyOn(divider, "getBoundingClientRect");
+    dividerRect.mockReturnValue(rect(300, 20));
+    fireEvent.scroll(timeline);
+    expect(screen.getByTestId("divider-visible")).toHaveTextContent("false");
+    dividerRect.mockReturnValue(rect(40, 20));
+    fireEvent.scroll(timeline);
+    expect(screen.getByTestId("divider-visible")).toHaveTextContent("true");
+  });
+
+  it("returns to the divider at its center", () => {
+    const scrollIntoView = vi
+      .spyOn(HTMLElement.prototype, "scrollIntoView")
+      .mockImplementation(() => undefined);
+    render(<DividerTimeline />);
+    fireEvent.click(screen.getByRole("button", { name: "Jump to divider" }));
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      block: "center",
+      inline: "nearest",
+    });
+  });
+});

@@ -89,6 +89,51 @@ describe("Room Message timeline cards", () => {
     ).toBeNull();
   });
 
+  it("places the New messages divider above the first unread Message without another date line", () => {
+    const read = {
+      ...ordinaryAgentMessage(),
+      id: "read",
+      created_at: "2026-10-22T10:00:00Z",
+    };
+    const firstUnread = {
+      ...ordinaryAgentMessage(),
+      id: "first-unread",
+      created_at: "2026-10-22T10:01:00Z",
+    };
+    const lastUnread = {
+      ...ordinaryAgentMessage(),
+      id: "last-unread",
+      created_at: "2026-10-22T10:02:00Z",
+    };
+    const { container } = renderTimeline([read, firstUnread, lastUnread], {
+      unreadDividerIndex: 1,
+    });
+    const divider = screen.getByRole("separator", { name: "New messages" });
+    const readRow = container.querySelector('[data-message-id="read"]')!;
+    const firstUnreadRow = container.querySelector(
+      '[data-message-id="first-unread"]',
+    )!;
+    expect(
+      divider.compareDocumentPosition(readRow) &
+        Node.DOCUMENT_POSITION_PRECEDING,
+    ).toBeTruthy();
+    expect(
+      divider.compareDocumentPosition(firstUnreadRow) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // The divider is its own line, so the conversation keeps one date line.
+    expect(container.querySelectorAll(".room-conversation-time")).toHaveLength(
+      1,
+    );
+  });
+
+  it("renders no New messages divider without a placement", () => {
+    renderTimeline([ordinaryAgentMessage()]);
+    expect(
+      screen.queryByRole("separator", { name: "New messages" }),
+    ).toBeNull();
+  });
+
   it("groups consecutive senders and separates conversations after five minutes", () => {
     const first = {
       ...ordinaryAgentMessage(),
@@ -2847,6 +2892,12 @@ function renderTimeline(
     onRecallMessage?: (message: TeamHubMessage) => Promise<void>;
     onReply?: (message: TeamHubMessage) => void;
     presentations?: ComponentProps<typeof MessageTimeline>["presentations"];
+    unreadDividerIndex?: ComponentProps<
+      typeof MessageTimeline
+    >["unreadDividerIndex"];
+    unreadDividerRef?: ComponentProps<
+      typeof MessageTimeline
+    >["unreadDividerRef"];
     workspaceAgentIds?: ComponentProps<
       typeof MessageTimeline
     >["workspaceAgentIds"];

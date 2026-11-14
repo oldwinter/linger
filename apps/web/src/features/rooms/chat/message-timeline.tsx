@@ -18,7 +18,14 @@ import {
 } from "../members/agent-avatar-status-context";
 import { runtimeFailureMessage } from "../runtime-status/runtime-failure-message";
 import type { RuntimeExecutionFailure } from "../runtime-status/runtime-presentation-events";
-import { Fragment, type ReactNode, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  type ReactNode,
+  type RefObject,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { cn } from "@/lib/cn";
 
 import { Button } from "@/components/ui/button";
@@ -145,6 +152,9 @@ interface MessageTimelineProps {
   tenantId: string;
   focusedMessageId?: string | null;
   focusedMessageHighlight?: string | null;
+  /** Index of the first unread Message; the divider renders above it. */
+  unreadDividerIndex?: number;
+  unreadDividerRef?: RefObject<HTMLDivElement | null>;
   workspaceAgentIds?: ReadonlySet<string>;
 }
 
@@ -188,6 +198,8 @@ export function MessageTimeline({
   tenantId,
   focusedMessageId,
   focusedMessageHighlight,
+  unreadDividerIndex,
+  unreadDividerRef,
   workspaceAgentIds = EMPTY_STATIC_AGENT_ACTOR_IDS,
 }: MessageTimelineProps) {
   const { filePreviewError, previewMessageFile } =
@@ -241,6 +253,26 @@ export function MessageTimeline({
             <time dateTime={message.created_at}>
               {formatMessageTime(message.created_at)}
             </time>
+          </div>
+        ) : null}
+        {index === unreadDividerIndex ? (
+          <div
+            aria-label="New messages"
+            className="flex items-center gap-2.5 py-1.5"
+            ref={unreadDividerRef}
+            role="separator"
+          >
+            <span
+              aria-hidden="true"
+              className="h-px flex-1 bg-(--app-unread)/40"
+            />
+            <span className="shrink-0 text-2xs font-medium text-(--app-unread)">
+              New messages
+            </span>
+            <span
+              aria-hidden="true"
+              className="h-px flex-1 bg-(--app-unread)/40"
+            />
           </div>
         ) : null}
         <MessageRow
