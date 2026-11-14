@@ -4,6 +4,7 @@ import {
   Delete02Icon,
   GridViewIcon,
   Mic01Icon,
+  Search01Icon,
   StopIcon,
 } from "@hugeicons/core-free-icons";
 import { MessageMarkdown } from "../chat/message-markdown";
@@ -33,6 +34,7 @@ import type { TeamHubPocketNote } from "@/features/teamhub/teamhub-types";
 
 import { Button } from "@/components/ui/button";
 
+import { pocketNotesMatching } from "./pocket-note-find";
 import {
   pocketNotesQueryOptions,
   removePocketNote,
@@ -527,6 +529,7 @@ function AllPocketNotes({
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const [confirming, setConfirming] = useState<string>();
+  const [query, setQuery] = useState("");
   // A past day can be deleted to tidy up; what Memory already took in stays.
   const remove = useMutation({
     // Hides a past day's page; today's page stays editable instead.
@@ -544,6 +547,13 @@ function AllPocketNotes({
   const cards = items.some((item) => item.date === today)
     ? items
     : [{ date: today, text: "", updated_at: "" }, ...items];
+  const visible = pocketNotesMatching(
+    cards.map((note) => ({
+      ...note,
+      label: note.date === today ? "Today" : formatPocketNoteDate(note.date),
+    })),
+    query,
+  );
   return (
     <>
       <PocketNoteHeader
@@ -552,8 +562,24 @@ function AllPocketNotes({
         title="All notes"
       />
       <div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+        <label className="mb-3 flex h-8 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-app-muted focus-within:ring-2 focus-within:ring-ring">
+          <Icon icon={Search01Icon} size={14} />
+          <input
+            aria-label="Find a note"
+            className="min-w-0 flex-1 bg-transparent text-xs text-app-ink outline-none placeholder:text-app-muted"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Find a loaded note"
+            type="search"
+            value={query}
+          />
+        </label>
+        {visible.length === 0 ? (
+          <p className="px-1 py-6 text-center text-xs text-app-muted">
+            No loaded notes match.
+          </p>
+        ) : null}
         <ul className="grid grid-cols-2 gap-2.5">
-          {cards.map((note) => {
+          {visible.map((note) => {
             const label =
               note.date === today ? "Today" : formatPocketNoteDate(note.date);
             return (

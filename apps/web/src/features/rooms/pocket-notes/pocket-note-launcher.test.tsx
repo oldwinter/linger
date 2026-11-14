@@ -184,6 +184,27 @@ describe("PocketNoteLauncher", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
+  it("finds a loaded note by its words and hides the others", async () => {
+    renderLauncher({
+      listPocketNotes: vi.fn(async () => page),
+      putTodayPocketNote: vi.fn(),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Pocket Notes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "All notes" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Find a note" }), {
+      target: { value: "idea" },
+    });
+    expect(
+      screen.getByRole("button", { name: /^(?!Delete).*Sep 30/ }),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: /^Today/ })).toBeNull();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Find a note" }), {
+      target: { value: "orchid" },
+    });
+    expect(screen.getByText("No loaded notes match.")).toBeVisible();
+  });
+
   it("loads earlier notes by the page cursor", async () => {
     const listPocketNotes = vi.fn(
       async (_tenantId: string, cursor: string | undefined) =>
