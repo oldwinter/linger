@@ -1149,6 +1149,13 @@ function installSeedRoutes(server: TeamHubTestServer, seed: TeamHubTestSeed) {
       updated_at: "2026-08-23T00:00:00.000Z",
     }))
     .on("GET", "/v0/tenants/{tenantId}/memory", () => ({ items: [] }))
+    .on("GET", "/v0/tenants/{tenantId}/me/proactive-rules", () => ({
+      clues: [],
+      divergences: [],
+      mandates: [],
+      rules: [],
+      version: 1,
+    }))
     .on("GET", "/v0/tenants/{tenantId}/me/pocket-notes", () => ({
       items: [],
       page: { has_more: false },

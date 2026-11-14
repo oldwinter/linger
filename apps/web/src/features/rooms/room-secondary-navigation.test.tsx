@@ -19,6 +19,7 @@ import type {
   TeamHubRoomListItem,
 } from "@/features/teamhub/teamhub-types";
 import { createHttpTeamHubClient } from "@/features/teamhub/teamhub-client";
+import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { TeamHubTestServer } from "@/test/teamhub-test-server";
 
 import * as avatarImages from "./members/actor-avatar-image";
@@ -695,6 +696,59 @@ describe("Another Me before its Computer connects", () => {
       [anotherMe],
     );
     expect(screen.getByRole("link", { name: "Another Me Chat" })).toBeVisible();
+  });
+
+  it("links a recent shadow difference to My Rules", async () => {
+    const runtime = createTestTeamHubRuntime();
+    runtime.server.on(
+      "GET",
+      "/v0/tenants/{tenantId}/me/proactive-rules",
+      () => ({
+        clues: [],
+        divergences: [
+          {
+            created_at: new Date().toISOString(),
+            guideline_version: 1,
+            id: "psd_0000000000000000000000000000000a",
+            matter: "AWS invoice",
+            rule_id: "pr_0000000000000000000000000000000a",
+            shadow_action: "track" as const,
+            taken_action: "notify" as const,
+          },
+        ],
+        mandates: [],
+        rules: [],
+        version: 1,
+      }),
+    );
+    const anotherMe = { ...deletedDirectRoom(), direct_peer_active: true };
+    renderInDocument(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <MemoryRouter>
+            <RoomSecondaryNavigation
+              anotherMeRoomId={anotherMe.id}
+              onCloseMobile={() => undefined}
+              onCreateRoom={() => undefined}
+              rooms={[anotherMe]}
+              tenant={{
+                id: "tenant-a",
+                name: "Northstar",
+                created_at: "2026-07-24T09:00:00Z",
+              }}
+            />
+          </MemoryRouter>
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+    const link = await screen.findByRole("link", { name: /AWS invoice/ });
+    expect(link).toHaveAttribute("href", "/t/tenant-a/settings/my-rules");
+    expect(link).toHaveTextContent("would follow up later");
+    expect(link).toHaveTextContent("chose to tell now");
   });
 });
 
