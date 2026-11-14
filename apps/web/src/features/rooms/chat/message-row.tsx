@@ -12,6 +12,7 @@ import {
   RotateLeft01Icon,
   SentIcon,
   SmilePlusIcon,
+  TextQuoteIcon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { AnimatePresence, motion } from "motion/react";
@@ -62,6 +63,7 @@ import {
   messageBodyRuns,
   type MessageTextBlock,
 } from "./message-body-blocks";
+import { messageQuoteText } from "./message-quote";
 import { MessageCard } from "./message-card";
 import { MessageHtmlFragment } from "./message-html-fragment";
 import { MessageMarkdown } from "./message-markdown";
@@ -338,6 +340,7 @@ function ConversationMessageRow({
     : undefined;
   const messageActions = (
     <ConversationMessageActions
+      authorName={authorName}
       currentActorId={currentActorId}
       hasCardPayload={hasCardPayload}
       isPinned={isPinned}
@@ -778,6 +781,7 @@ function MessageAuthorAvatar({
 }
 
 function ConversationMessageActions({
+  authorName,
   currentActorId,
   hasCardPayload,
   isPinned,
@@ -791,12 +795,17 @@ function ConversationMessageActions({
   MessageRowProps,
   "message" | "currentActorId" | "onOpenThread" | "onForwardMessage" | "onReply"
 > & {
+  /** The name the row shows for the author, quoted with the Message text. */
+  authorName: string;
   hasCardPayload: boolean;
   isPinned: boolean;
   onToggleReaction?: (reactionId: TeamHubMessageReactionId) => void;
   onTogglePin?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [quoteState, setQuoteState] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
   const overflowItems: ActionMenuItem[] = [];
@@ -886,6 +895,41 @@ function ConversationMessageActions({
           <Icon icon={Tick02Icon} size={16} />
         ) : (
           <Icon icon={Copy01Icon} size={16} />
+        )}
+      </MessageActionButton>
+      <MessageActionButton
+        aria-label="Copy as quote"
+        onClick={() => {
+          void import("@/lib/clipboard")
+            .then(({ writeClipboardText }) =>
+              writeClipboardText(
+                messageQuoteText({
+                  authorName,
+                  createdAt: message.created_at,
+                  message: message.raw_message,
+                }),
+              ),
+            )
+            .then(() => setQuoteState("copied"))
+            .catch(() => setQuoteState("failed"))
+            .finally(() => {
+              window.setTimeout(() => setQuoteState("idle"), 1200);
+            });
+        }}
+        tooltip={
+          quoteState === "copied"
+            ? "Copied"
+            : quoteState === "failed"
+              ? "Copy failed"
+              : "Copy as quote"
+        }
+      >
+        {quoteState === "copied" ? (
+          <Icon icon={Tick02Icon} size={16} />
+        ) : quoteState === "failed" ? (
+          <Icon icon={Cancel01Icon} size={16} />
+        ) : (
+          <Icon icon={TextQuoteIcon} size={16} />
         )}
       </MessageActionButton>
       {overflowItems.length ? (
