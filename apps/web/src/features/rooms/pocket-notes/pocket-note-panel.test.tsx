@@ -173,3 +173,61 @@ describe("PocketNotePanel download", () => {
     ).not.toBeInTheDocument();
   });
 });
+
+describe("PocketNotePanel search", () => {
+  const notes = () => [
+    note("2026-10-01", "Shipped the graph preview"),
+    note("2026-09-30", "Reviewed the flashback card"),
+  ];
+
+  async function openSearch(hasMore = false) {
+    renderPanel(async () =>
+      hasMore ? page(notes(), "2026-09-30") : page(notes()),
+    );
+    await openAllNotes();
+    return screen.getByRole("searchbox", { name: "Search notes" });
+  }
+
+  it("filters the list to notes holding every word and highlights them", async () => {
+    const search = await openSearch();
+    fireEvent.change(search, { target: { value: "reviewed flashback" } });
+
+    expect(
+      screen.queryByText("Shipped the graph preview"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Reviewed the flashback card/ }),
+    ).toBeVisible();
+    expect(screen.getByText("Reviewed", { selector: "mark" })).toBeVisible();
+    expect(screen.getByText("flashback", { selector: "mark" })).toBeVisible();
+  });
+
+  it("restores the list when the search is cleared", async () => {
+    const search = await openSearch();
+    fireEvent.change(search, { target: { value: "flashback" } });
+    expect(
+      screen.queryByText("Shipped the graph preview"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear note search" }));
+
+    expect(search).toHaveValue("");
+    expect(screen.getByText("Shipped the graph preview")).toBeVisible();
+    expect(screen.getByText("Reviewed the flashback card")).toBeVisible();
+  });
+
+  it("says when nothing matches and still offers earlier notes", async () => {
+    const search = await openSearch(true);
+    fireEvent.change(search, { target: { value: "nonexistent" } });
+
+    expect(screen.getByText("No notes match “nonexistent”.")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Load earlier notes" }),
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+
+    expect(screen.getByText("Shipped the graph preview")).toBeVisible();
+    expect(screen.getByText("Reviewed the flashback card")).toBeVisible();
+  });
+});

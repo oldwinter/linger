@@ -5,10 +5,12 @@ import {
   Download01Icon,
   GridViewIcon,
   Mic01Icon,
+  Search01Icon,
   StopIcon,
 } from "@hugeicons/core-free-icons";
 import { MessageMarkdown } from "../chat/message-markdown";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
+import { HighlightedText } from "@/features/search/search-highlight";
 import { spokenSeparator } from "../chat/voice-mode/spoken-text";
 import { triggerArtifactDownload } from "../files/artifact-preview-loader";
 import { Icon } from "@/components/ui/icon";
@@ -51,6 +53,7 @@ import {
   PocketNoteEditor,
   type PocketNoteEditorHandle,
 } from "./pocket-note-editor";
+import { searchPocketNotes } from "./pocket-note-search";
 
 const autosaveDelayMs = 800;
 const maximumNoteLength = 20000;
@@ -614,9 +617,11 @@ function AllPocketNotes({
       setConfirming(undefined);
     },
   });
+  const [query, setQuery] = useState("");
   const cards = items.some((item) => item.date === today)
     ? items
     : [{ date: today, text: "", updated_at: "" }, ...items];
+  const search = searchPocketNotes(cards, query);
   return (
     <>
       <PocketNoteHeader
@@ -640,77 +645,119 @@ function AllPocketNotes({
           Couldn’t download notes. Try again.
         </p>
       ) : null}
+      <label className="mx-4 mb-2 flex h-8 shrink-0 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground transition-colors hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring/40">
+        <Icon icon={Search01Icon} size={14} />
+        <input
+          aria-label="Search notes"
+          className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search by date or text"
+          role="searchbox"
+          type="text"
+          value={query}
+        />
+        {query ? (
+          <button
+            aria-label="Clear note search"
+            className="flex size-5 shrink-0 items-center justify-center rounded-full hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+            onClick={() => setQuery("")}
+            type="button"
+          >
+            <Icon icon={Cancel01Icon} size={12} />
+          </button>
+        ) : null}
+      </label>
       <div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-        <ul className="grid grid-cols-2 gap-2.5">
-          {cards.map((note) => {
-            const label =
-              note.date === today ? "Today" : formatPocketNoteDate(note.date);
-            return (
-              <li className="group relative" key={note.date}>
-                <button
-                  className="flex h-[118px] w-full flex-col rounded-xl border border-border bg-card p-3 text-left transition-colors hover:border-border-hover hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
-                  onClick={() => onOpen(note)}
-                  type="button"
-                >
-                  <span className="pr-6 text-xs font-medium text-app-ink">
-                    {label}
-                  </span>
-                  <span className="mt-1.5 line-clamp-4 whitespace-pre-wrap break-words text-xs leading-[18px] text-app-muted">
-                    {markdownPlainText(note.text) || "Nothing written yet"}
-                  </span>
-                </button>
-                {note.date === today ? null : confirming === note.date ? (
-                  <div
-                    aria-label={`Delete ${label}?`}
-                    className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-card/95 p-3"
-                    role="alertdialog"
-                  >
-                    <p
-                      className={`text-center text-xs ${remove.isError ? "text-app-danger" : "text-app-ink"}`}
-                    >
-                      {remove.isError
-                        ? "Couldn’t delete. Try again."
-                        : "Delete this note?"}
-                    </p>
-                    <div className="flex gap-1.5">
-                      <Button
-                        onClick={() => {
-                          remove.reset();
-                          setConfirming(undefined);
-                        }}
-                        size="compact"
-                        tone="ghost"
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        loading={remove.isPending}
-                        onClick={() => remove.mutate(note.date)}
-                        size="compact"
-                        tone="danger"
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
+        {search.matched ? (
+          <ul className="grid grid-cols-2 gap-2.5">
+            {search.items.map((note) => {
+              const label =
+                note.date === today ? "Today" : formatPocketNoteDate(note.date);
+              const preview = markdownPlainText(note.text);
+              return (
+                <li className="group relative" key={note.date}>
                   <button
-                    aria-label={`Delete ${label}`}
-                    className="absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded-md text-app-muted opacity-0 transition-opacity hover:bg-accent hover:text-app-danger focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus group-hover:opacity-100 [@media(hover:none)]:opacity-100"
-                    onClick={() => {
-                      remove.reset();
-                      setConfirming(note.date);
-                    }}
-                    title="Delete note"
+                    className="flex h-[118px] w-full flex-col rounded-xl border border-border bg-card p-3 text-left transition-colors hover:border-border-hover hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                    onClick={() => onOpen(note)}
                     type="button"
                   >
-                    <Icon icon={Delete02Icon} size={14} />
+                    <span className="pr-6 text-xs font-medium text-app-ink">
+                      {label}
+                    </span>
+                    <span className="mt-1.5 line-clamp-4 whitespace-pre-wrap break-words text-xs leading-[18px] text-app-muted">
+                      {preview ? (
+                        <HighlightedText query={query} text={preview} />
+                      ) : (
+                        "Nothing written yet"
+                      )}
+                    </span>
                   </button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+                  {note.date === today ? null : confirming === note.date ? (
+                    <div
+                      aria-label={`Delete ${label}?`}
+                      className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-card/95 p-3"
+                      role="alertdialog"
+                    >
+                      <p
+                        className={`text-center text-xs ${remove.isError ? "text-app-danger" : "text-app-ink"}`}
+                      >
+                        {remove.isError
+                          ? "Couldn’t delete. Try again."
+                          : "Delete this note?"}
+                      </p>
+                      <div className="flex gap-1.5">
+                        <Button
+                          onClick={() => {
+                            remove.reset();
+                            setConfirming(undefined);
+                          }}
+                          size="compact"
+                          tone="ghost"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          loading={remove.isPending}
+                          onClick={() => remove.mutate(note.date)}
+                          size="compact"
+                          tone="danger"
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      aria-label={`Delete ${label}`}
+                      className="absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded-md text-app-muted opacity-0 transition-opacity hover:bg-accent hover:text-app-danger focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                      onClick={() => {
+                        remove.reset();
+                        setConfirming(note.date);
+                      }}
+                      title="Delete note"
+                      type="button"
+                    >
+                      <Icon icon={Delete02Icon} size={14} />
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <div className="flex flex-col items-center gap-2 px-2 py-8 text-center">
+            <p className="text-xs text-app-muted">
+              No notes match “{query.trim()}”.
+            </p>
+            <Button
+              onClick={() => setQuery("")}
+              size="compact"
+              tone="secondary"
+            >
+              Clear search
+            </Button>
+          </div>
+        )}
         {hasMore ? (
           <button
             className="mt-3 w-full rounded-full py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
