@@ -36,9 +36,11 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubWorkItem } from "@/features/teamhub/teamhub-types";
 
 import {
+  clearWorkItemDashboardFilters,
   createWorkItemDashboardFilters,
   currentDashboardActorId,
   hasWorkItemDashboardFilters,
+  hasWorkItemDashboardNarrowingFilters,
   matchesWorkItemText,
   WORK_ITEM_DASHBOARD_ASSIGNMENTS,
   WORK_ITEM_DASHBOARD_EXECUTION_STATUSES,
@@ -235,6 +237,7 @@ export function WorkItemsPage() {
   );
   const showFilterBar =
     items.length > 0 || hasWorkItemDashboardFilters(filters);
+  const showClearFilters = hasWorkItemDashboardNarrowingFilters(filters);
   // Empty columns would look like missing data, so a query that hides every
   // card says why and offers its own way back.
   const textHidesBoard =
@@ -415,6 +418,17 @@ export function WorkItemsPage() {
             >
               Archived
             </button>
+            {showClearFilters ? (
+              <button
+                className="select-pill"
+                onClick={() =>
+                  updateFilters(clearWorkItemDashboardFilters(filters))
+                }
+                type="button"
+              >
+                Clear filters
+              </button>
+            ) : null}
             <Select
               aria-label="Sort"
               onValueChange={(value) =>

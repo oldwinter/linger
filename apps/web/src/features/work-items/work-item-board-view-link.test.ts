@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createWorkItemDashboardFilters,
   EMPTY_WORK_ITEM_DASHBOARD_FILTERS,
+  hasWorkItemDashboardNarrowingFilters,
   type WorkItemDashboardFilters,
 } from "./work-item-dashboard-filters";
 import { workItemBoardViewUrl } from "./work-item-board-view-link";
@@ -104,5 +105,35 @@ describe("workItemBoardViewUrl", () => {
     expect(createWorkItemDashboardSort(params.get("sort"))).toBe(
       DEFAULT_WORK_ITEM_DASHBOARD_SORT,
     );
+  });
+
+  // "Clear filters" owns the filters but not the Room scope or the sort, so
+  // the link is the reference for which of the rest is still at its default.
+  it("agrees with Clear filters about what is still at its default", () => {
+    const cases: WorkItemDashboardFilters[] = [
+      { ...EMPTY_WORK_ITEM_DASHBOARD_FILTERS },
+      { ...EMPTY_WORK_ITEM_DASHBOARD_FILTERS, room: "room-gtm-launch" },
+      { ...EMPTY_WORK_ITEM_DASHBOARD_FILTERS, text: "release" },
+      { ...EMPTY_WORK_ITEM_DASHBOARD_FILTERS, priority: "high" },
+      { ...EMPTY_WORK_ITEM_DASHBOARD_FILTERS, assignment: "mine" },
+      { ...EMPTY_WORK_ITEM_DASHBOARD_FILTERS, execution: "running" },
+      { ...EMPTY_WORK_ITEM_DASHBOARD_FILTERS, archived: true },
+      {
+        ...EMPTY_WORK_ITEM_DASHBOARD_FILTERS,
+        priority: "urgent",
+        room: "room-gtm-launch",
+        text: "release PLAN",
+      },
+    ];
+
+    for (const filters of cases) {
+      const params = new URL(viewUrl(filters, "newest")).searchParams;
+      params.delete("room");
+      params.delete("sort");
+
+      expect(hasWorkItemDashboardNarrowingFilters(filters)).toBe(
+        params.size > 0,
+      );
+    }
   });
 });

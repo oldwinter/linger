@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  clearWorkItemDashboardFilters,
   createWorkItemDashboardFilters,
   currentDashboardActorId,
   EMPTY_WORK_ITEM_DASHBOARD_FILTERS,
   hasWorkItemDashboardFilters,
+  hasWorkItemDashboardNarrowingFilters,
   matchesWorkItemText,
   workItemDashboardFiltersSearch,
   workItemDashboardListFilterSearch,
@@ -62,6 +64,38 @@ describe("Work Item Dashboard filter model", () => {
         archived: true,
       }),
     ).toBe(true);
+  });
+
+  it("clears every filter but the Room scope", () => {
+    const filters = {
+      archived: true,
+      assignment: "mine" as const,
+      execution: "running" as const,
+      priority: "high" as const,
+      room: "room-launch",
+      text: "plan release",
+    };
+
+    expect(clearWorkItemDashboardFilters(filters)).toEqual({
+      ...EMPTY_WORK_ITEM_DASHBOARD_FILTERS,
+      room: "room-launch",
+    });
+    expect(hasWorkItemDashboardNarrowingFilters(filters)).toBe(true);
+    expect(
+      hasWorkItemDashboardNarrowingFilters({
+        ...EMPTY_WORK_ITEM_DASHBOARD_FILTERS,
+        room: "room-launch",
+      }),
+    ).toBe(false);
+    expect(
+      hasWorkItemDashboardNarrowingFilters(EMPTY_WORK_ITEM_DASHBOARD_FILTERS),
+    ).toBe(false);
+    expect(
+      hasWorkItemDashboardNarrowingFilters({
+        ...EMPTY_WORK_ITEM_DASHBOARD_FILTERS,
+        text: "  ",
+      }),
+    ).toBe(false);
   });
 
   it("round-trips the filters through a URL", () => {
