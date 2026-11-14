@@ -1369,6 +1369,46 @@ func TestDaemonReconnectsAfterTransientDisconnect(t *testing.T) {
 	}
 }
 
+func TestDaemonReportsDaemonIdentityConflict(t *testing.T) {
+	device, err := transport.GenerateIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	controlPlane := &sequenceControlPlane{streams: []*fakeStream{{
+		commands: []protocol.Command{{Type: "runner.welcome", ConnectionEpoch: 1}},
+		receiveErr: &websocket.CloseError{
+			Code: websocket.CloseInternalServerErr,
+			Text: "Runner daemon identity conflict",
+		},
+	}}}
+	var daemon *Daemon
+	controlPlane.onConnect = func(call int) {
+		if call != 2 {
+			return
+		}
+		if current := daemon.GatewayConnectionError(); current != "daemon_identity_conflict" {
+			t.Errorf("connection error = %q, want daemon_identity_conflict", current)
+		}
+		cancel()
+	}
+	daemon, err = newTestDaemon(t, Options{
+		ComputerID: "computer-1", ControlPlane: controlPlane,
+		IdentityStore: fakeStore{value: device}, OperationResolver: fakeOperationResolver{},
+		RetryDelay: func(int) time.Duration { return 0 },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := daemon.Run(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run() error = %v, want context cancellation", err)
+	}
+	if controlPlane.calls != 2 {
+		t.Fatalf("connections = %d, want 2", controlPlane.calls)
+	}
+}
+
 func TestDefaultRetryDelayJittersWithinExponentialWindow(t *testing.T) {
 	delay := defaultRetryDelay(nil)
 	for attempt, ceiling := range []time.Duration{

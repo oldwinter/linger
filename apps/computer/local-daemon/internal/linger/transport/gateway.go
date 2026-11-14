@@ -295,6 +295,19 @@ const (
 	credentialVerificationUnavailableReason = "Runner credential verification unavailable" //nolint:gosec // close reason text, not a credential
 )
 
+// daemonIdentityConflictReason is the close text the Agent Runner Gateway sends
+// when TeamHub has bound this Computer's Daemon Identity to another Computer.
+const daemonIdentityConflictReason = "Runner daemon identity conflict"
+
+// IsDaemonIdentityConflict reports whether the Gateway refused this Computer
+// because TeamHub holds its Daemon Identity on another Local Computer.
+func IsDaemonIdentityConflict(err error) bool {
+	var closeError *websocket.CloseError
+	return errors.As(err, &closeError) &&
+		closeError.Code == websocket.CloseInternalServerErr &&
+		closeError.Text == daemonIdentityConflictReason
+}
+
 // IsGatewayRestart reports whether the Gateway closed the session because the
 // Agent Service is going away (1001) or restarting (1012).
 func IsGatewayRestart(err error) bool {

@@ -19,6 +19,10 @@ import (
 	wire "github.com/simplexai-labs/linger/contracts-go/runnergateway"
 )
 
+// connectionErrorDaemonIdentityConflict is the Desktop status value for a
+// Gateway refusal caused by another Computer holding this Daemon Identity.
+const connectionErrorDaemonIdentityConflict = "daemon_identity_conflict"
+
 func (d *Daemon) runConnection(ctx context.Context, deviceIdentity transport.Identity) (err error) {
 	hello, err := d.connectionHello(ctx, deviceIdentity)
 	if err != nil {
@@ -305,6 +309,7 @@ func (d *Daemon) acceptRunnerWelcome(ctx, connectionCtx context.Context, stream 
 		d.prewarmOnce.Do(func() { go p.Prewarm(ctx) })
 	}
 	d.setGatewayState("connected")
+	d.setGatewayConnectionError("")
 	if err := d.activateStreamAndReplay(ctx, stream, command.ReconcileOperationIDs); err != nil {
 		return err
 	}
@@ -325,6 +330,29 @@ func (d *Daemon) setGatewayState(state string) {
 		d.reconciled = false
 	}
 	d.gatewayStateMu.Unlock()
+}
+
+// GatewayConnectionError names the last Gateway connection failure this release
+// can explain, or "" when the last attempt failed for another reason.
+func (d *Daemon) GatewayConnectionError() string {
+	d.gatewayStateMu.RLock()
+	defer d.gatewayStateMu.RUnlock()
+	return d.gatewayConnectionError
+}
+
+func (d *Daemon) setGatewayConnectionError(value string) {
+	d.gatewayStateMu.Lock()
+	d.gatewayConnectionError = value
+	d.gatewayStateMu.Unlock()
+}
+
+// connectionErrorFor names a Gateway refusal the Desktop app can explain, or ""
+// when the refusal has no status value of its own.
+func connectionErrorFor(err error) string {
+	if transport.IsDaemonIdentityConflict(err) {
+		return connectionErrorDaemonIdentityConflict
+	}
+	return ""
 }
 
 func (d *Daemon) recordWelcomedEpoch(epoch uint64) {
