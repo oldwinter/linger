@@ -45,6 +45,7 @@ function voiceTranscriptItem(
     id: event.id,
     updatedAt: event.updated_at,
     startOffsetMs: event.start_offset_ms,
+    speakerId: event.speaker_id,
     speakerLabel: speakerLabelFromId(event.speaker_id),
     text: event.text,
   };

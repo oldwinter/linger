@@ -264,6 +264,15 @@ export function createAppRoutes(
         createWorkspaceRoute(),
         {
           ErrorBoundary: PanelRouteErrorSurface,
+          lazy: async () => ({
+            Component: (
+              await import("@/features/rooms/voice-control/who-is-speaking-page")
+            ).WhoIsSpeakingPage,
+          }),
+          path: "voices",
+        },
+        {
+          ErrorBoundary: PanelRouteErrorSurface,
           lazy: loadConnectedAppsPage,
           path: "apps",
         },
