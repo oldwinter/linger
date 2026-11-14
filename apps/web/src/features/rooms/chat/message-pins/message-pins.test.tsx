@@ -26,11 +26,12 @@ import type {
   TeamHubMessagePinList,
 } from "@/features/teamhub/teamhub-types";
 import {
+  teamHubErrorResponse,
   TeamHubTestServer,
   type TestRouteHandler,
 } from "@/test/teamhub-test-server";
 
-import { roomPinsQueryOptions } from "../../room-queries";
+import { roomPinsQueryKey, roomPinsQueryOptions } from "../../room-queries";
 import { MessageTimeline } from "../message-timeline";
 import { PinnedMessagesControl } from "./pinned-messages-control";
 import { useMessagePinToggle } from "./use-message-pin-toggle";
@@ -91,6 +92,14 @@ function wrapper(queryClient: QueryClient, client: TeamHubRuntime["client"]) {
       </TeamHubRuntimeProvider>
     </QueryClientProvider>
   );
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }
 
 describe("PinnedMessagesControl", () => {
@@ -160,6 +169,159 @@ describe("PinnedMessagesControl", () => {
     expect(
       await screen.findByText("No pinned messages yet."),
     ).toBeInTheDocument();
+  });
+
+  it("unpins an entry and updates the shared Pinned list", async () => {
+    let pins: TeamHubMessagePinList["items"] = [
+      {
+        message: message({ id: "message-2", raw_message: "Ship it" }),
+        pinned_at: "2026-10-10T08:00:00.000Z",
+        pinned_by_actor_id: "human-2",
+      },
+      {
+        message: message(),
+        pinned_at: "2026-10-09T08:00:00.000Z",
+        pinned_by_actor_id: "human-1",
+      },
+    ];
+    const deletePin = vi.fn<TestRouteHandler>(({ params }) => {
+      pins = pins.filter((pin) => pin.message.id !== params.messageId);
+      return undefined;
+    });
+    const { client, queryClient } = setup((server) =>
+      server
+        .on("GET", pinsPath, () => pinList(pins))
+        .on("DELETE", messagePath, deletePin),
+    );
+    render(
+      <MemoryRouter>
+        <PinnedMessagesControl
+          onJump={vi.fn()}
+          roomId="room-1"
+          tenantId="tenant-1"
+        />
+      </MemoryRouter>,
+      { wrapper: wrapper(queryClient, client) },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Pinned messages" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Pinned messages",
+    });
+    const rows = await within(dialog).findAllByRole("listitem");
+    fireEvent.click(within(rows[0]!).getByRole("button", { name: "Unpin" }));
+
+    await waitFor(() =>
+      expect(within(dialog).queryByText("Ship it")).toBeNull(),
+    );
+    expect(deletePin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: { roomId: "room-1", messageId: "message-2" },
+      }),
+    );
+    expect(within(dialog).getByText("Freeze the release")).toBeInTheDocument();
+    // The Room header reads the same query, so its pinned count follows.
+    expect(
+      queryClient.getQueryData<TeamHubMessagePinList>(
+        roomPinsQueryKey("tenant-1", "room-1"),
+      )?.items,
+    ).toHaveLength(1);
+  });
+
+  it("blocks a second Unpin click while the request is in flight", async () => {
+    const gate = deferred();
+    let pins: TeamHubMessagePinList["items"] = [
+      {
+        message: message({ raw_message: "Ship it" }),
+        pinned_at: "2026-10-09T08:00:00.000Z",
+        pinned_by_actor_id: "human-1",
+      },
+    ];
+    const deletePin = vi.fn<TestRouteHandler>(({ params }) => {
+      pins = pins.filter((pin) => pin.message.id !== params.messageId);
+      return gate.promise;
+    });
+    const { client, queryClient } = setup((server) =>
+      server
+        .on("GET", pinsPath, () => pinList(pins))
+        .on("DELETE", messagePath, deletePin),
+    );
+    render(
+      <MemoryRouter>
+        <PinnedMessagesControl
+          onJump={vi.fn()}
+          roomId="room-1"
+          tenantId="tenant-1"
+        />
+      </MemoryRouter>,
+      { wrapper: wrapper(queryClient, client) },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Pinned messages" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Pinned messages",
+    });
+    const rows = await within(dialog).findAllByRole("listitem");
+    const unpinButton = within(rows[0]!).getByRole("button", {
+      name: "Unpin",
+    });
+    fireEvent.click(unpinButton);
+
+    await waitFor(() => expect(unpinButton).toBeDisabled());
+    fireEvent.click(unpinButton);
+    expect(deletePin).toHaveBeenCalledTimes(1);
+
+    await act(async () => gate.resolve());
+    await waitFor(() =>
+      expect(within(dialog).queryByText("Ship it")).toBeNull(),
+    );
+  });
+
+  it("keeps the entry and says so when unpinning fails", async () => {
+    const deletePin = vi.fn<TestRouteHandler>(() =>
+      teamHubErrorResponse(503, "PIN_UNAVAILABLE"),
+    );
+    const { client, queryClient } = setup((server) =>
+      server
+        .on("GET", pinsPath, () =>
+          pinList([
+            {
+              message: message({ raw_message: "Ship it" }),
+              pinned_at: "2026-10-09T08:00:00.000Z",
+              pinned_by_actor_id: "human-1",
+            },
+          ]),
+        )
+        .on("DELETE", messagePath, deletePin),
+    );
+    render(
+      <MemoryRouter>
+        <PinnedMessagesControl
+          onJump={vi.fn()}
+          roomId="room-1"
+          tenantId="tenant-1"
+        />
+      </MemoryRouter>,
+      { wrapper: wrapper(queryClient, client) },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Pinned messages" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Pinned messages",
+    });
+    const rows = await within(dialog).findAllByRole("listitem");
+    fireEvent.click(within(rows[0]!).getByRole("button", { name: "Unpin" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Could not unpin the message.",
+    );
+    expect(deletePin).toHaveBeenCalledTimes(1);
+    expect(within(dialog).getByText("Ship it")).toBeInTheDocument();
+    expect(
+      within(within(dialog).getAllByRole("listitem")[0]!).getByRole("button", {
+        name: "Unpin",
+      }),
+    ).toBeEnabled();
   });
 });
 
