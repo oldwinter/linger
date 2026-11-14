@@ -3,7 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDown01Icon,
   ArrowRight01Icon,
+  Cancel01Icon,
   CheckListIcon,
+  Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
 import {
@@ -32,6 +34,7 @@ import {
   createWorkItemDashboardFilters,
   currentDashboardActorId,
   hasWorkItemDashboardFilters,
+  matchesWorkItemText,
   WORK_ITEM_DASHBOARD_ASSIGNMENTS,
   WORK_ITEM_DASHBOARD_EXECUTION_STATUSES,
   WORK_ITEM_DASHBOARD_PRIORITIES,
@@ -200,6 +203,7 @@ export function WorkItemsPage() {
   const roomFilter = createWorkItemRoomFilterModel(rooms.items, items);
   const filteredItems = items.filter(
     (item) =>
+      matchesWorkItemText(item, filters.text) &&
       roomFilter.matches(item, filters.room) &&
       (filters.assignment !== "unassigned" || item.assignees.length === 0),
   );
@@ -210,6 +214,10 @@ export function WorkItemsPage() {
   );
   const showFilterBar =
     items.length > 0 || hasWorkItemDashboardFilters(filters);
+  // Empty columns would look like missing data, so a query that hides every
+  // card says why and offers its own way back.
+  const textHidesBoard =
+    Boolean(filters.text.trim()) && filteredItems.length === 0;
 
   function updateFilters(next: WorkItemDashboardFilters) {
     setSearchParams(
@@ -248,6 +256,30 @@ export function WorkItemsPage() {
             className="mt-3 flex flex-wrap items-center gap-2"
             role="group"
           >
+            <label className="select-pill w-52 cursor-text pr-1.5 focus-within:ring-2 focus-within:ring-app-focus">
+              <Icon icon={Search01Icon} size={14} />
+              <input
+                aria-label="Filter by title"
+                className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+                onChange={(event) =>
+                  updateFilters({ ...filters, text: event.target.value })
+                }
+                placeholder="Filter by title"
+                role="searchbox"
+                type="text"
+                value={filters.text}
+              />
+              {filters.text ? (
+                <button
+                  aria-label="Clear title filter"
+                  className="flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                  onClick={() => updateFilters({ ...filters, text: "" })}
+                  type="button"
+                >
+                  <Icon icon={Cancel01Icon} size={12} />
+                </button>
+              ) : null}
+            </label>
             <Select
               aria-label="Room"
               onValueChange={(room) => updateFilters({ ...filters, room })}
@@ -342,7 +374,29 @@ export function WorkItemsPage() {
         ) : null}
       </header>
 
-      {items.length || showFilterBar ? (
+      {textHidesBoard ? (
+        <section
+          aria-label="No matching Work Items"
+          className="flex min-h-0 flex-1 items-center justify-center px-6 py-12 text-center"
+        >
+          <div>
+            <h2 className="text-sm font-semibold text-app-ink">
+              No Work Items match
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Only Work Item titles are searched.
+            </p>
+            <Button
+              className="mt-4"
+              onClick={() => updateFilters({ ...filters, text: "" })}
+              size="compact"
+              tone="secondary"
+            >
+              Clear filter
+            </Button>
+          </div>
+        </section>
+      ) : items.length || showFilterBar ? (
         <div className="work-items-board workspace-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-hidden p-4 sm:p-5">
           <div className="grid h-full min-w-[1180px] grid-cols-5 gap-3">
             {dashboardColumns.map((column) => (

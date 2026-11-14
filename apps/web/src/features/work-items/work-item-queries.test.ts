@@ -163,6 +163,7 @@ describe("Work Item Dashboard query", () => {
       execution: "running" as const,
       priority: "high" as const,
       room: "room-launch",
+      text: "",
     };
 
     await queryClient.fetchQuery(
