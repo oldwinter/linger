@@ -329,12 +329,6 @@ export class EnrollmentModule implements Module {
     this.#offConnection?.();
   }
 
-  // Whether the Gateway refused this computer's Daemon Identity as another
-  // Computer's and nothing has proven otherwise since.
-  identityConflict(): boolean {
-    return this.#identityConflict;
-  }
-
   // Whether the window holds a valid session for the configured server.
   async signedIn(): Promise<boolean> {
     const serverUrl = this.#ctx!.config.get().serverUrl;

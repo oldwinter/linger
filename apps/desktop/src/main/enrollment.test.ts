@@ -428,7 +428,6 @@ describe("EnrollmentModule", () => {
     f.bus.emit("computer.identity_conflict", false);
     f.bus.emit("computer.connection", "connecting");
 
-    expect(f.module.identityConflict()).toBe(true);
     await f.module.resetLocalServer();
     expect(existsSync(f.identityFile)).toBe(false);
   });
@@ -448,7 +447,6 @@ describe("EnrollmentModule", () => {
     // which proves the identity is this Computer's.
     f.bus.emit("computer.connection", "online");
 
-    expect(f.module.identityConflict()).toBe(false);
     await f.module.resetLocalServer();
     expect(existsSync(f.identityFile)).toBe(true);
   });
