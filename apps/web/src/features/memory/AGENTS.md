@@ -10,6 +10,9 @@
   Meetings through TeamHub's
   `DELETE /v0/tenants/{tenantId}/me/meetings/{captureSessionId}`. Web observes Memory generation state; it does not call the
   Memory service directly or orchestrate generation.
+- A reader may copy a report as Markdown or send it to a Room as one Message.
+  That Message is a copy of derived reading state, not source evidence, and
+  neither action writes Memory state.
 - Timeline is the display label for the existing `graph` entry; keep its route
   and data key. Keep/Delete stay browser-local display decisions through
   `features/wiki/wiki-display-state.ts`: filter displayed graph nodes and edges

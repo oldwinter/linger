@@ -1,18 +1,34 @@
 import {
   Cancel01Icon,
+  Copy01Icon,
+  HashtagIcon,
   LeftToRightListBulletIcon,
+  MessageAdd01Icon,
+  UserIcon,
 } from "@hugeicons/core-free-icons";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Icon } from "@/components/ui/icon";
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
+import { Link } from "react-router";
 import {
   extractRenderedDocumentHeadings,
   type DocumentHeading,
 } from "@/components/document-headings";
 import { ReadOnlyBlockNoteDocument } from "@/components/read-only-blocknote-document";
 import { useDocumentAnchorLinks } from "@/components/document-anchor-links";
-import { Button } from "@/components/ui/button";
+import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
+import { Button, buttonClassName } from "@/components/ui/button";
+import { roomMessageSender } from "@/features/rooms/chat/room-message-sender";
+import { tenantRoomsQueryOptions } from "@/features/rooms/room-queries";
+import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
 import { resolveMemoryDocumentLink } from "./memory-document-links";
+import {
+  reportShare,
+  reportShareIdempotencyKey,
+  type ReportShare,
+} from "./report-share";
 
 import {
   periodLabel,
@@ -41,6 +57,16 @@ interface WindowBox {
 interface WindowBounds {
   width: number;
   height: number;
+}
+interface CopyNotice {
+  state: "copied" | "failed";
+  version: string;
+}
+interface SentReport {
+  messageId: string;
+  roomId: string;
+  roomName: string;
+  version: string;
 }
 
 function viewportBounds(): WindowBounds {
@@ -127,6 +153,41 @@ export function WikiGraphDailyPanel({
   const listedEntry = reports.data?.find((item) => reportDate(item) === day);
   const daily = usePeriodReport(tenantId, kind, day, listedEntry);
   const entry = daily.data;
+  const { client } = useTeamHubRuntime();
+  const share = entry ? reportShare({ day, entry, kind }) : undefined;
+  const rooms = useQuery(tenantRoomsQueryOptions(client, tenantId));
+  const [copy, setCopy] = useState<CopyNotice>();
+  const [sent, setSent] = useState<SentReport>();
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const send = useMutation({
+    mutationFn: async (input: {
+      room: TeamHubRoomListItem;
+      share: ReportShare;
+    }) => {
+      const { message } = await roomMessageSender(client).createMessage({
+        attachments: [],
+        body: input.share.text,
+        idempotencyKey: reportShareIdempotencyKey(
+          input.share.version,
+          input.room.id,
+        ),
+        mentions: [],
+        roomId: input.room.id,
+      });
+      return { messageId: message.id };
+    },
+    onSuccess: (result, input) =>
+      setSent({
+        messageId: result.messageId,
+        roomId: input.room.id,
+        roomName: input.room.name,
+        version: input.share.version,
+      }),
+  });
+  useEffect(() => () => clearTimeout(copyTimer.current), []);
+
   const pending =
     reports.isPending || (Boolean(listedEntry) && daily.isPending);
   const error = reports.error ?? daily.error;
@@ -235,6 +296,51 @@ export function WikiGraphDailyPanel({
   const minHeadingLevel = headings.length
     ? Math.min(...headings.map((heading) => heading.level))
     : 1;
+  const copyNotice =
+    copy && copy.version === share?.version ? copy.state : undefined;
+  const sentReport = sent && sent.version === share?.version ? sent : undefined;
+  const sendRefused =
+    send.isError && send.variables?.share.version === share?.version;
+  const sendableRooms = (rooms.data?.items ?? []).filter(
+    (room) => room.kind !== "thread",
+  );
+  const roomItems: ActionMenuItem[] = !share
+    ? []
+    : rooms.isPending
+      ? [{ disabled: true, label: "Loading Rooms…" }]
+      : rooms.error
+        ? [{ disabled: true, label: "Rooms are unavailable." }]
+        : sendableRooms.length
+          ? sendableRooms.map((room) => ({
+              disabled: send.isPending,
+              icon: (
+                <Icon
+                  icon={room.kind === "direct" ? UserIcon : HashtagIcon}
+                  size={14}
+                />
+              ),
+              label: room.name,
+              onSelect: () => send.mutate({ room, share }),
+            }))
+          : [{ disabled: true, label: "No Rooms available." }];
+
+  async function copyReport(target: ReportShare) {
+    let state: CopyNotice["state"];
+    try {
+      await navigator.clipboard.writeText(target.text);
+      state = "copied";
+    } catch {
+      state = "failed";
+    }
+    setCopy({ state, version: target.version });
+    clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => {
+      setCopy((current) =>
+        current?.version === target.version ? undefined : current,
+      );
+    }, 3_000);
+  }
+
   return createPortal(
     <>
       {/* Blurs the page behind the report, as the app's modal dialogs do;
@@ -270,6 +376,36 @@ export function WikiGraphDailyPanel({
             </h2>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            {share?.text ? (
+              <>
+                <Button
+                  aria-label="Copy report"
+                  onClick={() => void copyReport(share)}
+                  size="icon"
+                  title="Copy report"
+                  tone="ghost"
+                >
+                  <Icon icon={Copy01Icon} size={16} />
+                </Button>
+                <ActionMenu
+                  buttonClassName={buttonClassName({
+                    size: "icon",
+                    tone: "ghost",
+                  })}
+                  items={roomItems}
+                  label="Send to Room"
+                  placement="bottom-end"
+                  trigger={
+                    <span
+                      className="inline-flex items-center"
+                      title="Send to Room"
+                    >
+                      <Icon icon={MessageAdd01Icon} size={16} />
+                    </span>
+                  }
+                />
+              </>
+            ) : null}
             <Button
               aria-label={`Toggle ${label} contents`}
               aria-expanded={tocOpen}
@@ -290,6 +426,33 @@ export function WikiGraphDailyPanel({
             </Button>
           </div>
         </header>
+        {copyNotice || sentReport || sendRefused ? (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-1.5 text-xs">
+            {copyNotice === "copied" ? <span role="status">Copied</span> : null}
+            {copyNotice === "failed" ? (
+              <span role="alert">
+                Copy failed. Select the report text and copy it yourself.
+              </span>
+            ) : null}
+            {sentReport ? (
+              <span role="status" className="inline-flex items-center gap-1">
+                Sent to {sentReport.roomName}.
+                <Link
+                  className="underline underline-offset-2"
+                  to={`/t/${encodeURIComponent(tenantId)}/rooms/${encodeURIComponent(sentReport.roomId)}/chat?message=${encodeURIComponent(sentReport.messageId)}`}
+                >
+                  Open message
+                </Link>
+              </span>
+            ) : null}
+            {sendRefused ? (
+              <span role="alert">
+                {send.error?.message ||
+                  "The report could not be sent to the Room."}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
         <div className="wiki-graph-daily-reading">
           {tocOpen && headings.length > 0 ? (
             <nav
