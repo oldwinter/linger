@@ -264,6 +264,15 @@ export function createAppRoutes(
         createWorkspaceRoute(),
         {
           ErrorBoundary: PanelRouteErrorSurface,
+          lazy: async () => ({
+            Component: (
+              await import("@/features/rooms/members/agent-can-do-page")
+            ).AgentCanDoPage,
+          }),
+          path: "agents/:agentId/can-do",
+        },
+        {
+          ErrorBoundary: PanelRouteErrorSurface,
           lazy: loadConnectedAppsPage,
           path: "apps",
         },
