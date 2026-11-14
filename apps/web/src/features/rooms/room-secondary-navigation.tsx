@@ -61,6 +61,7 @@ import {
   isRoomMentionSnoozed,
   useRoomMentionSnooze,
 } from "./room-mention-snooze";
+import { roomMarkReadCursor } from "./room-mark-read";
 import {
   readRoomUnreadFilter,
   unreadRoomRows,
@@ -419,9 +420,11 @@ export function RoomSecondaryNavigation({
                           />
                           <RoomMentionSnoozeMenu
                             accountId={accountId}
+                            markReadThrough={roomMarkReadCursor(room)}
                             name={room.name}
                             roomId={room.id}
                             snoozed={snoozed}
+                            tenantId={tenant.id}
                           />
                         </>
                       }
@@ -482,6 +485,7 @@ export function RoomSecondaryNavigation({
                               ? undefined
                               : room.direct_peer?.id
                           }
+                          markReadThrough={roomMarkReadCursor(room)}
                           name={name}
                           onTogglePin={() => togglePin(room)}
                           pinned={Boolean(room.pinned_at)}
