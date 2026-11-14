@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearMeetingPlaybackSpeed,
-  forgetMeetingPlaybackSpeed,
   hasMeetingPlaybackSpeed,
   readMeetingPlaybackSpeed,
   writeMeetingPlaybackSpeed,
@@ -54,16 +53,6 @@ describe("meeting playback speed store", () => {
   it("ignores a write without an Account", () => {
     writeMeetingPlaybackSpeed(undefined, 2);
 
-    expect(hasMeetingPlaybackSpeed()).toBe(false);
-  });
-
-  it("forgets one Account's speed", () => {
-    writeMeetingPlaybackSpeed("account-a", 2);
-    expect(hasMeetingPlaybackSpeed()).toBe(true);
-
-    forgetMeetingPlaybackSpeed("account-a");
-
-    expect(readMeetingPlaybackSpeed("account-a")).toBe(1);
     expect(hasMeetingPlaybackSpeed()).toBe(false);
   });
 

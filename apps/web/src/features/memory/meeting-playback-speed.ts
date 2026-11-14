@@ -4,7 +4,6 @@ import {
 } from "@/lib/local-preference-keys";
 
 const SPEED_PREFIX = "meeting-playback-speed.v1:";
-const SPEED_CHANGED = "meeting-playback-speed-changed";
 
 /** The speeds a recording offers, slowest first. */
 export const MEETING_PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 2] as const;
@@ -47,22 +46,7 @@ export function writeMeetingPlaybackSpeed(
     window.localStorage.setItem(speedKey(accountId), JSON.stringify(rate));
   } catch {
     // Blocked storage keeps this meeting's choice for this playback only.
-    return;
   }
-  window.dispatchEvent(new Event(SPEED_CHANGED));
-}
-
-/** Forgets the Account's speed, so its next meeting opens at the default. */
-export function forgetMeetingPlaybackSpeed(
-  accountId: string | undefined,
-): void {
-  if (!accountId) return;
-  try {
-    window.localStorage.removeItem(speedKey(accountId));
-  } catch {
-    // Blocked storage has nothing to forget.
-  }
-  window.dispatchEvent(new Event(SPEED_CHANGED));
 }
 
 /** Whether this browser remembers a speed for any Account. */
@@ -73,7 +57,6 @@ export function hasMeetingPlaybackSpeed(): boolean {
 /** Forgets every remembered speed in this browser, for every Account. */
 export function clearMeetingPlaybackSpeed(): void {
   removePreferenceKeys([SPEED_PREFIX]);
-  window.dispatchEvent(new Event(SPEED_CHANGED));
 }
 
 function speedKey(accountId: string) {
