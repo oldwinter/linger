@@ -9,6 +9,7 @@ import type { MessageComposerHandle } from "./message-composer";
 import type { ComposerAttachments } from "./use-composer-attachments";
 import type { ComposerDraft } from "./use-composer-draft";
 import type { ComposerPicker } from "./use-composer-picker";
+import type { ComposerQuoteReply } from "./use-composer-quote-reply";
 import type { ComposerReferenceInsertion } from "./use-composer-reference-insertion";
 import { useVoiceModeTextareaLayout } from "./voice-mode/use-voice-mode-textarea-layout";
 
@@ -19,6 +20,7 @@ export interface ComposerTextareaInput {
   draft: ComposerDraft;
   insertion: ComposerReferenceInsertion;
   picker: ComposerPicker;
+  quoteReply: ComposerQuoteReply;
   ref: ForwardedRef<MessageComposerHandle>;
   voiceModeEntered: boolean;
 }
@@ -40,6 +42,7 @@ export function useComposerTextarea({
   },
   insertion: { insertMentionAtCursor },
   picker: { applyMentionQuery, setSkillQuery },
+  quoteReply: { stageQuoteReply },
   ref,
   voiceModeEntered,
 }: ComposerTextareaInput) {
@@ -63,6 +66,7 @@ export function useComposerTextarea({
       textarea?.setSelectionRange(textarea.value.length, textarea.value.length);
     },
     insertMention: insertMentionAtCursor,
+    stageQuoteReply,
   }));
 
   useVoiceModeTextareaLayout({

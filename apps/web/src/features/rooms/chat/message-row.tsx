@@ -89,6 +89,7 @@ import { applySearchTermHighlight } from "./search-term-highlight";
 import { settledCardNotice } from "../cards/card-notice";
 import { CardNoticeRows } from "./card-notice-rows";
 import { ReplyContext } from "./reply-context";
+import { quoteReplyFromMessage, type StagedQuoteReply } from "./quote-reply";
 import { RoomNoticeRow } from "./room-notice-row";
 import { ThreadReplyPreview } from "./thread-reply-preview";
 import { ownSendStartedAt } from "./recent-own-sends";
@@ -144,6 +145,8 @@ interface MessageRowProps {
   onCreateIssueMessage?: (message: TeamHubMessage) => void;
   onForwardMessage?: (message: TeamHubMessage) => void;
   onReply?: (message: TeamHubMessage) => void;
+  /** Stages the Message as a Markdown quote in the composer. */
+  onReplyWithQuote?: (reply: StagedQuoteReply) => void;
   onToggleReaction?: (
     message: TeamHubMessage,
     reactionId: TeamHubMessageReactionId,
@@ -246,6 +249,7 @@ function ConversationMessageRow({
   onCreateIssueMessage,
   onForwardMessage,
   onReply,
+  onReplyWithQuote,
   onToggleReaction,
   onTogglePin,
   isPinned = false,
@@ -360,6 +364,7 @@ function ConversationMessageRow({
       onCreateIssueMessage={onCreateIssueMessage}
       onForwardMessage={onForwardMessage}
       onReply={onReply}
+      onReplyWithQuote={onReplyWithQuote}
       tenantId={tenantId}
     />
   );
@@ -801,6 +806,7 @@ function ConversationMessageActions({
   onCreateIssueMessage,
   onForwardMessage,
   onReply,
+  onReplyWithQuote,
   onToggleReaction,
   onTogglePin,
   tenantId,
@@ -812,6 +818,7 @@ function ConversationMessageActions({
   | "onCreateIssueMessage"
   | "onForwardMessage"
   | "onReply"
+  | "onReplyWithQuote"
   | "tenantId"
 > & {
   /** The name the row shows for the author, quoted with the Message text. */
@@ -909,6 +916,20 @@ function ConversationMessageActions({
       icon: <Icon icon={MailReply01Icon} size={14} />,
       label: "Reply to message",
       onSelect: () => onReply(message),
+    });
+  }
+  if (onReplyWithQuote) {
+    overflowItems.push({
+      icon: <Icon icon={TextQuoteIcon} size={14} />,
+      label: "Reply with quote",
+      onSelect: () =>
+        onReplyWithQuote(
+          quoteReplyFromMessage({
+            authorName,
+            createdAt: message.created_at,
+            message: message.raw_message,
+          }),
+        ),
     });
   }
   if (onOpenThread && !hasCardPayload) {

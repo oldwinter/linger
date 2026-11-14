@@ -1626,6 +1626,93 @@ describe("Room Chat", () => {
     cleanup();
   });
 
+  it("sends a quoted reply as one message without reply context", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const createMessage = vi.spyOn(
+      roomMessageSender(runtime.client),
+      "createMessage",
+    );
+
+    renderRoomChat(runtime, testQueryClient());
+
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("Message Room");
+    fireEvent.click(
+      (
+        await screen.findAllByRole("button", {
+          name: "More message actions",
+        })
+      )[0]!,
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Reply with quote" }),
+    );
+
+    const strip = screen.getByLabelText("Quoted reply");
+    expect(strip).toBeVisible();
+    const staged = editor.value;
+    expect(staged).toMatch(/^> .+, \d{4}-\d\d-\d\d \d\d:\d\d\n>\n/u);
+    expect(staged.endsWith("\n\n")).toBe(true);
+
+    fireEvent.change(editor, {
+      target: { value: `${staged}Under the quote.` },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() => expect(createMessage).toHaveBeenCalledOnce());
+    const sent = createMessage.mock.calls[0]?.[0];
+    expect(sent?.body).toBe(`${staged}Under the quote.`);
+    expect(sent?.contextMessageIds).toEqual([]);
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Quoted reply")).toBeNull(),
+    );
+  });
+
+  it("hides the quoted reply while a structured reply is staged", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const createMessage = vi.spyOn(
+      roomMessageSender(runtime.client),
+      "createMessage",
+    );
+
+    renderRoomChat(runtime, testQueryClient());
+
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("Message Room");
+    fireEvent.click(
+      (
+        await screen.findAllByRole("button", {
+          name: "More message actions",
+        })
+      )[0]!,
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Reply to message" }),
+    );
+    expect(screen.getByLabelText("Selected reply context")).toBeVisible();
+
+    fireEvent.click(
+      (
+        await screen.findAllByRole("button", {
+          name: "More message actions",
+        })
+      )[0]!,
+    );
+    expect(
+      await screen.findByRole("menuitem", { name: "Reply to message" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("menuitem", { name: "Reply with quote" }),
+    ).toBeNull();
+    fireEvent.keyDown(editor, { key: "Escape" });
+
+    fireEvent.change(editor, { target: { value: "Continuing the context." } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() => expect(createMessage).toHaveBeenCalledOnce());
+    expect(createMessage.mock.calls[0]?.[0].contextMessageIds).toHaveLength(1);
+  });
+
   it("positions an independently loaded linked source without changing recent history", async () => {
     const runtime = createTestTeamHubRuntime();
 

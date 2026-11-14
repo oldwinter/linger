@@ -6,6 +6,7 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 
 import type { MessageComposerHandle } from "./message-composer";
+import type { StagedQuoteReply } from "./quote-reply";
 
 export function useRoomMessageInteractions(input: {
   currentActorId?: string;
@@ -72,6 +73,8 @@ export function useRoomMessageInteractions(input: {
           current.filter((message) => message.id !== messageId),
         ),
       replyToMessage,
+      stageQuoteReply: (reply: StagedQuoteReply) =>
+        composerRef.current?.stageQuoteReply(reply),
     };
   }, [scopeKey, input.currentActorId, input.mentionOptions]);
   return { ...actions, selectedContextMessages };

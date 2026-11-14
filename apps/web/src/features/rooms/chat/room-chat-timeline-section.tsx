@@ -122,6 +122,13 @@ export function RoomChatTimelineSection({
       onOpenUrl={actions.timelineActions.onOpenUrl}
       onOpenThread={navigation.openThread}
       onReply={interactions.replyToMessage}
+      onReplyWithQuote={
+        // A structured reply already stages the same Message as context, so
+        // the quote action steps aside rather than stacking a second strip.
+        interactions.selectedContextMessages.length
+          ? undefined
+          : interactions.stageQuoteReply
+      }
       onRetry={delivery.retryMessage}
       pendingMessages={conversation.pendingMessages}
       presentations={actions.resolvedPresentations}

@@ -16,6 +16,7 @@ import {
   formatDocumentToken,
   formatSkillToken,
 } from "./message-composer-references";
+import type { StagedQuoteReply } from "./quote-reply";
 import { TEAMHUB_MESSAGE_MAX_LENGTH } from "./use-composer-draft";
 
 describe("MessageComposer", () => {
@@ -1867,4 +1868,185 @@ describe("Message Composer reference tokens", () => {
       "/review-2",
     ]);
   });
+
+  describe("quoted replies", () => {
+    it("stages a quoted reply above the text and puts the caret under it", () => {
+      const ref = createRef<MessageComposerHandle>();
+      render(<MessageComposer onSend={vi.fn()} ref={ref} />);
+      const editor = screen.getByLabelText<HTMLTextAreaElement>("Message Room");
+      const staged = stagedReply();
+
+      act(() => ref.current?.stageQuoteReply(staged));
+
+      const strip = screen.getByLabelText("Quoted reply");
+      expect(strip).toHaveTextContent("Ada Lovelace");
+      expect(strip).toHaveTextContent("The migration finished.");
+      expect(editor).toHaveValue(`${staged.quote}\n\n`);
+      expect(editor.selectionStart).toBe(staged.quote.length + 2);
+    });
+
+    it("replaces the first quote when a second reply is staged", () => {
+      const ref = createRef<MessageComposerHandle>();
+      render(<MessageComposer onSend={vi.fn()} ref={ref} />);
+      const editor = screen.getByLabelText<HTMLTextAreaElement>("Message Room");
+      const second = stagedReply({
+        authorName: "Grace Hopper",
+        preview: "Second quote.",
+        quote: [
+          "> Grace Hopper, 2026-11-14 09:20",
+          ">",
+          "> Second quote.",
+        ].join("\n"),
+      });
+
+      act(() => ref.current?.stageQuoteReply(stagedReply()));
+      act(() => ref.current?.stageQuoteReply(second));
+
+      expect(editor).toHaveValue(`${second.quote}\n\n`);
+      expect(editor.value).not.toContain("Ada Lovelace");
+      expect(screen.getAllByLabelText("Quoted reply")).toHaveLength(1);
+      expect(screen.getByLabelText("Quoted reply")).toHaveTextContent(
+        "Grace Hopper",
+      );
+    });
+
+    it("sends the quote and the text typed under it as one message", async () => {
+      const onSend = vi.fn();
+      const ref = createRef<MessageComposerHandle>();
+      render(<MessageComposer onSend={onSend} ref={ref} />);
+      const editor = screen.getByLabelText<HTMLTextAreaElement>("Message Room");
+      const staged = stagedReply();
+
+      act(() => ref.current?.stageQuoteReply(staged));
+      fireEvent.change(editor, {
+        target: { value: `${staged.quote}\n\nShip it.` },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+      await waitFor(() =>
+        expect(onSend).toHaveBeenCalledWith(
+          expect.objectContaining({ body: `${staged.quote}\n\nShip it.` }),
+        ),
+      );
+      expect(screen.queryByLabelText("Quoted reply")).toBeNull();
+      expect(editor).toHaveValue("");
+    });
+
+    it("dismisses the quote and clears the composer before anything is typed", () => {
+      const ref = createRef<MessageComposerHandle>();
+      render(<MessageComposer onSend={vi.fn()} ref={ref} />);
+      const editor = screen.getByLabelText<HTMLTextAreaElement>("Message Room");
+
+      act(() => ref.current?.stageQuoteReply(stagedReply()));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Remove quote of Ada Lovelace" }),
+      );
+
+      expect(editor).toHaveValue("");
+      expect(screen.queryByLabelText("Quoted reply")).toBeNull();
+    });
+
+    it("keeps the typed text when the quote is dismissed", () => {
+      const ref = createRef<MessageComposerHandle>();
+      render(<MessageComposer onSend={vi.fn()} ref={ref} />);
+      const editor = screen.getByLabelText<HTMLTextAreaElement>("Message Room");
+      const staged = stagedReply();
+
+      act(() => ref.current?.stageQuoteReply(staged));
+      fireEvent.change(editor, {
+        target: { value: `${staged.quote}\n\nKeep me.` },
+      });
+      fireEvent.click(
+        screen.getByRole("button", { name: "Remove quote of Ada Lovelace" }),
+      );
+
+      expect(editor).toHaveValue("Keep me.");
+      expect(screen.queryByLabelText("Quoted reply")).toBeNull();
+    });
+
+    it("dismisses a suggestion before the staged quote on Escape", () => {
+      const ref = createRef<MessageComposerHandle>();
+      render(
+        <MessageComposer
+          mentionOptions={[
+            {
+              display_name: "Bob",
+              id: "actor-bob",
+              kind: "human",
+              tenant_id: "tenant-1",
+            },
+          ]}
+          onSend={vi.fn()}
+          ref={ref}
+        />,
+      );
+      const editor = screen.getByLabelText<HTMLTextAreaElement>("Message Room");
+      const staged = stagedReply();
+
+      act(() => ref.current?.stageQuoteReply(staged));
+      fireEvent.change(editor, {
+        target: {
+          selectionStart: staged.quote.length + 3,
+          value: `${staged.quote}\n\n@`,
+        },
+      });
+      expect(
+        screen.getByRole("listbox", { name: "Mention people or documents" }),
+      ).toBeVisible();
+
+      fireEvent.keyDown(editor, { key: "Escape" });
+
+      expect(screen.queryByRole("listbox")).toBeNull();
+      expect(screen.getByLabelText("Quoted reply")).toBeVisible();
+
+      fireEvent.keyDown(editor, { key: "Escape" });
+
+      expect(screen.queryByLabelText("Quoted reply")).toBeNull();
+      expect(editor).toHaveValue("@");
+    });
+
+    it("saves the quote as draft text, so a reopened draft keeps it", () => {
+      const onDraftStateChange = vi.fn();
+      const ref = createRef<MessageComposerHandle>();
+      const staged = stagedReply();
+      const view = render(
+        <MessageComposer
+          onDraftStateChange={onDraftStateChange}
+          onSend={vi.fn()}
+          ref={ref}
+        />,
+      );
+
+      act(() => ref.current?.stageQuoteReply(staged));
+
+      expect(onDraftStateChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ body: `${staged.quote}\n\n` }),
+      );
+      view.unmount();
+      render(
+        <MessageComposer
+          initialValue={`${staged.quote}\n\n`}
+          onSend={vi.fn()}
+        />,
+      );
+      expect(
+        screen.getByLabelText<HTMLTextAreaElement>("Message Room").value,
+      ).toContain(staged.quote);
+    });
+  });
 });
+
+function stagedReply(
+  overrides: Partial<StagedQuoteReply> = {},
+): StagedQuoteReply {
+  return {
+    authorName: "Ada Lovelace",
+    preview: "The migration finished.",
+    quote: [
+      "> Ada Lovelace, 2026-11-14 09:12",
+      ">",
+      "> The migration finished.",
+    ].join("\n"),
+    ...overrides,
+  };
+}

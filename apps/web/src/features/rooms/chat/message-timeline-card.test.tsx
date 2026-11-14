@@ -763,6 +763,52 @@ describe("Room Message timeline cards", () => {
     expect(onForwardMessage).toHaveBeenCalledWith(message);
   });
 
+  it("stages a quoted reply beside the structured reply option", () => {
+    const message = ordinaryAgentMessage();
+    const onReply = vi.fn();
+    const onReplyWithQuote = vi.fn();
+
+    renderTimeline(message, { onReply, onReplyWithQuote });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "More message actions" }),
+    );
+    const labels = screen
+      .getAllByRole("menuitem")
+      .map((item) => item.textContent);
+    expect(labels.slice(labels.indexOf("Reply to message"))).toEqual([
+      "Reply to message",
+      "Reply with quote",
+      "Reply to thread",
+    ]);
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "Reply with quote" }));
+
+    expect(onReply).not.toHaveBeenCalled();
+    expect(onReplyWithQuote).toHaveBeenCalledWith({
+      authorName: "Codex",
+      preview: "An ordinary Agent answer",
+      quote: expect.stringMatching(
+        /^> Codex, \d{4}-\d\d-\d\d \d\d:\d\d\n>\n> An ordinary Agent answer$/u,
+      ),
+    });
+  });
+
+  it("offers no quoted reply without a composer to stage it in", () => {
+    renderTimeline(ordinaryAgentMessage(), { onReply: vi.fn() });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "More message actions" }),
+    );
+
+    expect(
+      screen.queryByRole("menuitem", { name: "Reply with quote" }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("menuitem", { name: "Reply to message" }),
+    ).toBeVisible();
+  });
+
   it.each(["timeline", "linked source"] as const)(
     "distinguishes unavailable members, former members, and mentionable authors in %s",
     (renderPath) => {
@@ -2964,6 +3010,9 @@ function renderTimeline(
     onOpenThread?: (message: TeamHubMessage) => void;
     onRecallMessage?: (message: TeamHubMessage) => Promise<void>;
     onReply?: (message: TeamHubMessage) => void;
+    onReplyWithQuote?: ComponentProps<
+      typeof MessageTimeline
+    >["onReplyWithQuote"];
     presentations?: ComponentProps<typeof MessageTimeline>["presentations"];
     unreadDividerIndex?: ComponentProps<
       typeof MessageTimeline

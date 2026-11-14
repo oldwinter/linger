@@ -100,6 +100,8 @@ import {
   type MentionTab,
   useComposerPicker,
 } from "./use-composer-picker";
+import type { StagedQuoteReply } from "./quote-reply";
+import { useComposerQuoteReply } from "./use-composer-quote-reply";
 import { useComposerReferenceInsertion } from "./use-composer-reference-insertion";
 import { useComposerSend } from "./use-composer-send";
 import {
@@ -145,6 +147,7 @@ export interface MessageComposerHandle {
   clearCommittedBody: (body: string) => void;
   insertMention: (actor: TeamHubActorRef) => void;
   focus: (options?: FocusOptions) => void;
+  stageQuoteReply: (reply: StagedQuoteReply) => void;
 }
 
 export interface MessageComposerProps {
@@ -338,10 +341,12 @@ function useMessageComposer(
     voice,
     voiceModeTarget,
   });
+  const quoteReply = useComposerQuoteReply({ draft });
   const { handleKeyDown } = useComposerKeyDown({
     draft,
     insertion,
     picker,
+    quoteReply,
     sending,
   });
   useComposerTextarea({
@@ -349,6 +354,7 @@ function useMessageComposer(
     draft,
     insertion,
     picker,
+    quoteReply,
     ref,
     voiceModeEntered: voice.voiceMode.entered,
   });
@@ -381,6 +387,7 @@ function useMessageComposer(
     disabled,
     documentOptions: draft.documentOptions,
     documentReferences: currentReferences.documentReferences,
+    dismissQuoteReply: quoteReply.dismissQuoteReply,
     fileInputRef: attachments.fileInputRef,
     handleFiles: attachments.handleFiles,
     handleKeyDown,
@@ -418,6 +425,7 @@ function useMessageComposer(
     skillQuery: picker.skillQuery,
     skillOptions,
     skillReferences: currentReferences.skillReferences,
+    stagedQuoteReply: quoteReply.stagedQuoteReply,
     submitting: draft.submitting,
     textareaRef: draft.textareaRef,
     updateBody,
@@ -444,6 +452,7 @@ function MessageComposerView({
     attachmentError,
     documentContexts,
     body,
+    dismissQuoteReply,
     lengthStatusId,
     mentions,
     messageError,
@@ -454,6 +463,7 @@ function MessageComposerView({
     selectedContextMessages,
     selectedFiles,
     setDocumentContexts,
+    stagedQuoteReply,
     submitting,
     textareaRef,
     voiceMode,
@@ -519,6 +529,10 @@ function MessageComposerView({
         <ReplyContextPreview
           messages={selectedContextMessages}
           onRemove={onRemoveContextMessage}
+        />
+        <StagedQuoteStrip
+          onDismiss={dismissQuoteReply}
+          reply={stagedQuoteReply}
         />
         <AttachmentError
           message={attachmentError ?? failedUploadMessage(selectedFiles)}
@@ -1158,6 +1172,37 @@ function SkillReferenceToken({
           )
         : null}
     </>
+  );
+}
+
+/** The quoted Message a reply answers, named above the text it added. */
+function StagedQuoteStrip({
+  onDismiss,
+  reply,
+}: {
+  onDismiss: () => void;
+  reply: StagedQuoteReply | null;
+}) {
+  if (!reply) return null;
+  return (
+    <div
+      aria-label="Quoted reply"
+      className="mb-2 flex min-h-8 items-center gap-2 border-l-2 border-app-accent-border bg-app-surface-soft px-2 py-1 text-xs"
+    >
+      <span className="shrink-0 font-semibold">{reply.authorName}</span>
+      <span className="min-w-0 flex-1 truncate text-app-muted">
+        {reply.preview}
+      </span>
+      <Button
+        aria-label={`Remove quote of ${reply.authorName}`}
+        onClick={onDismiss}
+        size="compactIcon"
+        title="Remove quote"
+        tone="ghost"
+      >
+        <Icon icon={Cancel01Icon} size={14} />
+      </Button>
+    </div>
   );
 }
 
