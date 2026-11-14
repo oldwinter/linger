@@ -1,6 +1,14 @@
 // @vitest-environment jsdom
 import { act, renderHook } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
 
@@ -9,6 +17,10 @@ import {
   roomMentionNotices,
   useRoomMentionNotifications,
 } from "./room-mention-notifications";
+import {
+  withRoomMentionSnooze,
+  writeRoomMentionSnooze,
+} from "./room-mention-snooze";
 
 const human = {
   id: "actor_human",
@@ -200,10 +212,12 @@ class FakeNotification {
 function renderNotifications(
   rooms: TeamHubRoomListItem[],
   open: (roomId: string, messageId?: string) => void,
+  accountId?: string,
 ) {
   return renderHook(
     (props: { rooms: TeamHubRoomListItem[] }) =>
       useRoomMentionNotifications({
+        accountId,
         open,
         roomId: undefined,
         rooms: props.rooms,
@@ -223,6 +237,7 @@ describe("useRoomMentionNotifications", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    localStorage.clear();
     delete (window as { lingerDesktop?: unknown }).lingerDesktop;
   });
 
@@ -290,6 +305,57 @@ describe("useRoomMentionNotifications", () => {
       ],
     });
     expect(FakeNotification.shown).toEqual([]);
+  });
+
+  it("keeps a snoozed Room quiet and out of the badge until its expiry", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-15T10:00:00"));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const setBadgeCount = vi.fn(async () => {});
+    (window as { lingerDesktop?: unknown }).lingerDesktop = {
+      notifications: { setBadgeCount },
+    };
+    const open = vi.fn();
+    writeRoomMentionSnooze(
+      "account-a",
+      withRoomMentionSnooze({}, "a", new Date("2026-11-15T10:30:00")),
+    );
+    const { rerender } = renderNotifications(
+      [
+        room("a", { message: { id: "msg_1", text: "hello" } }),
+        room("b", { message: { id: "msg_9", text: "hi" } }),
+      ],
+      open,
+      "account-a",
+    );
+    expect(setBadgeCount).toHaveBeenLastCalledWith(0);
+
+    rerender({
+      rooms: [
+        room("a", { mentions: 2, message: { id: "msg_2", text: "@Bo look" } }),
+        room("b", { mentions: 1, message: { id: "msg_10", text: "@Bo too" } }),
+      ],
+    });
+    expect(FakeNotification.shown.map((notice) => notice.title)).toEqual([
+      "Room b",
+    ]);
+    expect(setBadgeCount).toHaveBeenLastCalledWith(1);
+
+    // The snooze expires on its own; the next reading sees the Room again.
+    vi.setSystemTime(new Date("2026-11-15T10:31:00"));
+    rerender({
+      rooms: [
+        room("a", { mentions: 2, message: { id: "msg_3", text: "@Bo again" } }),
+        room("b", { mentions: 1, message: { id: "msg_10", text: "@Bo too" } }),
+      ],
+    });
+    expect(FakeNotification.shown.map((notice) => notice.title)).toEqual([
+      "Room b",
+      "Room a",
+    ]);
+    expect(setBadgeCount).toHaveBeenLastCalledWith(3);
   });
 
   it("keeps the app badge on the total unread mentions", () => {

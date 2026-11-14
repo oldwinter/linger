@@ -1,9 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Delete02Icon, PinIcon, PinOffIcon } from "@hugeicons/core-free-icons";
+import {
+  AlarmClockIcon,
+  BellOffIcon,
+  Clock01Icon,
+  Delete02Icon,
+  PinIcon,
+  PinOffIcon,
+} from "@hugeicons/core-free-icons";
 import { lazy, Suspense, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { ActionMenu } from "@/components/ui/action-menu";
+import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
 import { Icon } from "@/components/ui/icon";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
@@ -13,6 +20,11 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 
 import { canDeleteTenantAgent } from "./members/agent-permissions";
+import {
+  clearRoomMentionSnooze,
+  roomMentionSnoozeUntil,
+  setRoomMentionSnooze,
+} from "./room-mention-snooze";
 import {
   teamHubIdentityQueryOptions,
   tenantAgentsQueryOptions,
@@ -97,6 +109,64 @@ export function RoomPinButton({
         <Icon icon={PinIcon} size={14} />
       )}
     </button>
+  );
+}
+
+/**
+ * A Room's mention snooze choices. They are this browser's display decision
+ * for the Account, so the menu writes nothing to the server; Off appears only
+ * while the Room is snoozed.
+ */
+export function RoomMentionSnoozeMenu({
+  accountId,
+  name,
+  roomId,
+  snoozed,
+}: {
+  accountId?: string;
+  name: string;
+  roomId: string;
+  snoozed: boolean;
+}) {
+  function snooze(choice: "hour" | "morning") {
+    const now = new Date();
+    setRoomMentionSnooze(
+      accountId,
+      roomId,
+      roomMentionSnoozeUntil(choice, now),
+      now,
+    );
+  }
+  const items: ActionMenuItem[] = [
+    {
+      icon: <Icon icon={Clock01Icon} size={14} />,
+      label: "Snooze mentions for 1 hour",
+      onSelect: () => snooze("hour"),
+    },
+    {
+      icon: <Icon icon={AlarmClockIcon} size={14} />,
+      label: "Snooze mentions until tomorrow morning",
+      onSelect: () => snooze("morning"),
+    },
+    ...(snoozed
+      ? [
+          {
+            icon: <Icon icon={BellOffIcon} size={14} />,
+            label: "Turn off snoozing",
+            onSelect: () =>
+              clearRoomMentionSnooze(accountId, roomId, new Date()),
+            separatorBefore: true,
+          },
+        ]
+      : []),
+  ];
+  return (
+    <ActionMenu
+      buttonClassName={roomNavActionClass}
+      items={items}
+      label={`More actions for ${name}`}
+      placement="right-start"
+    />
   );
 }
 

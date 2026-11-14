@@ -48,9 +48,14 @@ import { useNavReorderFlip } from "./use-nav-reorder-flip";
 import {
   AgentRowMenu,
   pinnedFirst,
+  RoomMentionSnoozeMenu,
   RoomPinButton,
   useRoomPin,
 } from "./room-nav-actions";
+import {
+  isRoomMentionSnoozed,
+  useRoomMentionSnooze,
+} from "./room-mention-snooze";
 import {
   readRoomUnreadFilter,
   unreadRoomRows,
@@ -132,6 +137,10 @@ export function RoomSecondaryNavigation({
     setUnreadOnly(next);
     writeRoomUnreadFilter(accountId, next);
   }
+  const mentionSnooze = useRoomMentionSnooze(accountId);
+  // Rows judge expiry against this reading, so a snooze that ends passes on
+  // the next render without a cleanup step.
+  const now = new Date();
   const runningRooms = new Set(runningRoomIds);
   const failedRooms = new Set(failedRoomIds);
   const visibleRoomIds = new Set(
@@ -366,17 +375,31 @@ export function RoomSecondaryNavigation({
                 />
               ) : null}
               {listedChats.map((room) => {
-                if (room.kind === "room")
+                if (room.kind === "room") {
+                  const snoozed = isRoomMentionSnoozed(
+                    mentionSnooze,
+                    room.id,
+                    now,
+                  );
                   return (
                     <NavRow
                       actions={
-                        <RoomPinButton
-                          name={room.name}
-                          onToggle={() => togglePin(room)}
-                          pinned={Boolean(room.pinned_at)}
-                        />
+                        <>
+                          <RoomPinButton
+                            name={room.name}
+                            onToggle={() => togglePin(room)}
+                            pinned={Boolean(room.pinned_at)}
+                          />
+                          <RoomMentionSnoozeMenu
+                            accountId={accountId}
+                            name={room.name}
+                            roomId={room.id}
+                            snoozed={snoozed}
+                          />
+                        </>
                       }
                       active={room.id === activeRoomId}
+                      fade="64px"
                       key={room.id}
                     >
                       <Link
@@ -390,7 +413,10 @@ export function RoomSecondaryNavigation({
                       >
                         <RoomAvatar members={room.member_preview ?? []} />
                         <span className="min-w-0 flex-1 px-1">
-                          <RoomRowTitle pinned={Boolean(room.pinned_at)}>
+                          <RoomRowTitle
+                            pinned={Boolean(room.pinned_at)}
+                            snoozed={snoozed}
+                          >
                             {room.name}
                           </RoomRowTitle>
                           <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">
@@ -409,6 +435,7 @@ export function RoomSecondaryNavigation({
                       </Link>
                     </NavRow>
                   );
+                }
                 const name = room.direct_peer!.display_name;
                 return (
                   <NavRow
@@ -579,9 +606,11 @@ function NavRow({
 function RoomRowTitle({
   children,
   pinned,
+  snoozed = false,
 }: {
   children: ReactNode;
   pinned: boolean;
+  snoozed?: boolean;
 }) {
   return (
     <span className="flex min-w-0 items-center gap-1 text-sm leading-[18px] font-medium text-foreground">
@@ -593,6 +622,14 @@ function RoomRowTitle({
           role="img"
         >
           <Icon icon={PinIcon} size={12} />
+        </span>
+      ) : null}
+      {snoozed ? (
+        <span
+          className="shrink-0 text-2xs font-medium leading-4 text-muted-foreground"
+          title="Mention notifications are snoozed"
+        >
+          Snoozed
         </span>
       ) : null}
     </span>
