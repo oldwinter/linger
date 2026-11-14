@@ -95,6 +95,12 @@ describe("Web app route contract", () => {
     expect(
       matchRoutes(routes, "/t/tenant-a/rooms/room-a/chat")?.at(-1)?.route.path,
     ).toBe("chat");
+    expect(
+      matchRoutes(
+        routes,
+        "/t/tenant-a/library/meetings/ask?entry=meeting-a",
+      )?.at(-1)?.route.path,
+    ).toBe("meetings/ask");
   });
 
   it("mounts My Documents, Shared with me, and Wiki below Library", () => {

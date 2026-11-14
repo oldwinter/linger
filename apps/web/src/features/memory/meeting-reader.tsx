@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
 import { ReadOnlyBlockNoteDocumentLoader } from "@/components/read-only-blocknote-document-loader";
 import { Button } from "@/components/ui/button";
 import { ArtifactContentRendererLoader } from "@/features/rooms/files/artifact-content-renderer-loader";
@@ -17,6 +18,7 @@ import {
   MeetingOutcomes,
   MeetingOverviewCard,
 } from "./meeting-overview-card";
+import { askMeetingPath } from "./ask-meeting";
 import { HideMeetingDialog } from "./hide-meeting-dialog";
 import { formatMeetingWhen, meetingWhen } from "./meetings-calendar";
 
@@ -96,7 +98,13 @@ export function MeetingReader({
               ? `Meeting · ${formatMeetingWhen(when.date, when.time)}`
               : entry.title}
           </h2>
-          <p className="mt-1 text-xs text-app-muted">Read only</p>
+          <p className="mt-1 text-xs text-app-muted">
+            Read only
+            {" · "}
+            <Link className="underline" to={askMeetingPath(tenantId, entry.id)}>
+              Ask the recording
+            </Link>
+          </p>
         </div>
         <Button onClick={() => setDeleting(true)} size="compact" tone="ghost">
           Delete

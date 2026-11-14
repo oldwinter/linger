@@ -8,7 +8,11 @@
 - Meetings, reports and graph entries are read-only derived reading state, not
   source evidence. Deleting a meeting only hides it from the caller's own
   Meetings through TeamHub's
-  `DELETE /v0/tenants/{tenantId}/me/meetings/{captureSessionId}`. Web observes Memory generation state; it does not call the
+  `DELETE /v0/tenants/{tenantId}/me/meetings/{captureSessionId}`. Ask the
+  recording (`/t/:tenantId/library/meetings/ask?entry=`) saves a question on
+  that meeting's capture and shows the answer that stays with it. A question
+  the recording treats as a request for Another Me is not sent from this page.
+  Web observes Memory generation state; it does not call the
   Memory service directly or orchestrate generation.
 - Timeline is the display label for the existing `graph` entry; keep its route
   and data key. Keep/Delete stay browser-local display decisions through
