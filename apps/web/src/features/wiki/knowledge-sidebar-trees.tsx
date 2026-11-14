@@ -3,17 +3,19 @@ import {
   ArrowDown01Icon,
   ArrowRight01Icon,
   Calendar03Icon,
+  Cancel01Icon,
   RefreshIcon,
+  Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { documentFileName } from "@/features/library/document-display-name";
 import { WorkspaceFileIcon } from "@/features/library/workspace-file-icon";
 import { useLibraryTreeState } from "@/features/library/use-library-tree-state";
+import { HighlightedText } from "@/features/search/search-highlight";
 import { personalWikiDocumentsQueryKey } from "@/features/teamhub/document-queries";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
@@ -29,6 +31,13 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 
 import { useWikiDisplayState, wikiPageKey } from "./wiki-display-state";
+import {
+  buildWikiDocumentTree,
+  flattenWikiTree,
+  wikiPagePath,
+  type WikiTreeNode,
+} from "./wiki-tree";
+import { filterWikiTree } from "./wiki-tree-filter";
 
 import { meetingPath } from "@/features/memory/meeting-routes";
 import { useMeetings } from "@/features/memory/memory-queries";
@@ -39,6 +48,8 @@ import {
   type CalendarMeeting,
 } from "@/features/memory/meetings-calendar";
 import { meetingsTabPath } from "@/features/memory/meetings-panel";
+
+const NO_PATHS: ReadonlySet<string> = new Set();
 
 /**
  * The read-only Meetings collection beside an opened Document or meeting. It
@@ -201,7 +212,28 @@ export function WikiFileTree({
     "wiki-folders",
     () => new Set(),
   );
-  const rows = flattenWikiTree(tree, expandedPaths);
+  const [filterText, setFilterText] = useState("");
+  const filter = useMemo(
+    () => filterWikiTree(tree, filterText),
+    [filterText, tree],
+  );
+  const filtering = filterText.trim() !== "";
+  // Filtering opens the folders a match sits in, but only while the field holds
+  // text: the stored folders are never rewritten, so clearing the field puts
+  // every branch back the way the reader left it.
+  const [filterFolders, setFilterFolders] = useState<{
+    closed: ReadonlySet<string>;
+    query: string;
+  }>({ closed: new Set(), query: "" });
+  const closedByReader =
+    filterFolders.query === filterText.trim() ? filterFolders.closed : NO_PATHS;
+  const visibleExpandedPaths = useMemo(() => {
+    if (!filtering) return expandedPaths;
+    const open = new Set(filter.openPaths);
+    for (const path of closedByReader) open.delete(path);
+    return open;
+  }, [closedByReader, expandedPaths, filter.openPaths, filtering]);
+  const rows = flattenWikiTree(filter.tree, visibleExpandedPaths);
   // Opening a Document by link lands with its folder collapsed, so the file that
   // is being read is not in the tree at all. Expand its ancestors once per
   // Document; the row itself scrolls into view when it renders.
@@ -226,6 +258,16 @@ export function WikiFileTree({
   }, [documentId, pages, setExpandedPaths]);
 
   function toggleDirectory(path: string) {
+    if (filtering) {
+      const query = filterText.trim();
+      setFilterFolders((current) => {
+        const closed = new Set(current.query === query ? current.closed : []);
+        if (closed.has(path)) closed.delete(path);
+        else closed.add(path);
+        return { closed, query };
+      });
+      return;
+    }
     setExpandedPaths((current) => {
       const next = new Set(current);
       if (next.has(path)) next.delete(path);
@@ -247,13 +289,39 @@ export function WikiFileTree({
 
   return (
     <section aria-label="Pages" className="space-y-0.5">
+      {pages.length > 0 ? (
+        <label className="select-pill mb-2 w-full cursor-text pr-1.5 focus-within:ring-2 focus-within:ring-app-focus">
+          <Icon icon={Search01Icon} size={14} />
+          <input
+            aria-label="Filter Wiki pages"
+            className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+            onChange={(event) => setFilterText(event.target.value)}
+            placeholder="Filter by title"
+            role="searchbox"
+            type="text"
+            value={filterText}
+          />
+          {filterText ? (
+            <button
+              aria-label="Clear Wiki filter"
+              className="flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+              onClick={() => setFilterText("")}
+              type="button"
+            >
+              <Icon icon={Cancel01Icon} size={12} />
+            </button>
+          ) : null}
+        </label>
+      ) : null}
       {pages.length === 0 && !documents.hasNextPage ? (
         <TreeMessage>No generated pages yet.</TreeMessage>
+      ) : rows.length === 0 ? (
+        <TreeMessage>{`No pages match "${filterText.trim()}".`}</TreeMessage>
       ) : (
         rows.map(({ depth, node }) => {
           const paddingLeft = 8 + depth * 16;
           if (node.kind === "directory") {
-            const collapsed = !expandedPaths.has(node.path);
+            const collapsed = !visibleExpandedPaths.has(node.path);
             return (
               <button
                 aria-expanded={!collapsed}
@@ -277,7 +345,12 @@ export function WikiFileTree({
                     size={WORKSPACE_TREE_CHEVRON_SIZE}
                   />
                 )}
-                <span className="min-w-0 flex-1 truncate">{node.name}</span>
+                <span className="min-w-0 flex-1 truncate">
+                  <HighlightedText
+                    query={filtering ? filterText.trim() : ""}
+                    text={node.name}
+                  />
+                </span>
               </button>
             );
           }
@@ -285,6 +358,7 @@ export function WikiFileTree({
             <KnowledgeFileLink
               current={node.document.id === documentId}
               filename={node.name}
+              highlightQuery={filtering ? filterText.trim() : ""}
               key={node.document.id}
               onOpen={onFileOpen}
               paddingLeft={paddingLeft}
@@ -398,6 +472,7 @@ function MeetingLink({
 function KnowledgeFileLink({
   current,
   filename,
+  highlightQuery = "",
   onOpen,
   paddingLeft = 8,
   reveal = false,
@@ -406,6 +481,7 @@ function KnowledgeFileLink({
 }: {
   current: boolean;
   filename: string;
+  highlightQuery?: string;
   onOpen?: () => void;
   paddingLeft?: number;
   reveal?: boolean;
@@ -432,7 +508,9 @@ function KnowledgeFileLink({
       {/* Stands in for the folder chevron, so files line up under folders. */}
       <span aria-hidden="true" className="size-3.5 shrink-0" />
       <WorkspaceFileIcon compact filename={filename} className="shrink-0" />
-      <span className="min-w-0 truncate">{title}</span>
+      <span className="min-w-0 truncate">
+        <HighlightedText query={highlightQuery} text={title} />
+      </span>
     </Link>
   );
 }
@@ -482,100 +560,7 @@ function TreeMessage({
   );
 }
 
-type WikiTreeNode = WikiTreeDirectory | WikiTreePage;
-
-interface WikiTreeDirectory {
-  children: WikiTreeNode[];
-  kind: "directory";
-  name: string;
-  path: string;
-}
-
-interface WikiTreePage {
-  document: TeamHubDocument;
-  kind: "page";
-  name: string;
-  path: string;
-}
-
-interface MutableWikiDirectory {
-  directories: Map<string, MutableWikiDirectory>;
-  name: string;
-  pages: WikiTreePage[];
-  path: string;
-}
-
-function buildWikiDocumentTree(documents: TeamHubDocument[]): WikiTreeNode[] {
-  const root: MutableWikiDirectory = {
-    directories: new Map(),
-    name: "",
-    pages: [],
-    path: "",
-  };
-  for (const document of documents) {
-    const pagePath = wikiPagePath(document);
-    const segments = pagePath.split("/").filter(Boolean);
-    const name = segments.pop() ?? documentFileName(document);
-    let directory = root;
-    for (const segment of segments) {
-      const childPath = directory.path
-        ? `${directory.path}/${segment}`
-        : segment;
-      let child = directory.directories.get(segment);
-      if (!child) {
-        child = {
-          directories: new Map(),
-          name: segment,
-          pages: [],
-          path: childPath,
-        };
-        directory.directories.set(segment, child);
-      }
-      directory = child;
-    }
-    directory.pages.push({ document, kind: "page", name, path: pagePath });
-  }
-  return finalizeWikiDirectory(root);
-}
-
-function finalizeWikiDirectory(
-  directory: MutableWikiDirectory,
-): WikiTreeNode[] {
-  const directories: WikiTreeDirectory[] = [...directory.directories.values()]
-    .sort((left, right) => left.name.localeCompare(right.name))
-    .map((child) => ({
-      children: finalizeWikiDirectory(child),
-      kind: "directory",
-      name: child.name,
-      path: child.path,
-    }));
-  const pages = directory.pages.sort((left, right) =>
-    left.name.localeCompare(right.name),
-  );
-  return [...directories, ...pages];
-}
-
-function flattenWikiTree(
-  nodes: WikiTreeNode[],
-  expandedPaths: ReadonlySet<string>,
-  depth = 0,
-): Array<{ depth: number; node: WikiTreeNode }> {
-  return nodes.flatMap((node) => [
-    { depth, node },
-    ...(node.kind === "directory" && expandedPaths.has(node.path)
-      ? flattenWikiTree(node.children, expandedPaths, depth + 1)
-      : []),
-  ]);
-}
-
 // A recording's Session summary is shown as summary.md in its Meeting folder;
 // listing it again under Wiki sessions/ would duplicate it.
 const meetingSessionPage =
   /^sessions\/\d{4}-\d{2}-\d{2}\/capture_session_[A-Za-z0-9_-]+\.md$/u;
-
-function wikiPagePath(document: TeamHubDocument) {
-  return (
-    document.from.find((source) => source.binding_kind === "wiki_page")
-      ?.page_key ?? documentFileName(document)
-  );
-}

@@ -28,3 +28,8 @@
   decisions scoped to the current Account and Tenant (`wiki-display-state.ts`, shared
   with `features/memory`). Filter displayed graph nodes and edges only; never issue
   backend mutations for these decisions.
+  The Wiki file tree filters by title as a view of the loaded list: matching pages,
+  the folders above them, and folders whose own name matches, with a no-match
+  message. Filtering never fetches, never changes the route or the open page, and
+  opens folders in view state only, so clearing the field restores the branches the
+  reader left.
