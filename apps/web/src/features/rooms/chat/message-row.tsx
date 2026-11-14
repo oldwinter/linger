@@ -3,6 +3,7 @@ import {
   AlarmClockIcon,
   AtIcon,
   Cancel01Icon,
+  CheckListIcon,
   Copy01Icon,
   Link01Icon,
   MailReply01Icon,
@@ -136,6 +137,7 @@ interface MessageRowProps {
     options?: { focusComposer?: boolean },
   ) => void;
   onMentionAuthor?: (actor: TeamHubActorRef) => void;
+  onCreateIssueMessage?: (message: TeamHubMessage) => void;
   onForwardMessage?: (message: TeamHubMessage) => void;
   onReply?: (message: TeamHubMessage) => void;
   onToggleReaction?: (
@@ -237,6 +239,7 @@ function ConversationMessageRow({
   onOpenUrl,
   onOpenThread,
   onMentionAuthor,
+  onCreateIssueMessage,
   onForwardMessage,
   onReply,
   onToggleReaction,
@@ -350,6 +353,7 @@ function ConversationMessageRow({
       onTogglePin={togglePin}
       onToggleReaction={toggleReaction}
       onOpenThread={onOpenThread}
+      onCreateIssueMessage={onCreateIssueMessage}
       onForwardMessage={onForwardMessage}
       onReply={onReply}
       tenantId={tenantId}
@@ -790,6 +794,7 @@ function ConversationMessageActions({
   isPinned,
   message,
   onOpenThread,
+  onCreateIssueMessage,
   onForwardMessage,
   onReply,
   onToggleReaction,
@@ -800,6 +805,7 @@ function ConversationMessageActions({
   | "message"
   | "currentActorId"
   | "onOpenThread"
+  | "onCreateIssueMessage"
   | "onForwardMessage"
   | "onReply"
   | "tenantId"
@@ -840,6 +846,13 @@ function ConversationMessageActions({
       icon: <Icon icon={SentIcon} size={14} />,
       label: "Forward message",
       onSelect: () => onForwardMessage(message),
+    });
+  }
+  if (onCreateIssueMessage) {
+    overflowItems.push({
+      icon: <Icon icon={CheckListIcon} size={14} />,
+      label: "Create issue",
+      onSelect: () => onCreateIssueMessage(message),
     });
   }
   if (onReply) {
