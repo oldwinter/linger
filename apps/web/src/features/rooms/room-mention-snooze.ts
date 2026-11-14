@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
 
+import {
+  removePreferenceKeys,
+  storedPreferenceKeys,
+} from "@/lib/local-preference-keys";
+
 const SNOOZE_PREFIX = "room-mention-snooze.v1:";
 const MUTE_PREFIX = "room-mention-mute.v1:";
 const PREFERENCES_CHANGED = "room-mention-preferences-changed";
@@ -248,6 +253,17 @@ export function unmuteRoomMention(
     accountId,
     withoutRoomMentionMute(readRoomMentionMute(accountId), roomId),
   );
+}
+
+/** Whether this browser holds a mention snooze or mute for any Account. */
+export function hasRoomMentionPreferences(): boolean {
+  return storedPreferenceKeys([SNOOZE_PREFIX, MUTE_PREFIX]).length > 0;
+}
+
+/** Ends every mention snooze and mute in this browser, for every Account. */
+export function clearRoomMentionPreferences(): void {
+  removePreferenceKeys([SNOOZE_PREFIX, MUTE_PREFIX]);
+  window.dispatchEvent(new Event(PREFERENCES_CHANGED));
 }
 
 export function subscribeRoomMentionPreferences(

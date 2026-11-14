@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   addRecentDocument,
+  clearAllRecentDocuments,
   clearRecentDocuments,
+  hasRecentDocuments,
   type RecentDocument,
   readRecentDocuments,
   recordRecentDocument,
@@ -95,6 +97,23 @@ describe("Recent Document storage", () => {
 
     expect(readRecentDocuments("account-a")).toEqual([]);
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it("reports and clears the lists of every Account", () => {
+    expect(hasRecentDocuments()).toBe(false);
+
+    writeRecentDocuments("account-a", [entry("a")]);
+    writeRecentDocuments("account-b", [entry("b")]);
+    localStorage.setItem("unrelated", "keep");
+
+    expect(hasRecentDocuments()).toBe(true);
+
+    clearAllRecentDocuments();
+
+    expect(hasRecentDocuments()).toBe(false);
+    expect(readRecentDocuments("account-a")).toEqual([]);
+    expect(readRecentDocuments("account-b")).toEqual([]);
+    expect(localStorage.getItem("unrelated")).toBe("keep");
   });
 
   it("records an open by moving the Document to the front", () => {

@@ -24,6 +24,7 @@ import { TeamHubTestServer } from "@/test/teamhub-test-server";
 
 import * as avatarImages from "./members/actor-avatar-image";
 import { writeRoomComposerDraft, type RoomComposerDraft } from "./room-drafts";
+import { clearRoomUnreadFilter } from "./room-unread-filter";
 import { RoomSecondaryNavigation } from "./room-secondary-navigation";
 
 /** Row actions read the Room list cache and the runtime client. */
@@ -1087,6 +1088,32 @@ describe("Room navigation unread filter", () => {
       "aria-pressed",
       "false",
     );
+  });
+
+  it("turns the filter off when another surface clears this browser's preferences", () => {
+    localStorage.setItem("room-unread-filter.v1:account-a", "true");
+    renderList({
+      accountId: "account-a",
+      rooms: [room("room-read", 0, 0)],
+    });
+
+    expect(screen.getByRole("button", { name: "Unread" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(
+      within(messagesSection()).queryByRole("link", { name: "room-read" }),
+    ).not.toBeInTheDocument();
+
+    act(() => clearRoomUnreadFilter());
+
+    expect(screen.getByRole("button", { name: "Unread" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(
+      within(messagesSection()).getByRole("link", { name: "room-read" }),
+    ).toBeVisible();
   });
 
   it("shows every Room when the stored choice cannot be parsed", () => {

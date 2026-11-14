@@ -3,7 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   MENTION_SNOOZE_HOUR_MS,
+  clearRoomMentionPreferences,
   clearRoomMentionSnooze,
+  hasRoomMentionPreferences,
   isRoomMentionMuted,
   isRoomMentionSnoozed,
   muteRoomMention,
@@ -15,6 +17,7 @@ import {
   roomMentionSnoozeUntil,
   setRoomMentionSnooze,
   snoozedRoomIds,
+  subscribeRoomMentionPreferences,
   unmuteRoomMention,
   withRoomMentionMute,
   withRoomMentionSnooze,
@@ -237,5 +240,34 @@ describe("room mention mute", () => {
         now,
       ),
     ]).toEqual(["snoozed", "muted"]);
+  });
+});
+
+describe("room mention browser preferences", () => {
+  it("reports and clears the snoozes and mutes of every Account", () => {
+    const now = new Date("2026-11-15T10:00:00.000Z");
+    expect(hasRoomMentionPreferences()).toBe(false);
+
+    setRoomMentionSnooze(
+      ACCOUNT,
+      "room-a",
+      new Date("2026-11-15T11:00:00.000Z"),
+      now,
+    );
+    writeRoomMentionMute("account-b", withRoomMentionMute(new Set(), "room-b"));
+    localStorage.setItem("unrelated", "keep");
+
+    expect(hasRoomMentionPreferences()).toBe(true);
+    const listener = vi.fn();
+    const stop = subscribeRoomMentionPreferences(listener);
+
+    clearRoomMentionPreferences();
+    stop();
+
+    expect(hasRoomMentionPreferences()).toBe(false);
+    expect(readRoomMentionSnooze(ACCOUNT, now)).toEqual({});
+    expect(readRoomMentionMute("account-b").size).toBe(0);
+    expect(localStorage.getItem("unrelated")).toBe("keep");
+    expect(listener).toHaveBeenCalled();
   });
 });

@@ -5,6 +5,11 @@
  * blocked storage.
  */
 
+import {
+  removePreferenceKeys,
+  storedPreferenceKeys,
+} from "@/lib/local-preference-keys";
+
 export interface SearchTargetActor {
   id: string;
   kind: "agent" | "human";
@@ -69,15 +74,12 @@ const storageKey = (tenantId: string) => `${storagePrefix}${tenantId}`;
 const emptyStore = (): GlobalSearchStore => ({ queries: [] });
 
 export function clearGlobalSearchHistory() {
-  try {
-    const storage = window.localStorage;
-    for (let index = storage.length - 1; index >= 0; index--) {
-      const key = storage.key(index);
-      if (key?.startsWith(storagePrefix)) storage.removeItem(key);
-    }
-  } catch {
-    // Blocked storage must not prevent Session cleanup.
-  }
+  removePreferenceKeys([storagePrefix]);
+}
+
+/** Whether this browser remembers a query for any Tenant. */
+export function hasGlobalSearchHistory(): boolean {
+  return storedPreferenceKeys([storagePrefix]).length > 0;
 }
 
 export function readGlobalSearchStore(tenantId: string): GlobalSearchStore {

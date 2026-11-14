@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
 
 import {
+  clearRoomUnreadFilter,
+  hasRoomUnreadFilter,
   readRoomUnreadFilter,
   unreadRoomRows,
   writeRoomUnreadFilter,
@@ -117,5 +119,21 @@ describe("Room unread filter storage", () => {
 
     expect(localStorage.length).toBe(0);
     expect(readRoomUnreadFilter(undefined)).toBe(false);
+  });
+
+  it("reports and clears the choice of every Account", () => {
+    expect(hasRoomUnreadFilter()).toBe(false);
+
+    writeRoomUnreadFilter("account-a", true);
+    writeRoomUnreadFilter("account-b", false);
+    localStorage.setItem("unrelated", "keep");
+
+    expect(hasRoomUnreadFilter()).toBe(true);
+
+    clearRoomUnreadFilter();
+
+    expect(hasRoomUnreadFilter()).toBe(false);
+    expect(readRoomUnreadFilter("account-a")).toBe(false);
+    expect(localStorage.getItem("unrelated")).toBe("keep");
   });
 });
