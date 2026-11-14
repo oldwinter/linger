@@ -38,12 +38,15 @@ import {
   WORK_ITEM_DASHBOARD_ASSIGNMENTS,
   WORK_ITEM_DASHBOARD_EXECUTION_STATUSES,
   WORK_ITEM_DASHBOARD_PRIORITIES,
+  WORK_ITEM_DASHBOARD_PRIORITY_LABELS,
   workItemDashboardFiltersSearch,
   type WorkItemDashboardAssignment,
   type WorkItemDashboardExecutionStatus,
   type WorkItemDashboardFilters,
   type WorkItemDashboardPriority,
 } from "./work-item-dashboard-filters";
+import { WorkItemBoardCopyAction } from "./work-item-board-copy-action";
+import { workItemBoardMarkdown } from "./work-item-board-markdown";
 import { WorkItemCardMenu } from "./work-item-card-menu";
 import { WorkItemCreateAction } from "./work-item-create-dialog";
 import { WorkItemPeek } from "./work-item-peek";
@@ -79,13 +82,6 @@ const dashboardDateFormatter = dateTimeFormat({
   timeZone: "UTC",
   year: "numeric",
 });
-
-const priorityLabels: Record<WorkItemDashboardPriority, string> = {
-  high: "High",
-  low: "Low",
-  medium: "Medium",
-  urgent: "Urgent",
-};
 
 const executionLabels: Record<WorkItemDashboardExecutionStatus, string> = {
   canceled: "Agent canceled",
@@ -218,6 +214,23 @@ export function WorkItemsPage() {
   // card says why and offers its own way back.
   const textHidesBoard =
     Boolean(filters.text.trim()) && filteredItems.length === 0;
+  // The columns render these exact lists, so the copied Markdown matches them.
+  const boardSections = dashboardColumns.map((column) => ({
+    column,
+    items: orderedItems.filter(
+      (item) => dashboardColumnFor(item) === column.id,
+    ),
+  }));
+  const boardMarkdown = workItemBoardMarkdown({
+    filters: activeFilterLabels(filters, roomFilter.options),
+    origin: window.location.origin,
+    sections: boardSections.map(({ column, items: columnItems }) => ({
+      items: columnItems,
+      label: column.label,
+    })),
+    sortLabel: sortLabels[sort],
+    tenantId,
+  });
 
   function updateFilters(next: WorkItemDashboardFilters) {
     setSearchParams(
@@ -248,7 +261,10 @@ export function WorkItemsPage() {
                 : `${filteredItems.length} of ${items.length} items`}
             </p>
           </div>
-          <WorkItemCreateAction rooms={rooms.items} tenantId={tenantId} />
+          <div className="flex flex-wrap items-center gap-2">
+            <WorkItemBoardCopyAction markdown={boardMarkdown} />
+            <WorkItemCreateAction rooms={rooms.items} tenantId={tenantId} />
+          </div>
         </div>
         {showFilterBar ? (
           <div
@@ -307,7 +323,7 @@ export function WorkItemsPage() {
               <SelectItem value="">All priorities</SelectItem>
               {WORK_ITEM_DASHBOARD_PRIORITIES.map((priority) => (
                 <SelectItem key={priority} value={priority}>
-                  {priorityLabels[priority]}
+                  {WORK_ITEM_DASHBOARD_PRIORITY_LABELS[priority]}
                 </SelectItem>
               ))}
             </Select>
@@ -399,14 +415,12 @@ export function WorkItemsPage() {
       ) : items.length || showFilterBar ? (
         <div className="work-items-board workspace-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-hidden p-4 sm:p-5">
           <div className="grid h-full min-w-[1180px] grid-cols-5 gap-3">
-            {dashboardColumns.map((column) => (
+            {boardSections.map(({ column, items: columnItems }) => (
               <WorkItemColumn
                 column={column}
                 focusedCardRef={focusedCardRef}
                 focusedWorkItemId={focusedWorkItemId}
-                items={orderedItems.filter(
-                  (item) => dashboardColumnFor(item) === column.id,
-                )}
+                items={columnItems}
                 key={column.id}
                 onPeek={openPeek}
                 originRoomLabel={roomFilter.originLabel}
@@ -463,6 +477,33 @@ function mergeFocusedWorkItem(
   return items.map((item, index) =>
     index === focusedIndex ? focusedItem : item,
   );
+}
+
+/** The filters in force, named the way the header names them. */
+function activeFilterLabels(
+  filters: WorkItemDashboardFilters,
+  roomOptions: readonly { id: string; label: string }[],
+) {
+  const labels: string[] = [];
+  if (filters.room) {
+    labels.push(
+      `Room ${roomOptions.find((option) => option.id === filters.room)?.label ?? filters.room}`,
+    );
+  }
+  if (filters.priority) {
+    labels.push(
+      `Priority ${WORK_ITEM_DASHBOARD_PRIORITY_LABELS[filters.priority]}`,
+    );
+  }
+  if (filters.assignment !== "all") {
+    labels.push(`Assignment ${assignmentLabels[filters.assignment]}`);
+  }
+  if (filters.execution) {
+    labels.push(`Execution ${executionLabels[filters.execution]}`);
+  }
+  if (filters.text.trim()) labels.push(`Title “${filters.text.trim()}”`);
+  if (filters.archived) labels.push("Archived");
+  return labels;
 }
 
 function itemCount(count: number) {

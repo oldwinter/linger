@@ -11,36 +11,38 @@ import {
 
 export type WorkItemCopyState = "idle" | "copied" | "failed";
 
-export interface WorkItemCopy {
+export interface WorkItemClipboardCopy {
   /** What the last successful copy wrote; undefined until something is copied. */
   copiedLabel: string | undefined;
-  copyLink: () => void;
-  copyMarkdown: () => void;
+  copy: (text: string, label?: string) => void;
   state: WorkItemCopyState;
 }
 
+export interface WorkItemCopy extends WorkItemClipboardCopy {
+  copyLink: () => void;
+  copyMarkdown: () => void;
+}
+
 interface WorkItemCopyFeedback {
-  /** Which text was copied, since one menu offers both actions. */
+  /** Which text was copied, since one control may offer several actions. */
   label: string;
   state: Exclude<WorkItemCopyState, "idle">;
 }
 
 const feedbackDuration = 1200;
+const defaultCopiedLabel = "Copied";
 
 /**
- * Copies the Item as its dashboard link or as Markdown and reports whether the
- * clipboard accepted it, so a refused write never reads as success.
+ * Copies text and reports whether the clipboard accepted it, so a refused write
+ * never reads as success.
  */
-export function useWorkItemCopy(
-  tenantId: string,
-  item: TeamHubWorkItem,
-): WorkItemCopy {
+export function useWorkItemClipboardCopy(): WorkItemClipboardCopy {
   const [feedback, setFeedback] = useState<WorkItemCopyFeedback>();
   const resetTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => () => window.clearTimeout(resetTimer.current), []);
 
-  function copy(text: string, label: string) {
+  function copy(text: string, label: string = defaultCopiedLabel) {
     window.clearTimeout(resetTimer.current);
     void writeClipboardText(text)
       .then(() => setFeedback({ label, state: "copied" }))
@@ -55,6 +57,24 @@ export function useWorkItemCopy(
 
   return {
     copiedLabel: feedback?.label,
+    copy,
+    state: feedback?.state ?? "idle",
+  };
+}
+
+/**
+ * Copies the Item as its dashboard link or as Markdown, naming which one the
+ * confirmation refers to.
+ */
+export function useWorkItemCopy(
+  tenantId: string,
+  item: TeamHubWorkItem,
+): WorkItemCopy {
+  const { copy, copiedLabel, state } = useWorkItemClipboardCopy();
+
+  return {
+    copiedLabel,
+    copy,
     copyLink: () =>
       copy(dashboardWorkItemPath(tenantId, item.id), "Link copied"),
     copyMarkdown: () =>
@@ -65,6 +85,6 @@ export function useWorkItemCopy(
         }),
         "Markdown copied",
       ),
-    state: feedback?.state ?? "idle",
+    state,
   };
 }

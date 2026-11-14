@@ -46,6 +46,16 @@ export const WORK_ITEM_DASHBOARD_PRIORITIES = [
   "urgent",
 ] as const;
 
+export const WORK_ITEM_DASHBOARD_PRIORITY_LABELS: Record<
+  WorkItemDashboardPriority,
+  string
+> = {
+  high: "High",
+  low: "Low",
+  medium: "Medium",
+  urgent: "Urgent",
+};
+
 export const WORK_ITEM_DASHBOARD_EXECUTION_STATUSES = [
   "running",
   "waiting_for_approval",

@@ -10,7 +10,7 @@ export function WorkItemCopyStatus({
   copiedLabel = "Link copied",
   state,
 }: {
-  /** What the successful copy wrote; the failure line is the same for both. */
+  /** What the successful copy wrote; the failure line is the same for all. */
   copiedLabel?: string;
   state: WorkItemCopyState;
 }) {
