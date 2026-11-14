@@ -15,7 +15,7 @@ import {
   useLocation,
   useNavigate,
 } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createTestTeamHubRuntime,
@@ -33,6 +33,22 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 import { tenantWorkItemTargetQueryKey } from "./work-item-queries";
 import { WorkItemsPage } from "./work-items-page";
+
+const download = vi.hoisted(() => ({ triggerArtifactDownload: vi.fn() }));
+
+vi.mock(
+  "@/features/rooms/files/artifact-preview-loader",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@/features/rooms/files/artifact-preview-loader")
+    >()),
+    triggerArtifactDownload: download.triggerArtifactDownload,
+  }),
+);
+
+beforeEach(() => {
+  download.triggerArtifactDownload.mockReset();
+});
 
 describe("Dashboard page", () => {
   it("renders the authoritative lifecycle as a five-column read-only board", async () => {
@@ -933,6 +949,74 @@ describe("Dashboard page", () => {
           .map((card) => card.getAttribute("data-work-item-id")),
       ).toEqual(["workitem-urgent", "workitem-high", "workitem-low"]),
     );
+  });
+
+  it("exports the filtered and sorted board as CSV", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        assignees: [assignment(human)],
+        id: "workitem-plan",
+        priority: "low",
+        title: "Release plan",
+      }),
+      workItem(human, {
+        id: "workitem-build",
+        origin_room_id: "room-all",
+        priority: "urgent",
+        title: "Release build",
+      }),
+      workItem(human, {
+        id: "workitem-ship",
+        state: "in_progress",
+        title: "Release ship",
+      }),
+      workItem(human, { id: "workitem-noise", title: "Unrelated work" }),
+    ]);
+    renderPage(runtime);
+    await screen.findByText("Release plan");
+
+    fireEvent.change(
+      screen.getByRole("searchbox", { name: "Filter by title" }),
+      { target: { value: "release" } },
+    );
+    fireEvent.click(screen.getByLabelText("Sort"));
+    fireEvent.click(await screen.findByRole("option", { name: "Most urgent" }));
+    await waitFor(() =>
+      expect(screen.queryByText("Unrelated work")).not.toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+
+    expect(download.triggerArtifactDownload).toHaveBeenCalledOnce();
+    const [blob] = download.triggerArtifactDownload.mock.calls[0] as [
+      Blob,
+      string,
+    ];
+    const origin = window.location.origin;
+    expect(await blob.text()).toBe(
+      [
+        "Title,Status,Priority,Assignees,Source Room,Updated,URL",
+        `Release build,Todo,Urgent,,#all,2026-07-30T00:00:00Z,${origin}/t/tenant-northstar/dashboard/workitem-build`,
+        `Release plan,Todo,Low,${human.display_name},No source room,2026-07-30T00:00:00Z,${origin}/t/tenant-northstar/dashboard/workitem-plan`,
+        `Release ship,In progress,High,,No source room,2026-07-30T00:00:00Z,${origin}/t/tenant-northstar/dashboard/workitem-ship`,
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("offers no CSV export for a board with no cards", async () => {
+    const runtime = await testRuntime();
+    seedWorkItems(runtime, []);
+
+    renderPage(runtime);
+
+    expect(await screen.findByText("No Work Items yet")).toBeVisible();
+    const exportButton = screen.getByRole("button", { name: "Export CSV" });
+    expect(exportButton).toBeDisabled();
+    fireEvent.click(exportButton);
+    expect(download.triggerArtifactDownload).not.toHaveBeenCalled();
   });
 });
 
