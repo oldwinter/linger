@@ -13,6 +13,10 @@ import {
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
 
 import {
+  clearDesktopNotificationPause,
+  setDesktopNotificationPause,
+} from "./desktop-notification-pause";
+import {
   roomMentionMessages,
   roomMentionNotices,
   useRoomMentionNotifications,
@@ -406,6 +410,65 @@ describe("useRoomMentionNotifications", () => {
       "Room a",
     ]);
     expect(setBadgeCount).toHaveBeenLastCalledWith(3);
+  });
+
+  it("keeps every notification and the badge quiet while paused", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-15T10:00:00"));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const setBadgeCount = vi.fn(async () => {});
+    (window as { lingerDesktop?: unknown }).lingerDesktop = {
+      notifications: { setBadgeCount },
+    };
+    const open = vi.fn();
+    setDesktopNotificationPause("account-a", new Date("2026-11-15T10:30:00"));
+    const { rerender } = renderNotifications(
+      [room("a", { message: { id: "msg_1", text: "hello" } })],
+      open,
+      "account-a",
+    );
+    expect(setBadgeCount).toHaveBeenLastCalledWith(0);
+
+    rerender({
+      rooms: [
+        room("a", { mentions: 1, message: { id: "msg_2", text: "@Bo look" } }),
+      ],
+    });
+    expect(FakeNotification.shown).toEqual([]);
+    expect(setBadgeCount).toHaveBeenLastCalledWith(0);
+  });
+
+  it("announces the mention that arrived during the pause once it ends", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-15T10:00:00"));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const setBadgeCount = vi.fn(async () => {});
+    (window as { lingerDesktop?: unknown }).lingerDesktop = {
+      notifications: { setBadgeCount },
+    };
+    const open = vi.fn();
+    setDesktopNotificationPause("account-a", new Date("2026-11-15T10:30:00"));
+    const { rerender } = renderNotifications(
+      [room("a", { message: { id: "msg_1", text: "hello" } })],
+      open,
+      "account-a",
+    );
+    const mentioned = [
+      room("a", { mentions: 1, message: { id: "msg_2", text: "@Bo look" } }),
+    ];
+    rerender({ rooms: mentioned });
+    expect(FakeNotification.shown).toEqual([]);
+
+    act(() => clearDesktopNotificationPause("account-a"));
+
+    expect(FakeNotification.shown.map((notice) => notice.title)).toEqual([
+      "Room a",
+    ]);
+    expect(setBadgeCount).toHaveBeenLastCalledWith(1);
   });
 
   it("keeps the app badge on the total unread mentions", () => {
