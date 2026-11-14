@@ -68,6 +68,7 @@ import {
   type OpenPanelTabInput,
   type RoomOutletContext,
 } from "./room-connectivity";
+import { RoomHeaderMenu } from "./room-nav-actions";
 import { requireRoomRouteParam } from "./room-route-params";
 import {
   roomMembersQueryOptions,
@@ -892,6 +893,7 @@ function RoomHeader({
             <Icon icon={Delete02Icon} size={16} />
           </Button>
         ) : null}
+        <RoomHeaderMenu name={headerName} roomId={roomId} tenantId={tenantId} />
         {panelOpen ? (
           <span
             aria-hidden="true"

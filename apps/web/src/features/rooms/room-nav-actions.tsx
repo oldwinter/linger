@@ -4,10 +4,11 @@ import {
   BellOffIcon,
   Clock01Icon,
   Delete02Icon,
+  Link01Icon,
   PinIcon,
   PinOffIcon,
 } from "@hugeicons/core-free-icons";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
@@ -30,6 +31,7 @@ import {
   tenantAgentsQueryOptions,
   tenantRoomsQueryKey,
 } from "./room-queries";
+import { roomChatPath } from "./room-routes";
 
 const AgentDeleteDialog = lazy(async () => ({
   default: (await import("./room-nav-agent-delete-dialog"))
@@ -84,6 +86,87 @@ export function useRoomPin(tenantId: string) {
 // open); the row's own hover tint is enough to announce them.
 const roomNavActionClass =
   "flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-150 hover:bg-foreground/5 hover:text-foreground aria-expanded:bg-foreground/5 aria-expanded:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+const roomHeaderActionClass =
+  "flex size-8 shrink-0 items-center justify-center rounded-lg text-app-muted transition-colors hover:bg-app-hover hover:text-app-ink aria-expanded:bg-app-hover aria-expanded:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus";
+
+type RoomLinkCopyState = "idle" | "copied" | "failed";
+
+/** Long enough to read, matching the message menu's Copied tick. */
+const ROOM_LINK_COPIED_MS = 1200;
+
+/**
+ * Copies a Room's canonical chat URL. A thread is a Room, so passing its id
+ * copies the thread's own URL.
+ */
+function useRoomLinkCopy(tenantId: string, roomId: string) {
+  const [state, setState] = useState<RoomLinkCopyState>("idle");
+  const resetTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(resetTimer.current), []);
+  function copy() {
+    window.clearTimeout(resetTimer.current);
+    setState("idle");
+    void import("@/lib/clipboard")
+      .then(({ writeClipboardText }) =>
+        writeClipboardText(roomChatPath(tenantId, roomId)),
+      )
+      .then(() => {
+        setState("copied");
+        resetTimer.current = window.setTimeout(
+          () => setState("idle"),
+          ROOM_LINK_COPIED_MS,
+        );
+      })
+      .catch(() => setState("failed"));
+  }
+  return { copy, state };
+}
+
+/** A refused write keeps saying so until the next attempt. */
+function RoomLinkCopyStatus({ state }: { state: RoomLinkCopyState }) {
+  if (state === "copied")
+    return (
+      <span className="text-xs leading-4 text-app-muted" role="status">
+        Copied
+      </span>
+    );
+  if (state === "failed")
+    return (
+      <span className="text-xs leading-4 text-app-danger" role="alert">
+        Copy failed
+      </span>
+    );
+  return null;
+}
+
+/** The Room header's overflow menu. */
+export function RoomHeaderMenu({
+  name,
+  roomId,
+  tenantId,
+}: {
+  name: string;
+  roomId: string;
+  tenantId: string;
+}) {
+  const link = useRoomLinkCopy(tenantId, roomId);
+  return (
+    <>
+      <RoomLinkCopyStatus state={link.state} />
+      <ActionMenu
+        buttonClassName={roomHeaderActionClass}
+        items={[
+          {
+            icon: <Icon icon={Link01Icon} size={14} />,
+            label: "Copy Room link",
+            onSelect: link.copy,
+          },
+        ]}
+        label={`More actions for ${name}`}
+      />
+    </>
+  );
+}
 
 export function RoomPinButton({
   name,
@@ -176,12 +259,14 @@ export function AgentRowMenu({
   name,
   onTogglePin,
   pinned,
+  roomId,
   tenantId,
 }: {
   agentId: string | undefined;
   name: string;
   onTogglePin: () => void;
   pinned: boolean;
+  roomId: string;
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
@@ -198,8 +283,10 @@ export function AgentRowMenu({
     (agent) => agent.actor.id === agentId,
   );
   const canDelete = canDeleteTenantAgent(registration, currentActorId);
+  const link = useRoomLinkCopy(tenantId, roomId);
   return (
     <>
+      <RoomLinkCopyStatus state={link.state} />
       <ActionMenu
         buttonClassName={roomNavActionClass}
         items={[
@@ -211,6 +298,11 @@ export function AgentRowMenu({
             ),
             label: pinned ? "Unpin" : "Pin",
             onSelect: onTogglePin,
+          },
+          {
+            icon: <Icon icon={Link01Icon} size={14} />,
+            label: "Copy Room link",
+            onSelect: link.copy,
           },
           {
             danger: true,

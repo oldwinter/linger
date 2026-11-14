@@ -840,7 +840,7 @@ describe("Room navigation pins", () => {
       within(menu)
         .getAllByRole("menuitem")
         .map((item) => item.textContent),
-    ).toEqual(["Pin", "Delete"]);
+    ).toEqual(["Pin", "Copy Room link", "Delete"]);
     // Only the Human who registered the Agent may remove it.
     expect(
       within(menu).getByRole("menuitem", { name: "Delete" }),
