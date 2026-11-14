@@ -3901,6 +3901,13 @@ button.question-choice:focus-visible {
     0 0 0 2px hsl(var(--town-border-hover));
 }
 
+/* The ring j/k moves; an outline rather than a ring so the card's own
+   unlayered box-shadow cannot swallow it. */
+.work-item-card[data-keyboard-focus="true"] {
+  outline: 2px solid var(--app-focus);
+  outline-offset: 1px;
+}
+
 .work-item-priority[data-priority="high"],
 .work-item-priority[data-priority="urgent"] {
   border-color: var(--app-accent-border);

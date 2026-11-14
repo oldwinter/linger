@@ -11,6 +11,9 @@ import { Icon } from "@/components/ui/icon";
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type RefCallback,
@@ -48,6 +51,11 @@ import {
 import { WorkItemBoardCopyAction } from "./work-item-board-copy-action";
 import { workItemBoardCsv } from "./work-item-board-csv";
 import { WorkItemBoardCsvAction } from "./work-item-board-csv-action";
+import {
+  isWorkItemBoardKeyEvent,
+  nextWorkItemCardId,
+  workItemBoardMoveForKey,
+} from "./work-item-board-keyboard";
 import { workItemBoardMarkdown } from "./work-item-board-markdown";
 import { WorkItemCardMenu } from "./work-item-card-menu";
 import {
@@ -81,6 +89,12 @@ const dashboardColumns: readonly DashboardColumn[] = [
   { id: "done", label: "Done" },
   { id: "closed", label: "Closed" },
 ];
+
+/** One column's cards in the order the board shows them. */
+interface BoardSection {
+  column: DashboardColumn;
+  items: TeamHubWorkItem[];
+}
 
 const dashboardDateFormatter = dateTimeFormat({
   day: "numeric",
@@ -223,7 +237,7 @@ export function WorkItemsPage() {
   const textHidesBoard =
     Boolean(filters.text.trim()) && filteredItems.length === 0;
   // The columns render these exact lists, so the copied Markdown matches them.
-  const boardSections = dashboardColumns.map((column) => ({
+  const boardSections: BoardSection[] = dashboardColumns.map((column) => ({
     column,
     items: orderedItems.filter(
       (item) => dashboardColumnFor(item) === column.id,
@@ -434,24 +448,16 @@ export function WorkItemsPage() {
           </div>
         </section>
       ) : items.length || showFilterBar ? (
-        <div className="work-items-board workspace-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-hidden p-4 sm:p-5">
-          <div className="grid h-full min-w-[1180px] grid-cols-5 gap-3">
-            {boardSections.map(({ column, items: columnItems }) => (
-              <WorkItemColumn
-                column={column}
-                focusedCardRef={focusedCardRef}
-                focusedWorkItemId={focusedWorkItemId}
-                items={columnItems}
-                key={column.id}
-                onDuplicate={setDuplicateItem}
-                onPeek={openPeek}
-                originRoomLabel={roomFilter.originLabel}
-                search={dashboardSearch}
-                tenantId={tenantId}
-              />
-            ))}
-          </div>
-        </div>
+        <WorkItemBoard
+          focusedCardRef={focusedCardRef}
+          focusedWorkItemId={focusedWorkItemId}
+          onDuplicate={setDuplicateItem}
+          onPeek={openPeek}
+          originRoomLabel={roomFilter.originLabel}
+          search={dashboardSearch}
+          sections={boardSections}
+          tenantId={tenantId}
+        />
       ) : (
         <section className="flex min-h-0 flex-1 items-center justify-center px-6 py-12 text-center">
           <div>
@@ -495,6 +501,126 @@ function cardForWorkItem(workItemId: string) {
     if (card.dataset.workItemId === workItemId) return card;
   }
   return null;
+}
+
+/**
+ * The board's columns plus the keyboard focus ring. The ring is board state
+ * rather than DOM focus, so it survives re-renders, Escape can drop it without
+ * moving the page, and typing elsewhere never inherits it.
+ */
+function WorkItemBoard({
+  focusedCardRef,
+  focusedWorkItemId,
+  onDuplicate,
+  onPeek,
+  originRoomLabel,
+  search,
+  sections,
+  tenantId,
+}: {
+  focusedCardRef: RefCallback<HTMLAnchorElement>;
+  focusedWorkItemId?: string;
+  onDuplicate: (item: TeamHubWorkItem) => void;
+  onPeek: (item: TeamHubWorkItem, card: HTMLAnchorElement) => void;
+  originRoomLabel: (item: TeamHubWorkItem) => string;
+  search: string;
+  sections: BoardSection[];
+  tenantId: string;
+}) {
+  const [closedExpanded, setClosedExpanded] = useState(true);
+  const [keyboardFocusId, setKeyboardFocusId] = useState<string>();
+  // A collapsed column shows no cards, so its Items leave the move order too.
+  const shownItems = sections.flatMap(({ column, items }) =>
+    column.id === "closed" && !closedExpanded ? [] : items,
+  );
+  const orderedIdsKey = shownItems.map((item) => item.id).join("\n");
+  const orderedIds = useMemo(
+    () => (orderedIdsKey ? orderedIdsKey.split("\n") : []),
+    [orderedIdsKey],
+  );
+  // A filter that hides the marked card leaves no stale ring on another one.
+  useEffect(() => {
+    setKeyboardFocusId((current) =>
+      current !== undefined && !orderedIds.includes(current)
+        ? undefined
+        : current,
+    );
+  }, [orderedIds]);
+  // The nearest card position, so a move scrolls the column and never the page.
+  useLayoutEffect(() => {
+    if (keyboardFocusId === undefined) return;
+    cardForWorkItem(keyboardFocusId)?.scrollIntoView?.({
+      block: "nearest",
+      inline: "nearest",
+    });
+  }, [keyboardFocusId]);
+
+  const handleBoardKey = useEffectEvent((event: KeyboardEvent) => {
+    const move = workItemBoardMoveForKey(event.key);
+    if (move) {
+      event.preventDefault();
+      const nextId = nextWorkItemCardId(orderedIds, keyboardFocusId, move);
+      if (nextId !== undefined) setKeyboardFocusId(nextId);
+      return;
+    }
+    if (event.key === "Escape" && keyboardFocusId !== undefined) {
+      event.preventDefault();
+      setKeyboardFocusId(undefined);
+      return;
+    }
+    if (event.key !== "Enter" || keyboardFocusId === undefined) return;
+    // A link or button keeps its own Enter, so the ring never steals the key
+    // from the control the person actually focused.
+    if (
+      event.target instanceof Element &&
+      event.target.closest(
+        "a, button, summary, [role='button'], [role='menuitem']",
+      )
+    ) {
+      return;
+    }
+    const item = shownItems.find(
+      (candidate) => candidate.id === keyboardFocusId,
+    );
+    const card = cardForWorkItem(keyboardFocusId);
+    if (!item || !card) return;
+    // The marked card, not whichever card happens to hold DOM focus.
+    event.preventDefault();
+    onPeek(item, card);
+  });
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (!isWorkItemBoardKeyEvent(event)) return;
+      handleBoardKey(event);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  return (
+    <div className="work-items-board workspace-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-hidden p-4 sm:p-5">
+      <div className="grid h-full min-w-[1180px] grid-cols-5 gap-3">
+        {sections.map(({ column, items }) => (
+          <WorkItemColumn
+            closedExpanded={closedExpanded}
+            column={column}
+            focusedCardRef={focusedCardRef}
+            focusedWorkItemId={focusedWorkItemId}
+            items={items}
+            key={column.id}
+            keyboardFocusId={keyboardFocusId}
+            onDuplicate={onDuplicate}
+            onPeek={onPeek}
+            onToggleClosed={() => setClosedExpanded((expanded) => !expanded)}
+            originRoomLabel={originRoomLabel}
+            search={search}
+            tenantId={tenantId}
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function mergeFocusedWorkItem(
@@ -577,27 +703,33 @@ function WorkItemsError({
 }
 
 function WorkItemColumn({
+  closedExpanded,
   column,
   focusedCardRef,
   focusedWorkItemId,
   items,
+  keyboardFocusId,
   onDuplicate,
   onPeek,
+  onToggleClosed,
   originRoomLabel,
   search,
   tenantId,
 }: {
+  closedExpanded: boolean;
   column: DashboardColumn;
   focusedCardRef: RefCallback<HTMLAnchorElement>;
   focusedWorkItemId?: string;
   items: TeamHubWorkItem[];
+  /** The card the board's keys marked, which scrolls and Enter opens. */
+  keyboardFocusId?: string;
   onDuplicate: (item: TeamHubWorkItem) => void;
   onPeek: (item: TeamHubWorkItem, card: HTMLAnchorElement) => void;
+  onToggleClosed: () => void;
   originRoomLabel: (item: TeamHubWorkItem) => string;
   search: string;
   tenantId: string;
 }) {
-  const [closedExpanded, setClosedExpanded] = useState(true);
   const isClosed = column.id === "closed";
 
   return (
@@ -619,7 +751,7 @@ function WorkItemColumn({
             aria-controls="work-item-column-closed-items"
             aria-expanded={closedExpanded}
             aria-label={closedExpanded ? "Collapse closed" : "Expand closed"}
-            onClick={() => setClosedExpanded((expanded) => !expanded)}
+            onClick={onToggleClosed}
             size="compactIcon"
             title={closedExpanded ? "Collapse closed" : "Expand closed"}
             tone="ghost"
@@ -644,6 +776,9 @@ function WorkItemColumn({
                   item.id === focusedWorkItemId ? "location" : undefined
                 }
                 className="work-item-card block py-2.5 pl-3 pr-9 text-app-ink outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                data-keyboard-focus={
+                  item.id === keyboardFocusId ? "true" : undefined
+                }
                 data-work-item-id={item.id}
                 onClick={(event) => {
                   // A plain click peeks at the Item; keyboard activation does
