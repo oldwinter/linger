@@ -74,6 +74,7 @@ import {
 } from "./work-item-queries";
 import { dashboardWorkItemPath } from "./work-item-routes";
 import { createWorkItemRoomFilterModel } from "./work-item-room-filter";
+import { WorkItemSelectionCopyLinks } from "./work-item-selection-copy";
 import {
   createWorkItemDashboardSort,
   sortWorkItems,
@@ -557,6 +558,10 @@ function WorkItemBoard({
   );
   const selection = useWorkItemSelection({ items: shownItems, tenantId });
   const hasSelection = selection.count > 0;
+  // Display order and the visible set both come from the cards the board drew.
+  const selectedItems = shownItems.filter((item) =>
+    selection.isSelected(item.id),
+  );
   const orderedIdsKey = shownItems.map((item) => item.id).join("\n");
   const orderedIds = useMemo(
     () => (orderedIdsKey ? orderedIdsKey.split("\n") : []),
@@ -649,6 +654,13 @@ function WorkItemBoard({
             >
               {selection.allSelected ? "Deselect all" : "Select all"}
             </Button>
+          ) : null}
+          {shownItems.length > 0 ? (
+            <WorkItemSelectionCopyLinks
+              disabled={!hasSelection || selection.pending}
+              items={selectedItems}
+              tenantId={tenantId}
+            />
           ) : null}
           {hasSelection ? (
             <Button

@@ -90,6 +90,177 @@ describe("Copy the Work Items board as Markdown", () => {
   });
 });
 
+describe("Copy the selected Work Item links", () => {
+  it("copies one selected Item as its link", async () => {
+    const writeText = stubClipboard(() => Promise.resolve());
+    const runtime = seededRuntime();
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("checkbox", { name: "Select Beta item" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Copy links" }));
+
+    expect(writeText).toHaveBeenCalledWith(
+      `- [Beta item](${origin}/t/tenant-northstar/dashboard/workitem-beta)`,
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent("Copied");
+    expect(screen.getByText("1 selected")).toBeVisible();
+  });
+
+  it("copies several Items in board order, not click order", async () => {
+    const writeText = stubClipboard(() => Promise.resolve());
+    const runtime = seededRuntime();
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("checkbox", { name: "Select Gamma item" }),
+    );
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select Alpha item" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Copy links" }));
+
+    expect(writeText).toHaveBeenCalledWith(
+      [
+        `- [Alpha item](${origin}/t/tenant-northstar/dashboard/workitem-alpha)`,
+        `- [Gamma item](${origin}/t/tenant-northstar/dashboard/workitem-gamma)`,
+      ].join("\n"),
+    );
+  });
+
+  it("leaves out a selected card the filter hides", async () => {
+    const writeText = stubClipboard(() => Promise.resolve());
+    const runtime = seededRuntime();
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("checkbox", { name: "Select Alpha item" }),
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Beta item" }));
+    fireEvent.change(
+      screen.getByRole("searchbox", { name: "Filter by title" }),
+      { target: { value: "Alpha" } },
+    );
+    await waitFor(() =>
+      expect(screen.queryByText("Beta item")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("1 selected")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy links" }));
+
+    expect(writeText).toHaveBeenCalledWith(
+      `- [Alpha item](${origin}/t/tenant-northstar/dashboard/workitem-alpha)`,
+    );
+  });
+
+  it("leaves out a selected card whose column is collapsed", async () => {
+    const writeText = stubClipboard(() => Promise.resolve());
+    const runtime = createTestTeamHubRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    runtime.seed.workItems = [
+      workItem(human, {
+        id: "workitem-closed",
+        resolution: "not_planned",
+        state: "resolved",
+        title: "Closed item",
+        updated_at: "2026-07-30T00:00:02Z",
+      }),
+      workItem(human, {
+        id: "workitem-alpha",
+        title: "Alpha item",
+        updated_at: "2026-07-30T00:00:01Z",
+      }),
+    ];
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("checkbox", { name: "Select Closed item" }),
+    );
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select Alpha item" }),
+    );
+    expect(screen.getByText("2 selected")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse closed" }));
+    await waitFor(() => expect(screen.getByText("1 selected")).toBeVisible());
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy links" }));
+
+    expect(writeText).toHaveBeenCalledWith(
+      `- [Alpha item](${origin}/t/tenant-northstar/dashboard/workitem-alpha)`,
+    );
+  });
+
+  it("offers Copy links only while a card is selected", async () => {
+    stubClipboard(() => Promise.resolve());
+    const runtime = seededRuntime();
+
+    renderPage(runtime);
+    expect(
+      await screen.findByRole("button", { name: "Copy links" }),
+    ).toBeDisabled();
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select Alpha item" }),
+    );
+    expect(screen.getByRole("button", { name: "Copy links" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Copy links" })).toBeDisabled(),
+    );
+  });
+
+  it("says the copy failed and keeps the selection", async () => {
+    stubClipboard(() => Promise.reject(new Error("Clipboard is denied")));
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: vi.fn(() => false),
+    });
+    const runtime = seededRuntime();
+
+    renderPage(runtime);
+    fireEvent.click(
+      await screen.findByRole("checkbox", { name: "Select Alpha item" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Copy links" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
+    expect(
+      screen.getByRole("checkbox", { name: "Select Alpha item" }),
+    ).toBeChecked();
+    expect(screen.getByText("1 selected")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Copy links" })).toBeEnabled();
+  });
+});
+
+const origin = window.location.origin;
+
+/** Three Todo cards with distinct update times, so the board order is fixed. */
+function seededRuntime() {
+  const runtime = createTestTeamHubRuntime();
+  const human = runtime.seed.identity.actors[0]!;
+  runtime.seed.workItems = [
+    workItem(human, {
+      id: "workitem-alpha",
+      title: "Alpha item",
+      updated_at: "2026-07-30T00:00:03Z",
+    }),
+    workItem(human, {
+      id: "workitem-beta",
+      title: "Beta item",
+      updated_at: "2026-07-30T00:00:02Z",
+    }),
+    workItem(human, {
+      id: "workitem-gamma",
+      title: "Gamma item",
+      updated_at: "2026-07-30T00:00:01Z",
+    }),
+  ];
+  return runtime;
+}
+
 function stubClipboard(writeText: () => Promise<void>) {
   const write = vi.fn(writeText);
   Object.assign(navigator, { clipboard: { writeText: write } });

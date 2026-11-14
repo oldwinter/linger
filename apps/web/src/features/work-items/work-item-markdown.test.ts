@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { workItemMarkdown } from "./work-item-markdown";
+import { workItemLinksMarkdown, workItemMarkdown } from "./work-item-markdown";
 
 const link =
   "https://linger.example/t/tenant-northstar/dashboard/workitem-login";
@@ -46,6 +46,48 @@ describe("Work Item Markdown", () => {
         link,
       }),
     ).toBe(["# Fix login failure", "Open · High", link].join("\n\n"));
+  });
+});
+
+describe("workItemLinksMarkdown", () => {
+  it("writes one absolute Markdown link per Item in the order given", () => {
+    expect(
+      workItemLinksMarkdown({
+        items: [
+          { id: "workitem-alpha", title: "Alpha item" },
+          { id: "workitem-beta", title: "Beta item" },
+        ],
+        origin: "https://linger.example",
+        tenantId: "tenant-northstar",
+      }),
+    ).toBe(
+      [
+        "- [Alpha item](https://linger.example/t/tenant-northstar/dashboard/workitem-alpha)",
+        "- [Beta item](https://linger.example/t/tenant-northstar/dashboard/workitem-beta)",
+      ].join("\n"),
+    );
+  });
+
+  it("escapes brackets so a title stays plain link text", () => {
+    expect(
+      workItemLinksMarkdown({
+        items: [{ id: "workitem-plan", title: "Plan [draft]" }],
+        origin: "https://linger.example",
+        tenantId: "tenant-northstar",
+      }),
+    ).toBe(
+      "- [Plan \\[draft\\]](https://linger.example/t/tenant-northstar/dashboard/workitem-plan)",
+    );
+  });
+
+  it("writes nothing when no Item is selected", () => {
+    expect(
+      workItemLinksMarkdown({
+        items: [],
+        origin: "https://linger.example",
+        tenantId: "tenant-northstar",
+      }),
+    ).toBe("");
   });
 });
 
