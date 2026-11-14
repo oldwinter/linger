@@ -4,6 +4,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -22,6 +23,10 @@ import { AccountMenu } from "@/features/auth/account-menu";
 import { LOGOUT_ERROR_MESSAGE, useLogout } from "@/features/auth/use-logout";
 
 import { Button } from "@/components/ui/button";
+import type {
+  RoomShellOutletContext,
+  SearchRoomScope,
+} from "@/features/search/room-search-scope";
 import { useGlobalSearchShortcut } from "@/features/search/search-shortcut";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
@@ -289,7 +294,24 @@ function RoomShellContent({
   const [searchOpen, setSearchOpen] = useState(false);
   // What a spoken search asked for; the shortcut opens an empty search.
   const [searchQuery, setSearchQuery] = useState("");
-  useGlobalSearchShortcut(() => setSearchOpen(true));
+  // The Room header opens the same dialog narrowed to its Room. The shortcut
+  // and voice stay Tenant-wide.
+  const [searchRoom, setSearchRoom] = useState<SearchRoomScope>();
+  const openGlobalSearch = useCallback(() => {
+    setSearchQuery("");
+    setSearchRoom(undefined);
+    setSearchOpen(true);
+  }, []);
+  const openRoomSearch = useCallback((room: SearchRoomScope) => {
+    setSearchQuery("");
+    setSearchRoom(room);
+    setSearchOpen(true);
+  }, []);
+  const shellOutletContext: RoomShellOutletContext = useMemo(
+    () => ({ openRoomSearch }),
+    [openRoomSearch],
+  );
+  useGlobalSearchShortcut(openGlobalSearch);
   // Voice page actions wait while a route is loading: lazy routes commit
   // their URL only once their code has arrived.
   const navigating = useRef(false);
@@ -304,6 +326,7 @@ function RoomShellContent({
         navigate: (path) => void navigate(path),
         navigating: () => navigating.current,
         openSearch: (query) => {
+          setSearchRoom(undefined);
           setSearchQuery(query);
           setSearchOpen(true);
         },
@@ -408,7 +431,7 @@ function RoomShellContent({
                     }
                     key={routeLayoutKey(location.pathname)}
                   >
-                    <Outlet />
+                    <Outlet context={shellOutletContext} />
                   </Suspense>
                 )}
               </DesktopBarSlot>
@@ -442,11 +465,14 @@ function RoomShellContent({
           {searchOpen ? (
             <Suspense fallback={null}>
               <GlobalSearchDialog
+                key={searchRoom?.id ?? "global"}
                 initialQuery={searchQuery}
                 onClose={() => {
                   setSearchOpen(false);
                   setSearchQuery("");
+                  setSearchRoom(undefined);
                 }}
+                room={searchRoom}
                 tenantId={tenantId}
               />
             </Suspense>

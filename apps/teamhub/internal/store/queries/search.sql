@@ -6,13 +6,15 @@ SELECT set_config('statement_timeout', '5s', true);
 
 -- name: SearchTenantMessagesForAccount :many
 -- Keyword search over conversation Messages the caller can read across one
--- Tenant. Visibility is the Message list's: membership through the parent Room
--- for threads, and after leaving, only Messages up to each Room's own frozen
--- left_room_seq. The Room list exclusions also apply, so every hit opens
--- through an existing route. The query is one substring; both sides are
--- lower-cased here. The page is chosen from narrow rows first and only its
--- hits are joined to authors and Rooms, so a word found in every Message sorts
--- ids instead of whole rows.
+-- Tenant, optionally narrowed to one Room. Visibility is the Message list's:
+-- membership through the parent Room for threads, and after leaving, only
+-- Messages up to each Room's own frozen left_room_seq. The Room list
+-- exclusions also apply, so every hit opens through an existing route. An
+-- empty room_id searches every Room, and a Room the caller cannot read matches
+-- nothing, so a scoped search never reveals whether that Room exists. The query
+-- is one substring; both sides are lower-cased here. The page is chosen from
+-- narrow rows first and only its hits are joined to authors and Rooms, so a
+-- word found in every Message sorts ids instead of whole rows.
 WITH page AS (
   SELECT m.id, m.created_at
   FROM messages m
@@ -38,6 +40,7 @@ WITH page AS (
   WHERE r.tenant_id=sqlc.arg(tenant_id)::text
     AND r.deleted_at IS NULL
     AND r.deletion_started_at IS NULL
+    AND (sqlc.arg(room_id)::text='' OR r.id=sqlc.arg(room_id)::text)
     AND m.message_kind='conversation'
     AND m.card_context_message_id IS NULL
     AND (departure.room_id IS NULL OR EXISTS (

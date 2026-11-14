@@ -9191,6 +9191,8 @@ export interface operations {
         q: string;
         cursor?: components["parameters"]["Cursor"];
         limit?: components["parameters"]["Limit"];
+        /** @description Narrows the search to Messages in this Room. A Room the caller cannot read returns an empty items array instead of an error. */
+        room_id?: string;
       };
       header?: never;
       path: {

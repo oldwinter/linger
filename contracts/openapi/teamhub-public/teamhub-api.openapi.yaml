@@ -1203,6 +1203,13 @@ paths:
           schema: { type: string, minLength: 1, maxLength: 200 }
         - $ref: '../components/common.yaml#/components/parameters/Cursor'
         - $ref: '../components/common.yaml#/components/parameters/Limit'
+        - name: room_id
+          in: query
+          required: false
+          description: >-
+            Narrows the search to Messages in this Room. A Room the caller cannot read
+            returns an empty items array instead of an error.
+          schema: { type: string }
       responses:
         '200':
           description: Matching Messages newest first with the Room each one belongs to; no matches returns an empty items array.

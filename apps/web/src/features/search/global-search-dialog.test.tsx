@@ -88,6 +88,42 @@ describe("Global search dialog", () => {
     ]);
   });
 
+  it("searches only the Room it opened on until the chip is cleared", async () => {
+    const harness = await renderDialog({
+      room: { id: "room-all", name: "All hands" },
+    });
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    expect(screen.getByText("This Room")).toBeVisible();
+    expect(input).toHaveAttribute("placeholder", "Search messages");
+    expect(
+      screen.queryByRole("button", { name: "Remove Messages scope" }),
+    ).toBeNull();
+
+    fireEvent.change(input, { target: { value: "deploy" } });
+    await waitFor(() =>
+      expect(searchRequests(harness.searchMessages)).toContainEqual({
+        params: { tenantId: TENANT },
+        query: { limit: "20", q: "deploy", room_id: "room-all" },
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    expect(harness.searchDocuments).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove This Room scope" }),
+    );
+    expect(screen.queryByText("This Room")).toBeNull();
+    expect(input).toHaveFocus();
+    await waitFor(() =>
+      expect(searchRequests(harness.searchMessages)).toContainEqual({
+        params: { tenantId: TENANT },
+        query: { limit: "20", q: "deploy" },
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    await waitFor(() => expect(harness.searchDocuments).toHaveBeenCalled());
+  });
+
   it("searches messages and docs after the debounce without a preview pane", async () => {
     const harness = await renderDialog();
     const { message, document } = await harness.samples();
@@ -657,7 +693,11 @@ async function renderDialog({
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   }),
-}: { queryClient?: QueryClient } = {}) {
+  room,
+}: {
+  queryClient?: QueryClient;
+  room?: { id: string; name: string };
+} = {}) {
   const runtime = createTestTeamHubRuntime();
 
   const documents = await teamHubData(
@@ -692,7 +732,11 @@ async function renderDialog({
       {
         element: (
           <>
-            <GlobalSearchDialog onClose={onClose} tenantId={TENANT} />
+            <GlobalSearchDialog
+              onClose={onClose}
+              room={room}
+              tenantId={TENANT}
+            />
             <LocationProbe />
           </>
         ),

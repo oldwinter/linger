@@ -91,18 +91,22 @@ export function useGlobalSearchState(initialQuery: string, tenantId: string) {
 export function useSearchGroups({
   client,
   debouncedQuery,
+  roomId,
   tab,
   tenantId,
 }: {
   client: TeamHubClient;
   debouncedQuery: string;
+  /** A Room scope narrows Message search to that Room and hides every other type. */
+  roomId?: string;
   tab: GlobalSearchTab;
   tenantId: string;
 }) {
   const backendQuery =
     debouncedQuery.length >= MIN_BACKEND_QUERY_LENGTH ? debouncedQuery : "";
-  const wantsMessages = tab === "all" || tab === "messages";
-  const wantsDocs = tab === "all" || tab === "docs";
+  const roomScoped = roomId !== undefined;
+  const wantsMessages = roomScoped || tab === "all" || tab === "messages";
+  const wantsDocs = !roomScoped && (tab === "all" || tab === "docs");
 
   const agents = useQuery(tenantAgentsQueryOptions(client, tenantId));
   const rooms = useQuery(tenantRoomsQueryOptions(client, tenantId));
@@ -116,12 +120,22 @@ export function useSearchGroups({
         client.api.GET("/v0/tenants/{tenantId}/messages/search", {
           params: {
             path: { tenantId },
-            query: { limit: BACKEND_PAGE_LIMIT, q: backendQuery },
+            query: {
+              limit: BACKEND_PAGE_LIMIT,
+              q: backendQuery,
+              ...(roomId ? { room_id: roomId } : {}),
+            },
           },
           signal,
         }),
       ),
-    queryKey: ["teamhub", tenantId, "message-search", backendQuery],
+    queryKey: [
+      "teamhub",
+      tenantId,
+      "message-search",
+      backendQuery,
+      roomId ?? "",
+    ],
   });
   const documentSearch = useQuery({
     enabled: backendQuery !== "" && wantsDocs,

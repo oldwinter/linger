@@ -28,6 +28,8 @@ import {
   TeamHubRuntimeProvider,
 } from "@/features/teamhub/teamhub-runtime";
 
+import type { SearchRoomScope } from "@/features/search/room-search-scope";
+
 import { RoomChat } from "./chat/room-chat";
 import { RoomSurface } from "./room-surface";
 import {
@@ -87,6 +89,23 @@ describe("RoomSurface command availability", () => {
         },
       } satisfies Storage,
     });
+  });
+
+  it("opens Room-scoped search from the header", async () => {
+    const openRoomSearch = vi.fn();
+    await renderRoomSurface(
+      "room-all",
+      "",
+      surfaceRuntime(),
+      <div />,
+      openRoomSearch,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Search this Room" }),
+    );
+    expect(openRoomSearch).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "room-all" }),
+    );
   });
 
   it("shows a closable loading panel and keeps the composer usable while panel data waits", async () => {
@@ -1063,11 +1082,12 @@ async function renderRoomSurface(
   search = "",
   runtime: TeamHubRuntime = surfaceRuntime(),
   roomElement = <div />,
+  openRoomSearch: (room: SearchRoomScope) => void = () => {},
 ) {
   const router = createMemoryRouter(
     [
       {
-        element: <Outlet />,
+        element: <Outlet context={{ openRoomSearch }} />,
         path: "/t/:tenantId",
         children: [
           // Deleting a Room navigates here. Without the destination the
