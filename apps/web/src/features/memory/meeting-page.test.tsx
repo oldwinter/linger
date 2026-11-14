@@ -669,6 +669,87 @@ describe("MeetingPage", () => {
     expect(screen.queryByText("Copied")).toBeNull();
   });
 
+  it("copies the transcript as one plain-text line per turn", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry();
+    serveMeetings(runtime, [entry]);
+    const writeText = stubClipboard(() => Promise.resolve());
+    renderPage(runtime, `?entry=${entry.id}&file=transcript`);
+
+    const copy = await screen.findByRole("button", { name: "Copy transcript" });
+    await waitFor(() => expect(copy).toBeEnabled());
+    fireEvent.click(copy);
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        [
+          "Sure, sure, then you you you just follow this, this format here and that works. Fine, fine, so I. And then look, this part needs some breathing room, you know? Bao said.",
+          "Look, it blinks, but it does not tell you it is recording. And what you have now is not the same thing either.",
+          "Right, so, I feel like, because our earlier one, version A looked like this, you know? Ours really looks like this, but this may need a change.",
+          "Like we should build it ourselves. Okay okay, you you send me a screenshot, I am online.",
+          "Sure, I will send it to you, send it over.",
+          "What can you do?",
+          "Just leave it running locally. Mm.",
+          "Mm",
+          "Mm",
+        ].join("\n"),
+      ),
+    );
+    expect(await screen.findByText("Copied")).toBeVisible();
+  });
+
+  it("offers Copy transcript only once the transcript text has loaded", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry();
+    serveMeetings(runtime, [entry]);
+    let releaseContent = () => {};
+    const contentHeld = new Promise<void>((resolve) => {
+      releaseContent = resolve;
+    });
+    const version = runtime.seed.documentVersions.get(
+      entry.meeting!.transcript_version_id,
+    )!;
+    const content = runtime.seed.documentVersionContents.get(
+      entry.meeting!.transcript_version_id,
+    )!;
+    runtime.server.on(
+      "GET",
+      "/v0/document-versions/{documentVersionId}/content",
+      async () => {
+        await contentHeld;
+        return new Response(await content.arrayBuffer(), {
+          headers: {
+            "content-type": version.media_type,
+            "x-content-sha256": version.sha256,
+          },
+        });
+      },
+    );
+    renderPage(runtime, `?entry=${entry.id}&file=transcript`);
+
+    const copy = await screen.findByRole("button", { name: "Copy transcript" });
+    expect(copy).toBeDisabled();
+
+    releaseContent();
+
+    await waitFor(() => expect(copy).toBeEnabled());
+  });
+
+  it("says when copying the transcript fails instead of claiming success", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry();
+    serveMeetings(runtime, [entry]);
+    stubClipboard(() => Promise.reject(new Error("Not allowed")));
+    renderPage(runtime, `?entry=${entry.id}&file=transcript`);
+
+    const copy = await screen.findByRole("button", { name: "Copy transcript" });
+    await waitFor(() => expect(copy).toBeEnabled());
+    fireEvent.click(copy);
+
+    expect(await screen.findByText("Copy failed")).toBeVisible();
+    expect(screen.queryByText("Copied")).toBeNull();
+  });
+
   it("offers Copy actions only when the meeting has Actions", async () => {
     const runtime = await loggedInRuntime();
     const entry = meetingEntry(
