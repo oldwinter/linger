@@ -380,6 +380,11 @@ async function loadWikiCollectionPage() {
   return { Component: WikiCollectionPage };
 }
 
+async function loadDayReviewPage() {
+  const { DayReviewPage } = await import("@/features/memory/day-review-page");
+  return { Component: DayReviewPage };
+}
+
 async function loadMeetingPage() {
   const { MeetingPage } = await import("@/features/memory/meeting-page");
   return { Component: MeetingPage };
@@ -640,6 +645,11 @@ function createLibraryRoute(): RouteObject {
         ErrorBoundary: PanelRouteErrorSurface,
         lazy: loadWikiCollectionPage,
         path: "wiki/:collection?",
+      },
+      {
+        ErrorBoundary: PanelRouteErrorSurface,
+        lazy: loadDayReviewPage,
+        path: "day",
       },
       {
         // One meeting opens by `entry`; the list is the Workspace Meetings tab.

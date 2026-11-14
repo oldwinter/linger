@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useState } from "react";
-import { useParams, useSearchParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 
 import { FileDropTarget } from "@/components/ui/file-drop-target";
 import { Spinner } from "@/components/ui/spinner";
@@ -196,6 +196,14 @@ export function LibraryDocumentsPage() {
                 treeModel.onUploadFolder(files, ownedFolderId)
               }
             />
+            <p className="mt-3">
+              <Link
+                className="text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                to={`/t/${tenantId}/library/day`}
+              >
+                This day
+              </Link>
+            </p>
             <RecentDocumentCards
               documentActions={documentActions}
               documents={recentDocuments}

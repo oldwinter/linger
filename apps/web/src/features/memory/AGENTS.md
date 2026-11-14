@@ -1,8 +1,9 @@
 # Personal Memory Surface
 
 - Own the authenticated Human's Tenant-scoped Memory views: the Timeline graph
-  with its Daily and Weekly reports, and Meetings (calendar, reader, audio).
-  Personal Wiki navigation in `features/wiki` links here.
+  with its Daily and Weekly reports, Meetings (calendar, reader, audio), and
+  This day (`/library/day`), which reads Pocket, meetings, and the Daily for
+  one calendar day. Personal Wiki navigation in `features/wiki` links here.
 - Call TeamHub through the generated client (`client.api`) and generated
   Memory types; do not handwrite URLs or wire DTOs in components.
 - Meetings, reports and graph entries are read-only derived reading state, not
