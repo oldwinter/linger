@@ -5,7 +5,9 @@ import type { TeamHubWorkItem } from "@/features/teamhub/teamhub-types";
 
 import {
   describeWorkItemArchiveOutcome,
+  hasSelectedAllVisibleWorkItems,
   retainVisibleWorkItemSelection,
+  selectAllVisibleWorkItems,
   toggleWorkItemSelection,
 } from "./work-item-selection";
 
@@ -52,6 +54,44 @@ describe("retainVisibleWorkItemSelection", () => {
     const selected = new Set<string>();
 
     expect(retainVisibleWorkItemSelection(selected, ["card-a"])).toBe(selected);
+  });
+});
+
+describe("selectAllVisibleWorkItems", () => {
+  it("holds exactly the cards the board shows, in its order", () => {
+    expect([...selectAllVisibleWorkItems(["card-b", "card-a"])]).toEqual([
+      "card-b",
+      "card-a",
+    ]);
+  });
+
+  it("holds nothing when the board shows nothing", () => {
+    expect(selectAllVisibleWorkItems([]).size).toBe(0);
+  });
+});
+
+describe("hasSelectedAllVisibleWorkItems", () => {
+  it("is true only when every visible card is selected", () => {
+    expect(
+      hasSelectedAllVisibleWorkItems(new Set(["card-a", "card-b"]), [
+        "card-a",
+        "card-b",
+      ]),
+    ).toBe(true);
+    expect(
+      hasSelectedAllVisibleWorkItems(new Set(["card-a"]), ["card-a", "card-b"]),
+    ).toBe(false);
+  });
+
+  it("ignores a selected card the board no longer shows", () => {
+    expect(
+      hasSelectedAllVisibleWorkItems(new Set(["card-a", "hidden"]), ["card-a"]),
+    ).toBe(true);
+  });
+
+  it("is false for a board with no cards", () => {
+    expect(hasSelectedAllVisibleWorkItems(new Set(), [])).toBe(false);
+    expect(hasSelectedAllVisibleWorkItems(new Set(["card-a"]), [])).toBe(false);
   });
 });
 

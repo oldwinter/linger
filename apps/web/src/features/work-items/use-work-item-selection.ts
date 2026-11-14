@@ -10,7 +10,9 @@ import {
 } from "./work-item-queries";
 import {
   describeWorkItemArchiveOutcome,
+  hasSelectedAllVisibleWorkItems,
   retainVisibleWorkItemSelection,
+  selectAllVisibleWorkItems,
   toggleWorkItemSelection,
   type WorkItemArchiveOutcome,
 } from "./work-item-selection";
@@ -61,6 +63,10 @@ export function useWorkItemSelection({
     setSelectedIds((current) => toggleWorkItemSelection(current, workItemId));
   }
 
+  function selectAll() {
+    setSelectedIds(selectAllVisibleWorkItems(visibleIds));
+  }
+
   function clear() {
     setSelectedIds(EMPTY_SELECTION);
     setOutcome(null);
@@ -93,12 +99,14 @@ export function useWorkItemSelection({
   }
 
   return {
+    allSelected: hasSelectedAllVisibleWorkItems(visibleSelectedIds, visibleIds),
     archive,
     clear,
     count: visibleSelectedIds.size,
     isSelected: (workItemId: string) => visibleSelectedIds.has(workItemId),
     outcome,
     pending,
+    selectAll,
     toggle,
   };
 }
