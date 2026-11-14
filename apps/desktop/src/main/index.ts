@@ -44,6 +44,7 @@ import { MacPermissions } from "./mac-permissions.js";
 import { EventBus, ModuleHost, type Module } from "./modules.js";
 import { parseServerUrl } from "./navigation.js";
 import { PowerGuardModule, type PowerApi } from "./power-guard.js";
+import { QuickNoteModule } from "./quick-note.js";
 import { SetupWindowModule } from "./setup-window.js";
 import { loginShellEnvironment, withLoginShell } from "./shell-env.js";
 import { StatusModule } from "./status.js";
@@ -305,6 +306,10 @@ async function main(): Promise<void> {
       showFile: (file) => shell.showItemInFolder(file),
     }),
     setup,
+    new QuickNoteModule({
+      preload: path.join(here, "../preload/quick-note.cjs"),
+      sessionCookie: webSessionCookie,
+    }),
     updater,
     new TrayModule({ quit: () => void quit() }),
     new DesktopIpcModule({

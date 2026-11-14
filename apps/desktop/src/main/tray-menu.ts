@@ -4,6 +4,7 @@ import type { UpdateState } from "./updater.js";
 export type TrayAction =
   | "enroll"
   | "open"
+  | "quick-note"
   | "toggle-prevent-sleep"
   | "install-update"
   | "check-update"
@@ -37,6 +38,8 @@ export const trayMenu = (state: TrayMenuState): TrayMenuItem[] => [
   ...updateItems(state.update),
   { kind: "separator" },
   { kind: "action", action: "open", label: "Open Linger" },
+  // Capture without opening the app.
+  { kind: "action", action: "quick-note", label: "New Note" },
   // Reconnecting re-enrolls the same computer, e.g. after its credential
   // was rejected or the server moved.
   {

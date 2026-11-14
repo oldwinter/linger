@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
+    />
+    <title>New Note</title>
+    <style>
+      :root {
+        --canvas: #ffffff;
+        --ink: #202020;
+        --body: #404040;
+        --muted: #737373;
+        --border: #d4d4d4;
+        --focus: #202020;
+        --ok: #2f9e44;
+        --error: #b5320a;
+        color-scheme: light;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+      body {
+        padding: 16px;
+        background: var(--canvas);
+        color: var(--body);
+        font:
+          14px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          system-ui,
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      main {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        gap: 10px;
+      }
+      label {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      textarea {
+        flex: 1;
+        min-height: 0;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        outline: none;
+        resize: none;
+        color: var(--ink);
+        font: inherit;
+      }
+      textarea:focus {
+        border-color: var(--focus);
+      }
+      .footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 28px;
+      }
+      #status {
+        flex: 1;
+        margin: 0;
+        font-size: 12px;
+      }
+      #status[data-tone="ok"] {
+        color: var(--ok);
+      }
+      #status[data-tone="error"] {
+        color: var(--error);
+      }
+      #status[data-tone="muted"] {
+        color: var(--muted);
+      }
+      .hint {
+        color: var(--muted);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      button {
+        padding: 6px 14px;
+        border: 0;
+        border-radius: 7px;
+        background: #202020;
+        color: #ffffff;
+        font: inherit;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <label for="note">Add to today's Pocket Note</label>
+      <textarea
+        id="note"
+        autofocus
+        spellcheck="true"
+        placeholder="What's on your mind?"
+      ></textarea>
+      <div class="footer">
+        <p id="status" role="status"></p>
+        <span class="hint">Cmd/Ctrl+Enter to save · Esc to cancel</span>
+        <button id="save" type="button">Save</button>
+      </div>
+    </main>
+    <script>
+      const note = document.getElementById("note");
+      const status = document.getElementById("status");
+      const save = document.getElementById("save");
+      let busy = false;
+
+      const show = (text, tone) => {
+        status.textContent = text;
+        status.dataset.tone = tone;
+      };
+
+      const setBusy = (value) => {
+        busy = value;
+        save.disabled = value;
+      };
+
+      const submit = async () => {
+        if (busy) return;
+        const text = note.value.trim();
+        if (!text) {
+          show("Write something first.", "error");
+          note.focus();
+          return;
+        }
+        setBusy(true);
+        show("Saving…", "muted");
+        try {
+          const result = await window.lingerQuickNote.submit(text);
+          if (result.ok) {
+            note.value = "";
+            show("Saved to today's Pocket Note.", "ok");
+            return;
+          }
+          show(result.message, "error");
+        } catch {
+          show("Couldn't save the note. Try again.", "error");
+        }
+        setBusy(false);
+        note.focus();
+      };
+
+      save.addEventListener("click", () => void submit());
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault();
+          void submit();
+        } else if (event.key === "Escape" && !busy) {
+          event.preventDefault();
+          window.lingerQuickNote.cancel();
+        }
+      });
+      note.focus();
+    </script>
+  </body>
+</html>
