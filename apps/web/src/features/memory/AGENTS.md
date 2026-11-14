@@ -2,6 +2,8 @@
 
 - Own the authenticated Human's Tenant-scoped Memory views: the Timeline graph
   with its Daily and Weekly reports, and Meetings (calendar, reader, audio).
+  Searching the Timeline centers the best matching page and shows the pages
+  the graph links to it. Opening one recenters the search on that page.
   Personal Wiki navigation in `features/wiki` links here.
 - Call TeamHub through the generated client (`client.api`) and generated
   Memory types; do not handwrite URLs or wire DTOs in components.

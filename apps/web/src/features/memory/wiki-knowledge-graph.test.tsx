@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { WikiGraphData, WikiGraphNode } from "./wiki-graph-model";
@@ -61,6 +61,31 @@ describe("WikiKnowledgeGraph", () => {
   });
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("recenters the neighborhood when a linked page is opened", () => {
+    render(<WikiKnowledgeGraph graph={graph} />);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search pages" }), {
+      target: { value: "Lev8" },
+    });
+    const connected = screen.getByRole("region", { name: "Connected pages" });
+    expect(connected).toHaveTextContent("Lev8 Outbound");
+    expect(connected).toHaveTextContent("Mentioned by");
+    fireEvent.click(
+      within(connected).getByRole("button", { name: "Kickoff meeting" }),
+    );
+    expect(
+      screen.getByRole("region", { name: "Connected pages" }),
+    ).toHaveTextContent("Lev8 Outbound");
+    expect(screen.getByRole("searchbox", { name: "Search pages" })).toHaveValue(
+      "Kickoff meeting",
+    );
+    expect(
+      within(screen.getByRole("region", { name: "Connected pages" })).getByRole(
+        "heading",
+        { name: "Kickoff meeting" },
+      ),
+    ).toBeVisible();
   });
 
   it("shows only the Timeline with Day and Week granularity", () => {
