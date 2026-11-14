@@ -18,6 +18,9 @@
   neither action writes Memory state.
 - A meeting reader may copy its Action items as a Markdown checklist. The
   clipboard holds a copy of derived reading state and the reader writes none.
+- A meeting reader's header may copy the meeting's canonical link, built by
+  `meeting-routes.ts` with the origin the app is served from. The clipboard
+  again holds derived reading state, and a refused copy says so.
 - Timeline is the display label for the existing `graph` entry; keep its route
   and data key. Keep/Delete stay browser-local display decisions through
   `features/wiki/wiki-display-state.ts`: filter displayed graph nodes and edges

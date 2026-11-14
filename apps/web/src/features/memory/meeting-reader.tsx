@@ -19,6 +19,7 @@ import {
 } from "./meeting-overview-card";
 import { HideMeetingDialog } from "./hide-meeting-dialog";
 import { formatMeetingWhen, meetingWhen } from "./meetings-calendar";
+import { meetingPath } from "./meeting-routes";
 import { useMeetingActionTrack } from "./use-meeting-action-track";
 
 const meetingSummaryHiddenSectionTitles = [
@@ -27,6 +28,9 @@ const meetingSummaryHiddenSectionTitles = [
   "Runtime Evidence",
   "Subject Relation Note",
 ] as const;
+
+/** Long enough to read, matching the message menu's Copied tick. */
+const LINK_COPIED_MS = 1200;
 
 export type MeetingTab = "summary" | "transcript";
 
@@ -71,6 +75,37 @@ export function MeetingReader({
     meetingTitle: title,
     tenantId,
   });
+  // Link feedback follows the meeting showing now; switching meetings drops it
+  // with the old entry.
+  const [linkCopy, setLinkCopy] = useState<{
+    entryId: string;
+    state: "copied" | "failed";
+  }>();
+  const linkCopyTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(linkCopyTimer.current), []);
+  function copyLink() {
+    window.clearTimeout(linkCopyTimer.current);
+    setLinkCopy(undefined);
+    void import("@/lib/clipboard")
+      .then(({ writeClipboardText }) =>
+        writeClipboardText(
+          new URL(
+            meetingPath(tenantId, entry.id),
+            window.location.origin,
+          ).toString(),
+        ),
+      )
+      .then(() => {
+        setLinkCopy({ entryId: entry.id, state: "copied" });
+        linkCopyTimer.current = window.setTimeout(
+          () => setLinkCopy(undefined),
+          LINK_COPIED_MS,
+        );
+      })
+      .catch(() => setLinkCopy({ entryId: entry.id, state: "failed" }));
+  }
+  const linkCopyState =
+    linkCopy?.entryId === entry.id ? linkCopy.state : undefined;
   // Copy feedback belongs to the section that raised it and to the meeting
   // showing now; switching meetings drops it with the old entry.
   const [actionsCopy, setActionsCopy] = useState<{
@@ -119,9 +154,24 @@ export function MeetingReader({
           <h2 className="break-words text-xl text-app-ink">{title}</h2>
           <p className="mt-1 text-xs text-app-muted">Read only</p>
         </div>
-        <Button onClick={() => setDeleting(true)} size="compact" tone="ghost">
-          Delete
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {linkCopyState === "copied" ? (
+            <span className="text-xs leading-4 text-app-muted" role="status">
+              Copied
+            </span>
+          ) : null}
+          {linkCopyState === "failed" ? (
+            <span className="text-xs leading-4 text-app-danger" role="alert">
+              Copy failed
+            </span>
+          ) : null}
+          <Button onClick={copyLink} size="compact" tone="ghost">
+            Copy link
+          </Button>
+          <Button onClick={() => setDeleting(true)} size="compact" tone="ghost">
+            Delete
+          </Button>
+        </div>
       </header>
       {deleting ? (
         <HideMeetingDialog

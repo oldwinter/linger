@@ -31,7 +31,7 @@ import {
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 
-import { meetingPath } from "./memory-queries";
+import { meetingPath } from "./meeting-routes";
 import { MeetingPage } from "./meeting-page";
 
 beforeAll(async () => {
@@ -628,6 +628,39 @@ describe("MeetingPage", () => {
         "Copy failed. Select the actions and copy them yourself.",
       ),
     ).toBeVisible();
+    expect(screen.queryByText("Copied")).toBeNull();
+  });
+
+  it("copies the meeting's link with the app's origin", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry();
+    serveMeetings(runtime, [entry]);
+    const writeText = stubClipboard(() => Promise.resolve());
+    renderPage(runtime, `?entry=${entry.id}`);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Copy link" }));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        new URL(
+          meetingPath("tenant-northstar", entry.id),
+          window.location.origin,
+        ).toString(),
+      ),
+    );
+    expect(await screen.findByText("Copied")).toBeVisible();
+  });
+
+  it("says when copying the link fails instead of claiming success", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry();
+    serveMeetings(runtime, [entry]);
+    stubClipboard(() => Promise.reject(new Error("Not allowed")));
+    renderPage(runtime, `?entry=${entry.id}`);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Copy link" }));
+
+    expect(await screen.findByText("Copy failed")).toBeVisible();
     expect(screen.queryByText("Copied")).toBeNull();
   });
 

@@ -18,7 +18,8 @@ import {
 } from "./meetings-calendar";
 import { Spinner } from "@/components/ui/spinner";
 import { dayKey } from "@/lib/date-format";
-import { meetingPath, useMeetings } from "./memory-queries";
+import { meetingPath } from "./meeting-routes";
+import { useMeetings } from "./memory-queries";
 import { HideMeetingDialog } from "./hide-meeting-dialog";
 
 const levelClass = [

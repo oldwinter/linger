@@ -30,7 +30,8 @@ import type {
 
 import { useWikiDisplayState, wikiPageKey } from "./wiki-display-state";
 
-import { meetingPath, useMeetings } from "@/features/memory/memory-queries";
+import { meetingPath } from "@/features/memory/meeting-routes";
+import { useMeetings } from "@/features/memory/memory-queries";
 import {
   formatMeetingDay,
   formatMeetingWhen,
