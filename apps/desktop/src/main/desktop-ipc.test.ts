@@ -26,6 +26,7 @@ const fixture = async (
     servesWindow?: () => Promise<boolean>;
     signInWithAccount?: () => Promise<void>;
   } = {},
+  badge?: { setBadgeCount: (count: number) => boolean },
 ) => {
   const local = {
     ...stubModule("LocalServer"),
@@ -40,13 +41,16 @@ const fixture = async (
       stubModule("WindowManager"),
       stubModule("WorkspaceGrants"),
       local as never,
-      new DesktopIpcModule({ defaultDisplayName: "Desk" }),
+      new DesktopIpcModule({
+        defaultDisplayName: "Desk",
+        ...(badge ? { badge } : {}),
+      }),
     ],
     { serverUrl: SERVER },
   );
   await host.start();
-  const invoke = (channel: string, origin = SERVER) =>
-    handlers.get(channel)!({ senderFrame: { origin } });
+  const invoke = (channel: string, origin = SERVER, ...args: unknown[]) =>
+    handlers.get(channel)!({ senderFrame: { origin } }, ...args);
   return { host, local, invoke };
 };
 
@@ -95,6 +99,41 @@ describe("DesktopIpcModule local account", () => {
         "The local account file must be private and owned by the current user (chmod 600).",
     });
     expect(JSON.stringify(result)).not.toContain(PASSWORD);
+    await f.host.stop("quit");
+  });
+});
+
+describe("DesktopIpcModule unread badge", () => {
+  it("sets and clears the app badge through the fake app", async () => {
+    const app = { setBadgeCount: vi.fn(() => true) };
+    const f = await fixture({}, app);
+
+    await f.invoke(IPC.notificationsBadge, SERVER, 7);
+    expect(app.setBadgeCount).toHaveBeenLastCalledWith(7);
+
+    await f.invoke(IPC.notificationsBadge, SERVER, 0);
+    expect(app.setBadgeCount).toHaveBeenLastCalledWith(0);
+    expect(app.setBadgeCount).toHaveBeenCalledTimes(2);
+    await f.host.stop("quit");
+  });
+
+  it("rejects another origin and counts that are not badge counts", async () => {
+    const app = { setBadgeCount: vi.fn(() => true) };
+    const f = await fixture({}, app);
+
+    expect(() =>
+      f.invoke(IPC.notificationsBadge, "https://evil.example.com", 3),
+    ).toThrow("Not allowed");
+    for (const count of [-1, 1.5, "3", null]) {
+      expect(() => f.invoke(IPC.notificationsBadge, SERVER, count)).toThrow();
+    }
+    expect(app.setBadgeCount).not.toHaveBeenCalled();
+    await f.host.stop("quit");
+  });
+
+  it("does nothing where the platform has no count badge", async () => {
+    const f = await fixture();
+    expect(await f.invoke(IPC.notificationsBadge, SERVER, 3)).toBeUndefined();
     await f.host.stop("quit");
   });
 });

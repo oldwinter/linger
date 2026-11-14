@@ -193,7 +193,9 @@ Gateway and runs Agents. The daemon exits with the app.
   note). They have no network access and talk to the main process through
   their own preload (`src/preload/shell.ts`, `src/preload/setup.ts`,
   `src/preload/quick-note.ts`).
-- `src/preload/index.ts`: the only SPA API, `window.lingerDesktop`.
+- `src/preload/index.ts`: the only SPA API, `window.lingerDesktop`. Its
+  `notifications.setBadgeCount` sets the app icon's unread mention badge through
+  `app.setBadgeCount`, which macOS and Linux have and Windows does not.
 - `src/shared/api.ts`, `src/shared/shell.ts`: preload contract types and IPC
   channel names.
 - `src/main/computer-daemon.ts`: ComputerDaemon. While the computer is

@@ -317,6 +317,8 @@ async function main(): Promise<void> {
     new TrayModule({ quit: () => void quit() }),
     new DesktopIpcModule({
       defaultDisplayName,
+      // Electron's count badge exists on macOS and Linux only.
+      ...(process.platform === "win32" ? {} : { badge: app }),
       ...(desktopPermissions ? { permissions: desktopPermissions } : {}),
     }),
   ];

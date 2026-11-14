@@ -12,6 +12,7 @@ import {
 import {
   Outlet,
   useLocation,
+  useMatch,
   useNavigate,
   useNavigation,
   useParams,
@@ -55,6 +56,7 @@ import {
 } from "./route-loading-surface";
 import { TeamHubEventSync } from "./event-sync";
 import { useAnotherMeNotifications } from "./another-me-notifications";
+import { useRoomMentionNotifications } from "./room-mention-notifications";
 import { requireRoomRouteParam } from "./room-route-params";
 import { useScrollPaneActivity } from "./use-scroll-pane-activity";
 import {
@@ -137,6 +139,13 @@ function RoomShellReady({
     rooms: roomsQuery.data?.items,
     roomId: anotherMeRoomId,
     agentActorId: anotherMe?.agent_actor_id,
+    open: openRoom,
+  });
+  // The shell is above the Room route, so it reads the open Room from the URL.
+  const activeRoomId = useMatch("/t/:tenantId/rooms/:roomId/*")?.params.roomId;
+  useRoomMentionNotifications({
+    rooms: roomsQuery.data?.items,
+    roomId: activeRoomId,
     open: openRoom,
   });
 

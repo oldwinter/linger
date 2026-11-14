@@ -34,6 +34,9 @@ const api: LingerDesktopApi = {
     get: () => ipcRenderer.invoke(IPC.settingsGet),
     set: (patch) => ipcRenderer.invoke(IPC.settingsSet, patch),
   },
+  notifications: {
+    setBadgeCount: (count) => ipcRenderer.invoke(IPC.notificationsBadge, count),
+  },
   localAccount: {
     available: () => ipcRenderer.invoke(IPC.localAccountAvailable),
     signIn: () => ipcRenderer.invoke(IPC.localAccountSignIn),
