@@ -6,6 +6,7 @@ import {
   adjacentSelectableIndex,
   type ComposerPicker,
 } from "./use-composer-picker";
+import type { ComposerQuoteReply } from "./use-composer-quote-reply";
 import type { ComposerReferenceInsertion } from "./use-composer-reference-insertion";
 import type { ComposerSend } from "./use-composer-send";
 
@@ -13,6 +14,7 @@ export interface ComposerKeyDownInput {
   draft: ComposerDraft;
   insertion: ComposerReferenceInsertion;
   picker: ComposerPicker;
+  quoteReply: ComposerQuoteReply;
   sending: ComposerSend;
 }
 
@@ -35,6 +37,7 @@ export function useComposerKeyDown({
     setSkillQuery,
     skillQuery,
   },
+  quoteReply: { dismissQuoteReply, stagedQuoteReply },
   sending: { send },
 }: ComposerKeyDownInput) {
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -116,6 +119,14 @@ export function useComposerKeyDown({
       event.preventDefault();
       applyMentionQuery(null);
       setSkillQuery(null);
+      return;
+    }
+
+    // The picker owns Escape while it is open, so a staged quote is only
+    // dismissed once no suggestion is showing.
+    if (event.key === "Escape" && stagedQuoteReply) {
+      event.preventDefault();
+      dismissQuoteReply();
       return;
     }
 

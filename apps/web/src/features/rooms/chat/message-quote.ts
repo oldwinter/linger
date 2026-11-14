@@ -2,6 +2,11 @@ import { messageBodyText } from "./message-plain-text";
 
 const unknownAuthor = "Unknown author";
 
+/** The author a quote names, so the quote and the composer's reply strip agree. */
+export function messageQuoteAuthor(authorName?: string | null) {
+  return authorName?.trim() || unknownAuthor;
+}
+
 /**
  * The clipboard block for one Message: its author and local time, then the
  * readable text quoted line by line. Every line carries a `>` marker, so the
@@ -13,7 +18,7 @@ export function messageQuoteText(input: {
   createdAt: string;
   message: string;
 }) {
-  const author = input.authorName?.trim() || unknownAuthor;
+  const author = messageQuoteAuthor(input.authorName);
   const body = messageBodyText(input.message);
   const head = `> ${author}, ${messageQuoteTime(input.createdAt)}`;
   if (!body) return head;

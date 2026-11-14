@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createTeamHubTestSeed } from "@/test/teamhub-seed";
 
 import { useRoomMessageInteractions } from "./use-room-message-interactions";
+import type { MessageComposerHandle } from "./message-composer";
 
 describe("Room Message interactions", () => {
   it("does not commit a render when clearing absent context", () => {
@@ -72,6 +73,30 @@ describe("Room Message interactions", () => {
     act(() => result.current.clearContext([first.id]));
 
     expect(result.current.selectedContextMessages).toEqual([next]);
+  });
+
+  it("stages a quoted reply without selecting reply context", () => {
+    const { result } = renderHook(() =>
+      useRoomMessageInteractions({
+        mentionOptions: [],
+        roomId: "room",
+        tenantId: "tenant",
+      }),
+    );
+    const stageQuoteReply = vi.fn();
+    result.current.composerRef.current = {
+      stageQuoteReply,
+    } as unknown as MessageComposerHandle;
+    const reply = {
+      authorName: "Ada",
+      preview: "Handled.",
+      quote: "> Ada, 2026-11-14 09:12\n>\n> Handled.",
+    };
+
+    act(() => result.current.stageQuoteReply(reply));
+
+    expect(stageQuoteReply).toHaveBeenCalledWith(reply);
+    expect(result.current.selectedContextMessages).toEqual([]);
   });
 
   it("clears selected context across a Room round trip", () => {

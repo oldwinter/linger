@@ -74,6 +74,7 @@ import {
   PendingMessageRow,
   type PendingRoomMessage,
 } from "./message-row";
+import type { StagedQuoteReply } from "./quote-reply";
 import {
   LoadingOlderMessages,
   MessageTimelineEmptyState,
@@ -136,6 +137,7 @@ interface MessageTimelineProps {
   onCreateIssueMessage?: (message: TeamHubMessage) => void;
   onForwardMessage?: (message: TeamHubMessage) => void;
   onReply?: (message: TeamHubMessage) => void;
+  onReplyWithQuote?: (reply: StagedQuoteReply) => void;
   onToggleReaction?: (
     message: TeamHubMessage,
     reactionId: TeamHubMessageReactionId,
@@ -188,6 +190,7 @@ export function MessageTimeline({
   onCreateIssueMessage,
   onForwardMessage,
   onReply,
+  onReplyWithQuote,
   onToggleReaction,
   onTogglePin,
   pinnedMessageIds = EMPTY_STATIC_AGENT_ACTOR_IDS,
@@ -304,6 +307,7 @@ export function MessageTimeline({
           onCreateIssueMessage={onCreateIssueMessage}
           onForwardMessage={onForwardMessage}
           onReply={onReply}
+          onReplyWithQuote={onReplyWithQuote}
           onToggleReaction={onToggleReaction}
           onTogglePin={onTogglePin}
           isPinned={pinnedMessageIds.has(message.id)}
@@ -343,6 +347,7 @@ export function MessageTimeline({
           onOpenThread={onOpenThread}
           onMentionAuthor={onMentionAuthor}
           onReply={onReply}
+          onReplyWithQuote={onReplyWithQuote}
           presentations={presentations}
           selectedContextMessageIds={selectedContextMessageIds}
           tenantId={tenantId}
@@ -1255,6 +1260,7 @@ function LinkedSourceMessagePanel({
   onOpenThread,
   onMentionAuthor,
   onReply,
+  onReplyWithQuote,
   presentations,
   selectedContextMessageIds,
   tenantId,
@@ -1283,6 +1289,7 @@ function LinkedSourceMessagePanel({
   onMentionAuthor?: (actor: TeamHubActorRef) => void;
   onForwardMessage?: (message: TeamHubMessage) => void;
   onReply?: (message: TeamHubMessage) => void;
+  onReplyWithQuote?: (reply: StagedQuoteReply) => void;
   presentations: Record<string, TeamHubMessagePresentation>;
   selectedContextMessageIds: ReadonlySet<string>;
   tenantId: string;
@@ -1353,6 +1360,7 @@ function LinkedSourceMessagePanel({
             onOpenThread={onOpenThread}
             onMentionAuthor={onMentionAuthor}
             onReply={onReply}
+            onReplyWithQuote={onReplyWithQuote}
             presentation={presentations[linkedSource.message.id]}
             selectedAsContext={selectedContextMessageIds.has(
               linkedSource.message.id,
