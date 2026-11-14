@@ -66,6 +66,18 @@ const wikiLink = vi.hoisted(() => ({
   href: "../projects/project.md#working-preferences",
 }));
 
+const downloadedArtifacts = vi.hoisted(() => ({ trigger: vi.fn() }));
+
+vi.mock(
+  "@/features/rooms/files/artifact-preview-loader",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@/features/rooms/files/artifact-preview-loader")
+    >()),
+    triggerArtifactDownload: downloadedArtifacts.trigger,
+  }),
+);
+
 vi.mock("./room-document-collaboration", async (importOriginal) => {
   const { openLocalDocumentSession } =
     await import("@/test/local-document-session");
@@ -165,6 +177,7 @@ vi.mock("./room-document-blocknote-editor-loader", () => ({
 }));
 
 afterEach(() => {
+  downloadedArtifacts.trigger.mockClear();
   Reflect.deleteProperty(navigator, "clipboard");
 });
 
@@ -377,6 +390,7 @@ describe("Unified Document legacy convergence", () => {
     expect(within(actions).getAllByRole("button")).toEqual([
       screen.getByRole("button", { name: "Table of contents" }),
       screen.getByRole("button", { name: "Copy link" }),
+      screen.getByRole("button", { name: "Copy as Markdown" }),
       screen.getByRole("button", { name: "Download" }),
     ]);
     expect(
@@ -416,6 +430,7 @@ describe("Unified Document legacy convergence", () => {
     expect(within(actions).getAllByRole("button")).toEqual([
       screen.getByRole("button", { name: "Table of contents" }),
       screen.getByRole("button", { name: "Copy link" }),
+      screen.getByRole("button", { name: "Copy as Markdown" }),
       download,
     ]);
     expect(
@@ -450,6 +465,49 @@ describe("Unified Document legacy convergence", () => {
     expect(writeText).toHaveBeenCalledWith(
       `${window.location.origin}/t/tenant-northstar/documents/${document.id}`,
     );
+    const actions = window.document.querySelector(
+      ".room-document-header-actions",
+    ) as HTMLElement;
+    expect(await within(actions).findByRole("status")).toHaveTextContent(
+      "Copied",
+    );
+  });
+
+  it("copies exactly the Markdown Download saves for a Wiki page", async () => {
+    const runtime = createDocumentTestRuntime();
+    const document = seedRoomDocument(runtime, "wiki-copy-markdown");
+    showDocument(runtime, {
+      ...document,
+      from: [{ binding_kind: "wiki_page", context_id: "wiki-jenny" }],
+      title: "Casey example.md",
+    });
+    const downloadLatest = vi
+      .spyOn(runtime.client, "downloadLatestDocument")
+      .mockResolvedValue({
+        blob: new Blob(["# Casey example\n\nSaved bytes.\n"]),
+        mediaType: "text/markdown",
+        sha256: "0".repeat(64),
+      });
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    renderUnifiedDocumentPage(
+      runtime,
+      `/t/tenant-northstar/documents/${document.id}`,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Download" }));
+    await waitFor(() =>
+      expect(downloadedArtifacts.trigger).toHaveBeenCalledOnce(),
+    );
+    const saved = downloadedArtifacts.trigger.mock.calls[0]![0] as Blob;
+    expect(await saved.text()).toBe("# Casey example\n\nSaved bytes.\n");
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy as Markdown" }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledOnce());
+    expect(writeText).toHaveBeenCalledWith(await saved.text());
+    expect(downloadLatest).toHaveBeenCalledTimes(2);
+    expect(downloadLatest).toHaveBeenCalledWith(document.id);
     const actions = window.document.querySelector(
       ".room-document-header-actions",
     ) as HTMLElement;

@@ -37,6 +37,7 @@ import type {
   TeamHubDocumentPlacementNode,
 } from "@/features/teamhub/teamhub-types";
 import { WikiCopyLink } from "@/features/wiki/wiki-copy-link";
+import { WikiCopyMarkdown } from "@/features/wiki/wiki-copy-markdown";
 import { roomMembersQueryOptions } from "../room-queries";
 
 import type { RoomDocumentCollaborationSession } from "./room-document-collaboration";
@@ -322,9 +323,13 @@ function UnifiedDocumentHeader({
             <Icon icon={TableOfContentsIcon} />
           </Button>
         ) : null}
-        {/* A Wiki page stays read-only, so Copy link and Download are its actions. */}
+        {/* A Wiki page stays read-only, so Copy link, Copy as Markdown, and
+            Download are its actions. */}
         {isWikiPage && document ? (
           <WikiCopyLink documentId={document.id} tenantId={tenantId} />
+        ) : null}
+        {isWikiPage && document?.capabilities.export ? (
+          <WikiCopyMarkdown documentId={document.id} />
         ) : null}
         {isWikiPage && document?.capabilities.export ? (
           <Button
