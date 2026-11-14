@@ -36,6 +36,7 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubPocketNote } from "@/features/teamhub/teamhub-types";
 
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/cn";
 
 import {
   pocketNotesQueryOptions,
@@ -44,6 +45,8 @@ import {
 } from "./pocket-note-queries";
 import {
   POCKET_NOTES_FILENAME,
+  pocketNoteFilename,
+  pocketNoteMarkdown,
   pocketNotesMarkdown,
 } from "./pocket-notes-export";
 import { LazyVoiceKeyDialog } from "@/features/rooms/voice-control/lazy-voice-key-dialog";
@@ -59,6 +62,8 @@ const autosaveDelayMs = 800;
 const maximumNoteLength = 20000;
 const panelWidth = 360;
 const panelGap = 12;
+const noteActionClass =
+  "flex size-6 items-center justify-center rounded-md text-app-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus disabled:pointer-events-none disabled:opacity-40";
 
 type PocketNoteView =
   | { kind: "today" }
@@ -177,6 +182,24 @@ export default function PocketNotePanel({
     }
   }
 
+  /**
+   * Saves one page on its own, formatted exactly as the all-notes file writes
+   * it. The page is already loaded, so this reads no more of the list.
+   */
+  function downloadNote(note: TeamHubPocketNote) {
+    setDownloadFailed(false);
+    try {
+      triggerArtifactDownload(
+        new Blob([pocketNoteMarkdown(note)], {
+          type: "text/markdown;charset=utf-8",
+        }),
+        pocketNoteFilename(note.date),
+      );
+    } catch {
+      setDownloadFailed(true);
+    }
+  }
+
   return createPortal(
     <div
       aria-label="Pocket notes"
@@ -198,6 +221,7 @@ export default function PocketNotePanel({
           loadingMore={notes.isFetchingNextPage}
           onClose={onClose}
           onDownloadAll={() => void downloadAll()}
+          onDownloadNote={downloadNote}
           onLoadMore={() => void notes.fetchNextPage()}
           onOpen={(note) =>
             setView(
@@ -583,6 +607,7 @@ function AllPocketNotes({
   loadingMore,
   onClose,
   onDownloadAll,
+  onDownloadNote,
   onLoadMore,
   onOpen,
   tenantId,
@@ -595,6 +620,7 @@ function AllPocketNotes({
   loadingMore: boolean;
   onClose: () => void;
   onDownloadAll: () => void;
+  onDownloadNote: (note: TeamHubPocketNote) => void;
   onLoadMore: () => void;
   onOpen: (note: TeamHubPocketNote) => void;
   tenantId: string;
@@ -681,7 +707,7 @@ function AllPocketNotes({
                     onClick={() => onOpen(note)}
                     type="button"
                   >
-                    <span className="pr-6 text-xs font-medium text-app-ink">
+                    <span className="pr-12 text-xs font-medium text-app-ink">
                       {label}
                     </span>
                     <span className="mt-1.5 line-clamp-4 whitespace-pre-wrap break-words text-xs leading-[18px] text-app-muted">
@@ -727,18 +753,36 @@ function AllPocketNotes({
                       </div>
                     </div>
                   ) : (
-                    <button
-                      aria-label={`Delete ${label}`}
-                      className="absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded-md text-app-muted opacity-0 transition-opacity hover:bg-accent hover:text-app-danger focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus group-hover:opacity-100 [@media(hover:none)]:opacity-100"
-                      onClick={() => {
-                        remove.reset();
-                        setConfirming(note.date);
-                      }}
-                      title="Delete note"
-                      type="button"
-                    >
-                      <Icon icon={Delete02Icon} size={14} />
-                    </button>
+                    <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
+                      <button
+                        aria-label={`Download ${label}`}
+                        className={cn(
+                          noteActionClass,
+                          "hover:bg-accent hover:text-app-ink",
+                        )}
+                        disabled={downloading}
+                        onClick={() => onDownloadNote(note)}
+                        title="Download note"
+                        type="button"
+                      >
+                        <Icon icon={Download01Icon} size={14} />
+                      </button>
+                      <button
+                        aria-label={`Delete ${label}`}
+                        className={cn(
+                          noteActionClass,
+                          "hover:bg-accent hover:text-app-danger",
+                        )}
+                        onClick={() => {
+                          remove.reset();
+                          setConfirming(note.date);
+                        }}
+                        title="Delete note"
+                        type="button"
+                      >
+                        <Icon icon={Delete02Icon} size={14} />
+                      </button>
+                    </div>
                   )}
                 </li>
               );
