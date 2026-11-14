@@ -9,5 +9,14 @@ export function dashboardWorkItemPath(tenantId: string, workItemId: string) {
 
 /** The Item's dashboard link as text pasted outside this app needs it. */
 export function dashboardWorkItemUrl(tenantId: string, workItemId: string) {
-  return `${window.location.origin}${dashboardWorkItemPath(tenantId, workItemId)}`;
+  return dashboardWorkItemUrlAt(window.location.origin, tenantId, workItemId);
+}
+
+/** The same link for text built before it is copied, from a known origin. */
+export function dashboardWorkItemUrlAt(
+  origin: string,
+  tenantId: string,
+  workItemId: string,
+) {
+  return `${origin}${dashboardWorkItemPath(tenantId, workItemId)}`;
 }
