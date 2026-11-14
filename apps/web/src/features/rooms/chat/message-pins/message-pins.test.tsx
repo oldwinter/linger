@@ -5,6 +5,7 @@ import {
 } from "@tanstack/react-query";
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   renderHook,
@@ -126,6 +127,7 @@ describe("PinnedMessagesControl", () => {
         <PinnedMessagesControl
           onJump={onJump}
           roomId="room-1"
+          roomName="Design"
           tenantId="tenant-1"
         />
       </MemoryRouter>,
@@ -159,6 +161,7 @@ describe("PinnedMessagesControl", () => {
         <PinnedMessagesControl
           onJump={vi.fn()}
           roomId="room-1"
+          roomName="Design"
           tenantId="tenant-1"
         />
       </MemoryRouter>,
@@ -198,6 +201,7 @@ describe("PinnedMessagesControl", () => {
         <PinnedMessagesControl
           onJump={vi.fn()}
           roomId="room-1"
+          roomName="Design"
           tenantId="tenant-1"
         />
       </MemoryRouter>,
@@ -251,6 +255,7 @@ describe("PinnedMessagesControl", () => {
         <PinnedMessagesControl
           onJump={vi.fn()}
           roomId="room-1"
+          roomName="Design"
           tenantId="tenant-1"
         />
       </MemoryRouter>,
@@ -299,6 +304,7 @@ describe("PinnedMessagesControl", () => {
         <PinnedMessagesControl
           onJump={vi.fn()}
           roomId="room-1"
+          roomName="Design"
           tenantId="tenant-1"
         />
       </MemoryRouter>,
@@ -363,6 +369,7 @@ describe("PinnedMessagesControl", () => {
         <PinnedMessagesControl
           onJump={vi.fn()}
           roomId="room-1"
+          roomName="Design"
           tenantId="tenant-1"
         />
       </MemoryRouter>,
@@ -412,6 +419,7 @@ describe("PinnedMessagesControl", () => {
         <PinnedMessagesControl
           onJump={vi.fn()}
           roomId="room-1"
+          roomName="Design"
           tenantId="tenant-1"
         />
       </MemoryRouter>,
@@ -481,6 +489,7 @@ describe("PinnedMessagesControl", () => {
         <PinnedMessagesControl
           onJump={vi.fn()}
           roomId="room-1"
+          roomName="Design"
           tenantId="tenant-1"
         />
       </MemoryRouter>,
@@ -546,6 +555,7 @@ describe("PinnedMessagesControl", () => {
         <PinnedMessagesControl
           onJump={vi.fn()}
           roomId={roomId}
+          roomName="Design"
           tenantId="tenant-1"
         />
       </MemoryRouter>
@@ -606,6 +616,7 @@ describe("PinnedMessagesControl", () => {
         <PinnedMessagesControl
           onJump={onJump}
           roomId="room-1"
+          roomName="Design"
           tenantId="tenant-1"
         />
       </MemoryRouter>,
@@ -654,6 +665,177 @@ describe("PinnedMessagesControl", () => {
       within(dialog).getByRole("button", { name: "Clear search" }),
     );
     expect(within(dialog).getByText("Freeze the release")).toBeVisible();
+  });
+});
+
+describe("Pinned messages copy", () => {
+  const alice = message({
+    created_at: "2026-10-09T10:00:00",
+    id: "message-1",
+    raw_message: "Freeze the release",
+  });
+  const bob = message({
+    author: {
+      display_name: "Bob",
+      id: "human-2",
+      kind: "human",
+      tenant_id: "tenant-1",
+    },
+    created_at: "2026-10-10T11:30:00",
+    id: "message-2",
+    raw_message: "Ship it",
+  });
+
+  function pinned(messageItem: TeamHubMessage, pinnedAt: string) {
+    return {
+      message: messageItem,
+      pinned_at: pinnedAt,
+      pinned_by_actor_id: "human-1",
+    };
+  }
+
+  function link(messageId: string) {
+    return `${window.location.origin}/t/tenant-1/rooms/room-1/chat?message=${messageId}`;
+  }
+
+  function renderControl(getPins: TestRouteHandler) {
+    const { client, queryClient } = setup((server) =>
+      server.on("GET", pinsPath, getPins),
+    );
+    render(
+      <MemoryRouter>
+        <PinnedMessagesControl
+          onJump={vi.fn()}
+          roomId="room-1"
+          roomName="Design"
+          tenantId="tenant-1"
+        />
+      </MemoryRouter>,
+      { wrapper: wrapper(queryClient, client) },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Pinned messages" }));
+  }
+
+  function mockClipboard(writeText: () => Promise<void>) {
+    const mock = vi.fn(writeText);
+    Object.assign(navigator, { clipboard: { writeText: mock } });
+    return mock;
+  }
+
+  it("copies every listed pin as one Markdown document", async () => {
+    const writeText = mockClipboard(() => Promise.resolve());
+    renderControl(() =>
+      pinList([
+        pinned(bob, "2026-10-10T08:00:00.000Z"),
+        pinned(alice, "2026-10-09T08:00:00.000Z"),
+      ]),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Pinned messages",
+    });
+    await within(dialog).findAllByRole("listitem");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Copy pins" }));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        [
+          "# Pinned messages in Design",
+          "",
+          "**Bob, 2026-10-10 11:30**",
+          "Ship it",
+          link("message-2"),
+          "",
+          "**Alice, 2026-10-09 10:00**",
+          "Freeze the release",
+          link("message-1"),
+        ].join("\n"),
+      ),
+    );
+    expect(await within(dialog).findByRole("status")).toHaveTextContent(
+      "Copied",
+    );
+  });
+
+  it("copies only the pins the filter shows", async () => {
+    const writeText = mockClipboard(() => Promise.resolve());
+    renderControl(() =>
+      pinList([
+        pinned(bob, "2026-10-10T08:00:00.000Z"),
+        pinned(alice, "2026-10-09T08:00:00.000Z"),
+      ]),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Pinned messages",
+    });
+    await within(dialog).findAllByRole("listitem");
+    fireEvent.change(
+      within(dialog).getByRole("searchbox", {
+        name: "Search pinned messages",
+      }),
+      { target: { value: "ship" } },
+    );
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Copy pins" }));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        [
+          "# Pinned messages in Design",
+          "",
+          "**Bob, 2026-10-10 11:30**",
+          "Ship it",
+          link("message-2"),
+        ].join("\n"),
+      ),
+    );
+  });
+
+  it("stays disabled while the pins are loading and when none exist", async () => {
+    let resolvePins!: (value: TeamHubMessagePinList) => void;
+    const pending = new Promise<TeamHubMessagePinList>((resolve) => {
+      resolvePins = resolve;
+    });
+    renderControl(() => pending);
+    const loadingDialog = await screen.findByRole("dialog", {
+      name: "Pinned messages",
+    });
+    const loadingCopy = within(loadingDialog).getByRole("button", {
+      name: "Copy pins",
+    });
+    expect(loadingCopy).toBeDisabled();
+
+    await act(async () =>
+      resolvePins(pinList([pinned(alice, "2026-10-09T08:00:00.000Z")])),
+    );
+    await waitFor(() => expect(loadingCopy).toBeEnabled());
+
+    cleanup();
+    renderControl(() => pinList([]));
+    const emptyDialog = await screen.findByRole("dialog", {
+      name: "Pinned messages",
+    });
+    expect(
+      await within(emptyDialog).findByText("No pinned messages yet."),
+    ).toBeVisible();
+    expect(
+      within(emptyDialog).getByRole("button", { name: "Copy pins" }),
+    ).toBeDisabled();
+  });
+
+  it("says so when the clipboard refuses the copy", async () => {
+    mockClipboard(() => Promise.reject(new Error("Clipboard is unavailable")));
+    renderControl(() => pinList([pinned(alice, "2026-10-09T08:00:00.000Z")]));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Pinned messages",
+    });
+    await within(dialog).findAllByRole("listitem");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Copy pins" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Copy failed",
+    );
   });
 });
 

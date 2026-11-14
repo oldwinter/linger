@@ -20,6 +20,7 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
 import { roomPinsQueryOptions } from "../../room-queries";
 import { searchPinnedMessages } from "./pinned-message-search";
+import { PinnedMessagesCopyAction } from "./pinned-messages-copy";
 import { useMessagePinToggle } from "./use-message-pin-toggle";
 
 type MessagePin = TeamHubMessagePinList["items"][number];
@@ -28,10 +29,12 @@ type MessagePin = TeamHubMessagePinList["items"][number];
 export function PinnedMessagesControl({
   onJump,
   roomId,
+  roomName,
   tenantId,
 }: {
   onJump: (messageId: string) => void;
   roomId: string;
+  roomName: string;
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
@@ -132,16 +135,24 @@ export function PinnedMessagesControl({
                 </span>
               ) : null}
             </div>
-            <Button
-              aria-label="Close pinned messages"
-              className="!rounded-lg border-0 text-app-muted"
-              onClick={() => setOpen(false)}
-              size="compactIcon"
-              title="Close pinned messages"
-              tone="ghost"
-            >
-              <Icon icon={Cancel01Icon} size={14} />
-            </Button>
+            <div className="flex items-center gap-1">
+              <PinnedMessagesCopyAction
+                origin={window.location.origin}
+                pins={search.items}
+                roomName={roomName}
+                tenantId={tenantId}
+              />
+              <Button
+                aria-label="Close pinned messages"
+                className="!rounded-lg border-0 text-app-muted"
+                onClick={() => setOpen(false)}
+                size="compactIcon"
+                title="Close pinned messages"
+                tone="ghost"
+              >
+                <Icon icon={Cancel01Icon} size={14} />
+              </Button>
+            </div>
           </div>
           {!isPending && !isError && pins.length > 0 ? (
             <label className="mb-1 flex h-8 shrink-0 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground transition-colors hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring/40">
