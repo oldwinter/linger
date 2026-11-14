@@ -17,7 +17,7 @@ import {
   PinOffIcon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
@@ -30,6 +30,7 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 
 import { canDeleteTenantAgent } from "./members/agent-permissions";
+import { RoomCopyStatus, useRoomClipboardCopy } from "./room-copy-feedback";
 import {
   clearRoomMentionSnooze,
   muteRoomMention,
@@ -219,53 +220,12 @@ const roomNavActionClass =
 const roomHeaderActionClass =
   "flex size-8 shrink-0 items-center justify-center rounded-lg text-app-muted transition-colors hover:bg-app-hover hover:text-app-ink aria-expanded:bg-app-hover aria-expanded:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus";
 
-type RoomLinkCopyState = "idle" | "copied" | "failed";
-
-/** Long enough to read, matching the message menu's Copied tick. */
-const ROOM_LINK_COPIED_MS = 1200;
-
 /**
  * Copies a Room's canonical chat URL. A thread is a Room, so passing its id
  * copies the thread's own URL.
  */
 function useRoomLinkCopy(tenantId: string, roomId: string) {
-  const [state, setState] = useState<RoomLinkCopyState>("idle");
-  const resetTimer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(resetTimer.current), []);
-  function copy() {
-    window.clearTimeout(resetTimer.current);
-    setState("idle");
-    void import("@/lib/clipboard")
-      .then(({ writeClipboardText }) =>
-        writeClipboardText(roomChatPath(tenantId, roomId)),
-      )
-      .then(() => {
-        setState("copied");
-        resetTimer.current = window.setTimeout(
-          () => setState("idle"),
-          ROOM_LINK_COPIED_MS,
-        );
-      })
-      .catch(() => setState("failed"));
-  }
-  return { copy, state };
-}
-
-/** A refused write keeps saying so until the next attempt. */
-function RoomLinkCopyStatus({ state }: { state: RoomLinkCopyState }) {
-  if (state === "copied")
-    return (
-      <span className="text-xs leading-4 text-app-muted" role="status">
-        Copied
-      </span>
-    );
-  if (state === "failed")
-    return (
-      <span className="text-xs leading-4 text-app-danger" role="alert">
-        Copy failed
-      </span>
-    );
-  return null;
+  return useRoomClipboardCopy(() => roomChatPath(tenantId, roomId));
 }
 
 /** The row action, present only when the Room has a cursor to acknowledge. */
@@ -311,7 +271,7 @@ export function RoomHeaderMenu({
   const link = useRoomLinkCopy(tenantId, roomId);
   return (
     <>
-      <RoomLinkCopyStatus state={link.state} />
+      <RoomCopyStatus state={link.state} />
       <ActionMenu
         buttonClassName={roomHeaderActionClass}
         items={[
@@ -512,7 +472,7 @@ export function AgentRowMenu({
   return (
     <>
       <RoomMarkReadStatus failed={markRead.isError} />
-      <RoomLinkCopyStatus state={link.state} />
+      <RoomCopyStatus state={link.state} />
       <ActionMenu
         buttonClassName={roomNavActionClass}
         items={[
