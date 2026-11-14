@@ -14,6 +14,8 @@ import type { TeamHubDocument } from "@/features/teamhub/teamhub-types";
 import { documentFileName } from "@/features/library/document-display-name";
 import { useWikiDocuments } from "./knowledge-sidebar-trees";
 import { WikiDailyCard } from "./wiki-daily-card";
+import { useWikiLiveFocus } from "./wiki-live-focus";
+import { WikiLiveWriting } from "./wiki-live-writing";
 import {
   wikiEntries,
   type WikiEntry,
@@ -218,6 +220,7 @@ function WikiOverview({
   const nodes = useWikiGraphNodes(tenantId);
   const reports = usePeriodReports(tenantId, "daily");
   const previews = useMemo(() => wikiPreviewPages(preview), [preview]);
+  const featured = useWikiLiveFocus(previews);
   const anotherMe = useAnotherMeActorId(tenantId);
   const base = `/t/${encodeURIComponent(tenantId)}/library/wiki`;
   const documentPath = (page: TeamHubDocument) =>
@@ -254,6 +257,13 @@ function WikiOverview({
     <>
       <div className="landing-notices">
         <WikiRefreshBanner {...refresh} agentActorId={anotherMe} />
+        {refreshing && featured ? (
+          <WikiLiveWriting
+            count={previews.length}
+            page={featured}
+            tenantId={tenantId}
+          />
+        ) : null}
       </div>
       <div className="landing-grid">
         <div className="landing-col landing-col-left">

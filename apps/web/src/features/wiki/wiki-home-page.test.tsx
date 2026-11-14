@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { expect, it, vi } from "vitest";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
@@ -116,6 +116,15 @@ it("shows the pages a refresh has written as ordinary cards that open as pages",
   );
   expect(screen.getByRole("status")).toHaveTextContent(
     "Another Me is writing your Wiki",
+  );
+  const writing = screen.getByRole("region", { name: "Wiki being written" });
+  expect(writing).toHaveTextContent("Tom Becker");
+  expect(writing).toHaveTextContent("2 pages written so far");
+  expect(
+    within(writing).getByRole("link", { name: "Open page" }),
+  ).toHaveAttribute(
+    "href",
+    "/t/tenant-northstar/wiki-preview?page=contacts%2Ftom.md",
   );
   expect(screen.queryByText("No topics yet.")).toBeNull();
 });
