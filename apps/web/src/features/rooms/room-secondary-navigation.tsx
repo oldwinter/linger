@@ -24,6 +24,7 @@ import { Link, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { searchShortcutLabel } from "@/features/search/search-shortcut";
+import { surprisePath } from "./surprise-room";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 
 import { AgentCreateMenu } from "./agent-create-menu";
@@ -298,6 +299,13 @@ export function RoomSecondaryNavigation({
         className="room-secondary-navigation-list workspace-scrollbar flex-1 space-y-3 overflow-y-auto pb-1 pt-2"
         ref={listRef}
       >
+        <Link
+          className="mx-2 flex h-7 items-center rounded-lg px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={onCloseMobile}
+          to={surprisePath(tenant.id)}
+        >
+          Surprise me
+        </Link>
         {onCollapse ? searchButton : null}
         {/* While the list loads only its skeleton shows; the card and list
             land together once everything has settled. */}
