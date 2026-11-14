@@ -1,5 +1,6 @@
 import {
   Comment01Icon,
+  Download04Icon,
   Share08Icon,
   ArrowDown01Icon,
   PencilEdit01Icon,
@@ -318,6 +319,19 @@ function UnifiedDocumentHeader({
             tone="ghost"
           >
             <Icon icon={TableOfContentsIcon} />
+          </Button>
+        ) : null}
+        {/* A Wiki page stays read-only, so Download is its one menu action. */}
+        {isWikiPage && document?.capabilities.export ? (
+          <Button
+            aria-label="Download"
+            disabled={exportPending}
+            onClick={onExport}
+            size="compactIcon"
+            title="Download"
+            tone="ghost"
+          >
+            <Icon icon={Download04Icon} />
           </Button>
         ) : null}
         {!sidebar ? actionsMenu : null}

@@ -371,12 +371,56 @@ describe("Unified Document legacy convergence", () => {
     ) as HTMLElement;
     expect(within(actions).getAllByRole("button")).toEqual([
       screen.getByRole("button", { name: "Table of contents" }),
+      screen.getByRole("button", { name: "Download" }),
     ]);
+    expect(
+      within(actions).queryByRole("button", { name: "More Document actions" }),
+    ).toBeNull();
     expect(
       within(actions).queryByRole("status", {
         name: /people in this document/,
       }),
     ).toBeNull();
+  });
+
+  it("downloads a generated Wiki page as Markdown and keeps every other action absent", async () => {
+    const runtime = createDocumentTestRuntime();
+
+    const document = seedRoomDocument(runtime, "wiki-download");
+    showDocument(runtime, {
+      ...document,
+      from: [{ binding_kind: "wiki_page", context_id: "wiki-jenny" }],
+      title: "Casey example.md",
+    });
+    const downloadLatest = vi.spyOn(runtime.client, "downloadLatestDocument");
+    respond(downloadLatest, {
+      blob: new Blob(["# Casey example"]),
+      mediaType: "text/markdown",
+      sha256: "0".repeat(64),
+    });
+    renderUnifiedDocumentPage(
+      runtime,
+      `/t/tenant-northstar/documents/${document.id}`,
+    );
+
+    const download = await screen.findByRole("button", { name: "Download" });
+    const actions = window.document.querySelector(
+      ".room-document-header-actions",
+    ) as HTMLElement;
+    expect(within(actions).getAllByRole("button")).toEqual([
+      screen.getByRole("button", { name: "Table of contents" }),
+      download,
+    ]);
+    expect(
+      within(actions).queryByRole("button", { name: "More Document actions" }),
+    ).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Rename" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
+
+    fireEvent.click(download);
+
+    await waitFor(() => expect(downloadLatest).toHaveBeenCalledOnce());
+    expect(downloadLatest).toHaveBeenCalledWith(document.id);
   });
 
   it.each(
