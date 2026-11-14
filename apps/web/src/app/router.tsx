@@ -183,6 +183,15 @@ export function createAppRoutes(
           path: "rooms",
         },
         {
+          lazy: () =>
+            authenticationOperation(new AbortController().signal, async () => ({
+              Component: (await import("@/features/rooms/catch-up-page"))
+                .CatchUpPage,
+            })),
+          ErrorBoundary: PanelRouteErrorSurface,
+          path: "rooms/catch-up",
+        },
+        {
           element: <RoomSurface />,
           errorElement: <RoomRouteErrorSurface queryClient={queryClient} />,
           loader: ({ params }) => {

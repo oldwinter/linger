@@ -152,6 +152,9 @@ describe("RoomSecondaryNavigation attention", () => {
       within(quickAccess).getByRole("button", { name: "Meetings" }),
     ).toBeDisabled();
     expect(screen.getByRole("button", { name: "Search" })).toBeVisible();
+    expect(
+      screen.queryByRole("link", { name: /^Catch up/ }),
+    ).not.toBeInTheDocument();
     const chats = screen
       .getByRole("button", { name: "Messages" })
       .closest("section")!;
@@ -225,6 +228,10 @@ describe("RoomSecondaryNavigation attention", () => {
     expect(
       screen.queryByLabelText("3 unread messages"),
     ).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^Catch up/ })).toHaveAttribute(
+      "href",
+      "/t/tenant-a/rooms/catch-up",
+    );
   });
 
   it("keeps a Mention visible when the Room has no unread Messages", () => {

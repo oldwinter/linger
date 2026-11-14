@@ -27,6 +27,7 @@ import { searchShortcutLabel } from "@/features/search/search-shortcut";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 
 import { AgentCreateMenu } from "./agent-create-menu";
+import { beginCatchUp } from "./catch-up";
 import type {
   TeamHubRoomListItem,
   TeamHubTenant,
@@ -117,6 +118,7 @@ export function RoomSecondaryNavigation({
   const [templateAgentOpen, setTemplateAgentOpen] = useState(false);
   const runningRooms = new Set(runningRoomIds);
   const failedRooms = new Set(failedRoomIds);
+  const catchUpCount = beginCatchUp(rooms).rooms.length;
   const visibleRoomIds = new Set(
     rooms.flatMap((room) =>
       room.parent_room_id ? [room.parent_room_id] : [room.id],
@@ -299,6 +301,17 @@ export function RoomSecondaryNavigation({
         ref={listRef}
       >
         {onCollapse ? searchButton : null}
+        {catchUpCount > 0 ? (
+          <Link
+            aria-label={`Catch up, ${catchUpCount} ${catchUpCount === 1 ? "chat" : "chats"}`}
+            className="mx-2 flex items-center justify-between rounded-lg bg-app-hover px-2.5 py-2 text-sm text-app-ink hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+            onClick={onCloseMobile}
+            to={`/t/${tenant.id}/rooms/catch-up`}
+          >
+            Catch up
+            <span className="text-xs text-app-muted">{catchUpCount}</span>
+          </Link>
+        ) : null}
         {/* While the list loads only its skeleton shows; the card and list
             land together once everything has settled. */}
         {navigationStatus ?? (
