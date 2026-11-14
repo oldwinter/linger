@@ -37,3 +37,47 @@ export function useGlobalSearchShortcut(onOpen: () => void) {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, []);
 }
+
+/**
+ * Cmd/Ctrl+F opens search narrowed to the open Room, where the browser's find
+ * bar would otherwise open. A field, an editor, or an open dialog owns the
+ * keystroke pressed inside it, and so does an editor that already handled it.
+ */
+export function isRoomSearchShortcut(event: KeyboardEvent) {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) {
+    return false;
+  }
+  if (event.isComposing || event.keyCode === 229) return false;
+  if (event.key.toLowerCase() !== "f") return false;
+  if (event.defaultPrevented) return false;
+  return !keystrokeHasOwner(event.target);
+}
+
+function keystrokeHasOwner(target: EventTarget | null) {
+  if (document.querySelector("dialog[open]")) return true;
+  if (!(target instanceof Element)) return false;
+  return (
+    target.closest(
+      "input, textarea, select, [contenteditable]:not([contenteditable='false'])",
+    ) !== null
+  );
+}
+
+/**
+ * Room-scoped Cmd/Ctrl+F. Unlike Cmd/Ctrl+K it listens in the bubble phase, so
+ * an editor that owns the key handles it first and the Room takes only what is
+ * left; the browser's find bar is prevented only when the Room opens search.
+ */
+export function useRoomSearchShortcut(onOpen: () => void, enabled = true) {
+  const open = useEffectEvent(onOpen);
+  useEffect(() => {
+    if (!enabled) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (!isRoomSearchShortcut(event)) return;
+      event.preventDefault();
+      open();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [enabled]);
+}

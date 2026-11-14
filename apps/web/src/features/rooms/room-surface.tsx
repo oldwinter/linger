@@ -40,6 +40,7 @@ import type {
   RoomShellOutletContext,
   SearchRoomScope,
 } from "@/features/search/room-search-scope";
+import { useRoomSearchShortcut } from "@/features/search/search-shortcut";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMessagePresentation } from "@/features/teamhub/teamhub-runtime";
 import type { RoomRealtimeStatus } from "@/features/teamhub/event-transport";
@@ -344,6 +345,12 @@ function RoomSurfaceContent({
   const roomTitle = isDirectRoom && livePeerName ? livePeerName : room.name;
   const presentationRoom =
     roomTitle === room.name ? room : { ...room, name: roomTitle };
+  // Cmd/Ctrl+F finds inside the open Room, at the same scope the header's
+  // Search control opens. Outside a Room this component is not mounted.
+  useRoomSearchShortcut(
+    () => shell?.openRoomSearch?.({ id: roomId, name: roomTitle }),
+    Boolean(shell?.openRoomSearch),
+  );
   const currentActorIsOwner = members.items.some(
     (member) => member.actor.id === currentActorId && member.role === "owner",
   );

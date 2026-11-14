@@ -108,6 +108,88 @@ describe("RoomSurface command availability", () => {
     );
   });
 
+  it("opens Room-scoped search from the keyboard and keeps the browser find bar closed", async () => {
+    const openRoomSearch = vi.fn();
+    await renderRoomSurface(
+      "room-all",
+      "",
+      surfaceRuntime(),
+      <div />,
+      openRoomSearch,
+    );
+
+    await screen.findByRole("region", { name: "Room all" });
+
+    // fireEvent reports whether the event was left default-prevented.
+    expect(fireEvent.keyDown(window, { key: "f", ctrlKey: true })).toBe(false);
+    expect(openRoomSearch).toHaveBeenCalledExactlyOnceWith({
+      id: "room-all",
+      name: "all",
+    });
+
+    openRoomSearch.mockClear();
+    expect(fireEvent.keyDown(window, { key: "f", metaKey: true })).toBe(false);
+    expect(openRoomSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves Cmd/Ctrl+F to the field the person is typing in", async () => {
+    const openRoomSearch = vi.fn();
+    await renderRoomSurface(
+      "room-all",
+      "",
+      surfaceRuntime(),
+      <div />,
+      openRoomSearch,
+    );
+    const field = document.createElement("input");
+    document.body.append(field);
+    await screen.findByRole("region", { name: "Room all" });
+    try {
+      expect(fireEvent.keyDown(field, { key: "f", ctrlKey: true })).toBe(true);
+      expect(openRoomSearch).not.toHaveBeenCalled();
+    } finally {
+      field.remove();
+    }
+  });
+
+  it("keeps Cmd/Ctrl+F during an IME composition", async () => {
+    const openRoomSearch = vi.fn();
+    await renderRoomSurface(
+      "room-all",
+      "",
+      surfaceRuntime(),
+      <div />,
+      openRoomSearch,
+    );
+
+    await screen.findByRole("region", { name: "Room all" });
+
+    expect(
+      fireEvent.keyDown(window, { key: "f", ctrlKey: true, isComposing: true }),
+    ).toBe(true);
+    expect(openRoomSearch).not.toHaveBeenCalled();
+  });
+
+  it("leaves Cmd/Ctrl+F to a handler that already took it", async () => {
+    const openRoomSearch = vi.fn();
+    await renderRoomSurface(
+      "room-all",
+      "",
+      surfaceRuntime(),
+      <div />,
+      openRoomSearch,
+    );
+    const takeKey = (event: KeyboardEvent) => event.preventDefault();
+    document.body.addEventListener("keydown", takeKey);
+    await screen.findByRole("region", { name: "Room all" });
+    try {
+      fireEvent.keyDown(document.body, { key: "f", ctrlKey: true });
+      expect(openRoomSearch).not.toHaveBeenCalled();
+    } finally {
+      document.body.removeEventListener("keydown", takeKey);
+    }
+  });
+
   it("opens Thread-scoped search without leaving the Room or its Thread", async () => {
     const openRoomSearch = vi.fn();
     seedPanelTabs({
