@@ -26,6 +26,8 @@ export interface ActionMenuItem {
   danger?: boolean;
   disabled?: boolean;
   icon?: ReactNode;
+  /** Stays open after selection, for an action that can fail and be retried. */
+  keepOpen?: boolean;
   label: string;
   onSelect?: () => void;
   separatorBefore?: boolean;
@@ -300,7 +302,7 @@ export function ActionMenu({
                       );
                     }}
                     onSelect={() => {
-                      closeMenu();
+                      if (!item.keepOpen) closeMenu();
                       item.onSelect?.();
                     }}
                     ref={(node) => {

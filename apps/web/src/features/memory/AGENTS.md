@@ -21,6 +21,10 @@
 - A meeting reader's header may copy the meeting's canonical link, built by
   `meeting-routes.ts` with the origin the app is served from. The clipboard
   again holds derived reading state, and a refused copy says so.
+- A meeting reader may send its summary to a Room as one Message from the
+  header's Room picker. That Message copies derived reading state, writes no
+  Memory state, and reuses its idempotency key only when retrying the same
+  Room.
 - Timeline is the display label for the existing `graph` entry; keep its route
   and data key. Keep/Delete stay browser-local display decisions through
   `features/wiki/wiki-display-state.ts`: filter displayed graph nodes and edges
