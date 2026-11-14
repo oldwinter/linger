@@ -9,6 +9,7 @@ import {
   type RecentDocument,
   readRecentDocuments,
   recordRecentDocument,
+  removeRecentDocument,
   writeRecentDocuments,
 } from "./recent-documents";
 
@@ -132,5 +133,45 @@ describe("Recent Document storage", () => {
 
     expect(localStorage.length).toBe(0);
     expect(readRecentDocuments(undefined)).toEqual([]);
+  });
+
+  it("forgets one Document and keeps the rest in order", () => {
+    writeRecentDocuments("account-a", [entry("a"), entry("b"), entry("c")]);
+    writeRecentDocuments("account-b", [entry("a"), entry("b")]);
+
+    removeRecentDocument("account-a", "b");
+
+    expect(readRecentDocuments("account-a").map((row) => row.id)).toEqual([
+      "a",
+      "c",
+    ]);
+    expect(readRecentDocuments("account-b").map((row) => row.id)).toEqual([
+      "a",
+      "b",
+    ]);
+  });
+
+  it("drops the stored list when the last Document is forgotten", () => {
+    writeRecentDocuments("account-a", [entry("a")]);
+
+    removeRecentDocument("account-a", "a");
+
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(hasRecentDocuments()).toBe(false);
+  });
+
+  it("leaves a missing or unreadable list alone", () => {
+    removeRecentDocument("account-a", "a");
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+
+    localStorage.setItem(STORAGE_KEY, "{not json");
+    removeRecentDocument("account-a", "a");
+    expect(localStorage.getItem(STORAGE_KEY)).toBe("{not json");
+
+    writeRecentDocuments("account-a", [entry("a")]);
+    removeRecentDocument("account-a", "missing");
+    expect(readRecentDocuments("account-a").map((row) => row.id)).toEqual([
+      "a",
+    ]);
   });
 });
