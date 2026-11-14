@@ -7,7 +7,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { useParams } from "react-router";
+import { Link, useParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -29,6 +29,7 @@ import {
   runMyRulesCommand,
   type MyRulesCommand,
 } from "./my-rules-queries";
+import { ruleNextPath } from "./rule-next";
 import { SettingsPageHeading } from "./settings-page-heading";
 
 const actionLabel: Record<TeamHubProactiveAction, string> = {
@@ -81,6 +82,7 @@ export function MyRulesPage() {
           book={rules.data}
           busy={command.isPending}
           onCommand={(input) => command.mutateAsync(input)}
+          tenantId={tenantId}
         />
       )}
       {command.isError ? (
@@ -96,10 +98,12 @@ function RuleBook({
   book,
   busy,
   onCommand,
+  tenantId,
 }: {
   book: TeamHubProactiveRuleBook;
   busy: boolean;
   onCommand: (input: MyRulesCommand) => Promise<unknown>;
+  tenantId: string;
 }) {
   return (
     <>
@@ -126,6 +130,7 @@ function RuleBook({
                 )}
                 onCommand={onCommand}
                 rule={rule}
+                tenantId={tenantId}
               />
             ))}
           </ul>
@@ -172,12 +177,14 @@ function RuleRow({
   mandates,
   onCommand,
   rule,
+  tenantId,
 }: {
   busy: boolean;
   divergences: TeamHubProactiveRuleBook["divergences"];
   mandates: TeamHubProactiveRuleBook["mandates"];
   onCommand: (input: MyRulesCommand) => Promise<unknown>;
   rule: TeamHubProactiveRule;
+  tenantId: string;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
   const shadow = rule.status === "shadow";
@@ -203,6 +210,14 @@ function RuleRow({
             <StatusPill>Edited by you</StatusPill>
           ) : null}
           <span className="flex items-center gap-0.5">
+            {shadow ? (
+              <Link
+                className="text-xs text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                to={ruleNextPath(tenantId, rule.id)}
+              >
+                What this changes next
+              </Link>
+            ) : null}
             {shadow ? (
               <Button
                 disabled={busy}
