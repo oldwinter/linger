@@ -80,7 +80,153 @@ describe("WikiFileTree", () => {
     ).toBeVisible();
     expect(within(pages).queryByText("casey-example.md")).toBeNull();
   });
+
+  it("narrows the tree to matches and restores the branches when cleared", async () => {
+    const runtime = await loggedInRuntime();
+    const served = serveSidebar(runtime);
+    renderPage(runtime);
+
+    const pages = await screen.findByRole("region", { name: "Pages" });
+    fireEvent.click(
+      within(pages).getByRole("button", { name: "Expand people" }),
+    );
+    expect(within(pages).getByText("casey-example.md")).toBeVisible();
+
+    const field = within(pages).getByRole("searchbox", {
+      name: "Filter Wiki pages",
+    });
+    fireEvent.change(field, { target: { value: "DESIGN" } });
+
+    const match = within(pages).getByRole("link", { name: "design.md" });
+    expect(match).toBeVisible();
+    expect(within(match).getByText("design").tagName).toBe("MARK");
+    expect(
+      within(pages).getByRole("button", { name: "Collapse projects" }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(
+      within(pages).getByRole("button", { name: "Collapse lev8" }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(within(pages).queryByRole("button", { name: /people/ })).toBeNull();
+    expect(
+      within(pages).queryByRole("link", { name: "casey-example.md" }),
+    ).toBeNull();
+    expect(served).toHaveBeenCalledTimes(1);
+
+    // A folder folded while filtering stays folded only until the field clears.
+    fireEvent.click(
+      within(pages).getByRole("button", { name: "Collapse projects" }),
+    );
+    expect(within(pages).queryByRole("link", { name: "design.md" })).toBeNull();
+
+    fireEvent.click(
+      within(pages).getByRole("button", { name: "Clear Wiki filter" }),
+    );
+
+    expect(field).toHaveValue("");
+    expect(
+      within(pages).getByRole("button", { name: "Collapse people" }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(within(pages).getByText("casey-example.md")).toBeVisible();
+    expect(
+      within(pages).getByRole("button", { name: "Expand projects" }),
+    ).toHaveAttribute("aria-expanded", "false");
+    expect(within(pages).queryByRole("link", { name: "design.md" })).toBeNull();
+  });
+
+  it("says when no page matches", async () => {
+    const runtime = await loggedInRuntime();
+    serveSidebar(runtime);
+    renderPage(runtime);
+
+    const pages = await screen.findByRole("region", { name: "Pages" });
+    fireEvent.change(
+      within(pages).getByRole("searchbox", { name: "Filter Wiki pages" }),
+      { target: { value: "zzz" } },
+    );
+
+    expect(within(pages).getByText('No pages match "zzz".')).toBeVisible();
+    expect(within(pages).queryAllByRole("link")).toHaveLength(0);
+    expect(
+      within(pages).queryAllByRole("button", { name: /Expand|Collapse/ }),
+    ).toHaveLength(0);
+  });
+
+  it("leaves the open page selected and following links unchanged", async () => {
+    const runtime = await loggedInRuntime();
+    serveSidebar(runtime);
+    const router = renderPage(runtime);
+
+    const pages = await screen.findByRole("region", { name: "Pages" });
+    fireEvent.change(
+      within(pages).getByRole("searchbox", { name: "Filter Wiki pages" }),
+      { target: { value: "casey" } },
+    );
+    expect(router.state.location.pathname).toBe(
+      "/t/tenant-northstar/library/wiki",
+    );
+
+    fireEvent.click(
+      within(pages).getByRole("link", { name: "casey-example.md" }),
+    );
+
+    expect(await screen.findByText("Shared Document editor")).toBeVisible();
+    expect(router.state.location.pathname).toBe(
+      "/t/tenant-northstar/documents/person-casey-example",
+    );
+    expect(
+      within(pages).getByRole("link", { name: "casey-example.md" }),
+    ).toHaveAttribute("aria-current", "page");
+  });
+
+  it("keeps the filter out of browser storage", async () => {
+    const runtime = await loggedInRuntime();
+    serveSidebar(runtime);
+    renderPage(runtime);
+
+    const pages = await screen.findByRole("region", { name: "Pages" });
+    const before = storedEntries();
+    fireEvent.change(
+      within(pages).getByRole("searchbox", { name: "Filter Wiki pages" }),
+      { target: { value: "casey" } },
+    );
+
+    expect(
+      within(pages).getByRole("link", { name: "casey-example.md" }),
+    ).toBeVisible();
+    expect(storedEntries()).toEqual(before);
+  });
 });
+
+function serveSidebar(runtime: ReturnType<typeof createTestTeamHubRuntime>) {
+  return serveWikiDocuments(runtime).mockResolvedValue({
+    items: [
+      wikiDocument("root-index", "Index", "wiki_page", "index.md"),
+      wikiDocument("people-index", "Index", "wiki_page", "people/index.md"),
+      wikiDocument(
+        "person-casey-example",
+        "Casey example",
+        "wiki_page",
+        "people/casey-example.md",
+      ),
+      wikiDocument("projects-index", "Index", "wiki_page", "projects/index.md"),
+      wikiDocument("project-lev8", "Lev8", "wiki_page", "projects/lev8.md"),
+      wikiDocument(
+        "project-design",
+        "Design",
+        "wiki_page",
+        "projects/lev8/design.md",
+      ),
+    ],
+    page: { has_more: false },
+  });
+}
+
+function storedEntries() {
+  return Object.entries(window.localStorage).sort(
+    ([leftKey, leftValue], [rightKey, rightValue]) =>
+      leftKey.localeCompare(rightKey) || leftValue.localeCompare(rightValue),
+  );
+}
 
 async function loggedInRuntime() {
   const runtime = createTestTeamHubRuntime();
@@ -88,7 +234,10 @@ async function loggedInRuntime() {
   return runtime;
 }
 
-function renderPage(runtime: ReturnType<typeof createTestTeamHubRuntime>) {
+function renderPage(
+  runtime: ReturnType<typeof createTestTeamHubRuntime>,
+  initialEntry = "/t/tenant-northstar/library/wiki",
+) {
   window.sessionStorage.setItem(
     "linger:library-owned-collapsed:v2:tenant-northstar",
     "false",
@@ -113,7 +262,7 @@ function renderPage(runtime: ReturnType<typeof createTestTeamHubRuntime>) {
         ),
       },
     ],
-    { initialEntries: ["/t/tenant-northstar/library/wiki"] },
+    { initialEntries: [initialEntry] },
   );
   render(
     <QueryClientProvider
