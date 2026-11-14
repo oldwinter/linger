@@ -64,6 +64,26 @@ export function writeRecentWikiPages(
   }
 }
 
+/**
+ * Forgets one page by the identity the store keys on. The rest keep their
+ * order, the Account's key goes when the last entry does, and a list without
+ * that page is left as it is, damaged storage included.
+ */
+export function removeRecentWikiPage(
+  accountId: string | undefined,
+  pageId: string,
+): void {
+  if (!accountId) return;
+  const entries = readRecentWikiPages(accountId);
+  if (!entries.some((entry) => entry.id === pageId)) return;
+  const remaining = entries.filter((entry) => entry.id !== pageId);
+  if (remaining.length === 0) {
+    clearRecentWikiPages(accountId);
+    return;
+  }
+  writeRecentWikiPages(accountId, remaining);
+}
+
 export function clearRecentWikiPages(accountId: string | undefined): void {
   if (!accountId) return;
   try {

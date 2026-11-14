@@ -8,6 +8,7 @@ import {
   hasRecentWikiPages,
   readRecentWikiPages,
   recordRecentWikiPage,
+  removeRecentWikiPage,
   type RecentWikiPage,
   writeRecentWikiPages,
 } from "./recent-wiki-pages";
@@ -154,5 +155,55 @@ describe("Recent Wiki page storage", () => {
 
     expect(localStorage.length).toBe(0);
     expect(readRecentWikiPages(undefined)).toEqual([]);
+  });
+});
+
+describe("removeRecentWikiPage", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("forgets only the named page and keeps the rest in order", () => {
+    writeRecentWikiPages("account-a", [entry("a"), entry("b"), entry("c")]);
+
+    removeRecentWikiPage("account-a", "b");
+
+    expect(readRecentWikiPages("account-a").map((row) => row.id)).toEqual([
+      "a",
+      "c",
+    ]);
+  });
+
+  it("drops the Account's key when the last page goes", () => {
+    writeRecentWikiPages("account-a", [entry("a")]);
+
+    removeRecentWikiPage("account-a", "a");
+
+    expect(readRecentWikiPages("account-a")).toEqual([]);
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(hasRecentWikiPages()).toBe(false);
+  });
+
+  it("leaves a list without that page as it is", () => {
+    writeRecentWikiPages("account-a", [entry("a")]);
+    const stored = localStorage.getItem(STORAGE_KEY);
+
+    removeRecentWikiPage("account-a", "missing");
+
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(stored);
+  });
+
+  it("leaves storage it cannot read untouched", () => {
+    localStorage.setItem(STORAGE_KEY, "{not json");
+
+    removeRecentWikiPage("account-a", "a");
+
+    expect(localStorage.getItem(STORAGE_KEY)).toBe("{not json");
+  });
+
+  it("removes nothing without an Account", () => {
+    removeRecentWikiPage(undefined, "a");
+
+    expect(localStorage.length).toBe(0);
   });
 });
