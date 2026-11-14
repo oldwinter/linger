@@ -82,10 +82,10 @@ export function GlobalSearchField({
           <span className="ml-1 inline-flex h-8 shrink-0 items-center gap-2 rounded-full bg-(--app-field-surface) pl-2.5 pr-1 text-xs font-medium text-foreground shadow-outline">
             <Icon className="text-app-subtle" icon={HashtagIcon} size={16} />
             <span className="max-w-40 truncate" title={roomScope.name}>
-              This Room
+              {roomScope.label ?? "This Room"}
             </span>
             <button
-              aria-label="Remove This Room scope"
+              aria-label={`Remove ${roomScope.label ?? "This Room"} scope`}
               className="grid size-6 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
               onClick={onClearRoomScope}
               type="button"

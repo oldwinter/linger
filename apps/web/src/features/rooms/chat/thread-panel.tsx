@@ -13,6 +13,11 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import { Search01Icon } from "@hugeicons/core-free-icons";
+
+import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
+import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { type TeamHubClient } from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
@@ -25,6 +30,7 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 
 import { AgentAvatarStatusContext } from "../members/agent-avatar-status-context";
+import { useRoomOutletContext } from "../room-connectivity";
 
 import { createRoomCardDecisionController } from "../cards/room-card-decision-controller";
 import type { RoomCardDecision } from "../cards/room-message-card-contract";
@@ -59,6 +65,7 @@ import { useRoomTimelineScroll } from "./use-room-timeline-scroll";
 import { useDocumentCardMetadata } from "../files/use-document-card-metadata";
 import { readRoomComposerDraft, writeRoomComposerDraft } from "../room-drafts";
 import { RoomRejoinBanner } from "../room-participation";
+import { panelTabTitle } from "../task-sidebar/panel-tab-title";
 import {
   roomMembersQueryOptions,
   roomMessagesInfiniteQueryOptions,
@@ -117,6 +124,10 @@ function ThreadPanelContent({
     onRoomResolved?.(threadRoomId);
   }, [onRoomResolved, threadRoomId]);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const { openRoomSearch } = useRoomOutletContext();
+  // The Thread Room is searched like a Room; the chip says which Thread by the
+  // Message that started it, the same title the panel's tab carries.
+  const threadTitle = panelTabTitle(markdownPlainText(rootMessage.raw_message));
   const composerRef = useRef<MessageComposerHandle>(null);
   const composerFocusRequested =
     useSyncExternalStore(
@@ -322,15 +333,39 @@ function ThreadPanelContent({
       aria-label="Message Thread"
       className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col app-work-surface"
     >
-      <h2 className="sr-only" ref={headingRef} tabIndex={-1}>
-        Thread
-      </h2>
-      <div className="flex shrink-0 items-center justify-end px-3 pt-2">
-        <ThreadCopyAction
-          actorDisplayNames={rowContext.actorDisplayNames}
-          messages={messagesQuery.data ? threadMessages : emptyMessages}
-        />
-      </div>
+      <header className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-app-border px-3">
+        <h2
+          className="min-w-0 truncate text-xs font-medium text-app-ink outline-none"
+          ref={headingRef}
+          tabIndex={-1}
+        >
+          Thread
+        </h2>
+        <div className="flex shrink-0 items-center gap-1">
+          {threadRoomId && openRoomSearch ? (
+            <Button
+              aria-label="Search thread"
+              className="!rounded-lg border-0 text-app-muted"
+              onClick={() =>
+                openRoomSearch({
+                  id: threadRoomId,
+                  label: `Thread · ${threadTitle}`,
+                  name: threadTitle,
+                })
+              }
+              size="compactIcon"
+              title="Search thread"
+              tone="ghost"
+            >
+              <Icon icon={Search01Icon} size={16} />
+            </Button>
+          ) : null}
+          <ThreadCopyAction
+            actorDisplayNames={rowContext.actorDisplayNames}
+            messages={messagesQuery.data ? threadMessages : emptyMessages}
+          />
+        </div>
+      </header>
       <ThreadTimeline
         canLoadEarlier={messagesQuery.hasNextPage}
         hasPending={conversation.pendingMessages.length > 0}

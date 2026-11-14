@@ -108,6 +108,42 @@ describe("RoomSurface command availability", () => {
     );
   });
 
+  it("opens Thread-scoped search without leaving the Room or its Thread", async () => {
+    const openRoomSearch = vi.fn();
+    seedPanelTabs({
+      activeMessageId: "message-2",
+      openMessageIds: ["message-2"],
+    });
+    const router = await renderRoomSurface(
+      "room-all",
+      "",
+      surfaceRuntime(),
+      <div />,
+      openRoomSearch,
+    );
+
+    const sidebar = await openPanelLauncher();
+    fireEvent.click(
+      await within(sidebar).findByRole("button", { name: "Search thread" }),
+    );
+
+    expect(openRoomSearch).toHaveBeenCalledWith({
+      id: expect.stringMatching(/^room-thread-/u),
+      label: expect.stringMatching(/^Thread · /u),
+      name: expect.any(String),
+    });
+    // Search is an overlay: the Room route and the open Thread stay as they
+    // were, so closing search returns to this Thread.
+    expect(router.state.location.pathname).toBe(
+      "/t/tenant-northstar/rooms/room-all/chat",
+    );
+    expect(router.state.location.search).toBe("");
+    expect(
+      within(sidebar).getByRole("heading", { name: "Thread" }),
+    ).toBeVisible();
+    expect(sidebar).toHaveTextContent("Reviewed the checklist");
+  });
+
   it("shows a closable loading panel and keeps the composer usable while panel data waits", async () => {
     const runtime = surfaceRuntime();
     const documents = await teamHubData(
