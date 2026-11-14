@@ -335,6 +335,20 @@ func (s *ViewStore) Ensure(ctx context.Context, request ViewRequest, source Cont
 		return ViewRecord{}, ErrContextClosed
 	}
 	current, readErr := s.read(ctx, request.ExecutionContextKey)
+	if readErr == nil {
+		adopted, moved, err := s.adoptMovedWorkspace(current)
+		if err != nil {
+			s.mu.Unlock()
+			return ViewRecord{}, err
+		}
+		if moved {
+			current = adopted
+			if err := s.write(ctx, current); err != nil {
+				s.mu.Unlock()
+				return ViewRecord{}, s.observeStorage(ctx, "ensure", err)
+			}
+		}
+	}
 	s.mu.Unlock()
 	if readErr == nil && !current.Unready && current.View.ViewDigest == request.ViewDigest &&
 		current.View.RuntimeInstanceID == request.RuntimeInstanceID && sameRequestOwner(current.View, request) {
@@ -376,6 +390,43 @@ func (s *ViewStore) Ensure(ctx context.Context, request ViewRequest, source Cont
 func contextWorkspace(viewRoot, contextKey string) string {
 	sum := sha256.Sum256([]byte(contextKey))
 	return filepath.Join(viewRoot, hex.EncodeToString(sum[:16]), "workspace")
+}
+
+// workspaceMoved reports whether retainedPath is the workspace that the same
+// Execution Context Key now computes at workspacePath, moved with its view
+// root. The final two segments are that key's hash and the fixed workspace
+// name, so matching them rules out a different workspace that happens to be
+// gone. A moved folder keeps its files byte-identical, so the retained file
+// claims still describe the workspace at its new path.
+func workspaceMoved(retainedPath, workspacePath string) bool {
+	if retainedPath == "" || retainedPath == workspacePath {
+		return false
+	}
+	if filepath.Base(retainedPath) != filepath.Base(workspacePath) ||
+		filepath.Base(filepath.Dir(retainedPath)) != filepath.Base(filepath.Dir(workspacePath)) {
+		return false
+	}
+	if _, err := os.Lstat(retainedPath); !errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+	info, err := os.Lstat(workspacePath)
+	return err == nil && info.IsDir()
+}
+
+// adoptMovedWorkspace returns the record pointing at the computed workspace
+// when its root moved, after re-pointing links that still name the retained
+// root. The caller holds s.mu.
+func (s *ViewStore) adoptMovedWorkspace(record ViewRecord) (ViewRecord, bool, error) {
+	workspacePath := contextWorkspace(s.root, record.View.ExecutionContextKey)
+	if !workspaceMoved(record.WorkspacePath, workspacePath) {
+		return record, false, nil
+	}
+	if err := repairMovedWorkspaceLinks(record.WorkspacePath, workspacePath); err != nil {
+		return ViewRecord{}, false, err
+	}
+	adopted := record
+	adopted.WorkspacePath = workspacePath
+	return adopted, true, nil
 }
 
 func (s *ViewStore) ensureLock(key string) *sync.Mutex {
@@ -508,7 +559,16 @@ func (s *ViewStore) apply(ctx context.Context, view View, contentURL string, tim
 	}
 	workspacePath := contextWorkspace(s.root, view.ExecutionContextKey)
 	projectionPrevious := current
-	if readErr != nil || current.WorkspacePath != workspacePath {
+	if readErr == nil {
+		adopted, moved, err := s.adoptMovedWorkspace(current)
+		if err != nil {
+			return ViewRecord{}, err
+		}
+		if moved {
+			projectionPrevious = adopted
+		}
+	}
+	if readErr != nil || projectionPrevious.WorkspacePath != workspacePath {
 		// Another directory never inherits the old row's file claims.
 		projectionPrevious = ViewRecord{}
 	}
