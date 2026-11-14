@@ -3,7 +3,7 @@ import type { TeamHubDocument } from "@/features/teamhub/teamhub-types";
 
 import { documentFileName } from "./document-display-name";
 
-type LibraryLinkDocument = Pick<
+export type LibraryLinkDocument = Pick<
   TeamHubDocument,
   "format" | "representation_format" | "title"
 > & { id: string };
