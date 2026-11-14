@@ -126,10 +126,12 @@ export function LibraryDocumentResults({
   folders,
   onCopy,
   onOpenFolder,
+  onToggleSelected,
   documentActions,
   pending,
   pendingUploads,
   section,
+  selectedDocumentIds,
   tenantId,
 }: {
   activeView: { empty: string; label: string };
@@ -138,12 +140,14 @@ export function LibraryDocumentResults({
   folders: readonly LibraryFolder[];
   onCopy: (document: LibraryRowDocument) => void;
   onOpenFolder: (folderId: string) => void;
+  onToggleSelected?: (documentId: string) => void;
   documentActions: (
     document: TeamHubDocumentTreeSummary,
   ) => RoomDocumentMenuActions;
   pending: boolean;
   pendingUploads: readonly PendingDocumentUpload[];
   section: LibrarySection;
+  selectedDocumentIds?: ReadonlySet<string>;
   tenantId: string;
 }) {
   if (pending) {
@@ -222,6 +226,8 @@ export function LibraryDocumentResults({
               ? () => onCopy(document)
               : undefined
           }
+          onToggleSelected={onToggleSelected}
+          selected={selectedDocumentIds?.has(document.id) ?? false}
           tenantId={tenantId}
         />
       ))}
@@ -239,30 +245,45 @@ function DocumentRow({
   document,
   actions,
   onCopyToMyDocuments,
+  onToggleSelected,
+  selected,
   tenantId,
 }: {
   context: string;
   document: LibraryRowDocument;
   actions: RoomDocumentMenuActions;
   onCopyToMyDocuments?: () => void;
+  onToggleSelected?: (documentId: string) => void;
+  selected: boolean;
   tenantId: string;
 }) {
   const fileName = documentFileName(document);
   return (
     <div className="workspace-file-row">
-      <Link
-        aria-label={fileName}
-        className="workspace-file-name"
-        to={`/t/${encodeURIComponent(tenantId)}/documents/${encodeURIComponent(document.id)}`}
-      >
-        <WorkspaceFileIcon filename={fileName} />
-        <span className="min-w-0">
-          <strong>{fileName}</strong>
-          {context ? (
-            <span className="workspace-file-context">{context}</span>
-          ) : null}
-        </span>
-      </Link>
+      <div className="flex min-w-0 items-center gap-3">
+        {onToggleSelected ? (
+          <input
+            aria-label={`Select ${fileName}`}
+            checked={selected}
+            className="size-4 shrink-0 accent-primary"
+            onChange={() => onToggleSelected(document.id)}
+            type="checkbox"
+          />
+        ) : null}
+        <Link
+          aria-label={fileName}
+          className="workspace-file-name min-w-0 flex-1"
+          to={`/t/${encodeURIComponent(tenantId)}/documents/${encodeURIComponent(document.id)}`}
+        >
+          <WorkspaceFileIcon filename={fileName} />
+          <span className="min-w-0">
+            <strong>{fileName}</strong>
+            {context ? (
+              <span className="workspace-file-context">{context}</span>
+            ) : null}
+          </span>
+        </Link>
+      </div>
       <WorkspaceFileMetadata document={document} />
       <DocumentActionsMenu
         actions={{ ...actions, onCopyToMyDocuments }}

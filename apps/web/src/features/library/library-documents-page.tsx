@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 
+import { Button } from "@/components/ui/button";
 import { FileDropTarget } from "@/components/ui/file-drop-target";
 import { Spinner } from "@/components/ui/spinner";
 import { writeDocumentLinkClipboard } from "@/features/rooms/files/document-clipboard-link";
@@ -19,11 +20,17 @@ import {
   useCopyToMyDocuments,
 } from "./copy-to-my-documents-dialog";
 import { DocumentDeleteDialog } from "./document-delete-dialog";
+import { documentFileName } from "./document-display-name";
 import { RecentDocumentCards } from "./library-document-results";
 import { LibraryDocumentsHeader } from "./library-documents-header";
 import { NewFolderDialog } from "./library-folder-browser";
 import { LibraryFolderListing } from "./library-folder-listing";
+import { MoveFolderPickerDialog } from "./move-folder-picker-dialog";
 import { readDroppedUploadSources } from "./library-upload-queue";
+import {
+  type LibraryBulkOutcome,
+  useLibraryBulkActions,
+} from "./use-library-bulk-actions";
 import {
   type WorkspaceTab,
   WorkspaceTabs,
@@ -67,20 +74,10 @@ export function LibraryDocumentsPage() {
   const tab: WorkspaceTab =
     workspaceTabs.find((candidate) => candidate.id === searchParams.get("tab"))
       ?.id ?? "owned";
-  function chooseTab(next: WorkspaceTab) {
-    setSearchParams(next === "owned" ? {} : { tab: next }, { replace: true });
-  }
-  // An open folder also lives in the URL, so Back leaves the folder.
-  function openFolder(folderId?: string) {
-    setSearchParams({
-      ...(tab === "owned" ? {} : { tab }),
-      ...(folderId ? { folder: folderId } : {}),
-    });
-  }
   const [fileType, setFileType] = useState("");
   const [sortBy, setSortBy] = useState("updated");
   const copy = useCopyToMyDocuments(client, tenantId);
-  const { tree, treeModel } = useOwnedDocumentTree(client, tenantId);
+  const { tree, treeModel, reload } = useOwnedDocumentTree(client, tenantId);
   const treeItems = tree.data?.items ?? [];
   const [creatingFolder, setCreatingFolder] = useState(false);
   const { browsedTree, folderId, levelDocuments, openedFolder, trail } =
@@ -92,6 +89,27 @@ export function LibraryDocumentsPage() {
       tenantId,
       tree,
     });
+  const bulk = useLibraryBulkActions({
+    client,
+    documents: levelDocuments,
+    items: treeItems,
+    onChanged: reload,
+    resetKey: `${tab}:${folderId ?? ""}`,
+    tenantId,
+  });
+  function chooseTab(next: WorkspaceTab) {
+    // A selection belongs to the folder level it was made in.
+    bulk.clear();
+    setSearchParams(next === "owned" ? {} : { tab: next }, { replace: true });
+  }
+  // An open folder also lives in the URL, so Back leaves the folder.
+  function openFolder(nextFolderId?: string) {
+    bulk.clear();
+    setSearchParams({
+      ...(tab === "owned" ? {} : { tab }),
+      ...(nextFolderId ? { folder: nextFolderId } : {}),
+    });
+  }
   const ownedFolderId = tab === "owned" ? folderId : undefined;
   const recent = useLibraryDocuments("recent", true);
   const recentDocuments = (recent.data?.pages[0]?.items ?? []).slice(
@@ -166,6 +184,33 @@ export function LibraryDocumentsPage() {
           title={treeModel.trashingDocument.title}
         />
       ) : null}
+      {bulk.moving ? (
+        <MoveFolderPickerDialog
+          folders={treeItems.filter(
+            (item): item is DocumentTreeFolder => item.node_kind === "folder",
+          )}
+          label={
+            bulk.moving.length === 1
+              ? "1 document"
+              : `${bulk.moving.length} documents`
+          }
+          onCancel={bulk.cancel}
+          onMove={(parentId) => void bulk.moveTo(parentId)}
+          rootLabel="Owned by Me"
+        />
+      ) : null}
+      {bulk.trashing ? (
+        <DocumentDeleteDialog
+          onCancel={bulk.cancel}
+          onConfirm={() => void bulk.trash()}
+          pending={bulk.pending}
+          title={
+            bulk.trashing.length === 1
+              ? documentFileName(bulk.trashing[0]!)
+              : `${bulk.trashing.length} documents`
+          }
+        />
+      ) : null}
       <FileDropTarget
         // Dropped files and folders land in the open folder, or My pages root.
         canAccept={() => tab === "owned" && !createBusy}
@@ -211,6 +256,18 @@ export function LibraryDocumentsPage() {
                 activeView={activeView}
                 browsedError={browsedTree.error}
                 browsedPending={browsedTree.isPending}
+                bulkBar={
+                  <LibraryBulkBar
+                    canMove={bulk.canMove}
+                    canTrash={bulk.canTrash}
+                    count={bulk.count}
+                    onClear={bulk.clear}
+                    onMove={bulk.beginMove}
+                    onTrash={bulk.beginTrash}
+                    outcome={bulk.outcome}
+                    pending={bulk.pending}
+                  />
+                }
                 documentActions={documentActions}
                 documents={levelDocuments}
                 error={treeModel.error}
@@ -222,7 +279,9 @@ export function LibraryDocumentsPage() {
                 onFileTypeChange={setFileType}
                 onOpenFolder={openFolder}
                 onSortByChange={setSortBy}
+                onToggleSelected={bulk.toggle}
                 pendingUploads={treeModel.pendingUploads}
+                selectedDocumentIds={bulk.selectedDocumentIds}
                 sortBy={sortBy}
                 tab={tab}
                 tenantId={tenantId}
@@ -232,6 +291,69 @@ export function LibraryDocumentsPage() {
           </div>
         </main>
       </FileDropTarget>
+    </div>
+  );
+}
+
+/** The actions offered while Library rows are selected, with the last outcome. */
+function LibraryBulkBar({
+  canMove,
+  canTrash,
+  count,
+  onClear,
+  onMove,
+  onTrash,
+  outcome,
+  pending,
+}: {
+  canMove: boolean;
+  canTrash: boolean;
+  count: number;
+  onClear: () => void;
+  onMove: () => void;
+  onTrash: () => void;
+  outcome: LibraryBulkOutcome | null;
+  pending: boolean;
+}) {
+  if (count === 0 && !outcome) return null;
+  return (
+    <div
+      aria-label="Selected documents"
+      className="flex flex-wrap items-center gap-2 border-b border-app-border pb-2 text-sm"
+      role="group"
+    >
+      {count > 0 ? (
+        <span className="text-app-body">{count} selected</span>
+      ) : null}
+      <Button
+        disabled={pending || !canMove}
+        onClick={onMove}
+        size="compact"
+        tone="secondary"
+      >
+        Move to folder
+      </Button>
+      <Button
+        disabled={pending || !canTrash}
+        onClick={onTrash}
+        size="compact"
+        tone="danger"
+      >
+        Trash
+      </Button>
+      {count > 0 ? (
+        <Button onClick={onClear} size="compact" tone="ghost">
+          Clear selection
+        </Button>
+      ) : null}
+      {outcome ? (
+        <p
+          className={outcome.failed ? "text-app-danger" : "text-app-muted"}
+          role={outcome.failed ? "alert" : "status"}
+        >
+          {outcome.message}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -249,23 +371,26 @@ function useOwnedDocumentTree(client: TeamHubClient, tenantId: string) {
     queryKey: ["teamhub", tenantId, "document-tree"],
     staleTime: 60_000,
   });
+  // One reread covers both the tree and the smart view every Library list builds on.
+  function reload() {
+    return Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: ["teamhub", tenantId, "document-tree"],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["teamhub", "library-documents"],
+      }),
+    ]);
+  }
   const treeModel = useMyDocumentsTreeModel({
     collapseFoldersInitially: true,
     items: tree.data?.items ?? [],
     loadError: tree.error,
-    onChanged: () =>
-      Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: ["teamhub", tenantId, "document-tree"],
-        }),
-        queryClient.invalidateQueries({
-          queryKey: ["teamhub", "library-documents"],
-        }),
-      ]),
+    onChanged: reload,
     pending: tree.isPending,
     tenantId,
   });
-  return { tree, treeModel };
+  return { reload, tree, treeModel };
 }
 
 function DocumentHistoryDialog({
