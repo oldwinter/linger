@@ -180,6 +180,10 @@ describe("Room shell Account menu", () => {
       name: "Search messages, docs, people, agents and rooms",
     });
     expect(input).toBeVisible();
+    // The shortcut stays Tenant-wide: no Room or Thread chip narrows it.
+    expect(
+      within(dialog).queryByRole("button", { name: /Remove .* scope/ }),
+    ).toBeNull();
     fireEvent.keyDown(input, { key: "Escape" });
     await waitFor(() =>
       expect(

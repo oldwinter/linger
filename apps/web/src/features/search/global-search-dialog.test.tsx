@@ -37,6 +37,7 @@ import {
   readGlobalSearchStore,
   type GlobalSearchStore,
 } from "./global-search-recent";
+import type { SearchRoomScope } from "./room-search-scope";
 import { isGlobalSearchShortcut } from "./search-shortcut";
 
 const TENANT = "tenant-northstar";
@@ -122,6 +123,45 @@ describe("Global search dialog", () => {
       }),
     );
     await waitFor(() => expect(harness.searchDocuments).toHaveBeenCalled());
+  });
+
+  it("names a Thread in the scope chip and widens to global search when cleared", async () => {
+    const harness = await renderDialog({
+      room: {
+        id: "room-thread-1",
+        label: "Thread · Rollout plan",
+        name: "Rollout plan",
+      },
+    });
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    expect(screen.getByText("Thread · Rollout plan")).toBeVisible();
+    expect(input).toHaveAttribute("placeholder", "Search messages");
+
+    fireEvent.change(input, { target: { value: "rollout" } });
+    await waitFor(() =>
+      expect(searchRequests(harness.searchMessages)).toContainEqual({
+        params: { tenantId: TENANT },
+        query: { limit: "20", q: "rollout", room_id: "room-thread-1" },
+        signal: expect.any(AbortSignal),
+      }),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Remove Thread · Rollout plan scope",
+      }),
+    );
+    // Removing the chip widens the same search instead of closing it.
+    expect(screen.queryByText("Thread · Rollout plan")).toBeNull();
+    expect(input).toHaveFocus();
+    await waitFor(() =>
+      expect(searchRequests(harness.searchMessages)).toContainEqual({
+        params: { tenantId: TENANT },
+        query: { limit: "20", q: "rollout" },
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    expect(harness.onClose).not.toHaveBeenCalled();
   });
 
   it("searches messages and docs after the debounce without a preview pane", async () => {
@@ -696,7 +736,7 @@ async function renderDialog({
   room,
 }: {
   queryClient?: QueryClient;
-  room?: { id: string; name: string };
+  room?: SearchRoomScope;
 } = {}) {
   const runtime = createTestTeamHubRuntime();
 

@@ -38,6 +38,7 @@ import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 
 const openPanelTab = vi.fn();
+const openRoomSearch = vi.fn();
 
 vi.mock("../room-connectivity", async () => {
   const actual = await vi.importActual<typeof import("../room-connectivity")>(
@@ -50,6 +51,7 @@ vi.mock("../room-connectivity", async () => {
       lastAppliedRoomSeq: 0,
       messagePresentations: {},
       openPanelTab,
+      openRoomSearch,
       recordMessagePresentation: () => undefined,
       status: "connected" as const,
     }),
@@ -59,6 +61,7 @@ vi.mock("../room-connectivity", async () => {
 describe("ThreadPanel", () => {
   beforeEach(() => {
     openPanelTab.mockReset();
+    openRoomSearch.mockReset();
     const store = new Map<string, string>();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
@@ -114,6 +117,29 @@ describe("ThreadPanel", () => {
     );
     expect(screen.getByLabelText("Reply in Thread")).toBeDisabled();
     expect(screen.getByRole("heading", { name: "Thread" })).toHaveFocus();
+  });
+
+  it("opens search narrowed to the Thread Room and names the Thread", async () => {
+    await renderThreadPanel(
+      <ThreadPanel
+        accountId="account-jenny"
+        rootMessage={message("message-2", "Thread root")}
+        tenantId="tenant-northstar"
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Search thread" }),
+    );
+
+    expect(openRoomSearch).toHaveBeenCalledWith({
+      id: "room-thread-1",
+      label: "Thread · Thread root",
+      name: "Thread root",
+    });
+    // Opening search leaves the Thread itself alone.
+    expect(screen.getByRole("heading", { name: "Thread" })).toBeVisible();
+    expect(screen.getByText("Thread root")).toBeVisible();
   });
 
   it("focuses the ready Thread composer with the caret after the draft for Reply to thread", async () => {

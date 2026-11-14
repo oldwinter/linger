@@ -424,6 +424,7 @@ function RoomSurfaceContent({
     messagePresentations,
     openProfile,
     openPanelTab: openPanelTabFromRoom,
+    openRoomSearch: shell?.openRoomSearch,
     recordMessagePresentation,
     status: realtimeStatus,
   };
