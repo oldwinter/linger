@@ -5,7 +5,9 @@ import {
   ArrowRight01Icon,
   Briefcase01Icon,
   Building03Icon,
+  Cancel01Icon,
   NoteEditIcon,
+  Search01Icon,
   Tag01Icon,
   UserGroupIcon,
   UserIcon,
@@ -32,6 +34,7 @@ import {
 } from "@/features/library/workspace-sidebar-styles";
 import { useLibraryTreeState } from "@/features/library/use-library-tree-state";
 import { documentQueryOptions } from "@/features/rooms/room-queries";
+import { HighlightedText } from "@/features/search/search-highlight";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { useWikiDocuments } from "./knowledge-sidebar-trees";
 import {
@@ -46,6 +49,7 @@ import {
 import { wikiPreviewPath } from "./wiki-routes";
 import { wikiPreviewPages } from "./wiki-preview-pages";
 import { usePersonalWikiRefresh } from "./wiki-refresh";
+import { filterWikiEntries } from "./wiki-title-filter";
 
 const entries = [
   { id: "profile", label: "Profile", icon: UserIcon },
@@ -60,6 +64,11 @@ const entries = [
 // screens keep the 44px target.
 function rowClass(current: boolean) {
   return `${workspaceNavRowClass} max-sm:min-h-11 ${current ? workspaceNavRowCurrentClass : workspaceNavRowIdleClass}`;
+}
+
+/** The row's single line: the file name without its Markdown extension. */
+function pageRowTitle(page: { title: string }) {
+  return page.title.replace(/\.md$/i, "");
 }
 
 export function WikiDirectory({
@@ -136,6 +145,21 @@ export function WikiDirectory({
       display.decisions[page.key] !== "delete",
   );
   const previewKey = previewPath === null ? null : wikiPageKey(previewPath);
+  // The filter belongs to the collection it was typed in, so switching
+  // collections starts from the full list instead of hiding the new one behind
+  // a stale query.
+  const [filter, setFilter] = useState<{
+    collection: WikiCollection | null;
+    text: string;
+  }>({ collection: null, text: "" });
+  const filterText = filter.collection === collection ? filter.text : "";
+  const visiblePages = filterWikiEntries(pages, filterText, pageRowTitle);
+  const visibleNewPages = filterWikiEntries(
+    newPages,
+    filterText,
+    (page) => page.name,
+  );
+  const filtering = filterText.trim() !== "";
   return (
     <>
       <header
@@ -209,6 +233,32 @@ export function WikiDirectory({
           })
         ) : (
           <>
+            {pages.length > 0 || newPages.length > 0 ? (
+              <label className="select-pill mb-2 w-full cursor-text pr-1.5 focus-within:ring-2 focus-within:ring-app-focus">
+                <Icon icon={Search01Icon} size={14} />
+                <input
+                  aria-label={`Filter ${wikiCollectionLabels[collection]}`}
+                  className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+                  onChange={(event) =>
+                    setFilter({ collection, text: event.target.value })
+                  }
+                  placeholder={`Filter ${wikiCollectionLabels[collection].toLowerCase()}`}
+                  role="searchbox"
+                  type="text"
+                  value={filterText}
+                />
+                {filterText ? (
+                  <button
+                    aria-label={`Clear ${wikiCollectionLabels[collection]} filter`}
+                    className="flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                    onClick={() => setFilter({ collection, text: "" })}
+                    type="button"
+                  >
+                    <Icon icon={Cancel01Icon} size={12} />
+                  </button>
+                ) : null}
+              </label>
+            ) : null}
             {documents.isPending ? (
               <p className="px-2 py-2 text-sm text-app-muted">
                 Loading Wiki Documents…
@@ -226,8 +276,14 @@ export function WikiDirectory({
               <p className="px-2 py-2 text-sm text-app-muted">
                 No generated {collection} yet.
               </p>
+            ) : filtering &&
+              visiblePages.length === 0 &&
+              visibleNewPages.length === 0 ? (
+              <p className="px-2 py-2 text-sm text-app-muted">
+                {`No ${wikiCollectionLabels[collection].toLowerCase()} match “${filterText.trim()}”.`}
+              </p>
             ) : null}
-            {pages.map((page) => (
+            {visiblePages.map((page) => (
               <div
                 className="group wiki-generated-row flex min-w-0 items-center gap-1 [--row-reveal-fade:112px]"
                 key={page.id}
@@ -253,7 +309,10 @@ export function WikiDirectory({
                   }}
                 >
                   <span className="truncate">
-                    {page.title.replace(/\.md$/i, "")}
+                    <HighlightedText
+                      query={filterText.trim()}
+                      text={pageRowTitle(page)}
+                    />
                   </span>
                 </Link>
                 {display.decisions[wikiPageKey(wikiPagePath(page))] !==
@@ -285,7 +344,7 @@ export function WikiDirectory({
                 ) : null}
               </div>
             ))}
-            {newPages.map((page) => (
+            {visibleNewPages.map((page) => (
               <Link
                 aria-current={previewKey === page.key ? "page" : undefined}
                 className={`${rowClass(previewKey === page.key)} min-w-0`}
@@ -293,7 +352,9 @@ export function WikiDirectory({
                 onClick={() => onFileOpen?.()}
                 to={wikiPreviewPath(tenantId, page.path)}
               >
-                <span className="truncate">{page.name}</span>
+                <span className="truncate">
+                  <HighlightedText query={filterText.trim()} text={page.name} />
+                </span>
               </Link>
             ))}
           </>

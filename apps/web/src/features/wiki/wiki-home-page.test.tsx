@@ -159,6 +159,20 @@ it("offers no Surprise me before the Wiki has pages", async () => {
   expect(screen.queryByRole("button", { name: "Surprise me" })).toBeNull();
 });
 
+it("never renders a Human Publish command", async () => {
+  const runtime = createTestTeamHubRuntime();
+  serveWikiDocuments(runtime).mockResolvedValue({
+    items: [wikiDocument("page-one", "Page one", "wiki_page")],
+    page: { has_more: false },
+  });
+  renderWikiHome(runtime);
+
+  expect(
+    await screen.findByRole("heading", { name: "Wiki", level: 1 }),
+  ).toBeVisible();
+  expect(screen.queryByRole("button", { name: /publish/i })).toBeNull();
+});
+
 /** The Wiki home beside the page route a card opens. */
 function renderWikiHome(runtime: ReturnType<typeof createTestTeamHubRuntime>) {
   const router = createMemoryRouter(

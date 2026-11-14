@@ -445,6 +445,131 @@ describe("Wiki directory", () => {
       ).queryByRole("link", { name: "beta" }),
     ).toBeNull();
   });
+  it("filters the open collection's files and highlights the match", async () => {
+    const { runtime } = await setup("/t/tenant-northstar/documents/alpha");
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    expect(
+      await within(files).findByRole("link", { name: "alpha" }),
+    ).toBeVisible();
+
+    fireEvent.change(
+      within(files).getByRole("searchbox", { name: "Filter Projects" }),
+      { target: { value: "BET" } },
+    );
+
+    expect(within(files).queryByRole("link", { name: "alpha" })).toBeNull();
+    const beta = within(files).getByRole("link", { name: "beta" });
+    expect(within(beta).getByText("bet").tagName).toBe("MARK");
+    expect(
+      runtime.server.requestsTo(
+        "GET",
+        "/v0/tenants/{tenantId}/personal-wiki/documents",
+      ),
+    ).toHaveLength(1);
+  });
+  it("needs every word in the title and says when nothing matches", async () => {
+    await setup("/t/tenant-northstar/documents/alpha");
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    const filter = await within(files).findByRole("searchbox", {
+      name: "Filter Projects",
+    });
+
+    fireEvent.change(filter, { target: { value: "alpha beta" } });
+
+    expect(within(files).queryAllByRole("link")).toHaveLength(0);
+    expect(
+      within(files).getByText("No projects match “alpha beta”."),
+    ).toBeVisible();
+  });
+  it("keeps the open page selected and restores the files when cleared", async () => {
+    const { router } = await setup("/t/tenant-northstar/documents/alpha");
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    const filter = await within(files).findByRole("searchbox", {
+      name: "Filter Projects",
+    });
+
+    fireEvent.change(filter, { target: { value: "alpha" } });
+    expect(within(files).getByRole("link", { name: "alpha" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(within(files).queryByRole("link", { name: "beta" })).toBeNull();
+    expect(router.state.location.pathname).toBe(
+      "/t/tenant-northstar/documents/alpha",
+    );
+
+    fireEvent.change(filter, { target: { value: "beta" } });
+    fireEvent.click(within(files).getByRole("link", { name: "beta" }));
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(
+        "/t/tenant-northstar/documents/beta",
+      ),
+    );
+    expect(within(files).getByRole("link", { name: "beta" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+
+    fireEvent.click(
+      within(files).getByRole("button", { name: "Clear Projects filter" }),
+    );
+    expect(filter).toHaveValue("");
+    expect(
+      await within(files).findByRole("link", { name: "alpha" }),
+    ).toBeVisible();
+  });
+  it("starts another collection from its full list", async () => {
+    const { router } = await setup(
+      "/t/tenant-northstar/documents/alpha",
+      undefined,
+      { beta: "topics/beta.md" },
+    );
+    const projects = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    expect(
+      await within(projects).findByRole("link", { name: "alpha" }),
+    ).toBeVisible();
+    fireEvent.change(
+      within(projects).getByRole("searchbox", { name: "Filter Projects" }),
+      { target: { value: "alpha" } },
+    );
+
+    await router.navigate("/t/tenant-northstar/documents/beta");
+
+    const topics = await screen.findByRole("navigation", {
+      name: "Topics files",
+    });
+    expect(
+      await within(topics).findByRole("link", { name: "beta" }),
+    ).toBeVisible();
+    expect(
+      within(topics).getByRole("searchbox", { name: "Filter Topics" }),
+    ).toHaveValue("");
+  });
+  it("keeps the filter out of browser storage", async () => {
+    await setup("/t/tenant-northstar/documents/alpha");
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    expect(
+      await within(files).findByRole("link", { name: "alpha" }),
+    ).toBeVisible();
+    const before = Object.entries(window.localStorage).sort();
+    fireEvent.change(
+      within(files).getByRole("searchbox", { name: "Filter Projects" }),
+      { target: { value: "beta" } },
+    );
+
+    expect(within(files).getByRole("link", { name: "beta" })).toBeVisible();
+    expect(Object.entries(window.localStorage).sort()).toEqual(before);
+  });
   it("filters hidden graph nodes and all their links without mutating the graph", () => {
     const result = filterWikiGraph(graph, {
       [wikiPageKey("projects/alpha.md")]: "delete",

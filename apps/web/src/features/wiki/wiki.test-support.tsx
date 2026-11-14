@@ -1,11 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
-import {
-  createMemoryRouter,
-  RouterProvider,
-  Outlet,
-  useParams,
-} from "react-router";
+import { createMemoryRouter, RouterProvider, Outlet } from "react-router";
 
 import { vi } from "vitest";
 
@@ -14,7 +9,6 @@ import {
   type TestTeamHubRuntime,
 } from "@/test/teamhub-test-runtime";
 import type { TestRouteHandler } from "@/test/teamhub-test-server";
-import { WikiFileTree } from "./knowledge-sidebar-trees";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubDocument,
@@ -40,12 +34,7 @@ export function renderWikiSurfaces(
   const router = createMemoryRouter(
     [
       {
-        element: (
-          <>
-            <WikiTestFiles />
-            <Outlet />
-          </>
-        ),
+        element: <Outlet />,
         errorElement: <p role="alert">Workspace route unavailable.</p>,
         children: [
           {
@@ -170,8 +159,4 @@ export function deferred<T>() {
     reject = rejectPromise;
   });
   return { promise, reject, resolve };
-}
-
-function WikiTestFiles() {
-  return <WikiFileTree tenantId={useParams().tenantId!} />;
 }
