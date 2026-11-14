@@ -1,17 +1,26 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { teamHubIdentityQueryKey } from "@/features/rooms/room-queries";
 
-import { type RecentDocument, writeRecentDocuments } from "./recent-documents";
+import {
+  type RecentDocument,
+  readRecentDocuments,
+  writeRecentDocuments,
+} from "./recent-documents";
 import { RecentDocumentsStrip } from "./recent-documents-strip";
 
 const STORAGE_KEY = "library-recent-documents.v1:account-a";
 
 function entry(id: string, name: string): RecentDocument {
   return { formatLabel: "md", id, name, openedAt: "2026-07-24T10:00:00Z" };
+}
+
+function LocationProbe() {
+  const location = useLocation();
+  return <span data-testid="location">{location.pathname}</span>;
 }
 
 function renderStrip() {
@@ -27,7 +36,8 @@ function renderStrip() {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={["/t/tenant-a/library"]}>
+        <LocationProbe />
         <RecentDocumentsStrip tenantId="tenant-a" />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -76,6 +86,60 @@ describe("Recently opened strip", () => {
     renderStrip();
 
     fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+
+    expect(
+      screen.queryByRole("region", { name: "Recently opened" }),
+    ).not.toBeInTheDocument();
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it("forgets one Document and keeps the rest in order", () => {
+    writeRecentDocuments("account-a", [
+      entry("document-design", "Design notes"),
+      entry("document-plan", "Q3 plan"),
+      entry("document-brief", "Brief"),
+    ]);
+    renderStrip();
+
+    fireEvent.click(screen.getByRole("button", { name: "Forget Q3 plan" }));
+
+    const strip = screen.getByRole("region", { name: "Recently opened" });
+    expect(
+      within(strip)
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["Design notes", "Brief"]);
+    expect(readRecentDocuments("account-a").map((row) => row.id)).toEqual([
+      "document-design",
+      "document-brief",
+    ]);
+  });
+
+  it("does not open the Document when it is forgotten", () => {
+    writeRecentDocuments("account-a", [
+      entry("document-design", "Design notes"),
+      entry("document-plan", "Q3 plan"),
+    ]);
+    renderStrip();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Forget Design notes" }),
+    );
+
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/t/tenant-a/library",
+    );
+  });
+
+  it("hides after the last Document is forgotten", () => {
+    writeRecentDocuments("account-a", [
+      entry("document-design", "Design notes"),
+    ]);
+    renderStrip();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Forget Design notes" }),
+    );
 
     expect(
       screen.queryByRole("region", { name: "Recently opened" }),

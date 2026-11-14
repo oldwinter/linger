@@ -92,6 +92,25 @@ export function recordRecentDocument(
   );
 }
 
+/**
+ * Forgets one Document for the Account, keeping the rest in order. A missing or
+ * unreadable list simply has nothing to forget, so it is left alone.
+ */
+export function removeRecentDocument(
+  accountId: string | undefined,
+  documentId: string,
+): void {
+  if (!accountId) return;
+  const entries = readRecentDocuments(accountId);
+  if (!entries.some((entry) => entry.id === documentId)) return;
+  const remaining = entries.filter((entry) => entry.id !== documentId);
+  if (remaining.length === 0) {
+    clearRecentDocuments(accountId);
+    return;
+  }
+  writeRecentDocuments(accountId, remaining);
+}
+
 function parseRecentDocuments(value: unknown): RecentDocument[] {
   if (!Array.isArray(value)) return [];
   const entries: RecentDocument[] = [];
