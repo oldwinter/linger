@@ -11,6 +11,7 @@ import { Button, buttonClassName } from "@/components/ui/button";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
 import { ModalDialog } from "@/components/ui/modal-dialog";
 import { ActorAvatar } from "@/features/rooms/members/actor-avatar";
+import { teamHubIdentityQueryOptions } from "@/features/rooms/room-queries";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubWorkItem,
@@ -21,11 +22,14 @@ import { dateTimeFormat } from "@/lib/date-format";
 
 import { WorkItemCommentComposer } from "./work-item-comment-composer";
 import { WorkItemCopyStatus } from "./work-item-copy-status";
+import { currentDashboardActorId } from "./work-item-dashboard-filters";
 import { workItemStateLabel, workItemStateLabels } from "./work-item-labels";
 import {
   tenantWorkItemCommentsQueryOptions,
   tenantWorkItemTargetQueryOptions,
   tenantWorkItemTimelineQueryOptions,
+  useAssignWorkItem,
+  useUnassignWorkItem,
   useWorkItemTransition,
 } from "./work-item-queries";
 import { dashboardWorkItemPath } from "./work-item-routes";
@@ -76,7 +80,30 @@ export function WorkItemPeek({
     tenantWorkItemTimelineQueryOptions(client, tenantId, workItem.id),
   );
   const transition = useWorkItemTransition(tenantId, workItem.id);
+  const assign = useAssignWorkItem(tenantId, workItem.id);
+  const unassign = useUnassignWorkItem(tenantId, workItem.id);
+  const identity = useQuery(teamHubIdentityQueryOptions(client));
+  const currentActorId = identity.data
+    ? currentDashboardActorId(identity.data, tenantId)
+    : undefined;
   const item = target.data ?? workItem;
+  // The row and the control read the same list, so they cannot disagree about
+  // whether this Actor is an assignee.
+  const assignedToMe =
+    currentActorId !== undefined &&
+    item.assignees.some(({ actor }) => actor.id === currentActorId);
+  const assignmentPending = assign.isPending || unassign.isPending;
+  const assignmentError = assign.error ?? unassign.error;
+  function toggleAssignment() {
+    if (!currentActorId || assignmentPending) return;
+    if (assignedToMe) {
+      assign.reset();
+      unassign.mutate(currentActorId);
+    } else {
+      unassign.reset();
+      assign.mutate(currentActorId);
+    }
+  }
   // Comments arrive oldest first; the peek reads as a conversation, newest on top.
   const recentComments = (comments.data ?? [])
     .filter((comment) => !comment.deleted_at)
@@ -177,6 +204,22 @@ export function WorkItemPeek({
           ) : (
             <p className="text-sm text-app-muted">Unassigned</p>
           )}
+          {currentActorId ? (
+            <Button
+              aria-busy={assignmentPending || undefined}
+              disabled={assignmentPending}
+              onClick={toggleAssignment}
+              size="compact"
+              tone="secondary"
+            >
+              {assignedToMe ? "Unassign me" : "Assign to me"}
+            </Button>
+          ) : null}
+          {assignmentError ? (
+            <p className="text-xs text-app-danger" role="alert">
+              {updateFailureMessage(assignmentError)}
+            </p>
+          ) : null}
         </section>
 
         <section aria-label="Recent comments" className="space-y-2">
@@ -243,9 +286,7 @@ export function WorkItemPeek({
         ) : null}
         {transition.error ? (
           <p className="text-xs text-app-danger" role="alert">
-            {transition.error instanceof Error && transition.error.message
-              ? transition.error.message
-              : "The Work Item could not be updated."}
+            {updateFailureMessage(transition.error)}
           </p>
         ) : null}
       </div>
@@ -354,6 +395,13 @@ function CommentEntry({ comment }: { comment: TeamHubWorkItemComment }) {
       </p>
     </li>
   );
+}
+
+/** A failed write says what TeamHub said, or that the Item could not change. */
+function updateFailureMessage(error: unknown) {
+  return error instanceof Error && error.message
+    ? error.message
+    : "The Work Item could not be updated.";
 }
 
 /**

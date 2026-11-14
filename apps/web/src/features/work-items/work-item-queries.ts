@@ -7,7 +7,11 @@ import {
 
 import { collectTeamHubCursorPages } from "@/features/teamhub/teamhub-cursor-pages";
 import { TeamHubError } from "@/features/teamhub/teamhub-error";
-import { teamHubData, idempotencyHeader } from "@/features/teamhub/teamhub-api";
+import {
+  teamHubData,
+  teamHubDone,
+  idempotencyHeader,
+} from "@/features/teamhub/teamhub-api";
 import {
   createTeamHubIdempotencyKey,
   type TeamHubClient,
@@ -211,6 +215,61 @@ export function useWorkItemTransition(tenantId: string, workItemId: string) {
 
 export function tenantWorkItemsDashboardQueryPrefix(tenantId: string) {
   return ["teamhub", tenantId, "work-items", "dashboard"] as const;
+}
+
+/**
+ * An Assignment is one Actor's durable fact, shown by the peek's Assignees row
+ * and filtered by the board, so both refetch instead of either keeping a local
+ * copy of the list. The timeline gains the assignment activity.
+ */
+function refreshAfterAssignment(
+  queryClient: ReturnType<typeof useQueryClient>,
+  tenantId: string,
+  workItemId: string,
+) {
+  void queryClient.invalidateQueries({
+    queryKey: tenantWorkItemTargetQueryKey(tenantId, workItemId),
+  });
+  void queryClient.invalidateQueries({
+    queryKey: tenantWorkItemsDashboardQueryPrefix(tenantId),
+  });
+  void queryClient.invalidateQueries({
+    queryKey: tenantWorkItemTimelineQueryKey(tenantId, workItemId),
+  });
+}
+
+export function useAssignWorkItem(tenantId: string, workItemId: string) {
+  const { client } = useTeamHubRuntime();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (actorId: string) =>
+      teamHubData(
+        client.api.PUT("/v0/work-items/{workItemId}/assignments/{actorId}", {
+          params: {
+            header: idempotencyHeader(createTeamHubIdempotencyKey()),
+            path: { actorId, workItemId },
+          },
+        }),
+      ),
+    onSuccess: () => refreshAfterAssignment(queryClient, tenantId, workItemId),
+  });
+}
+
+export function useUnassignWorkItem(tenantId: string, workItemId: string) {
+  const { client } = useTeamHubRuntime();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (actorId: string) =>
+      teamHubDone(
+        client.api.DELETE("/v0/work-items/{workItemId}/assignments/{actorId}", {
+          params: {
+            header: idempotencyHeader(createTeamHubIdempotencyKey()),
+            path: { actorId, workItemId },
+          },
+        }),
+      ),
+    onSuccess: () => refreshAfterAssignment(queryClient, tenantId, workItemId),
+  });
 }
 
 export function tenantWorkItemsDashboardQueryKey(
