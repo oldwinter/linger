@@ -998,6 +998,12 @@ describe("Room navigation unread filter", () => {
     return screen.getByRole("button", { name: "Messages" }).closest("section")!;
   }
 
+  function filterButton(name: "All" | "Mentions" | "Unread") {
+    return within(
+      within(messagesSection()).getByRole("group", { name: "Room filter" }),
+    ).getByRole("button", { name });
+  }
+
   it("keeps unread Rooms and the active Room, and remembers the choice", () => {
     renderList({
       accountId: "account-a",
@@ -1009,21 +1015,18 @@ describe("Room navigation unread filter", () => {
         room("room-read", 0, 0),
       ],
     });
-    const headingRow = screen
-      .getByRole("button", { name: "Messages" })
-      .closest("div")!;
-    const toggle = within(headingRow).getByRole("button", { name: "Unread" });
-    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(filterButton("All")).toHaveAttribute("aria-pressed", "true");
+    expect(filterButton("Unread")).toHaveAttribute("aria-pressed", "false");
     expect(
-      within(headingRow).getByRole("button", { name: "Create chat" }),
+      within(messagesSection()).getByRole("button", { name: "Create chat" }),
     ).toBeVisible();
     expect(
       within(messagesSection()).getByRole("link", { name: "room-read" }),
     ).toBeVisible();
 
-    fireEvent.click(toggle);
+    fireEvent.click(filterButton("Unread"));
 
-    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(filterButton("Unread")).toHaveAttribute("aria-pressed", "true");
     for (const name of ["room-active", "room-unread", "room-mentioned"]) {
       expect(
         within(messagesSection()).getByRole("link", { name }),
@@ -1033,40 +1036,95 @@ describe("Room navigation unread filter", () => {
       within(messagesSection()).queryByRole("link", { name: "room-read" }),
     ).not.toBeInTheDocument();
     expect(localStorage.getItem("room-unread-filter.v1:account-a")).toBe(
-      "true",
+      '"unread"',
     );
 
-    fireEvent.click(toggle);
+    fireEvent.click(filterButton("Unread"));
 
-    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(filterButton("All")).toHaveAttribute("aria-pressed", "true");
     expect(
       within(messagesSection()).getByRole("link", { name: "room-read" }),
     ).toBeVisible();
     expect(localStorage.getItem("room-unread-filter.v1:account-a")).toBe(
-      "false",
+      '"all"',
     );
   });
 
-  it("restores the choice stored for the Account", () => {
-    localStorage.setItem("room-unread-filter.v1:account-a", "true");
+  it("keeps only Rooms with unread mentions in Mentions mode", () => {
     renderList({
+      accountId: "account-a",
+      activeRoomId: "room-active",
+      rooms: [
+        room("room-active", 0, 0),
+        room("room-mentioned", 2, 1),
+        room("room-unread", 3, 0),
+        room("room-read", 0, 0),
+      ],
+    });
+    fireEvent.click(filterButton("Mentions"));
+
+    expect(filterButton("Mentions")).toHaveAttribute("aria-pressed", "true");
+    expect(
+      within(messagesSection()).getByRole("link", { name: "room-active" }),
+    ).toBeVisible();
+    expect(
+      within(messagesSection()).getByRole("link", { name: "room-mentioned" }),
+    ).toBeVisible();
+    expect(
+      within(messagesSection()).queryByRole("link", { name: "room-unread" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(messagesSection()).queryByRole("link", { name: "room-read" }),
+    ).not.toBeInTheDocument();
+    expect(localStorage.getItem("room-unread-filter.v1:account-a")).toBe(
+      '"mentions"',
+    );
+    // Filtering the rows leaves the unread counts and the recap alone.
+    expect(
+      within(
+        within(messagesSection()).getByRole("link", { name: "room-mentioned" }),
+      ).getByTitle("1 unread mention"),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("region", { name: "While you were away" }),
+    ).toBeVisible();
+  });
+
+  it("restores the old boolean choice and the mentions choice", () => {
+    localStorage.setItem("room-unread-filter.v1:account-a", "true");
+    const legacy = renderList({
       accountId: "account-a",
       activeRoomId: "room-active",
       rooms: [room("room-active", 0, 0), room("room-read", 0, 0)],
     });
 
-    expect(screen.getByRole("button", { name: "Unread" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    expect(filterButton("Unread")).toHaveAttribute("aria-pressed", "true");
     expect(
       within(messagesSection()).queryByRole("link", { name: "room-read" }),
     ).not.toBeInTheDocument();
+    legacy.unmount();
+
+    localStorage.setItem(
+      "room-unread-filter.v1:account-a",
+      JSON.stringify("mentions"),
+    );
+    renderList({
+      accountId: "account-a",
+      rooms: [room("room-mentioned", 0, 1), room("room-unread", 2, 0)],
+    });
+
+    expect(filterButton("Mentions")).toHaveAttribute("aria-pressed", "true");
+    expect(
+      within(messagesSection()).getByRole("link", { name: "room-mentioned" }),
+    ).toBeVisible();
+    expect(
+      within(messagesSection()).queryByRole("link", { name: "room-unread" }),
+    ).not.toBeInTheDocument();
   });
 
-  it("explains an empty filter and shows every Room again", () => {
+  it("explains an empty unread filter and shows every Room again", () => {
     renderList({ rooms: [room("room-read", 0, 0)] });
-    fireEvent.click(screen.getByRole("button", { name: "Unread" }));
+    fireEvent.click(filterButton("Unread"));
 
     expect(
       within(messagesSection()).getByText("No unread Rooms"),
@@ -1085,10 +1143,31 @@ describe("Room navigation unread filter", () => {
     expect(
       within(messagesSection()).queryByText("No unread Rooms"),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Unread" })).toHaveAttribute(
-      "aria-pressed",
-      "false",
+    expect(filterButton("All")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("explains an empty mentions filter and shows every Room again", () => {
+    renderList({ rooms: [room("room-unread", 3, 0)] });
+    fireEvent.click(filterButton("Mentions"));
+
+    expect(
+      within(messagesSection()).getByText("No unread mentions"),
+    ).toBeVisible();
+    expect(
+      within(messagesSection()).queryByRole("link", { name: "room-unread" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      within(messagesSection()).getByRole("button", { name: "Show all Rooms" }),
     );
+
+    expect(
+      within(messagesSection()).getByRole("link", { name: "room-unread" }),
+    ).toBeVisible();
+    expect(
+      within(messagesSection()).queryByText("No unread mentions"),
+    ).not.toBeInTheDocument();
+    expect(filterButton("All")).toHaveAttribute("aria-pressed", "true");
   });
 
   it("turns the filter off when another surface clears this browser's preferences", () => {
@@ -1124,10 +1203,7 @@ describe("Room navigation unread filter", () => {
       rooms: [room("room-read", 0, 0)],
     });
 
-    expect(screen.getByRole("button", { name: "Unread" })).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
+    expect(filterButton("All")).toHaveAttribute("aria-pressed", "true");
     expect(
       within(messagesSection()).getByRole("link", { name: "room-read" }),
     ).toBeVisible();

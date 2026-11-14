@@ -72,10 +72,11 @@ import {
 } from "./room-snooze";
 import { splitSnoozedRooms } from "./room-snooze-filter";
 import {
-  readRoomUnreadFilter,
+  readRoomFilterMode,
+  roomFilterRows,
   subscribeRoomUnreadFilter,
-  unreadRoomRows,
-  writeRoomUnreadFilter,
+  writeRoomFilterMode,
+  type RoomFilterMode,
 } from "./room-unread-filter";
 const QuickCreateLocalAgentDialog = lazy(async () => ({
   default: (await import("./quick-create-local-agent-dialog"))
@@ -167,18 +168,18 @@ export function RoomSecondaryNavigation({
   usePrefetchTemplateFlow();
   const [localAgentOpen, setLocalAgentOpen] = useState(false);
   const [templateAgentOpen, setTemplateAgentOpen] = useState(false);
-  const [unreadOnly, setUnreadOnly] = useState(() =>
-    readRoomUnreadFilter(accountId),
+  const [filterMode, setFilterModeState] = useState<RoomFilterMode>(() =>
+    readRoomFilterMode(accountId),
   );
-  // Clearing this browser's preferences elsewhere turns the filter off here too.
+  // Clearing this browser's preferences elsewhere returns the filter to All.
   useEffect(() => {
-    const refresh = () => setUnreadOnly(readRoomUnreadFilter(accountId));
+    const refresh = () => setFilterModeState(readRoomFilterMode(accountId));
     refresh();
     return subscribeRoomUnreadFilter(refresh);
   }, [accountId]);
-  function setUnreadFilter(next: boolean) {
-    setUnreadOnly(next);
-    writeRoomUnreadFilter(accountId, next);
+  function setFilterMode(next: RoomFilterMode) {
+    setFilterModeState(next);
+    writeRoomFilterMode(accountId, next);
   }
   const mentionSnooze = useRoomMentionSnooze(accountId);
   const mentionMute = useRoomMentionMute(accountId);
@@ -219,7 +220,7 @@ export function RoomSecondaryNavigation({
       ? anotherMeRoom
       : undefined;
   const visibleChats = chats.filter((room) => visibleRoomIds.has(room.id));
-  const listedChats = unreadRoomRows(visibleChats, activeRoomId, unreadOnly);
+  const listedChats = roomFilterRows(visibleChats, activeRoomId, filterMode);
   // A snoozed Room leaves the list until its instant passes; the active Room
   // stays, so opening one never hides it. Hidden rows are still the same Rooms
   // with the same unread counts, listed behind the snoozed line.
@@ -406,26 +407,22 @@ export function RoomSecondaryNavigation({
             ) : null}
             <NavSection
               action={
-                <>
-                  <UnreadFilterToggle
-                    on={unreadOnly}
-                    onToggle={() => setUnreadFilter(!unreadOnly)}
-                  />
-                  <AgentCreateMenu
-                    onCreateFromTemplate={() => setTemplateAgentOpen(true)}
-                    onCreateRoom={onCreateRoom}
-                    onCreateAgent={() => {
-                      setLocalAgentOpen(true);
-                      onCloseMobile();
-                    }}
-                  />
-                </>
+                <AgentCreateMenu
+                  onCreateFromTemplate={() => setTemplateAgentOpen(true)}
+                  onCreateRoom={onCreateRoom}
+                  onCreateAgent={() => {
+                    setLocalAgentOpen(true);
+                    onCloseMobile();
+                  }}
+                />
               }
               title="Messages"
             >
-              {unreadOnly && shownChats.length === 0 ? (
-                <UnreadFilterEmptyState
-                  onShowAll={() => setUnreadFilter(false)}
+              <RoomFilterChoice mode={filterMode} onChange={setFilterMode} />
+              {filterMode !== "all" && shownChats.length === 0 ? (
+                <FilterEmptyState
+                  mode={filterMode}
+                  onShowAll={() => setFilterMode("all")}
                 />
               ) : null}
               {shownChats.map((room) => {
@@ -558,39 +555,76 @@ export function RoomSecondaryNavigation({
   );
 }
 
+const filterChoices: Array<{
+  label: string;
+  mode: RoomFilterMode;
+  title: string;
+}> = [
+  { label: "All", mode: "all", title: "Show all Rooms" },
+  { label: "Unread", mode: "unread", title: "Show only unread Rooms" },
+  {
+    label: "Mentions",
+    mode: "mentions",
+    title: "Show only Rooms with unread mentions",
+  },
+];
+
 /**
- * The filter reads as a pressed toggle rather than a command, so its name stays
- * "Unread" and its state is announced; the title names what pressing it does.
+ * The three choices read as pressed toggles rather than commands: each announces
+ * its state and its title names what pressing it does, and pressing the chosen
+ * filter again returns to every Room.
  */
-function UnreadFilterToggle({
-  on,
-  onToggle,
+function RoomFilterChoice({
+  mode,
+  onChange,
 }: {
-  on: boolean;
-  onToggle: () => void;
+  mode: RoomFilterMode;
+  onChange: (mode: RoomFilterMode) => void;
 }) {
   return (
-    <button
-      aria-pressed={on}
-      className={cn(
-        "flex h-6 shrink-0 items-center rounded-full px-2 text-2xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        on
-          ? "bg-(--app-unread) text-(--app-unread-foreground)"
-          : "bg-card text-muted-foreground shadow-outline hover:bg-accent hover:text-foreground",
-      )}
-      onClick={onToggle}
-      title={on ? "Show all Rooms" : "Show only unread Rooms"}
-      type="button"
+    <div
+      aria-label="Room filter"
+      className="mx-2 mb-1 flex items-center gap-0.5 rounded-lg bg-card p-0.5 shadow-outline"
+      role="group"
     >
-      Unread
-    </button>
+      {filterChoices.map((choice) => {
+        const active = choice.mode === mode;
+        return (
+          <button
+            aria-pressed={active}
+            className={cn(
+              "flex h-6 min-w-0 flex-1 items-center justify-center truncate rounded-md px-1.5 text-2xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              active
+                ? "bg-(--app-unread) text-(--app-unread-foreground)"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+            )}
+            key={choice.mode}
+            onClick={() =>
+              onChange(active && choice.mode !== "all" ? "all" : choice.mode)
+            }
+            title={active ? "Show all Rooms" : choice.title}
+            type="button"
+          >
+            {choice.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
-function UnreadFilterEmptyState({ onShowAll }: { onShowAll: () => void }) {
+function FilterEmptyState({
+  mode,
+  onShowAll,
+}: {
+  mode: Exclude<RoomFilterMode, "all">;
+  onShowAll: () => void;
+}) {
   return (
     <div className="rounded-lg px-2 py-3">
-      <p className="text-xs leading-4 text-muted-foreground">No unread Rooms</p>
+      <p className="text-xs leading-4 text-muted-foreground">
+        {mode === "unread" ? "No unread Rooms" : "No unread mentions"}
+      </p>
       <button
         className="mt-1 text-xs font-medium text-foreground underline underline-offset-2 transition-colors hover:text-app-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={onShowAll}
