@@ -332,6 +332,61 @@ describe("business command normalization", () => {
         ),
       ).rejects.toThrow();
   });
+  it("updates only the given Routine fields and rejects an empty patch", async () => {
+    const definition = command("routine update");
+    expect(
+      (
+        await definition.normalize(
+          args(
+            {
+              "--name": "Updated review",
+              "--content": "Check again",
+              "--every-hours": "2",
+              "--off": "true",
+              "--expected-revision": "4",
+            },
+            ["routine_one"],
+          ),
+          reader,
+        )
+      ).input,
+    ).toEqual({
+      routine_id: "routine_one",
+      name: "Updated review",
+      instruction: "Check again",
+      schedule: { kind: "every_n_hours", interval_hours: 2 },
+      enabled: false,
+      expected_revision: 4,
+    });
+    expect(
+      (
+        await definition.normalize(
+          args({ "--no-mention": "true" }, ["routine_one"]),
+          reader,
+        )
+      ).input,
+    ).toEqual({ routine_id: "routine_one", mention_actor_id: null });
+    for (const options of [
+      {},
+      { "--name": "x", "--on": "true", "--off": "true" },
+      { "--name": "x", "--mention-actor-id": "self", "--no-mention": "true" },
+      { "--name": "x", "--expected-revision": "0" },
+    ] as Record<string, string>[])
+      await expect(
+        definition.normalize(args(options, ["routine_one"]), reader),
+      ).rejects.toThrow();
+    expect(
+      renderBusinessResult("routine update", {
+        routine: {
+          id: "routine_one",
+          name: "Updated review",
+          instruction: "Check again",
+          schedule: { kind: "daily", time: "09:00", timezone: "UTC" },
+          enabled: true,
+        },
+      }),
+    ).toContain("Updated routine routine_one");
+  });
   it("maps read section handles and only permits an offset with one section", async () => {
     const definition = command("knowledge read");
     const evidence = "raw_0123456789abcdef_0123456789abcdef";

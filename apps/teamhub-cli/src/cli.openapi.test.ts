@@ -277,6 +277,7 @@ async function respond(request: Request): Promise<Response> {
       instruction: "Review the report",
       schedule: { kind: "daily", time: "09:00", timezone: "Asia/Shanghai" },
       enabled: !endpoint.endsWith("/pause"),
+      revision: 1,
     };
     return Response.json(
       endpoint.endsWith("/query") ? { routines: [routine] } : { routine },

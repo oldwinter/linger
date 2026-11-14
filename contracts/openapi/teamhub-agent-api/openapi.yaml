@@ -644,6 +644,44 @@ paths:
           $ref: "../components/agent-api-errors.yaml#/components/responses/ServiceUnavailable"
         default:
           $ref: "../components/agent-api-errors.yaml#/components/responses/InternalError"
+  /api/agent/v1/routines/updates:
+    post:
+      tags: [Agent Business API]
+      operationId: updateAgentRoutine
+      summary: Update a Routine in the current room
+      description: >-
+        Changes only the fields the request carries. expected_revision rejects a
+        Routine that changed since it was read.
+      security:
+        - agentBearer: []
+      x-deadline-ms: 5000
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "../components/agent-collaboration.yaml#/components/schemas/AgentUpdateRoutineRequest"
+      responses:
+        "200":
+          description: The updated Routine.
+          content:
+            application/json:
+              schema:
+                $ref: "../components/agent-collaboration.yaml#/components/schemas/AgentRoutineResponse"
+        "400":
+          $ref: "../components/agent-api-errors.yaml#/components/responses/BadRequest"
+        "401":
+          $ref: "../components/agent-api-errors.yaml#/components/responses/Unauthenticated"
+        "403":
+          $ref: "../components/agent-api-errors.yaml#/components/responses/Forbidden"
+        "404":
+          $ref: "../components/agent-api-errors.yaml#/components/responses/NotFound"
+        "409":
+          $ref: "../components/agent-api-errors.yaml#/components/responses/Conflict"
+        "503":
+          $ref: "../components/agent-api-errors.yaml#/components/responses/ServiceUnavailable"
+        default:
+          $ref: "../components/agent-api-errors.yaml#/components/responses/InternalError"
   /api/agent/v1/routines/query:
     post:
       tags: [Agent Business API]

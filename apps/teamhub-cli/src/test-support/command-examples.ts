@@ -232,6 +232,7 @@ export const commandExamples: Record<string, string[]> = {
   pause_routine: ["routine_one"],
   enable_routine: ["routine_one"],
   run_routine: ["routine_one"],
+  update_routine: ["routine_one", "--name", "Review"],
   delete_routine: ["routine_one"],
   get_personal_profile: [],
   start_personal_profile_build: [],

@@ -2324,8 +2324,11 @@ type AgentRoutine struct {
 	Name           string `json:"name"`
 
 	// NextRunAt UTC timestamp in RFC 3339 format with an explicit offset.
-	NextRunAt *Timestamp            `json:"next_run_at,omitempty"`
-	Schedule  *AgentRoutineSchedule `json:"schedule,omitempty"`
+	NextRunAt *Timestamp `json:"next_run_at,omitempty"`
+
+	// Revision Monotonic revision, sent back as expected_revision to update.
+	Revision int64                 `json:"revision"`
+	Schedule *AgentRoutineSchedule `json:"schedule,omitempty"`
 
 	// TrackingItemId Tracking Item this Routine serves, when it serves one.
 	TrackingItemId *string `json:"tracking_item_id,omitempty"`
@@ -2660,6 +2663,26 @@ type AgentUpdateDocumentBlockSemanticOperation struct {
 
 	// StableBlockId Opaque, case-sensitive identifier. Clients must not infer type or time from it.
 	StableBlockId Id `json:"stable_block_id"`
+}
+
+// AgentUpdateRoutineRequest defines model for AgentUpdateRoutineRequest.
+type AgentUpdateRoutineRequest struct {
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// ExpectedRevision Revision from list_routines; a stale value is a conflict.
+	ExpectedRevision int64   `json:"expected_revision"`
+	Instruction      *string `json:"instruction,omitempty"`
+
+	// InvocationId Stable SHA-256 operation identity derived by the CLI from the Agent identity, command, and caller operation ID. Credential rotation and Runtime restarts do not change it.
+	InvocationId AgentInvocationId `json:"invocation_id"`
+
+	// MentionActorId Omit to keep the mention. self wakes the calling Agent, any other value must be an Agent actor still in this room, and null clears it.
+	MentionActorId *string `json:"mention_actor_id,omitempty"`
+	Name           *string `json:"name,omitempty"`
+
+	// RoutineId Opaque, case-sensitive identifier. Clients must not infer type or time from it.
+	RoutineId Id                    `json:"routine_id"`
+	Schedule  *AgentRoutineSchedule `json:"schedule,omitempty"`
 }
 
 // ArtifactTreeSegment defines model for ArtifactTreeSegment.
@@ -3448,6 +3471,9 @@ type ListAgentRoutinesJSONRequestBody = AgentRoutineCommandRequest
 
 // RunAgentRoutineJSONRequestBody defines body for RunAgentRoutine for application/json ContentType.
 type RunAgentRoutineJSONRequestBody = AgentRoutineIdRequest
+
+// UpdateAgentRoutineJSONRequestBody defines body for UpdateAgentRoutine for application/json ContentType.
+type UpdateAgentRoutineJSONRequestBody = AgentUpdateRoutineRequest
 
 // CreateAgentTaskJSONRequestBody defines body for CreateAgentTask for application/json ContentType.
 type CreateAgentTaskJSONRequestBody = AgentCreateTaskRequest

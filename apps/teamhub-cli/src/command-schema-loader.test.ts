@@ -41,6 +41,7 @@ const loadable = [
   "stop_task",
   "update_account_profile",
   "update_agent",
+  "update_routine",
   "update_tracking_item",
   "write_personal_profile",
 ];
