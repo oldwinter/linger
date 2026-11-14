@@ -1,11 +1,11 @@
-import { Copy01Icon } from "@hugeicons/core-free-icons";
+import { Copy01Icon, Note01Icon } from "@hugeicons/core-free-icons";
 
 import { ActionMenu } from "@/components/ui/action-menu";
 import { Icon } from "@/components/ui/icon";
 import type { TeamHubWorkItem } from "@/features/teamhub/teamhub-types";
 
 import { WorkItemCopyStatus } from "./work-item-copy-status";
-import { useWorkItemLinkCopy } from "./use-work-item-link-copy";
+import { useWorkItemCopy } from "./use-work-item-copy";
 
 /** The board card's actions, kept out of the card link so a click here never opens the Item. */
 export function WorkItemCardMenu({
@@ -15,7 +15,10 @@ export function WorkItemCardMenu({
   item: TeamHubWorkItem;
   tenantId: string;
 }) {
-  const { copyLink, state } = useWorkItemLinkCopy(tenantId, item.id);
+  const { copiedLabel, copyLink, copyMarkdown, state } = useWorkItemCopy(
+    tenantId,
+    item,
+  );
 
   return (
     <span className="relative inline-flex">
@@ -27,11 +30,16 @@ export function WorkItemCardMenu({
             label: "Copy link",
             onSelect: copyLink,
           },
+          {
+            icon: <Icon icon={Note01Icon} size={14} />,
+            label: "Copy as Markdown",
+            onSelect: copyMarkdown,
+          },
         ]}
         label={`Actions for ${item.title}`}
         menuClassName="app-popover-card fixed z-[100] w-44 p-1"
       />
-      <WorkItemCopyStatus state={state} />
+      <WorkItemCopyStatus copiedLabel={copiedLabel} state={state} />
     </span>
   );
 }

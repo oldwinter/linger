@@ -1,13 +1,14 @@
 import {
   Cancel01Icon,
   Copy01Icon,
+  Note01Icon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 
 import { Button, buttonClassName } from "@/components/ui/button";
-import { Icon } from "@/components/ui/icon";
+import { Icon, type IconSvgElement } from "@/components/ui/icon";
 import { ModalDialog } from "@/components/ui/modal-dialog";
 import { ActorAvatar } from "@/features/rooms/members/actor-avatar";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
@@ -20,6 +21,7 @@ import { dateTimeFormat } from "@/lib/date-format";
 
 import { WorkItemCommentComposer } from "./work-item-comment-composer";
 import { WorkItemCopyStatus } from "./work-item-copy-status";
+import { workItemStateLabel, workItemStateLabels } from "./work-item-labels";
 import {
   tenantWorkItemCommentsQueryOptions,
   tenantWorkItemTargetQueryOptions,
@@ -27,7 +29,7 @@ import {
   useWorkItemTransition,
 } from "./work-item-queries";
 import { dashboardWorkItemPath } from "./work-item-routes";
-import { useWorkItemLinkCopy } from "./use-work-item-link-copy";
+import { useWorkItemCopy, type WorkItemCopyState } from "./use-work-item-copy";
 
 const peekDateFormatter = dateTimeFormat({
   day: "numeric",
@@ -35,12 +37,6 @@ const peekDateFormatter = dateTimeFormat({
   timeZone: "UTC",
   year: "numeric",
 });
-
-const stateLabels: Record<TeamHubWorkItem["state"], string> = {
-  in_progress: "In progress",
-  open: "Open",
-  resolved: "Resolved",
-};
 
 const commentLimit = 3;
 const timelineLimit = 8;
@@ -134,14 +130,19 @@ export function WorkItemPeek({
           ))}
         </>
       }
-      headerActions={<PeekCopyLink tenantId={tenantId} workItemId={item.id} />}
+      headerActions={
+        <>
+          <PeekCopyMarkdown tenantId={tenantId} workItem={item} />
+          <PeekCopyLink tenantId={tenantId} workItem={item} />
+        </>
+      }
       onClose={onClose}
       title={item.title}
     >
       <div className="space-y-5 px-5 py-4">
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="rounded-full bg-app-selected px-2 py-0.5 font-medium text-app-ink">
-            {stateLabel(item)}
+            {workItemStateLabel(item)}
           </span>
           <span className="rounded-full border border-app-border-strong px-2 py-0.5 capitalize text-app-body">
             {item.priority}
@@ -253,18 +254,66 @@ export function WorkItemPeek({
 /** Copies the same board link the card menu copies, with the same feedback. */
 function PeekCopyLink({
   tenantId,
-  workItemId,
+  workItem,
 }: {
   tenantId: string;
-  workItemId: string;
+  workItem: TeamHubWorkItem;
 }) {
-  const { copyLink, state } = useWorkItemLinkCopy(tenantId, workItemId);
+  const { copiedLabel, copyLink, state } = useWorkItemCopy(tenantId, workItem);
+  return (
+    <PeekCopyButton
+      copiedLabel={copiedLabel}
+      icon={Copy01Icon}
+      label="Copy link"
+      onCopy={copyLink}
+      state={state}
+    />
+  );
+}
+
+/** Copies the Item as Markdown, the same text the card menu copies. */
+function PeekCopyMarkdown({
+  tenantId,
+  workItem,
+}: {
+  tenantId: string;
+  workItem: TeamHubWorkItem;
+}) {
+  const { copiedLabel, copyMarkdown, state } = useWorkItemCopy(
+    tenantId,
+    workItem,
+  );
+  return (
+    <PeekCopyButton
+      copiedLabel={copiedLabel}
+      icon={Note01Icon}
+      label="Copy as Markdown"
+      onCopy={copyMarkdown}
+      state={state}
+    />
+  );
+}
+
+/** One header copy control: its own icon, its own feedback line. */
+function PeekCopyButton({
+  copiedLabel,
+  icon,
+  label,
+  onCopy,
+  state,
+}: {
+  copiedLabel?: string;
+  icon: IconSvgElement;
+  label: string;
+  onCopy: () => void;
+  state: WorkItemCopyState;
+}) {
   return (
     <span className="relative inline-flex">
       <button
-        aria-label="Copy link"
+        aria-label={label}
         className="app-dialog-close"
-        onClick={copyLink}
+        onClick={onCopy}
         type="button"
       >
         <Icon
@@ -273,12 +322,12 @@ function PeekCopyLink({
               ? Tick02Icon
               : state === "failed"
                 ? Cancel01Icon
-                : Copy01Icon
+                : icon
           }
           size={16}
         />
       </button>
-      <WorkItemCopyStatus state={state} />
+      <WorkItemCopyStatus copiedLabel={copiedLabel} state={state} />
     </span>
   );
 }
@@ -327,15 +376,6 @@ function allowedTransitions(item: TeamHubWorkItem): PeekTransition[] {
   }
 }
 
-function stateLabel(item: TeamHubWorkItem) {
-  if (!item.resolution) return stateLabels[item.state];
-  return `${stateLabels[item.state]} · ${
-    item.resolution === "not_planned"
-      ? "Not planned"
-      : item.resolution.charAt(0).toUpperCase() + item.resolution.slice(1)
-  }`;
-}
-
 function timelineEntryKey(entry: TeamHubWorkItemTimelineEntry) {
   return entry.type === "comment"
     ? `comment:${entry.comment.id}`
@@ -369,7 +409,7 @@ function activityAction(
       return "updated the item";
     case "state_transitioned":
       return activity.to_state
-        ? `moved the item to ${stateLabels[activity.to_state]}`
+        ? `moved the item to ${workItemStateLabels[activity.to_state]}`
         : "changed the item state";
     case "archived":
       return "archived the item";
