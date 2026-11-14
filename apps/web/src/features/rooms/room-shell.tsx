@@ -129,10 +129,18 @@ function RoomShellReady({
   }, [anotherMeRoomId, gated, navigate, tenantId]);
 
   const openRoom = useCallback(
-    (roomId: string) =>
+    (roomId: string, messageId?: string) => {
+      const path = `/t/${encodeURIComponent(tenantId)}/rooms/${encodeURIComponent(roomId)}/chat`;
+      // The chat reads the `message` parameter the pinned-message jump sets, so
+      // a notice lands on its Message without a second focusing path. Opening
+      // the Room already on screen still navigates, which makes the jump work
+      // there too.
       void navigate(
-        `/t/${encodeURIComponent(tenantId)}/rooms/${encodeURIComponent(roomId)}/chat`,
-      ),
+        messageId
+          ? `${path}?${new URLSearchParams({ message: messageId })}`
+          : path,
+      );
+    },
     [navigate, tenantId],
   );
   useAnotherMeNotifications({

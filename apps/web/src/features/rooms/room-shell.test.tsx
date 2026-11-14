@@ -45,7 +45,24 @@ import {
 } from "./chat/voice-mode/voice-ui-bridge";
 import { useOptionalVoiceControl } from "./voice-control/voice-control-context";
 
-afterEach(() => vi.restoreAllMocks());
+const mentionNotification = vi.hoisted(() => ({
+  open: undefined as ((roomId: string, messageId?: string) => void) | undefined,
+}));
+
+vi.mock("./room-mention-notifications", () => ({
+  useRoomMentionNotifications: ({
+    open,
+  }: {
+    open: (roomId: string, messageId?: string) => void;
+  }) => {
+    mentionNotification.open = open;
+  },
+}));
+
+afterEach(() => {
+  mentionNotification.open = undefined;
+  vi.restoreAllMocks();
+});
 
 describe("Room shell Account menu", () => {
   it.each(["listRooms", "getAnotherMe"] as const)(
@@ -282,6 +299,38 @@ describe("Room shell Account menu", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry logout" }));
     await waitFor(() => expect(router.state.location.pathname).toBe("/login"));
     expect(logout).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Room shell mention notifications", () => {
+  it("opens the announced Message in the Room that is already showing", async () => {
+    const { router } = await renderAccountShell({
+      initialEntry: "/t/tenant-northstar/rooms/room-all/chat",
+    });
+
+    await act(async () => mentionNotification.open?.("room-all", "message-9"));
+
+    await waitFor(() =>
+      expect(router.state.location.search).toBe("?message=message-9"),
+    );
+    expect(router.state.location.pathname).toBe(
+      "/t/tenant-northstar/rooms/room-all/chat",
+    );
+  });
+
+  it("opens only the Room for a Room-level notice", async () => {
+    const { router } = await renderAccountShell({
+      initialEntry: "/t/tenant-northstar/rooms/room-all/chat",
+    });
+
+    await act(async () => mentionNotification.open?.("room-other"));
+
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(
+        "/t/tenant-northstar/rooms/room-other/chat",
+      ),
+    );
+    expect(router.state.location.search).toBe("");
   });
 });
 
