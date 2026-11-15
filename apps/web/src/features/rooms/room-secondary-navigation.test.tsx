@@ -712,6 +712,52 @@ describe("Another Me card", () => {
       within(card()).getByRole("img", { name: "Last run failed" }),
     ).toBeVisible();
   });
+
+  it("shows how long the Agent has been working", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-14T10:00:00Z"));
+    try {
+      const anotherMe = {
+        ...deletedDirectRoom(),
+        direct_peer: {
+          display_name: "Jenny's Delegate",
+          id: "actor-another-me",
+          kind: "agent" as const,
+          tenant_id: "tenant-a",
+        },
+        direct_peer_active: true,
+        id: "room-another-me",
+        name: "Jenny's Delegate",
+      };
+      render(
+        <MemoryRouter>
+          <RoomSecondaryNavigation
+            activeRoomId="room-other"
+            anotherMeRoomId={anotherMe.id}
+            onCloseMobile={() => undefined}
+            onCreateRoom={() => undefined}
+            rooms={[anotherMe]}
+            runningRoomIds={[anotherMe.id]}
+            tenant={{
+              id: "tenant-a",
+              name: "Northstar",
+              created_at: "2026-07-24T09:00:00Z",
+            }}
+          />
+        </MemoryRouter>,
+      );
+      expect(screen.getByRole("img", { name: "Agent working" })).toBeVisible();
+      act(() => {
+        vi.advanceTimersByTime(2 * 60_000);
+      });
+      expect(
+        screen.getByRole("img", { name: "Agent working for 2 minutes" }),
+      ).toBeVisible();
+      expect(screen.getByText("2m")).toBeVisible();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("Another Me before its Computer connects", () => {
