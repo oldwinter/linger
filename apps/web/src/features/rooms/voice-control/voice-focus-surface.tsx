@@ -23,6 +23,7 @@ import { VoiceRecoveryPanel } from "./voice-recovery-panel";
 import { VoiceRecordingTime } from "./voice-recording-time";
 import { VoiceTranscriptViewport } from "./voice-transcript-viewport";
 import styles from "./voice-focus.module.css";
+import { hearingPath } from "./hearing-path";
 import {
   armSubtitle,
   armTitle,
@@ -442,6 +443,7 @@ export function VoiceFocusSurface({
                   <NameTheVoicesLink
                     show={!idle && voicesInTranscript(visibleItems).length > 0}
                   />
+                  <SeeItLargeLink show={!idle} />
                   <div
                     aria-label="Voice focus transcript"
                     aria-live="polite"
@@ -619,6 +621,25 @@ function NameTheVoicesRouteLink() {
       to={`/t/${encodeURIComponent(tenantId)}/voices`}
     >
       Name the voices
+    </Link>
+  );
+}
+
+function SeeItLargeLink({ show }: { show: boolean }) {
+  const inside = useInRouterContext();
+  if (!show || !inside) return null;
+  return <SeeItLargeRouteLink />;
+}
+
+function SeeItLargeRouteLink() {
+  const tenantId = useParams().tenantId;
+  if (!tenantId) return null;
+  return (
+    <Link
+      className="self-start text-xs text-app-muted underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+      to={hearingPath(tenantId)}
+    >
+      See it large
     </Link>
   );
 }
