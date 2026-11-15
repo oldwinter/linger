@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
 
-import { beginCatchUp, catchUpAttention } from "./catch-up";
+import { beginCatchUp, catchUpAttention, catchUpNote } from "./catch-up";
 
 function room(
   id: string,
@@ -97,5 +97,27 @@ describe("catch-up walk", () => {
         unreadMessages: 1,
       }),
     ).toBe("1 new message and 2 mentions when you started");
+  });
+
+  it("writes the finished walk as a pocket block", () => {
+    expect(
+      catchUpNote([
+        {
+          id: "room-notes",
+          name: "Notes",
+          preview: "Ship the brief",
+          unreadMentions: 0,
+          unreadMessages: 2,
+        },
+        {
+          id: "room-quiet",
+          name: "Launch",
+          preview: "",
+          unreadMentions: 0,
+          unreadMessages: 1,
+        },
+      ]),
+    ).toBe("Caught up\n\n- Notes: Ship the brief\n- Launch");
+    expect(catchUpNote([])).toBe("");
   });
 });

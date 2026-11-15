@@ -80,6 +80,19 @@ function isCatchUpRoom(value: unknown): value is CatchUpRoom {
 }
 
 /**
+ * The finished walk as one Pocket Note block: the chats, then each last line.
+ * An empty walk has nothing to keep.
+ */
+export function catchUpNote(rooms: readonly CatchUpRoom[]): string {
+  if (rooms.length === 0) return "";
+  const lines = rooms.map((room) => {
+    const preview = room.preview.replace(/\s+/gu, " ").trim();
+    return preview ? `- ${room.name}: ${preview}` : `- ${room.name}`;
+  });
+  return ["Caught up", "", ...lines].join("\n");
+}
+
+/**
  * The walk for this account on this computer's tab. Opening a chat clears
  * its live badge; the stored walk keeps the rest of the list.
  */

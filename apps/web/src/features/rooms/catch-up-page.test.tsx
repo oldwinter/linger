@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
 
@@ -131,6 +131,70 @@ describe("Catch up", () => {
     ).toBeVisible();
     expect(screen.getByText("You walked 2 chats.")).toBeVisible();
     expect(screen.getByText("Notes")).toBeVisible();
+  });
+
+  it("keeps the finished walk on today's note", async () => {
+    const runtime = createTestTeamHubRuntime();
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/rooms", () => ({
+      items: [room("room-notes", "Notes", 1, "Ship the brief")],
+      page: { has_more: false },
+    }));
+    let saved = "";
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/me/pocket-notes", () => ({
+      items: [
+        {
+          date: "2026-07-24",
+          text: "Morning",
+          updated_at: "2026-07-24T08:00:00Z",
+        },
+      ],
+      page: { has_more: false },
+      today: "2026-07-24",
+    }));
+    runtime.server.on(
+      "PUT",
+      "/v0/tenants/{tenantId}/me/pocket-notes/today",
+      ({ body }) => {
+        saved = (body as { text: string }).text;
+        return {
+          date: "2026-07-24",
+          text: saved,
+          updated_at: "2026-07-24T11:00:00Z",
+        };
+      },
+    );
+    const router = createMemoryRouter(
+      [
+        { element: <CatchUpPage />, path: "/t/:tenantId/rooms/catch-up" },
+        {
+          element: <div>Chat</div>,
+          path: "/t/:tenantId/rooms/:roomId/chat",
+        },
+      ],
+      { initialEntries: ["/t/tenant-northstar/rooms/catch-up"] },
+    );
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <RouterProvider router={router} />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByRole("heading", { name: "Notes" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Finish" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Keep this in today's note" }),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Kept in today's note.",
+    );
+    await waitFor(() =>
+      expect(saved).toBe("Morning\n\nCaught up\n\n- Notes: Ship the brief"),
+    );
   });
 
   it("says there is nothing new when no chat is waiting", async () => {
