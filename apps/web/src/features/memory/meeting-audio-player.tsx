@@ -16,6 +16,7 @@ import {
   type SyntheticEvent,
 } from "react";
 
+import { MeetingOpenAndClose } from "./meeting-open-close";
 import {
   forgetMeetingPosition,
   readMeetingResume,
@@ -380,6 +381,14 @@ export function MeetingAudioPlayer({
               Start from the beginning
             </button>
           </p>
+        ) : null}
+        {src ? (
+          <MeetingOpenAndClose
+            duration={duration}
+            mediaType={mediaType}
+            onEngage={() => audioRef.current?.pause()}
+            src={src}
+          />
         ) : null}
       </div>
       <Select

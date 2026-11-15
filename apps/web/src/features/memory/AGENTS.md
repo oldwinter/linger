@@ -61,6 +61,10 @@
   and the left and right arrows move five seconds, stopping at either end. Keys
   pressed in a field, inside a dialog, or on a focused control stay with it, and
   no keypress announces anything.
+- A recording long enough to have a middle can be heard as its opening and its
+  close at the same time. That listening plays the file on its own and leaves
+  the meeting's playhead where it was; the meeting recording waits while it
+  plays. Stopping it, or the stretches ending, ends that listening.
 - A meeting reader may send its summary to a Room as one Message from the
   header's Room picker. That Message copies derived reading state, writes no
   Memory state, and reuses its idempotency key only when retrying the same
