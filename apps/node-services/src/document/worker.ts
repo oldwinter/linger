@@ -95,16 +95,39 @@ void bodies.recordUnrecordedPoints().then(
 
 // The host asks for one drain and terminates the thread after the reply.
 host.once("message", () => {
-  void drainDocumentRuntime({
-    runtime: server,
-    timeoutMs: shutdownTimeoutMs,
-    reportError: (message) =>
-      documentLogger().log("error", "document.shutdown_error", { message }),
-  })
-    .then(async (status) => {
-      await bodies.close();
-      return status;
-    })
-    .then((status) => host.postMessage(status));
+  void (async () => {
+    let status = 1;
+    try {
+      status = await drainDocumentRuntime({
+        runtime: server,
+        timeoutMs: shutdownTimeoutMs,
+        reportError: (message) =>
+          documentLogger().log("error", "document.shutdown_error", { message }),
+      });
+    } catch (error: unknown) {
+      documentLogger().log("error", "document.shutdown_error", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      status = 1;
+    } finally {
+      try {
+        await computation.close();
+      } catch (error: unknown) {
+        documentLogger().log("error", "document.shutdown_error", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+        status = 1;
+      }
+      try {
+        await bodies.close();
+      } catch (error: unknown) {
+        documentLogger().log("error", "document.shutdown_error", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+        status = 1;
+      }
+      host.postMessage(status);
+    }
+  })();
 });
 host.postMessage("listening");
