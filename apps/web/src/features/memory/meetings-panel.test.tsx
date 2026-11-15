@@ -64,7 +64,7 @@ function Panel() {
 
 let items: TeamHubMemoryEntry[] = [];
 
-function renderPanel(search = "") {
+function renderPanel(search = "", extra: TeamHubMemoryEntry[] = []) {
   const runtime = createTestTeamHubRuntime();
   items = [
     meeting(
@@ -88,6 +88,7 @@ function renderPanel(search = "") {
       "Meetings/2026/09/23/Meeting 14-30-05",
       "review.m4a",
     ),
+    ...extra,
   ];
   runtime.server.on("GET", "/v0/tenants/{tenantId}/memory", ({ query }) => ({
     items: query.get("kind") === "meeting" ? items : [],
@@ -348,6 +349,21 @@ describe("Meetings panel", () => {
     expect(
       screen.getByRole("region", { name: "Past 7 days" }),
     ).toBeInTheDocument();
+  });
+
+  it("says when a meeting began while an earlier one was still underway", async () => {
+    renderPanel("", [
+      meeting(
+        "meeting_000000000000000000000005",
+        "Meetings/2026/10/01/Meeting 09-25-00",
+        "follow.m4a",
+      ),
+    ]);
+    expect(
+      await screen.findByText(
+        "Meeting · Oct 1, 09:25 began 20 minutes after Meeting · Oct 1, 09:05, while it was still underway.",
+      ),
+    ).toBeVisible();
   });
 
   it("reads and writes the range parameter", () => {
