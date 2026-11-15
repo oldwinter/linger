@@ -752,6 +752,14 @@ function createLibraryRoute(): RouteObject {
         path: "introduction",
       },
       {
+        ErrorBoundary: PanelRouteErrorSurface,
+        lazy: async () => ({
+          Component: (await import("@/features/library/library-week-page"))
+            .LibraryWeekPage,
+        }),
+        path: "changed",
+      },
+      {
         // One meeting opens by `entry`; the list is the Workspace Meetings tab.
         ErrorBoundary: PanelRouteErrorSurface,
         lazy: loadMeetingPage,

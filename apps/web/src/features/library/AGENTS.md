@@ -5,6 +5,8 @@
   card row, and My pages / Shared with me / Meetings tabs (`?tab=`). **This day**
   (`/library/day`) walks one calendar day across Pocket, meetings, and the Daily.
   The Meetings list is a tab, not a route; `/library/meetings?entry=<meeting id>`
+  changed this week (`/library/changed`) is the Monday-through-Sunday list of
+  files the library updated, opened from that Recent row. The
   opens one read-only meeting, and without `entry` it redirects to the tab.
 - My pages and Shared with me list their tree one Folder level at a time
   (`?folder=` opens a level); a Document inside a Folder never shows at the
