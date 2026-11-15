@@ -270,6 +270,12 @@ describe("MeetingPage", () => {
         level: 2,
       }),
     ).toBeVisible();
+    expect(
+      within(reader).getByRole("link", { name: "Ask the recording" }),
+    ).toHaveAttribute(
+      "href",
+      `/t/tenant-northstar/library/meetings/ask?entry=${entry.id}`,
+    );
     // The Transcript tab holds only the transcript; the recording closes Summary.
     expect(
       within(reader).queryByRole("region", { name: "Meeting recording" }),

@@ -103,6 +103,12 @@ describe("Web app route contract", () => {
       matchRoutes(routes, "/t/tenant-a/rooms/room-a/hand-off")?.at(-1)?.route
         .path,
     ).toBe("hand-off");
+    expect(
+      matchRoutes(
+        routes,
+        "/t/tenant-a/library/meetings/ask?entry=meeting-a",
+      )?.at(-1)?.route.path,
+    ).toBe("meetings/ask");
   });
 
   it("mounts My Documents, Shared with me, and Wiki below Library", () => {

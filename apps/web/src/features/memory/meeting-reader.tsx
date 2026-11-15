@@ -31,6 +31,7 @@ import {
   MeetingOutcomes,
   MeetingOverviewCard,
 } from "./meeting-overview-card";
+import { askMeetingPath } from "./ask-meeting";
 import { HideMeetingDialog } from "./hide-meeting-dialog";
 import { followUpTexts, useMeetingFollowUps } from "./meeting-follow-ups";
 import { meetingRemindersPath, meetingTodoTexts } from "./meeting-reminders";
@@ -248,7 +249,13 @@ export function MeetingReader({
       <header className="mb-4 flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="break-words text-xl text-app-ink">{title}</h2>
-          <p className="mt-1 text-xs text-app-muted">Read only</p>
+          <p className="mt-1 text-xs text-app-muted">
+            Read only
+            {" · "}
+            <Link className="underline" to={askMeetingPath(tenantId, entry.id)}>
+              Ask the recording
+            </Link>
+          </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {linkCopyState === "copied" ? (

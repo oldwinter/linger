@@ -27,6 +27,10 @@
   `DELETE /v0/tenants/{tenantId}/me/meetings/{captureSessionId}`. From a
   meeting that has to-dos, Turn to-dos into reminders creates one-time
   reminders in the chat with Another Me; the meeting page itself is unchanged.
+  Ask the recording (`/t/:tenantId/library/meetings/ask?entry=`) saves a
+  question on that meeting's capture and shows the answer that stays with it.
+  A question the recording treats as a request for Another Me is not sent from
+  this page.
   Web observes Memory generation state; it does not call the
   Memory service directly or orchestrate generation.
 - Tracking a meeting Action stages an unsent draft in the Human's Another Me

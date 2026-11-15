@@ -525,6 +525,11 @@ async function loadDayReviewPage() {
   return { Component: DayReviewPage };
 }
 
+async function loadAskMeetingPage() {
+  const { AskMeetingPage } = await import("@/features/memory/ask-meeting-page");
+  return { Component: AskMeetingPage };
+}
+
 async function loadMeetingPage() {
   const { MeetingPage } = await import("@/features/memory/meeting-page");
   return { Component: MeetingPage };
@@ -839,6 +844,16 @@ function createLibraryRoute(): RouteObject {
             .UpNextPage,
         }),
         path: "up-next",
+      },
+      {
+        ErrorBoundary: PanelRouteErrorSurface,
+        lazy: loadAskMeetingPage,
+        loader: ({ params, request }) => {
+          if (new URL(request.url).searchParams.get("entry")) return null;
+          const tenantId = requireRoomRouteParam(params.tenantId, "Tenant");
+          throw redirect(`/t/${tenantId}/library?tab=meetings`);
+        },
+        path: "meetings/ask",
       },
       {
         // One meeting opens by `entry`; the list is the Workspace Meetings tab.
