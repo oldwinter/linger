@@ -35,12 +35,12 @@ export function useRecordRecentDocument(document: TeamHubDocument | undefined) {
     ? documentFormatLabel(document.format)
     : undefined;
   useEffect(() => {
-    if (!accountId || !documentId || !name) return;
-    recordRecentDocument(accountId, {
+    if (!accountId || !documentId || !name || !document?.tenant_id) return;
+    recordRecentDocument(accountId, document.tenant_id, {
       formatLabel: formatLabel ?? "",
       id: documentId,
       name,
       openedAt: new Date().toISOString(),
     });
-  }, [accountId, documentId, formatLabel, name]);
+  }, [accountId, document?.tenant_id, documentId, formatLabel, name]);
 }

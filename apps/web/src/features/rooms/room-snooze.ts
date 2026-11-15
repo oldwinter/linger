@@ -105,7 +105,11 @@ export function writeRoomSnooze(
 ): void {
   if (!accountId) return;
   try {
-    window.localStorage.setItem(snoozeKey(accountId), JSON.stringify(snooze));
+    if (Object.keys(snooze).length === 0) {
+      window.localStorage.removeItem(snoozeKey(accountId));
+    } else {
+      window.localStorage.setItem(snoozeKey(accountId), JSON.stringify(snooze));
+    }
   } catch {
     // Blocked storage leaves the Room list working without the choice.
     return;

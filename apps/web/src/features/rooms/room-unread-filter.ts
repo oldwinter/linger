@@ -76,7 +76,14 @@ export function writeRoomFilterMode(
 ): void {
   if (!accountId) return;
   try {
-    window.localStorage.setItem(preferenceKey(accountId), JSON.stringify(mode));
+    if (mode === "all") {
+      window.localStorage.removeItem(preferenceKey(accountId));
+    } else {
+      window.localStorage.setItem(
+        preferenceKey(accountId),
+        JSON.stringify(mode),
+      );
+    }
   } catch {
     // Blocked storage keeps the choice for this tab only.
     return;

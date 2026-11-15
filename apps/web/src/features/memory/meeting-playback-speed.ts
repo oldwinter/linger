@@ -37,16 +37,35 @@ export function readMeetingPlaybackSpeed(
   }
 }
 
+const SPEED_CHANGED = "meeting-playback-speed-changed";
+
+export function subscribeMeetingPlaybackSpeed(
+  listener: () => void,
+): () => void {
+  window.addEventListener(SPEED_CHANGED, listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    window.removeEventListener(SPEED_CHANGED, listener);
+    window.removeEventListener("storage", listener);
+  };
+}
+
 export function writeMeetingPlaybackSpeed(
   accountId: string | undefined,
   rate: MeetingPlaybackRate,
 ): void {
   if (!accountId || !isMeetingPlaybackRate(rate)) return;
   try {
-    window.localStorage.setItem(speedKey(accountId), JSON.stringify(rate));
+    if (rate === DEFAULT_MEETING_PLAYBACK_RATE) {
+      window.localStorage.removeItem(speedKey(accountId));
+    } else {
+      window.localStorage.setItem(speedKey(accountId), JSON.stringify(rate));
+    }
   } catch {
     // Blocked storage keeps this meeting's choice for this playback only.
+    return;
   }
+  window.dispatchEvent(new Event(SPEED_CHANGED));
 }
 
 /** Whether this browser remembers a speed for any Account. */
@@ -57,6 +76,7 @@ export function hasMeetingPlaybackSpeed(): boolean {
 /** Forgets every remembered speed in this browser, for every Account. */
 export function clearMeetingPlaybackSpeed(): void {
   removePreferenceKeys([SPEED_PREFIX]);
+  window.dispatchEvent(new Event(SPEED_CHANGED));
 }
 
 function speedKey(accountId: string) {

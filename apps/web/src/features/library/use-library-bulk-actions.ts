@@ -9,6 +9,8 @@ import type {
 import { writeClipboardText } from "@/lib/clipboard";
 
 import { selectedDocumentsMarkdown } from "./library-selection-links";
+import { removeRecentDocument } from "./recent-documents";
+import { useRecentDocumentsAccountId } from "./use-recent-documents";
 
 export interface LibraryBulkOutcome {
   /** Whether the action failed; the message says what happened. */
@@ -45,6 +47,7 @@ export function useLibraryBulkActions({
   resetKey,
   tenantId,
 }: LibraryBulkActionsInput) {
+  const accountId = useRecentDocumentsAccountId();
   const [selection, setSelection] = useState<{
     ids: ReadonlySet<string>;
     key: string;
@@ -167,6 +170,7 @@ export function useLibraryBulkActions({
           params: { path: { documentId: document.id } },
         }),
       );
+      removeRecentDocument(accountId, tenantId, document.id);
     });
   }
 

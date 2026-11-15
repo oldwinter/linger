@@ -68,6 +68,7 @@ export interface GlobalSearchStore {
 const MAX_QUERIES = 8;
 
 const storagePrefix = "global-search-recent.v2:";
+const SEARCH_HISTORY_CHANGED = "global-search-history-changed";
 
 const storageKey = (tenantId: string) => `${storagePrefix}${tenantId}`;
 
@@ -75,11 +76,21 @@ const emptyStore = (): GlobalSearchStore => ({ queries: [] });
 
 export function clearGlobalSearchHistory() {
   removePreferenceKeys([storagePrefix]);
+  window.dispatchEvent(new Event(SEARCH_HISTORY_CHANGED));
 }
 
 /** Whether this browser remembers a query for any Tenant. */
 export function hasGlobalSearchHistory(): boolean {
   return storedPreferenceKeys([storagePrefix]).length > 0;
+}
+
+export function subscribeGlobalSearchHistory(listener: () => void): () => void {
+  window.addEventListener(SEARCH_HISTORY_CHANGED, listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    window.removeEventListener(SEARCH_HISTORY_CHANGED, listener);
+    window.removeEventListener("storage", listener);
+  };
 }
 
 export function readGlobalSearchStore(tenantId: string): GlobalSearchStore {
@@ -94,10 +105,15 @@ export function readGlobalSearchStore(tenantId: string): GlobalSearchStore {
 
 function writeGlobalSearchStore(tenantId: string, store: GlobalSearchStore) {
   try {
-    window.localStorage.setItem(storageKey(tenantId), JSON.stringify(store));
+    if (store.queries.length === 0) {
+      window.localStorage.removeItem(storageKey(tenantId));
+    } else {
+      window.localStorage.setItem(storageKey(tenantId), JSON.stringify(store));
+    }
   } catch {
     // A blocked or full storage only loses the convenience lists.
   }
+  window.dispatchEvent(new Event(SEARCH_HISTORY_CHANGED));
   return store;
 }
 

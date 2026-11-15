@@ -160,7 +160,11 @@ export function writeRoomMentionSnooze(
 ): void {
   if (!accountId) return;
   try {
-    window.localStorage.setItem(snoozeKey(accountId), JSON.stringify(snooze));
+    if (Object.keys(snooze).length === 0) {
+      window.localStorage.removeItem(snoozeKey(accountId));
+    } else {
+      window.localStorage.setItem(snoozeKey(accountId), JSON.stringify(snooze));
+    }
   } catch {
     // Blocked storage leaves the Room list working without the choice.
     return;
@@ -220,7 +224,14 @@ export function writeRoomMentionMute(
 ): void {
   if (!accountId) return;
   try {
-    window.localStorage.setItem(muteKey(accountId), JSON.stringify([...mute]));
+    if (mute.size === 0) {
+      window.localStorage.removeItem(muteKey(accountId));
+    } else {
+      window.localStorage.setItem(
+        muteKey(accountId),
+        JSON.stringify([...mute]),
+      );
+    }
   } catch {
     // Blocked storage leaves the Room list working without the choice.
     return;
@@ -234,10 +245,13 @@ export function muteRoomMention(
   roomId: string,
   now: Date,
 ): void {
-  writeRoomMentionSnooze(
-    accountId,
-    withoutRoomMentionSnooze(readRoomMentionSnooze(accountId, now), roomId),
-  );
+  const currentSnooze = readRoomMentionSnooze(accountId, now);
+  if (roomId in currentSnooze) {
+    writeRoomMentionSnooze(
+      accountId,
+      withoutRoomMentionSnooze(currentSnooze, roomId),
+    );
+  }
   writeRoomMentionMute(
     accountId,
     withRoomMentionMute(readRoomMentionMute(accountId), roomId),

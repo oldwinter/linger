@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   clearGlobalSearchHistory,
+  clearGlobalSearchQueries,
   hasGlobalSearchHistory,
   readGlobalSearchStore,
   recordGlobalSearchQuery,
+  removeGlobalSearchQuery,
 } from "./global-search-recent";
 
 describe("global search history", () => {
@@ -22,6 +24,20 @@ describe("global search history", () => {
       "first",
     ]);
     expect(readGlobalSearchStore("tenant-b").queries).toEqual([]);
+  });
+
+  it("removes the Tenant's storage key once its last query is cleared", () => {
+    recordGlobalSearchQuery("tenant-a", "first");
+    removeGlobalSearchQuery("tenant-a", "first");
+
+    expect(localStorage.getItem("global-search-recent.v2:tenant-a")).toBeNull();
+    expect(hasGlobalSearchHistory()).toBe(false);
+
+    recordGlobalSearchQuery("tenant-a", "second");
+    clearGlobalSearchQueries("tenant-a");
+
+    expect(localStorage.getItem("global-search-recent.v2:tenant-a")).toBeNull();
+    expect(hasGlobalSearchHistory()).toBe(false);
   });
 
   it("reports and clears the history of every Tenant", () => {

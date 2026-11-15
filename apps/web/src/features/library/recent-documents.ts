@@ -5,6 +5,7 @@ import {
 
 const RECENT_LIMIT = 5;
 const STORAGE_PREFIX = "library-recent-documents.v1:";
+const RECENT_DOCUMENTS_CHANGED = "library-recent-documents-changed";
 
 /** One Document the person opened, as it was named and formatted then. */
 export interface RecentDocument {
@@ -31,15 +32,17 @@ export function addRecentDocument(
 }
 
 /**
- * Reads the stored list for one Account. Unreadable JSON and entries that lost
- * their id or name are dropped, so damaged storage cannot break the Library.
+ * Reads the stored list for one Account in one Tenant. Unreadable JSON and
+ * entries that lost their id or name are dropped, so damaged storage cannot
+ * break the Library.
  */
 export function readRecentDocuments(
   accountId: string | undefined,
+  tenantId: string | undefined,
 ): RecentDocument[] {
-  if (!accountId) return [];
+  if (!accountId || !tenantId) return [];
   try {
-    const stored = window.localStorage.getItem(storageKey(accountId));
+    const stored = window.localStorage.getItem(storageKey(accountId, tenantId));
     return parseRecentDocuments(stored === null ? [] : JSON.parse(stored));
   } catch {
     return [];
@@ -48,26 +51,39 @@ export function readRecentDocuments(
 
 export function writeRecentDocuments(
   accountId: string | undefined,
+  tenantId: string | undefined,
   entries: readonly RecentDocument[],
 ): void {
-  if (!accountId) return;
+  if (!accountId || !tenantId) return;
+  const trimmed = entries.filter(usable).slice(0, RECENT_LIMIT);
   try {
-    window.localStorage.setItem(
-      storageKey(accountId),
-      JSON.stringify(entries.filter(usable).slice(0, RECENT_LIMIT)),
-    );
+    if (trimmed.length === 0) {
+      window.localStorage.removeItem(storageKey(accountId, tenantId));
+    } else {
+      window.localStorage.setItem(
+        storageKey(accountId, tenantId),
+        JSON.stringify(trimmed),
+      );
+    }
   } catch {
     // Blocked storage keeps the list for this tab only.
+    return;
   }
+  window.dispatchEvent(new Event(RECENT_DOCUMENTS_CHANGED));
 }
 
-export function clearRecentDocuments(accountId: string | undefined): void {
-  if (!accountId) return;
+export function clearRecentDocuments(
+  accountId: string | undefined,
+  tenantId: string | undefined,
+): void {
+  if (!accountId || !tenantId) return;
   try {
-    window.localStorage.removeItem(storageKey(accountId));
+    window.localStorage.removeItem(storageKey(accountId, tenantId));
   } catch {
     // Blocked storage has nothing to clear.
+    return;
   }
+  window.dispatchEvent(new Event(RECENT_DOCUMENTS_CHANGED));
 }
 
 /** Whether this browser lists a recently opened Document for any Account. */
@@ -78,37 +94,51 @@ export function hasRecentDocuments(): boolean {
 /** Clears the list for every Account in this browser. */
 export function clearAllRecentDocuments(): void {
   removePreferenceKeys([STORAGE_PREFIX]);
+  window.dispatchEvent(new Event(RECENT_DOCUMENTS_CHANGED));
 }
 
-/** Records one open for the Account that opened it. */
+export function subscribeRecentDocuments(listener: () => void): () => void {
+  window.addEventListener(RECENT_DOCUMENTS_CHANGED, listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    window.removeEventListener(RECENT_DOCUMENTS_CHANGED, listener);
+    window.removeEventListener("storage", listener);
+  };
+}
+
+/** Records one open for the Account and Tenant that opened it. */
 export function recordRecentDocument(
   accountId: string | undefined,
+  tenantId: string | undefined,
   entry: RecentDocument,
 ): void {
-  if (!accountId) return;
+  if (!accountId || !tenantId) return;
   writeRecentDocuments(
     accountId,
-    addRecentDocument(readRecentDocuments(accountId), entry),
+    tenantId,
+    addRecentDocument(readRecentDocuments(accountId, tenantId), entry),
   );
 }
 
 /**
- * Forgets one Document for the Account, keeping the rest in order. A missing or
- * unreadable list simply has nothing to forget, so it is left alone.
+ * Forgets one Document for the Account and Tenant, keeping the rest in order.
+ * A missing or unreadable list simply has nothing to forget, so it is left
+ * alone.
  */
 export function removeRecentDocument(
   accountId: string | undefined,
+  tenantId: string | undefined,
   documentId: string,
 ): void {
-  if (!accountId) return;
-  const entries = readRecentDocuments(accountId);
+  if (!accountId || !tenantId) return;
+  const entries = readRecentDocuments(accountId, tenantId);
   if (!entries.some((entry) => entry.id === documentId)) return;
   const remaining = entries.filter((entry) => entry.id !== documentId);
   if (remaining.length === 0) {
-    clearRecentDocuments(accountId);
+    clearRecentDocuments(accountId, tenantId);
     return;
   }
-  writeRecentDocuments(accountId, remaining);
+  writeRecentDocuments(accountId, tenantId, remaining);
 }
 
 function parseRecentDocuments(value: unknown): RecentDocument[] {
@@ -135,6 +165,6 @@ function usable(entry: RecentDocument) {
   return entry.id.trim() !== "" && entry.name.trim() !== "";
 }
 
-function storageKey(accountId: string) {
-  return `${STORAGE_PREFIX}${accountId}`;
+function storageKey(accountId: string, tenantId: string) {
+  return `${STORAGE_PREFIX}${accountId}.${tenantId}`;
 }

@@ -1,11 +1,16 @@
 import { useEffect, useId, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { subscribeRecentDocuments } from "@/features/library/recent-documents";
+import { subscribeMeetingPlaybackSpeed } from "@/features/memory/meeting-playback-speed";
+import { subscribeMeetingResume } from "@/features/memory/meeting-resume";
 import { subscribeDesktopNotificationPause } from "@/features/rooms/desktop-notification-pause";
 import { subscribeRoomComposerDrafts } from "@/features/rooms/room-drafts";
 import { subscribeRoomMentionPreferences } from "@/features/rooms/room-mention-snooze";
 import { subscribeRoomSnooze } from "@/features/rooms/room-snooze";
 import { subscribeRoomUnreadFilter } from "@/features/rooms/room-unread-filter";
+import { subscribeGlobalSearchHistory } from "@/features/search/global-search-recent";
+import { subscribeRecentWikiPages } from "@/features/wiki/recent-wiki-pages";
 
 import { browserPreferences } from "./browser-preferences";
 
@@ -20,8 +25,8 @@ export function BrowserPreferencesSettings() {
   const [confirming, setConfirming] = useState(false);
   const [result, setResult] = useState<"cleared" | "failed">();
 
-  // A Room preference written elsewhere in this tab keeps the Clear action's
-  // availability honest without the person leaving the page.
+  // Preferences written elsewhere in this tab or another keep the Clear
+  // action's availability honest without the person leaving the page.
   useEffect(() => {
     const refresh = () => setStored(holdsAnything());
     const stops = [
@@ -30,6 +35,11 @@ export function BrowserPreferencesSettings() {
       subscribeRoomSnooze(refresh),
       subscribeRoomUnreadFilter(refresh),
       subscribeDesktopNotificationPause(refresh),
+      subscribeGlobalSearchHistory(refresh),
+      subscribeRecentDocuments(refresh),
+      subscribeMeetingResume(refresh),
+      subscribeMeetingPlaybackSpeed(refresh),
+      subscribeRecentWikiPages(refresh),
     ];
     refresh();
     return () => {

@@ -5,6 +5,7 @@ import {
 
 const RECENT_LIMIT = 5;
 const STORAGE_PREFIX = "wiki-recent-pages.v1:";
+const RECENT_WIKI_PAGES_CHANGED = "wiki-recent-pages-changed";
 
 /** One Wiki page this Account opened, as it was named and routed then. */
 export interface RecentWikiPage {
@@ -33,16 +34,17 @@ export function addRecentWikiPage(
 }
 
 /**
- * Reads the stored list for one Account. Unreadable JSON and entries that lost
- * their identity or route are dropped, so damaged storage cannot break the
- * Wiki home.
+ * Reads the stored list for one Account in one Tenant. Unreadable JSON and
+ * entries that lost their identity or route are dropped, so damaged storage
+ * cannot break the Wiki home.
  */
 export function readRecentWikiPages(
   accountId: string | undefined,
+  tenantId: string | undefined,
 ): RecentWikiPage[] {
-  if (!accountId) return [];
+  if (!accountId || !tenantId) return [];
   try {
-    const stored = window.localStorage.getItem(storageKey(accountId));
+    const stored = window.localStorage.getItem(storageKey(accountId, tenantId));
     return parseRecentWikiPages(stored === null ? [] : JSON.parse(stored));
   } catch {
     return [];
@@ -51,46 +53,60 @@ export function readRecentWikiPages(
 
 export function writeRecentWikiPages(
   accountId: string | undefined,
+  tenantId: string | undefined,
   entries: readonly RecentWikiPage[],
 ): void {
-  if (!accountId) return;
+  if (!accountId || !tenantId) return;
+  const trimmed = entries.filter(usable).slice(0, RECENT_LIMIT);
   try {
-    window.localStorage.setItem(
-      storageKey(accountId),
-      JSON.stringify(entries.filter(usable).slice(0, RECENT_LIMIT)),
-    );
+    if (trimmed.length === 0) {
+      window.localStorage.removeItem(storageKey(accountId, tenantId));
+    } else {
+      window.localStorage.setItem(
+        storageKey(accountId, tenantId),
+        JSON.stringify(trimmed),
+      );
+    }
   } catch {
     // Blocked storage keeps the list for this tab only.
+    return;
   }
+  window.dispatchEvent(new Event(RECENT_WIKI_PAGES_CHANGED));
 }
 
 /**
  * Forgets one page by the identity the store keys on. The rest keep their
- * order, the Account's key goes when the last entry does, and a list without
- * that page is left as it is, damaged storage included.
+ * order, the key goes when the last entry does, and a list without that page
+ * is left as it is, damaged storage included.
  */
 export function removeRecentWikiPage(
   accountId: string | undefined,
+  tenantId: string | undefined,
   pageId: string,
 ): void {
-  if (!accountId) return;
-  const entries = readRecentWikiPages(accountId);
+  if (!accountId || !tenantId) return;
+  const entries = readRecentWikiPages(accountId, tenantId);
   if (!entries.some((entry) => entry.id === pageId)) return;
   const remaining = entries.filter((entry) => entry.id !== pageId);
   if (remaining.length === 0) {
-    clearRecentWikiPages(accountId);
+    clearRecentWikiPages(accountId, tenantId);
     return;
   }
-  writeRecentWikiPages(accountId, remaining);
+  writeRecentWikiPages(accountId, tenantId, remaining);
 }
 
-export function clearRecentWikiPages(accountId: string | undefined): void {
-  if (!accountId) return;
+export function clearRecentWikiPages(
+  accountId: string | undefined,
+  tenantId: string | undefined,
+): void {
+  if (!accountId || !tenantId) return;
   try {
-    window.localStorage.removeItem(storageKey(accountId));
+    window.localStorage.removeItem(storageKey(accountId, tenantId));
   } catch {
     // Blocked storage has nothing to clear.
+    return;
   }
+  window.dispatchEvent(new Event(RECENT_WIKI_PAGES_CHANGED));
 }
 
 /** Whether this browser lists a recently opened Wiki page for any Account. */
@@ -101,17 +117,29 @@ export function hasRecentWikiPages(): boolean {
 /** Clears the list for every Account in this browser. */
 export function clearAllRecentWikiPages(): void {
   removePreferenceKeys([STORAGE_PREFIX]);
+  window.dispatchEvent(new Event(RECENT_WIKI_PAGES_CHANGED));
 }
 
-/** Records one open for the Account that opened it. */
+export function subscribeRecentWikiPages(listener: () => void): () => void {
+  window.addEventListener(RECENT_WIKI_PAGES_CHANGED, listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    window.removeEventListener(RECENT_WIKI_PAGES_CHANGED, listener);
+    window.removeEventListener("storage", listener);
+  };
+}
+
+/** Records one open for the Account and Tenant that opened it. */
 export function recordRecentWikiPage(
   accountId: string | undefined,
+  tenantId: string | undefined,
   entry: RecentWikiPage,
 ): void {
-  if (!accountId) return;
+  if (!accountId || !tenantId) return;
   writeRecentWikiPages(
     accountId,
-    addRecentWikiPage(readRecentWikiPages(accountId), entry),
+    tenantId,
+    addRecentWikiPage(readRecentWikiPages(accountId, tenantId), entry),
   );
 }
 
@@ -148,6 +176,6 @@ function usable(entry: RecentWikiPage) {
   );
 }
 
-function storageKey(accountId: string) {
-  return `${STORAGE_PREFIX}${accountId}`;
+function storageKey(accountId: string, tenantId: string) {
+  return `${STORAGE_PREFIX}${accountId}.${tenantId}`;
 }

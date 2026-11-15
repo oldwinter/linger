@@ -43,13 +43,14 @@
   order. A filtered page copies only the matches; the action stays disabled
   while the collection loads or is empty, and copying changes nothing else.
   The Wiki home's Wiki tab shows Recently opened above the daily cards: the
-  last five pages this Account opened in this browser, newest first, with no
-  duplicates, each linking to the page. Each entry can be forgotten on its own,
-  which removes only that page from this browser's list; forgetting the last
-  entry keeps the section with an announced empty status so focus has somewhere
-  to land. Clear empties the list for this Account and hides the strip, and the
-  settings action empties it for every Account. The directory records the open
-  published page and the preview page records the page being written, both from
-  the identity they already hold, so opening a page adds no request; the strip
-  stays out of the page while nothing has been stored. `recent-wiki-pages.ts`
-  owns the store and is registered in the This browser preferences.
+  last five pages this Account opened in this Tenant in this browser, newest
+  first, with no duplicates, each linking to the page. Each entry can be
+  forgotten on its own, which removes only that page from this browser's list;
+  forgetting the last entry keeps the section with an announced empty status so
+  focus has somewhere to land. Clear empties the list for this Account in this
+  Tenant and hides the strip, and the settings action or logout empties it for
+  every Account. The directory records the open published page and the preview
+  page records the page being written, both from the identity they already
+  hold, so opening a page adds no request; the strip stays out of the page
+  while nothing has been stored. `recent-wiki-pages.ts` owns the store and is
+  registered in the This browser preferences.

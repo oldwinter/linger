@@ -139,6 +139,15 @@ export function clearMeetingResume(): void {
   window.dispatchEvent(new Event(RESUME_CHANGED));
 }
 
+export function subscribeMeetingResume(listener: () => void): () => void {
+  window.addEventListener(RESUME_CHANGED, listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    window.removeEventListener(RESUME_CHANGED, listener);
+    window.removeEventListener("storage", listener);
+  };
+}
+
 /** Keeps the newest saves and drops the oldest first. */
 function bounded(resume: MeetingResume): MeetingResume {
   const entries = Object.entries(resume);

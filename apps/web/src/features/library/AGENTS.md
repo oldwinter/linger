@@ -16,13 +16,14 @@
   queue lives in `library-upload-queue.ts` outside React state so it survives
   leaving and reopening the Library; do not move it back into component state.
 - The documents view carries a Recently opened strip above the tree, read from a
-  per-Account browser list that the unified document page writes when it opens a
-  Document. It issues no request, and an entry without an id or name never
-  renders. Each entry can be forgotten on its own, which removes only that
-  Document from this browser's list and nothing else; forgetting the last entry
-  keeps the strip with an announced empty status so focus has somewhere to land.
-  Clear empties the list for this Account and hides the strip, and the settings
-  action empties it for every Account.
+  per-Account and per-Tenant browser list that the unified document page writes
+  when it opens a Document. It issues no request, and an entry without an id or
+  name never renders. Trashing a Document forgets it from the strip. Each entry
+  can be forgotten on its own, which removes only that Document from this
+  browser's list and nothing else; forgetting the last entry keeps the strip
+  with an announced empty status so focus has somewhere to land. Clear empties
+  the list for this Account in this Tenant and hides the strip, and the
+  settings action or logout empties it for every Account.
 - The sidebar appears beside an opened Document for switching: Back to
   Library, then personal Documents, Shared with me, and the independent
   read-only Meetings list. Wiki is a primary-rail destination with its own
