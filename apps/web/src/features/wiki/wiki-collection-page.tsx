@@ -21,8 +21,9 @@ import {
 import { type WikiEntry, wikiPreviewPages } from "./wiki-preview-pages";
 import { matchWikiPage, wikiSearchText } from "./wiki-page-search";
 import { usePersonalWikiRefresh } from "./wiki-refresh";
-import { wikiDocumentPath, wikiPreviewPath } from "./wiki-routes";
 import { WikiCollectionCopyList } from "./wiki-collection-copy-list";
+import { wikiDocumentPath, wikiPreviewPath } from "./wiki-routes";
+import { WikiWritingWalk } from "./wiki-writing-walk-page";
 
 const GraphPage = lazy(async () => {
   const { WikiGraphPage } = await import("@/features/memory/wiki-graph-page");
@@ -40,6 +41,7 @@ export function WikiCollectionPage() {
         to={`/t/${encodeURIComponent(tenantId)}/library/wiki`}
       />
     );
+  if (collection === "writing") return <WikiWritingWalk />;
   if (collection === "graph")
     return (
       <Suspense
