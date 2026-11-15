@@ -9,7 +9,7 @@ import {
   PlayIcon,
   StopIcon,
 } from "@hugeicons/core-free-icons";
-import { useState, type PointerEvent, type ReactNode } from "react";
+import { useEffect, useState, type PointerEvent, type ReactNode } from "react";
 import { Link, useInRouterContext, useParams } from "react-router";
 import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,10 @@ import {
   useSpeakerNames,
   voicesInTranscript,
 } from "./speaker-names";
+import {
+  unfinishedWhileSaving,
+  wordsStillBeingSaid,
+} from "./words-still-being-said";
 
 export type RecordingView = "transcript" | "ask";
 
@@ -107,6 +111,26 @@ export function VoiceFocusSurface({
     livekit?.listenerStatus === "listening" ||
       livekit?.listenerStatus === "transcribing",
   );
+  const idleCapture = captureStatus === "idle" || captureStatus === "completed";
+  const visibleItems = !voice || idleCapture ? [] : voice.transcriptItems;
+  const partial =
+    !voice || idleCapture || captureStatus === "failed"
+      ? undefined
+      : voice.partialTranscript;
+  const saying = wordsStillBeingSaid(partial, visibleItems);
+  const [heldWords, setHeldWords] = useState<{
+    count: number;
+    text: string;
+  }>();
+  useEffect(() => {
+    if (saying) setHeldWords({ count: visibleItems.length, text: saying });
+  }, [saying, visibleItems.length]);
+  const unfinished = unfinishedWhileSaving(
+    saying,
+    visibleItems.length,
+    heldWords,
+    captureStatus === "finalizing",
+  );
 
   if (!voice) return null;
   const captureActive =
@@ -151,8 +175,6 @@ export function VoiceFocusSurface({
       connected ||
       armStatus === "blocked" ||
       !voice.boundDevice);
-  const visibleItems = idle ? [] : voice.transcriptItems;
-  const partial = idle || captureError ? undefined : voice.partialTranscript;
   const title = recoveryFailed
     ? "Recording saved. Transcript recovery paused"
     : inputInterrupted
@@ -453,17 +475,17 @@ export function VoiceFocusSurface({
                     {visibleItems.map((item) => (
                       <VoiceFocusTranscriptRow item={item} key={item.id} />
                     ))}
-                    {partial ? (
+                    {unfinished ? (
                       <div className="flex gap-2 rounded-lg px-2.5 py-1.5 text-sm leading-5 text-app-muted">
                         <Icon
                           icon={Loading03Icon}
                           className="mt-[3px] shrink-0 animate-spin text-app-muted"
                           size={14}
                         />
-                        <span className="min-w-0 italic">{partial}</span>
+                        <span className="min-w-0 italic">{unfinished}</span>
                       </div>
                     ) : null}
-                    {visibleItems.length === 0 && !partial ? (
+                    {visibleItems.length === 0 && !unfinished ? (
                       <p className="py-3 text-center text-[12px] leading-[18px] text-app-muted">
                         {idle
                           ? "This recording’s transcript will appear here. View previous transcripts in the chat."
