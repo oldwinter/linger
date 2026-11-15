@@ -13,6 +13,7 @@ import {
 import { documentFormatLabel } from "@/features/library/document-format-label";
 import { documentDetailPath } from "@/features/rooms/files/document-detail-routes";
 import { roomChatPath } from "@/features/rooms/room-routes";
+import { spokenRoomFace } from "@/features/rooms/members/room-spoken-face";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import type {
   TeamHubDocument,
@@ -281,7 +282,12 @@ export function resultTarget(
         ...(room.description ? { description: room.description } : {}),
         ...(parentName ? { parentName } : {}),
         ...(room.member_preview?.length
-          ? { members: room.member_preview.map(actorTarget) }
+          ? {
+              members: spokenRoomFace(
+                room.member_preview,
+                room.latest_message?.author,
+              ).map(actorTarget),
+            }
           : {}),
       };
     }
