@@ -57,6 +57,8 @@ import {
   RoomNavigationLoading,
 } from "./route-loading-surface";
 import { TeamHubEventSync } from "./event-sync";
+import { useAnotherMeArrival } from "./another-me-arrived";
+import { AnotherMeArrivedBanner } from "./another-me-arrived-banner";
 import { useAnotherMeNotifications } from "./another-me-notifications";
 import { useRoomMentionNotifications } from "./room-mention-notifications";
 import { useRoomWindowTitle } from "./room-unread-title";
@@ -155,6 +157,13 @@ function RoomShellReady({
   });
   // The shell is above the Room route, so it reads the open Room from the URL.
   const activeRoomId = useMatch("/t/:tenantId/rooms/:roomId/*")?.params.roomId;
+  const arrived = useAnotherMeArrival({
+    accountId: identity.account.id,
+    activeRoomId,
+    agentActorId: anotherMe?.agent_actor_id,
+    anotherMeRoomId,
+    rooms: roomsQuery.data?.items,
+  });
   useRoomMentionNotifications({
     accountId: identity.account.id,
     rooms: roomsQuery.data?.items,
@@ -211,6 +220,13 @@ function RoomShellReady({
           anotherMeRoomId={anotherMe?.room_id}
           tenantId={tenantId}
         />
+        {arrived.arrival && anotherMeRoomId ? (
+          <AnotherMeArrivedBanner
+            arrival={arrived.arrival}
+            onDismiss={arrived.dismiss}
+            onOpen={() => openRoom(anotherMeRoomId, arrived.arrival?.messageId)}
+          />
+        ) : null}
       </VoiceModeSessionProvider>
     </VoiceControlProvider>
   );
