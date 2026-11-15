@@ -1,5 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Link } from "react-router";
 import {
   ArrowDown01Icon,
@@ -57,6 +64,7 @@ import {
   meetingTranscriptText,
   meetingTranscriptTurns,
 } from "./meeting-transcript-text";
+import { scrollKeepingTheRecording } from "./scroll-keeping-the-recording";
 import { useMeetingActionTrack } from "./use-meeting-action-track";
 
 const meetingSummaryHiddenSectionTitles = [
@@ -110,6 +118,35 @@ export function MeetingReader({
       : meeting.summary_ready
         ? "summary"
         : "transcript";
+  const playerHold = useRef<HTMLDivElement>(null);
+  const playerTop = useRef<number | undefined>(undefined);
+  // The summary is inserted above the recording. A recording already playing
+  // stays at the same place on screen; a recording that is waiting does not
+  // pull the new summary away.
+  useLayoutEffect(() => {
+    const player = playerHold.current;
+    if (!player) {
+      playerTop.current = undefined;
+      return;
+    }
+    const top = player.getBoundingClientRect().top;
+    const scroller = player.closest<HTMLElement>("[data-meeting-scroll]");
+    if (!meeting.summary_ready) {
+      playerTop.current = top;
+      return;
+    }
+    const playing = [...player.querySelectorAll("audio")].some(
+      (audio) => !audio.paused && audio.currentTime > 0,
+    );
+    if (scroller)
+      scroller.scrollTop = scrollKeepingTheRecording(
+        scroller.scrollTop,
+        playerTop.current,
+        top,
+        playing,
+      );
+    playerTop.current = undefined;
+  }, [meeting.summary_ready]);
   const when = meetingWhen(entry.path);
   const title = meetingTitle(entry);
   const trackAction = useMeetingActionTrack({
@@ -468,7 +505,7 @@ export function MeetingReader({
               </p>
             )}
             {/* The recording closes the summary, ready to replay a moment. */}
-            <div className="mt-8">
+            <div className="mt-8" data-meeting-player ref={playerHold}>
               <MeetingVersionReader
                 key={meeting.recording_version_id}
                 accountId={accountId}
