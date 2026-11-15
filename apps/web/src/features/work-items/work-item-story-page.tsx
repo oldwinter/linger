@@ -6,6 +6,12 @@ import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 
+import { roomMembersQueryOptions } from "@/features/rooms/room-queries";
+
+import {
+  assigneesMissingFromRoom,
+  assigneesMissingFromRoomText,
+} from "./assignee-not-in-room";
 import { tenantWorkItemTargetQueryOptions } from "./work-item-queries";
 import { dashboardWorkItemPath } from "./work-item-routes";
 import { workItemActivityText, workRoomPath } from "./work-item-story";
@@ -34,6 +40,23 @@ export function WorkItemStoryPage() {
     queryKey: ["teamhub", tenantId, "work-items", workItemId, "timeline"],
   });
   const item = itemQuery.data;
+  const members = useQuery({
+    ...roomMembersQueryOptions(client, tenantId, item?.work_room_id ?? ""),
+    enabled: Boolean(item?.work_room_id && item.assignees.length > 0),
+  });
+  const missingAssignees =
+    item && members.data
+      ? assigneesMissingFromRoom(
+          item.assignees.map((assignee) => ({
+            id: assignee.actor.id,
+            name: assignee.actor.display_name,
+          })),
+          new Set(members.data.items.map((member) => member.actor.id)),
+        )
+      : [];
+  const missingAssigneeText = assigneesMissingFromRoomText(
+    missingAssignees.map((actor) => actor.name),
+  );
   const roomId =
     item?.work_room_id ??
     timelineQuery.data?.items.reduce<string | undefined>(
@@ -66,6 +89,11 @@ export function WorkItemStoryPage() {
                   ? item.description
                   : "No description yet."}
               </p>
+              {missingAssigneeText ? (
+                <p className="mt-3 text-sm text-foreground" role="status">
+                  {missingAssigneeText}
+                </p>
+              ) : null}
               {item.mandate ? (
                 <p className="mt-3 text-sm text-muted-foreground">
                   {item.mandate.strength === "create_and_delegate"
