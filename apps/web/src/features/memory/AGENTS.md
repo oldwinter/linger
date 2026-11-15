@@ -42,6 +42,9 @@
   header's Room picker. That Message copies derived reading state, writes no
   Memory state, and reuses its idempotency key only when retrying the same
   Room.
+- Keep as a page (`/t/:tenantId/library/meetings/keep?entry=`) uploads that
+  same summary as a library page the person can keep writing. The meeting
+  stays read-only, and a meeting with no summary words offers no page.
 - Timeline is the display label for the existing `graph` entry; keep its route
   and data key. Keep/Delete stay browser-local display decisions through
   `features/wiki/wiki-display-state.ts`: filter displayed graph nodes and edges

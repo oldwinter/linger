@@ -398,6 +398,12 @@ async function loadWikiCollectionPage() {
   return { Component: WikiCollectionPage };
 }
 
+async function loadKeepMeetingPage() {
+  const { KeepMeetingPage } =
+    await import("@/features/memory/keep-meeting-page");
+  return { Component: KeepMeetingPage };
+}
+
 async function loadMeetingPage() {
   const { MeetingPage } = await import("@/features/memory/meeting-page");
   return { Component: MeetingPage };
@@ -658,6 +664,16 @@ function createLibraryRoute(): RouteObject {
         ErrorBoundary: PanelRouteErrorSurface,
         lazy: loadWikiCollectionPage,
         path: "wiki/:collection?",
+      },
+      {
+        ErrorBoundary: PanelRouteErrorSurface,
+        lazy: loadKeepMeetingPage,
+        loader: ({ params, request }) => {
+          if (new URL(request.url).searchParams.get("entry")) return null;
+          const tenantId = requireRoomRouteParam(params.tenantId, "Tenant");
+          throw redirect(`/t/${tenantId}/library?tab=meetings`);
+        },
+        path: "meetings/keep",
       },
       {
         // One meeting opens by `entry`; the list is the Workspace Meetings tab.

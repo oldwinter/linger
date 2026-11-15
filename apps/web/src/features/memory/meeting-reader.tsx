@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
 import {
   ArrowDown01Icon,
   ArrowUp01Icon,
@@ -32,6 +33,7 @@ import {
   meetingTitle,
   meetingWhen,
 } from "./meetings-calendar";
+import { keepMeetingPath } from "./keep-meeting";
 import { meetingPath } from "./meeting-routes";
 import { MeetingShareAction } from "./meeting-share-action";
 import {
@@ -211,7 +213,20 @@ export function MeetingReader({
       <header className="mb-4 flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="break-words text-xl text-app-ink">{title}</h2>
-          <p className="mt-1 text-xs text-app-muted">Read only</p>
+          <p className="mt-1 text-xs text-app-muted">
+            Read only
+            {meeting.summary_ready ? (
+              <>
+                {" · "}
+                <Link
+                  className="underline"
+                  to={keepMeetingPath(tenantId, entry.id)}
+                >
+                  Keep as a page
+                </Link>
+              </>
+            ) : null}
+          </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {linkCopyState === "copied" ? (
