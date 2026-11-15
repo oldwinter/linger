@@ -42,6 +42,8 @@ import {
   resolveAgentAvatarKey,
 } from "./members/agent-avatar";
 import { RoomAvatar } from "./members/room-avatar";
+import { QuietRemindersControl } from "./another-me-quiet-control";
+import { useAnotherMeQuiet } from "./another-me-quiet";
 import { PocketNoteLauncher } from "./pocket-notes/pocket-note-launcher";
 import {
   draftStorageEntries,
@@ -314,6 +316,9 @@ export function RoomSecondaryNavigation({
             Messages
           </span>
           <div className="flex items-center gap-0.5">
+            {accountId ? (
+              <QuietRemindersControl accountId={accountId} variant="toolbar" />
+            ) : null}
             <PocketNoteLauncher
               anotherMeRoomId={anotherMeRoomId}
               tenantId={tenant.id}
@@ -339,6 +344,9 @@ export function RoomSecondaryNavigation({
           className="flex shrink-0 items-center gap-1 pl-0 pr-1.5 pt-3"
           aria-label="Quick access"
         >
+          {accountId ? (
+            <QuietRemindersControl accountId={accountId} variant="toolbar" />
+          ) : null}
           <PocketNoteLauncher
             anotherMeRoomId={anotherMeRoomId}
             tenantId={tenant.id}
@@ -418,6 +426,7 @@ export function RoomSecondaryNavigation({
             />
             {visibleAnotherMeRoom ? (
               <AnotherMeCard
+                accountId={accountId}
                 active={visibleAnotherMeRoom.id === activeRoomId}
                 failed={failedRooms.has(visibleAnotherMeRoom.id)}
                 onNavigate={(event) =>
@@ -985,6 +994,7 @@ function RoomAttentionBadge({ room }: { room: TeamHubRoomListItem }) {
  * follows the pointer, and the open card fills with it.
  */
 function AnotherMeCard({
+  accountId,
   active,
   failed,
   onNavigate,
@@ -992,6 +1002,7 @@ function AnotherMeCard({
   tenantId,
   working,
 }: {
+  accountId?: string;
   active: boolean;
   failed: boolean;
   onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
@@ -1000,6 +1011,7 @@ function AnotherMeCard({
   working: boolean;
 }) {
   const name = room.direct_peer?.display_name ?? "Another Me";
+  const quiet = useAnotherMeQuiet(accountId);
   const agentRecord = useAgentAvatarRecord(room.direct_peer?.id);
   const brand = agentAvatarAppearance(
     resolveAgentAvatarKey({
@@ -1100,9 +1112,10 @@ function AnotherMeCard({
             {name}
           </span>
           <span className="another-me-card-sub mt-0.5 block truncate text-xs leading-4 text-app-muted">
-            {room.latest_message
-              ? markdownPlainText(room.latest_message.raw_message)
-              : "Your personal agent"}
+            {quiet.label ??
+              (room.latest_message
+                ? markdownPlainText(room.latest_message.raw_message)
+                : "Your personal agent")}
           </span>
         </span>
         <RoomRowStatus failed={failed} room={room} working={working} />

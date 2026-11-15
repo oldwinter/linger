@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
 
+import { useAnotherMeQuiet } from "./another-me-quiet";
 import {
   isDesktopNotificationPaused,
   useDesktopNotificationPause,
@@ -66,14 +67,16 @@ export function useAnotherMeNotifications({
     useDesktopNotificationPause(accountId),
     new Date(),
   );
+  const quiet = useAnotherMeQuiet(accountId);
+  const held = paused || quiet.until !== undefined;
   const room = roomId ? rooms?.find((item) => item.id === roomId) : undefined;
 
   useEffect(() => {
     if (!rooms || !roomId) return;
-    if (paused && seen.current !== undefined) return;
+    if (held && seen.current !== undefined) return;
     const notice = anotherMeNotice(room, agentActorId, seen.current);
     seen.current = room?.latest_message?.id ?? null;
-    if (paused) return;
+    if (held) return;
     if (
       !notice ||
       typeof Notification === "undefined" ||
@@ -90,5 +93,5 @@ export function useAnotherMeNotifications({
       open(roomId);
       notification.close();
     };
-  }, [agentActorId, open, paused, room, roomId, rooms]);
+  }, [agentActorId, held, open, room, roomId, rooms]);
 }

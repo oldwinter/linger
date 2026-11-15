@@ -12,6 +12,7 @@ import {
 
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
 
+import { writeQuietUntil } from "./another-me-quiet";
 import {
   anotherMeNotice,
   useAnotherMeNotifications,
@@ -186,5 +187,20 @@ describe("useAnotherMeNotifications", () => {
 
     expect(FakeNotification.shown).toHaveLength(1);
     expect(FakeNotification.shown[0]?.body).toBe("Take a break");
+  });
+
+  it("holds the system reminder while this computer is quiet", () => {
+    writeQuietUntil("account-jenny", Date.now() + 60_000);
+    const { rerender } = renderAnotherMe(
+      [room({ id: "msg_1", raw_message: "hello" })],
+      () => undefined,
+      "account-jenny",
+    );
+
+    rerender({
+      rooms: [room({ id: "msg_2", raw_message: "Take a break" })],
+    });
+
+    expect(FakeNotification.shown).toEqual([]);
   });
 });

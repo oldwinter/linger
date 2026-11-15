@@ -29,6 +29,11 @@ import {
   teamHubErrorResponse,
 } from "@/test/teamhub-test-server";
 
+import {
+  morningQuietUntil,
+  quietLabel,
+  writeQuietUntil,
+} from "./another-me-quiet";
 import * as avatarImages from "./members/actor-avatar-image";
 import { writeRoomComposerDraft, type RoomComposerDraft } from "./room-drafts";
 import { clearRoomUnreadFilter } from "./room-unread-filter";
@@ -713,12 +718,14 @@ describe("Another Me before its Computer connects", () => {
   function renderWithAnotherMe(
     anotherMe: TeamHubAnotherMe,
     rooms: TeamHubRoomListItem[] = [],
+    accountId?: string,
   ) {
     renderInDocument(
       <QueryClientProvider client={new QueryClient()}>
         <TeamHubRuntimeProvider runtime={liveRuntime()}>
           <MemoryRouter>
             <RoomSecondaryNavigation
+              accountId={accountId}
               anotherMeRoomId={anotherMe.room_id}
               onCloseMobile={() => undefined}
               onCreateRoom={() => undefined}
@@ -748,6 +755,23 @@ describe("Another Me before its Computer connects", () => {
       [anotherMe],
     );
     expect(screen.getByRole("link", { name: "Another Me Chat" })).toBeVisible();
+  });
+
+  it("shows a quiet hold on the Another Me card and in the toolbar", () => {
+    const until = morningQuietUntil(new Date());
+    const label = quietLabel(until, new Date());
+    writeQuietUntil("account-jenny", until);
+    const anotherMe = { ...deletedDirectRoom(), direct_peer_active: true };
+    renderWithAnotherMe(
+      { agent_actor_id: anotherMe.direct_peer!.id, room_id: anotherMe.id },
+      [anotherMe],
+      "account-jenny",
+    );
+    expect(
+      screen.getByRole("link", { name: "Another Me Chat" }),
+    ).toHaveTextContent(label);
+    expect(screen.getByRole("button", { name: label })).toBeVisible();
+    localStorage.clear();
   });
 });
 
