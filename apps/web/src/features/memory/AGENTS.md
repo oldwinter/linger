@@ -6,8 +6,9 @@
   one calendar day. Shape of today draws one calendar day as open stretches
   and the meetings that sit in them. Searching the Timeline centers the best
   matching page and shows the pages the graph links to it. Opening one
-  recenters the search on that page. Personal Wiki navigation in
-  `features/wiki` links here.
+  recenters the search on that page. Tell this story retells a meeting as
+  the lines you could say out loud, then the one line you would actually tell.
+  Personal Wiki navigation in `features/wiki` links here.
 - Call TeamHub through the generated client (`client.api`) and generated
   Memory types; do not handwrite URLs or wire DTOs in components.
 - From a meeting, Ask Another Me writes a follow-up into that room's

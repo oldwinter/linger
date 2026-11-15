@@ -1,0 +1,106 @@
+import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router";
+
+import { Button } from "@/components/ui/button";
+import { teamHubData } from "@/features/teamhub/teamhub-api";
+import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
+import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+
+import { meetingPath, useMeetings } from "./memory-queries";
+import { formatMeetingWhen, meetingWhen } from "./meetings-calendar";
+import { meetingStoryBeats, storySentence } from "./meeting-story";
+
+/** One meeting retold as the lines you would actually say to someone. */
+export function MeetingStoryPage() {
+  const { client } = useTeamHubRuntime();
+  const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
+  const entryId = useSearchParams()[0].get("entry") ?? "";
+  const meetings = useMeetings(tenantId);
+  const listed = meetings.data?.find((entry) => entry.id === entryId);
+  const selected = useQuery({
+    enabled: listed !== undefined,
+    queryFn: () =>
+      teamHubData(
+        client.api.GET("/v0/tenants/{tenantId}/memory/{entryId}", {
+          params: { path: { tenantId, entryId: listed?.id ?? "" } },
+        }),
+      ),
+    queryKey: ["teamhub", tenantId, "personal-memory", listed?.id, "story"],
+  });
+  const [told, setTold] = useState<number | null>(null);
+  const when = listed ? meetingWhen(listed.path) : undefined;
+  const title = when
+    ? `Meeting ${formatMeetingWhen(when.date, when.time)}`
+    : (listed?.title ?? "Meeting");
+  const beats = useMemo(
+    () => (selected.data ? meetingStoryBeats(selected.data.content) : []),
+    [selected.data],
+  );
+  const sentences = beats.map(storySentence);
+  const featured = told === null ? undefined : sentences[told];
+
+  return (
+    <main className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-5 py-7">
+      <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
+        <header>
+          <h1 className="text-xl text-foreground">Tell this story</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {title}. The lines you could say out loud, then the one you would
+            actually tell.
+          </p>
+        </header>
+        {meetings.isPending || (listed && selected.isPending) ? (
+          <p className="text-sm text-muted-foreground" role="status">
+            Loading the meeting.
+          </p>
+        ) : !listed || selected.error ? (
+          <p className="text-sm text-muted-foreground" role="status">
+            This meeting is not in your library.
+          </p>
+        ) : sentences.length === 0 ? (
+          <p className="text-sm text-muted-foreground" role="status">
+            This meeting does not have a story to tell yet.
+          </p>
+        ) : (
+          <>
+            {featured ? (
+              <section aria-labelledby="story-to-tell">
+                <h2 className="text-sm text-foreground" id="story-to-tell">
+                  The part you would tell
+                </h2>
+                <p className="mt-3 text-lg text-foreground">{featured}</p>
+              </section>
+            ) : null}
+            <ol aria-label="Meeting story" className="flex flex-col gap-3">
+              {sentences.map((sentence, index) => (
+                <li
+                  className="rounded-2xl border border-border px-4 py-3"
+                  key={`${index}-${sentence}`}
+                >
+                  <p className="text-sm text-foreground">{sentence}</p>
+                  <Button
+                    aria-pressed={told === index}
+                    className="mt-3"
+                    onClick={() => setTold(index)}
+                    size="compact"
+                    tone={told === index ? "primary" : "secondary"}
+                    type="button"
+                  >
+                    This is the part I would tell
+                  </Button>
+                </li>
+              ))}
+            </ol>
+          </>
+        )}
+        <Link
+          className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          to={meetingPath(tenantId, entryId)}
+        >
+          Back to the meeting
+        </Link>
+      </div>
+    </main>
+  );
+}

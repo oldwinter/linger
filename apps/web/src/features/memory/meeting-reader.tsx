@@ -33,6 +33,7 @@ import {
 import { HideMeetingDialog } from "./hide-meeting-dialog";
 import { followUpTexts, useMeetingFollowUps } from "./meeting-follow-ups";
 import { meetingRemindersPath, meetingTodoTexts } from "./meeting-reminders";
+import { meetingStoryBeats, meetingStoryPath } from "./meeting-story";
 import {
   formatMeetingWhen,
   meetingTitle,
@@ -216,6 +217,10 @@ export function MeetingReader({
     () => meetingTodoTexts(summaryMarkdown),
     [summaryMarkdown],
   );
+  const story = useMemo(
+    () => meetingStoryBeats(summaryMarkdown),
+    [summaryMarkdown],
+  );
   const summaryDocument = (markdown: string) => (
     <ReadOnlyBlockNoteDocumentLoader
       ariaLabel="Meeting summary document"
@@ -272,6 +277,14 @@ export function MeetingReader({
               to={meetingRemindersPath(tenantId, entry.id)}
             >
               Turn to-dos into reminders
+            </Link>
+          ) : null}
+          {meeting.summary_ready && story.length > 0 ? (
+            <Link
+              className="shrink-0 text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              to={meetingStoryPath(tenantId, entry.id)}
+            >
+              Tell this story
             </Link>
           ) : null}
           <Button onClick={() => setDeleting(true)} size="compact" tone="ghost">
