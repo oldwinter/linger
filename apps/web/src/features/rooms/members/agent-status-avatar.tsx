@@ -9,6 +9,7 @@ import {
 
 export function AgentStatusAvatar({
   actorId,
+  asHuman,
   cheer,
   name,
   size = "sm",
@@ -16,6 +17,8 @@ export function AgentStatusAvatar({
   onOpenProfile,
 }: {
   actorId: string;
+  /** Another Me wears this person while you are in their chat. */
+  asHuman?: { actorId: string; name: string };
   /** Each new value makes the character lean in and smile once. */
   cheer?: number;
   name: string;
@@ -29,6 +32,7 @@ export function AgentStatusAvatar({
   const avatar = (
     <ActorAvatar
       actorId={actorId}
+      asHuman={asHuman}
       cheer={cheer}
       kind="agent"
       name={name}
@@ -51,6 +55,7 @@ export function AgentStatusAvatar({
           <div className="flex items-center gap-2">
             <ActorAvatar
               actorId={actorId}
+              asHuman={asHuman}
               kind="agent"
               name={name}
               showTitle={false}

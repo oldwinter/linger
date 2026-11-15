@@ -62,6 +62,7 @@ import {
 } from "../files/message-file-item";
 import { ActorAvatar } from "../members/actor-avatar";
 import { AgentStatusAvatar } from "../members/agent-status-avatar";
+import { useAnotherMeMirror } from "./another-me-mirror";
 import { saveMessageToPocketNote } from "../pocket-notes/save-message-to-pocket-note";
 import { roomMessageUrl } from "../room-routes";
 import { useRoomRenderTiming } from "../room-render-timing";
@@ -773,12 +774,14 @@ function MessageAuthorAvatar({
   name: string;
   onOpenProfile: (actorId: string) => void;
 }) {
+  const mirror = useAnotherMeMirror();
   return (
     <div className="relative size-(--chat-avatar-size) shrink-0">
       {message.author.kind === "agent" ? (
         <>
           <AgentStatusAvatar
             actorId={message.author.id}
+            asHuman={mirror}
             cheer={cheer.count}
             name={name}
             onOpenProfile={onOpenProfile}
