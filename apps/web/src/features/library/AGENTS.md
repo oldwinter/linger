@@ -29,7 +29,9 @@
   settings action or logout empties it for every Account.
 - The sidebar appears beside an opened Document for switching: Back to
   Library, then personal Documents, Shared with me, and the independent
-  read-only Meetings list. Wiki is a primary-rail destination with its own
+  read-only Meetings list. Back from a file that lives in a folder opens that
+  folder. A file at the root, or one the personal tree does not hold, returns
+  to the Library home. Wiki is a primary-rail destination with its own
   file sidebar, retaining `/t/:tenantId/library/wiki`.
   My Documents and Shared with me remain document-tree views.
 - `LibraryLayout` is a pathless route over `library/*` and `documents/:documentId`

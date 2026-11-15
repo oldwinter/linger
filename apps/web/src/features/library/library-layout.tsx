@@ -10,6 +10,7 @@ import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
+import { libraryFolderBackPath } from "./library-folder-back";
 import { MyDocumentsTree } from "./library-documents-page";
 import { LibrarySidebar, type LibrarySection } from "./library-sidebar";
 import { WORKSPACE_TREE_ID, WorkspaceTreeContext } from "./workspace-tree";
@@ -91,6 +92,11 @@ export function LibraryLayout() {
             {hasList ? (
               <LibrarySidebar
                 active={section}
+                backTo={libraryFolderBackPath(
+                  tenantId,
+                  tree.data?.items ?? [],
+                  documentId,
+                )}
                 holdsOpenFile={holdsWikiPage ? "wiki" : null}
                 id={WORKSPACE_TREE_ID}
                 mobileOpen={treeOpen}
