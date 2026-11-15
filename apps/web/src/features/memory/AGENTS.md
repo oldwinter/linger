@@ -44,6 +44,9 @@
 - A meeting reader may copy its transcript as plain text, one line per speaker
   turn, once the transcript text has loaded. The clipboard again holds derived
   reading state and the reader writes none.
+- A transcript with more than one speaker can be read as one speaker's words.
+  A minute or more before that speaker talks again is named in the part. The
+  recording is not moved, and copying while a part is open copies that part.
 - A meeting reader may copy its summary as the Markdown the summary view renders
   from. The clipboard again holds derived reading state, and a refused copy says
   so.

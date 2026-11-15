@@ -53,7 +53,11 @@ import {
   previousMatchPosition,
   searchMeetingTranscript,
 } from "./meeting-transcript-search";
+import { MeetingSpeakerPart } from "./meeting-speaker-part";
 import {
+  meetingSpeakerPart,
+  meetingSpeakerPartText,
+  meetingSpeakers,
   meetingTranscriptText,
   meetingTranscriptTurns,
 } from "./meeting-transcript-text";
@@ -531,6 +535,19 @@ function MeetingVersionReader({
     () => (transcriptText ? meetingTranscriptTurns(transcriptText) : []),
     [transcriptText],
   );
+  const speakers = useMemo(
+    () => (transcriptText ? meetingSpeakers(transcriptText) : []),
+    [transcriptText],
+  );
+  const [partSpeaker, setPartSpeaker] = useState<string>();
+  const partLines = useMemo(
+    () =>
+      transcriptText && partSpeaker
+        ? meetingSpeakerPart(transcriptText, partSpeaker)
+        : [],
+    [partSpeaker, transcriptText],
+  );
+  useEffect(() => setPartSpeaker(undefined), [transcriptText]);
   const match = useMemo(
     () => searchMeetingTranscript(turns, query),
     [query, turns],
@@ -584,10 +601,11 @@ function MeetingVersionReader({
     if (!transcriptText) return;
     window.clearTimeout(copyTimer.current);
     setCopyState(undefined);
+    const copied = partSpeaker
+      ? meetingSpeakerPartText(partLines)
+      : meetingTranscriptText(transcriptText);
     void import("@/lib/clipboard")
-      .then(({ writeClipboardText }) =>
-        writeClipboardText(meetingTranscriptText(transcriptText)),
-      )
+      .then(({ writeClipboardText }) => writeClipboardText(copied))
       .then(() => {
         setCopyState("copied");
         copyTimer.current = window.setTimeout(
@@ -685,7 +703,7 @@ function MeetingVersionReader({
             size="compact"
             tone="secondary"
           >
-            Copy transcript
+            {partSpeaker ? "Copy this part" : "Copy transcript"}
           </Button>
         </>
       ) : null}
@@ -836,9 +854,15 @@ function MeetingVersionReader({
   }
   return (
     <>
-      {searchBar}
+      {partSpeaker ? null : searchBar}
       {header}
-      <div ref={transcriptRoot}>{body}</div>
+      <MeetingSpeakerPart
+        lines={partLines}
+        onSelect={setPartSpeaker}
+        speaker={partSpeaker}
+        speakers={speakers}
+      />
+      {partSpeaker ? null : <div ref={transcriptRoot}>{body}</div>}
     </>
   );
 }
