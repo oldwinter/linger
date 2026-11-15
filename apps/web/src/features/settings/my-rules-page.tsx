@@ -32,6 +32,7 @@ import {
   runMyRulesCommand,
   type MyRulesCommand,
 } from "./my-rules-queries";
+import { ruleNextPath } from "./rule-next";
 import { shadowRuleIds } from "./shadow-rule-review";
 import { SettingsPageHeading } from "./settings-page-heading";
 
@@ -101,6 +102,7 @@ export function MyRulesPage() {
           busy={command.isPending}
           onCommand={(input) => command.mutateAsync(input)}
           reviewPath={`/t/${encodeURIComponent(tenantId)}/settings/my-rules/review`}
+          tenantId={tenantId}
         />
       )}
       {command.isError ? (
@@ -117,11 +119,13 @@ function RuleBook({
   busy,
   onCommand,
   reviewPath,
+  tenantId,
 }: {
   book: TeamHubProactiveRuleBook;
   busy: boolean;
   onCommand: (input: MyRulesCommand) => Promise<unknown>;
   reviewPath: string;
+  tenantId: string;
 }) {
   const [armedRuleId, setArmedRuleId] = useState<string | null>(null);
   const shadowCount = shadowRuleIds(book).length;
@@ -167,6 +171,7 @@ function RuleBook({
                   )
                 }
                 rule={rule}
+                tenantId={tenantId}
               />
             ))}
           </ul>
@@ -216,6 +221,7 @@ function RuleRow({
   onCommand,
   onDisarm,
   rule,
+  tenantId,
 }: {
   armed: boolean;
   busy: boolean;
@@ -225,6 +231,7 @@ function RuleRow({
   onCommand: (input: MyRulesCommand) => Promise<unknown>;
   onDisarm: () => void;
   rule: TeamHubProactiveRule;
+  tenantId: string;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
   const shadow = rule.status === "shadow";
@@ -257,6 +264,14 @@ function RuleRow({
             <StatusPill>Edited by you</StatusPill>
           ) : null}
           <span className="flex items-center gap-0.5">
+            {shadow ? (
+              <Link
+                className="text-xs text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                to={ruleNextPath(tenantId, rule.id)}
+              >
+                What this changes next
+              </Link>
+            ) : null}
             {shadow ? (
               <Button
                 disabled={busy}

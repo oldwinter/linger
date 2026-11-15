@@ -852,6 +852,13 @@ function createSettingsRoute(): RouteObject {
       },
       {
         lazy: async () => ({
+          Component: (await import("@/features/settings/rule-next-page"))
+            .RuleNextPage,
+        }),
+        path: "rule-changes/:ruleId",
+      },
+      {
+        lazy: async () => ({
           Component: (await import("@/features/local-computer/computers-page"))
             .ComputersPage,
         }),
