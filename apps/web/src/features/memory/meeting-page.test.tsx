@@ -750,6 +750,65 @@ describe("MeetingPage", () => {
     expect(screen.queryByText("Copied")).toBeNull();
   });
 
+  it("keeps the transcript you are reading when the summary arrives", async () => {
+    const runtime = await loggedInRuntime();
+    const entries = [meetingEntry()];
+    serveMeetings(runtime, entries);
+    const { queryClient, router } = mountMeetingPage(
+      runtime,
+      `?entry=${entries[0]!.id}`,
+    );
+    const panel = await screen.findByRole("tabpanel");
+    expect(screen.getByRole("tab", { name: "Transcript" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    fireEvent.wheel(panel);
+    await waitFor(() =>
+      expect(router.state.location.search).toContain("file=transcript"),
+    );
+
+    entries[0] = meetingEntry(
+      { content: "# Meeting\n\nWe shipped the beta." },
+      true,
+    );
+    await queryClient.invalidateQueries();
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: "Transcript" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      ),
+    );
+    expect(screen.queryByText("We shipped the beta.")).toBeNull();
+    expect(
+      screen.queryByText(/The summary is still being written\./),
+    ).toBeNull();
+  });
+
+  it("opens the summary when it arrives if the transcript was not being read", async () => {
+    const runtime = await loggedInRuntime();
+    const entries = [meetingEntry()];
+    serveMeetings(runtime, entries);
+    const { queryClient } = mountMeetingPage(
+      runtime,
+      `?entry=${entries[0]!.id}`,
+    );
+    expect(
+      await screen.findByRole("tab", { name: "Transcript" }),
+    ).toHaveAttribute("aria-selected", "true");
+
+    entries[0] = meetingEntry(
+      { content: "# Meeting\n\nWe shipped the beta." },
+      true,
+    );
+    await queryClient.invalidateQueries();
+    expect(await screen.findByRole("tab", { name: "Summary" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(await screen.findByText("We shipped the beta.")).toBeVisible();
+  });
+
   it("copies the transcript as one plain-text line per turn", async () => {
     const runtime = await loggedInRuntime();
     const entry = meetingEntry();
@@ -1331,6 +1390,16 @@ function renderPage(
   runtime: ReturnType<typeof createTestTeamHubRuntime>,
   search = "",
 ) {
+  return mountMeetingPage(runtime, search).router;
+}
+
+function mountMeetingPage(
+  runtime: ReturnType<typeof createTestTeamHubRuntime>,
+  search = "",
+) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   const router = createMemoryRouter(
     [
       {
@@ -1352,17 +1421,13 @@ function renderPage(
     },
   );
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
+    <QueryClientProvider client={queryClient}>
       <TeamHubRuntimeProvider runtime={runtime}>
         <RouterProvider router={router} />
       </TeamHubRuntimeProvider>
     </QueryClientProvider>,
   );
-  return router;
+  return { queryClient, router };
 }
 
 class FakeHighlight {
