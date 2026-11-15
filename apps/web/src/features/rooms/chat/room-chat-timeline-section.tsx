@@ -1,6 +1,7 @@
 import { type ComponentProps, useMemo } from "react";
 
 import { timelineMessages } from "./message-grouping";
+import { useWritingSeat } from "./writing-seat";
 import { MessageTimeline } from "./message-timeline";
 import { RoomUnreadJump } from "./room-unread-jump";
 import { findUnreadDividerIndex } from "./unread-divider";
@@ -24,9 +25,11 @@ export function RoomChatTimelineSection({
     actorItems,
     linkedInTimeline,
     linkedMessage,
+    identity,
     linkedMessageId,
     members,
     messages,
+    roomId,
     navigation,
     setCreateIssueMessage,
     setForwardMessage,
@@ -48,6 +51,16 @@ export function RoomChatTimelineSection({
     timeline,
     voiceLiveDraft,
   } = state;
+  const writingSeatText = useWritingSeat({
+    accountId: identity.account.id,
+    roomId,
+    tenantId,
+  });
+  // A voice draft or a message already on its way owns the end of the room.
+  const writingSeat =
+    voiceLiveDraft || conversation.pendingMessages.length > 0
+      ? undefined
+      : writingSeatText;
   const unreadDivider = useMemo(
     () =>
       readBoundary
@@ -91,6 +104,7 @@ export function RoomChatTimelineSection({
       messages={presentedMessages}
       messagesArriving={onboarding.messagesHeld}
       voiceLiveDraft={voiceLiveDraft ?? undefined}
+      writingSeat={writingSeat}
       runStatuses={conversation.streamingRunStatuses}
       runtimePresentationEventsByRunStatusId={
         agentStreaming.runtimePresentationEventsByRunStatusId
