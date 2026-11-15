@@ -13,6 +13,12 @@ const srcRoot = fileURLToPath(new URL("../../", import.meta.url));
  * browser storage has to be registered, so a new store cannot be forgotten.
  */
 const excluded: Readonly<Record<string, string>> = {
+  "features/memory/meeting-follow-ups.ts":
+    "Checked to-dos for one meeting on this computer; clearing them would mark that list undone.",
+  "features/rooms/another-me-quiet.ts":
+    "The time Another Me stays quiet on this computer; clearing it would let reminders through early.",
+  "features/rooms/voice-control/speaker-names.ts":
+    "Names given to the voices in a recording, kept with that recording on this computer.",
   "features/rooms/away-recap.ts":
     "Remembers which away recap was dismissed; clearing it would replay a summary, not reset a preference.",
   "features/rooms/chat/use-another-me-onboarding.ts":

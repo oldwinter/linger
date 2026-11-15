@@ -1072,6 +1072,7 @@ describe("Dashboard page", () => {
       expect(
         within(todo)
           .getAllByRole("link")
+          .filter((card) => card.hasAttribute("data-work-item-id"))
           .map((card) => card.getAttribute("data-work-item-id")),
       ).toEqual(["workitem-urgent", "workitem-high", "workitem-low"]),
     );

@@ -6,6 +6,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
@@ -39,7 +40,9 @@ function renderLauncher(storedText: string) {
   render(
     <QueryClientProvider client={queryClient}>
       <TeamHubRuntimeProvider runtime={runtime}>
-        <PocketNoteLauncher tenantId={tenantId} />
+        <MemoryRouter>
+          <PocketNoteLauncher tenantId={tenantId} />
+        </MemoryRouter>
       </TeamHubRuntimeProvider>
     </QueryClientProvider>,
   );
