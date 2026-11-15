@@ -27,6 +27,7 @@ import {
   MeetingOverviewCard,
 } from "./meeting-overview-card";
 import { HideMeetingDialog } from "./hide-meeting-dialog";
+import { followUpTexts, useMeetingFollowUps } from "./meeting-follow-ups";
 import {
   formatMeetingWhen,
   meetingTitle,
@@ -191,6 +192,19 @@ export function MeetingReader({
   const blocks = useMemo(
     () => parseMeetingSummary(summaryMarkdown),
     [summaryMarkdown],
+  );
+  const followUps = useMemo(
+    () =>
+      blocks.flatMap((block) =>
+        block.kind === "outcomes" && block.title === "To-do list"
+          ? followUpTexts(block.outcomes)
+          : [],
+      ),
+    [blocks],
+  );
+  const followUpChecks = useMeetingFollowUps(
+    meeting.capture_id,
+    followUps.length > 0,
   );
   const summaryDocument = (markdown: string) => (
     <ReadOnlyBlockNoteDocumentLoader
@@ -358,6 +372,15 @@ export function MeetingReader({
                       <MeetingOverviewCard key={index} topics={block.topics} />
                     ) : (
                       <MeetingOutcomes
+                        checks={
+                          block.title === "To-do list" && followUps.length > 0
+                            ? {
+                                checked: followUpChecks.checked,
+                                onToggle: followUpChecks.toggle,
+                                ready: followUpChecks.ready,
+                              }
+                            : undefined
+                        }
                         copyStatus={
                           actionsCopy?.entryId === entry.id &&
                           actionsCopy.index === index

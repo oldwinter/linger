@@ -9,6 +9,9 @@
 - From a meeting, Ask Another Me writes a follow-up into that room's
   composer (keeping any unsent draft) and opens the chat with the composer
   focused. The meeting itself stays read-only.
+- A meeting's to-do list can be checked off on this computer. The checks
+  belong to the signed-in account and that capture; the meeting document
+  stays read-only.
 - Meetings, reports and graph entries are read-only derived reading state, not
   source evidence. Deleting a meeting only hides it from the caller's own
   Meetings through TeamHub's
