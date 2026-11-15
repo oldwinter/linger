@@ -25,6 +25,8 @@ import { Link, useNavigate } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { jumpPath } from "@/features/jump/jump-path";
+import { jumpShortcutLabel } from "@/features/jump/jump-shortcut";
 import { searchShortcutLabel } from "@/features/search/search-shortcut";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import { myRulesQueryOptions } from "@/features/settings/my-rules-queries";
@@ -437,6 +439,16 @@ export function RoomSecondaryNavigation({
         className="room-secondary-navigation-list workspace-scrollbar flex-1 space-y-3 overflow-y-auto pb-1 pt-2"
         ref={listRef}
       >
+        <Link
+          aria-keyshortcuts="Control+j Meta+j"
+          className="mx-2 flex h-7 items-center justify-between gap-2 rounded-lg px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={onCloseMobile}
+          title={`Jump (${jumpShortcutLabel()})`}
+          to={jumpPath(tenant.id)}
+        >
+          <span>Jump anywhere</span>
+          <span>{jumpShortcutLabel()}</span>
+        </Link>
         {onCollapse ? searchButton : null}
         {catchUpCount > 0 ? (
           <Link
