@@ -10,6 +10,7 @@ import {
 import { Icon } from "@/components/ui/icon";
 import { Spinner } from "@/components/ui/spinner";
 import { useId, useRef, useState } from "react";
+import { Link } from "react-router";
 
 import { ModalDialog } from "@/components/ui/modal-dialog";
 import {
@@ -19,6 +20,7 @@ import {
   SettingsRowText,
 } from "@/components/ui/settings-group";
 import { teamHubData, teamHubDone } from "@/features/teamhub/teamhub-api";
+import { agentCanDoPath } from "./agent-can-do";
 import { createTeamHubIdempotencyKey } from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
@@ -297,6 +299,14 @@ export function AgentSkillUploadPanel({
           />
         </SettingsRow>
       )}
+      {canManage && skills.length ? (
+        <Link
+          className="block px-4 py-2 text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          to={agentCanDoPath(tenantId, agentId)}
+        >
+          Turn skills on or off
+        </Link>
+      ) : null}
       {onToggleExpanded ? (
         <button
           aria-expanded={expanded || false}
