@@ -19,6 +19,7 @@ import type { TeamHubMessagePinList } from "@/features/teamhub/teamhub-types";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
 import { roomPinsQueryOptions } from "../../room-queries";
+import { PinnedMessageLinkCopy } from "./pinned-message-link-copy";
 import { searchPinnedMessages } from "./pinned-message-search";
 import { PinnedMessagesCopyAction } from "./pinned-messages-copy";
 import { useMessagePinToggle } from "./use-message-pin-toggle";
@@ -262,6 +263,10 @@ export function PinnedMessagesControl({
                           >
                             Unpin
                           </Button>
+                          <PinnedMessageLinkCopy
+                            message={pin.message}
+                            tenantId={tenantId}
+                          />
                         </div>
                         {unpinFailed ? (
                           <p
