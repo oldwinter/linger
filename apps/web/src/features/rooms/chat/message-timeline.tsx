@@ -5,6 +5,7 @@ import {
   messageStartsConversation,
   timeStartsConversation,
 } from "./message-grouping";
+import { sameMomentStarts } from "./same-moment";
 import { Icon } from "@/components/ui/icon";
 import { useRoomRenderTiming } from "../room-render-timing";
 import {
@@ -211,6 +212,10 @@ export function MessageTimeline({
     useMessageFilePreview(onOpenMessageFile);
   const { candidateMessages, openedAtNewest, startsOwnGroup } =
     useTimelineMessageGroups(messages, currentActorId);
+  const momentStarts = useMemo(
+    () => new Set(sameMomentStarts(candidateMessages)),
+    [candidateMessages],
+  );
   const runtimeViewCache = useRef<RuntimeTimelineViewCache>(new Map());
   const runtimeStatusViews = useMemo(
     () =>
@@ -362,9 +367,24 @@ export function MessageTimeline({
 
         {hasTimelineContent ? (
           <div className="room-message-list flex flex-col gap-1">
-            {candidateMessages.map((message, index) =>
-              renderMessage(message, index),
-            )}
+            {candidateMessages.map((message, index) => {
+              if (momentStarts.has(index - 1)) return null;
+              const next = candidateMessages[index + 1];
+              if (!momentStarts.has(index) || !next) {
+                return renderMessage(message, index);
+              }
+              return (
+                <div
+                  aria-label="Said at the same moment"
+                  className="grid items-start gap-x-4 md:grid-cols-2"
+                  key={message.id}
+                  role="group"
+                >
+                  {renderMessage(message, index)}
+                  {renderMessage(next, index + 1)}
+                </div>
+              );
+            })}
             {pendingMessages.map((message, index) => {
               // A sending Message shows the time line its committed row
               // will show, so the commit does not insert one above it.
