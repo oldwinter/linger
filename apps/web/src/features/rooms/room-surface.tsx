@@ -95,6 +95,7 @@ import { AuthenticatedRouteLoading } from "./route-loading-surface";
 import { RoomPresentationBoundary } from "./room-presentation-boundary";
 import { GENERAL_AGENT_DEFAULT_NAME } from "./general-agent-defaults";
 import { MobileNavigationButton } from "./mobile-navigation";
+import { RoomAddDocumentLink } from "./room-add-document-link";
 import { RoomWatchLink } from "./room-watch-link";
 
 // Share the after-chat warmup and immediate-open import. A warmed module renders
@@ -857,6 +858,7 @@ function RoomHeader({
       </div>
       <div className="flex shrink-0 items-center justify-end gap-1">
         <RoomWatchLink roomId={roomId} tenantId={tenantId} />
+        <RoomAddDocumentLink roomId={roomId} tenantId={tenantId} />
         {/* Bootstrap sync is background work; the header shows nothing for it. */}
         <Suspense fallback={null}>
           <Await resolve={pendingBootstrap ?? { initialRoomSeq }}>

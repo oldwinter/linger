@@ -267,6 +267,15 @@ export function createAppRoutes(
               }),
               path: "working",
             },
+            {
+              ErrorBoundary: PanelRouteErrorSurface,
+              lazy: async () => ({
+                Component: (
+                  await import("@/features/rooms/room-add-document-page")
+                ).RoomAddDocumentPage,
+              }),
+              path: "add-document",
+            },
           ],
         },
         {
