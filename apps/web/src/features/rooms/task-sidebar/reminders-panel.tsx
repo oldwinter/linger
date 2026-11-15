@@ -6,7 +6,7 @@ import {
   Clock01Icon,
   PlusSignIcon,
 } from "@hugeicons/core-free-icons";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Icon } from "@/components/ui/icon";
 import {
@@ -14,7 +14,7 @@ import {
   SettingsRow,
   SettingsRowText,
 } from "@/components/ui/settings-group";
-import { teamHubData } from "@/features/teamhub/teamhub-api";
+import { teamHubData, teamHubDone } from "@/features/teamhub/teamhub-api";
 import { type TeamHubClient } from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
@@ -38,6 +38,10 @@ import {
   isScheduled,
 } from "./routine-cadence";
 import { laterTodayRunAt } from "./later-today";
+import {
+  joinedRoutineInstruction,
+  routinesInTheSameMinute,
+} from "./routine-same-minute";
 import { RoutineDialog } from "./routine-dialog";
 import { PanelLoading } from "./panel-loading";
 
@@ -174,6 +178,55 @@ function RoutineAgenda({
       });
     },
   });
+  const joinedMinute = useRef<string | undefined>(undefined);
+  const enabled = routines.filter(
+    (routine): routine is TeamHubScheduledRoutine =>
+      isScheduled(routine) && routine.enabled && Boolean(routine.next_run_at),
+  );
+  const minuteKey = enabled
+    .map(
+      (routine) =>
+        `${routine.id}:${routine.next_run_at}:${routine.instruction}`,
+    )
+    .join("|");
+  useEffect(() => {
+    const group = routinesInTheSameMinute(enabled);
+    if (!group) return;
+    const key = `${group.keep.id}:${group.drop.map((routine) => routine.id).join(",")}`;
+    if (joinedMinute.current === key) return;
+    joinedMinute.current = key;
+    const instruction = joinedRoutineInstruction(group.keep, group.drop);
+    void (async () => {
+      try {
+        if (instruction !== group.keep.instruction.trim()) {
+          await teamHubData(
+            client.api.PATCH("/v0/routines/{routineId}", {
+              params: { path: { routineId: group.keep.id } },
+              body: {
+                expected_revision: group.keep.revision,
+                instruction,
+              },
+            }),
+          );
+        }
+        for (const extra of group.drop) {
+          await teamHubDone(
+            client.api.DELETE("/v0/routines/{routineId}", {
+              params: {
+                path: { routineId: extra.id },
+                query: { expected_revision: extra.revision },
+              },
+            }),
+          );
+        }
+        await queryClient.invalidateQueries({
+          queryKey: roomRoutinesQueryKey(tenantId, group.keep.room_id),
+        });
+      } catch {
+        joinedMinute.current = undefined;
+      }
+    })();
+  }, [client, enabled, minuteKey, queryClient, tenantId]);
   useEffect(() => {
     // Hold the countdown while an undo is in flight, so its failure shows.
     if (!offer || undo.isPending) return;
