@@ -99,6 +99,7 @@ import { RoomAddDocumentLink } from "./room-add-document-link";
 import { RoomWatchLink } from "./room-watch-link";
 import { WorkMovesLink } from "./work-moves-link";
 import { WhoManagesLink } from "./who-manages-link";
+import { SteerRunLink } from "./steer-run-link";
 
 // Share the after-chat warmup and immediate-open import. A warmed module renders
 // directly, avoiding React.lazy's first-render Suspense delay.
@@ -863,6 +864,7 @@ function RoomHeader({
         <RoomAddDocumentLink roomId={roomId} tenantId={tenantId} />
         <WorkMovesLink roomId={roomId} tenantId={tenantId} />
         <WhoManagesLink roomId={roomId} tenantId={tenantId} />
+        <SteerRunLink roomId={roomId} tenantId={tenantId} />
         {/* Bootstrap sync is background work; the header shows nothing for it. */}
         <Suspense fallback={null}>
           <Await resolve={pendingBootstrap ?? { initialRoomSeq }}>

@@ -292,6 +292,14 @@ export function createAppRoutes(
               }),
               path: "who-manages",
             },
+            {
+              ErrorBoundary: PanelRouteErrorSurface,
+              lazy: async () => ({
+                Component: (await import("@/features/rooms/steer-run-page"))
+                  .SteerRunPage,
+              }),
+              path: "steer",
+            },
           ],
         },
         {
