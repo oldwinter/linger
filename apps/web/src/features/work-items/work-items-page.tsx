@@ -73,6 +73,7 @@ import {
   tenantWorkItemsDashboardQueryOptions,
 } from "./work-item-queries";
 import { dashboardWorkItemPath } from "./work-item-routes";
+import { workItemStoryPath } from "./work-item-story";
 import { createWorkItemRoomFilterModel } from "./work-item-room-filter";
 import { WorkItemSelectionCopyLinks } from "./work-item-selection-copy";
 import {
@@ -997,6 +998,12 @@ function WorkItemColumn({
                   tenantId={tenantId}
                 />
               </span>
+              <Link
+                className="mt-1 block px-3 text-xs text-muted-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                to={workItemStoryPath(tenantId, item.id)}
+              >
+                What happened
+              </Link>
             </li>
           ))}
         </ul>

@@ -275,6 +275,15 @@ export function createAppRoutes(
           client,
           "dashboard/:workItemId",
         ),
+        {
+          ErrorBoundary: PanelRouteErrorSurface,
+          lazy: async () => ({
+            Component: (
+              await import("@/features/work-items/work-item-story-page")
+            ).WorkItemStoryPage,
+          }),
+          path: "work-items/:workItemId",
+        },
         createWorkspaceRoute(),
         {
           ErrorBoundary: PanelRouteErrorSurface,
