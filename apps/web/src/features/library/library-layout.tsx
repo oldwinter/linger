@@ -129,8 +129,12 @@ function workspaceSection(pathname: string): LibrarySection | null {
   if (rest.startsWith("/wiki")) return "wiki";
   // This day is a reading page, like the Library home, with no file tree.
   if (rest === "/day") return "overview";
-  // An open meeting, and carrying one of its decisions, keeps the Library sidebar beside it.
-  if (rest.startsWith("/meetings") || rest.startsWith("/carry-decision"))
+  // An open meeting, carrying one of its decisions, and the clock to the next one keep the Library sidebar beside them.
+  if (
+    rest.startsWith("/meetings") ||
+    rest.startsWith("/carry-decision") ||
+    rest.startsWith("/up-next")
+  )
     return null;
   return "overview";
 }

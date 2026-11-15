@@ -23,6 +23,7 @@ import { useMeetings } from "./memory-queries";
 import { meetingPath } from "./meeting-routes";
 import { weekMemoryPath } from "./week-memory";
 import { HideMeetingDialog } from "./hide-meeting-dialog";
+import { upNextPath } from "./up-next";
 
 const levelClass = [
   "bg-[#f1f0ec]",
@@ -217,6 +218,12 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
           to={weekMemoryPath(tenantId)}
         >
           The week in memory
+        </Link>
+        <Link
+          className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          to={upNextPath(tenantId)}
+        >
+          Up next
         </Link>
       </div>
       <div>
