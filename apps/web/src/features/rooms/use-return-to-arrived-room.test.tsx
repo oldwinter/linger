@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { useCallback, type ReactNode } from "react";
+import type { NavigateFunction } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
@@ -17,6 +18,8 @@ function room(id: string, seq: number): TeamHubRoomListItem {
   } as unknown as TeamHubRoomListItem;
 }
 
+const client = {} as unknown as TeamHubClient;
+
 function Harness({
   navigate,
   queryClient,
@@ -26,12 +29,16 @@ function Harness({
   queryClient: QueryClient;
   rooms: TeamHubRoomListItem[];
 }) {
-  useReturnToArrivedRoom({
-    activeRoomId: "here",
-    client: {} as TeamHubClient,
-    navigate: (path) => {
+  const go = useCallback<NavigateFunction>(
+    (path) => {
       if (typeof path === "string") navigate(path);
     },
+    [navigate],
+  );
+  useReturnToArrivedRoom({
+    activeRoomId: "here",
+    client,
+    navigate: go,
     queryClient,
     rooms,
     tenantId: "tenant-northstar",
