@@ -9,6 +9,7 @@ import {
   SidebarLeftIcon,
   TickDouble02Icon,
 } from "@hugeicons/core-free-icons";
+import { useQuery } from "@tanstack/react-query";
 import {
   type CSSProperties,
   lazy,
@@ -26,7 +27,11 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { searchShortcutLabel } from "@/features/search/search-shortcut";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
+import { myRulesQueryOptions } from "@/features/settings/my-rules-queries";
+import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { cn } from "@/lib/cn";
+
+import { latestShadowLine } from "./shadow-line";
 
 import { AgentCreateMenu } from "./agent-create-menu";
 import { AwayRecapCard } from "./away-recap-card";
@@ -177,6 +182,15 @@ export function RoomSecondaryNavigation({
   tenant: TeamHubTenant;
 }) {
   usePrefetchTemplateFlow();
+  const { client } = useTeamHubRuntime();
+  const rules = useQuery({
+    ...myRulesQueryOptions(client, tenant.id),
+    enabled: Boolean(anotherMeRoomId) && typeof client.api?.GET === "function",
+    staleTime: 60_000,
+  });
+  const shadowLine = rules.data
+    ? latestShadowLine(rules.data.divergences, Date.now())
+    : undefined;
   const [localAgentOpen, setLocalAgentOpen] = useState(false);
   const [templateAgentOpen, setTemplateAgentOpen] = useState(false);
   const [filterMode, setFilterModeState] = useState<RoomFilterMode>(() =>
@@ -438,6 +452,7 @@ export function RoomSecondaryNavigation({
                 active={visibleAnotherMeRoom.id === activeRoomId}
                 duration={durationFor(visibleAnotherMeRoom.id)}
                 failed={failedRooms.has(visibleAnotherMeRoom.id)}
+                shadowLine={shadowLine}
                 onNavigate={(event) =>
                   completeNavigation(event, visibleAnotherMeRoom.id)
                 }
@@ -1018,6 +1033,7 @@ function AnotherMeCard({
   failed,
   onNavigate,
   room,
+  shadowLine,
   tenantId,
   working,
 }: {
@@ -1027,6 +1043,7 @@ function AnotherMeCard({
   failed: boolean;
   onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
   room: TeamHubRoomListItem;
+  shadowLine?: string;
   tenantId: string;
   working: boolean;
 }) {
@@ -1145,6 +1162,14 @@ function AnotherMeCard({
           working={working}
         />
       </Link>
+      {shadowLine ? (
+        <Link
+          className="mt-1 block truncate px-1 text-xs text-app-muted hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          to={`/t/${tenantId}/settings/my-rules`}
+        >
+          {shadowLine}
+        </Link>
+      ) : null}
     </div>
   );
 }
