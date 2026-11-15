@@ -38,6 +38,7 @@ import {
 } from "../files/document-detail-routes";
 
 import type { RoomDocumentCollaborationSession } from "./room-document-collaboration";
+import { bindRemoteReadingPlace } from "./room-document-reading-place";
 import {
   createRoomDocumentAssetUrlResolver,
   uploadRoomDocumentAsset,
@@ -368,6 +369,13 @@ export function RoomDocumentBlockNoteEditor({
       restoreRoomDocumentCollaborationUndo(editor);
     }
   }, [editable, editor]);
+  useEffect(() => {
+    const scrollport = editorRootRef.current?.closest<HTMLElement>(
+      "[data-document-scroll-container]",
+    );
+    if (!scrollport) return;
+    return bindRemoteReadingPlace(editor, scrollport);
+  }, [editor]);
   const [isEmptyDocument, setIsEmptyDocument] = useState(() =>
     roomDocumentBlocksAreEmpty(editor.document),
   );
