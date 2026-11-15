@@ -16,6 +16,7 @@ import {
   type SyntheticEvent,
 } from "react";
 
+import { paceAt, type MeetingPacePoint } from "./meeting-pace";
 import {
   forgetMeetingPosition,
   readMeetingResume,
@@ -70,9 +71,13 @@ export function MeetingAudioPlayer({
   accountId,
   downloadDisabled,
   filename,
+  hearingPace,
   mediaType,
   meetingId,
   onDownload,
+  onHearPace,
+  pace,
+  paceBusy,
   src,
   status,
 }: {
@@ -80,10 +85,16 @@ export function MeetingAudioPlayer({
   accountId?: string;
   downloadDisabled?: boolean;
   filename: string;
+  /** The recording is following how densely the room spoke. */
+  hearingPace?: boolean;
   mediaType?: string;
   /** Changes with the meeting, so the next one carries its Account's speed. */
   meetingId?: string;
   onDownload: () => void;
+  /** Starts or stops hearing the recording at the pace the room spoke. */
+  onHearPace?: () => void;
+  pace?: readonly MeetingPacePoint[];
+  paceBusy?: boolean;
   src?: string;
   /** Replaces the time line, e.g. while the recording is still loading. */
   status?: string;
@@ -144,6 +155,21 @@ export function MeetingAudioPlayer({
 
   useEffect(() => () => window.clearTimeout(rateNoticeTimer.current), []);
 
+  // The pace replaces the Account's speed only while it is heard. Stopping it,
+  // or a meeting change that drops it, puts that speed back. It is never saved.
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const next =
+      hearingPace && pace?.length ? paceAt(pace, audio.currentTime) : rate;
+    if (next === undefined) return;
+    try {
+      audio.playbackRate = next;
+    } catch {
+      // The element keeps the rate it already had.
+    }
+  }, [hearingPace, pace, rate]);
+
   /** Saves the place now; a position at the very start is no place to return to. */
   function savePosition(at: number) {
     if (!accountId || !meetingId) return;
@@ -178,6 +204,16 @@ export function MeetingAudioPlayer({
 
   function onTimeUpdate(event: SyntheticEvent<HTMLAudioElement>) {
     const at = event.currentTarget.currentTime;
+    if (hearingPace && pace?.length) {
+      const next = paceAt(pace, at);
+      if (next !== undefined && event.currentTarget.playbackRate !== next) {
+        try {
+          event.currentTarget.playbackRate = next;
+        } catch {
+          // The element keeps the rate it already had.
+        }
+      }
+    }
     setCurrent(at);
     // Scrubbing fires time updates in a burst; one write per interval is enough
     // to survive a reload, and pause or seek saves land immediately.
@@ -381,11 +417,31 @@ export function MeetingAudioPlayer({
             </button>
           </p>
         ) : null}
+        {onHearPace ? (
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <button
+              className="rounded-sm text-[11px] leading-4 text-app-link underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus disabled:opacity-40"
+              disabled={paceBusy}
+              onClick={onHearPace}
+              type="button"
+            >
+              {hearingPace ? "Stop the pace" : "Hear the pace they spoke"}
+            </button>
+            {hearingPace ? (
+              <span
+                className="text-[11px] leading-4 text-app-muted"
+                role="status"
+              >
+                Hearing the pace they spoke
+              </span>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       <Select
         aria-label={`Playback speed, ${rateLabel(rate)}`}
         className="shrink-0"
-        disabled={!ready}
+        disabled={!ready || hearingPace}
         onValueChange={chooseRate}
         value={String(rate)}
         variant="pill"

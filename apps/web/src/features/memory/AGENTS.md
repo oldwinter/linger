@@ -61,6 +61,12 @@
   and the left and right arrows move five seconds, stopping at either end. Keys
   pressed in a field, inside a dialog, or on a focused control stay with it, and
   no keypress announces anything.
+- A recording whose transcript has clocked turns of different density can be
+  heard at the pace they spoke: a rush slows down and a sparse stretch speeds
+  up, within the speeds the player already offers. That pace is not remembered
+  as the listener's speed. Stopping it returns the recording to the speed this
+  browser kept. The transcript is read when the listener asks, and a transcript
+  with no such spread offers no pace.
 - A meeting reader may send its summary to a Room as one Message from the
   header's Room picker. That Message copies derived reading state, writes no
   Memory state, and reuses its idempotency key only when retrying the same

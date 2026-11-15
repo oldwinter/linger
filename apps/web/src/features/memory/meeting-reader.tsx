@@ -24,6 +24,7 @@ import {
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 import { MeetingAudioPlayer } from "./meeting-audio-player";
+import { meetingPace, type MeetingPacePoint } from "./meeting-pace";
 import { carryDecisionPath, meetingDecisions } from "./carry-decision";
 import { parseMeetingSummary } from "./meeting-overview";
 import {
@@ -104,6 +105,59 @@ export function MeetingReader({
   const accountId = identity.data?.account.id;
   const anotherMe = useQuery(anotherMeQueryOptions(client, tenantId));
   const [deleting, setDeleting] = useState(false);
+  const [pace, setPace] = useState<readonly MeetingPacePoint[]>();
+  const [hearingPace, setHearingPace] = useState(false);
+  const [paceBusy, setPaceBusy] = useState(false);
+  const [paceOffer, setPaceOffer] = useState(true);
+  const paceAbort = useRef<AbortController | undefined>(undefined);
+  useEffect(() => {
+    setPace(undefined);
+    setHearingPace(false);
+    setPaceBusy(false);
+    setPaceOffer(true);
+    paceAbort.current?.abort();
+    return () => paceAbort.current?.abort();
+  }, [entry.id]);
+  function hearPace() {
+    if (hearingPace) {
+      paceAbort.current?.abort();
+      setHearingPace(false);
+      return;
+    }
+    const documentId = meeting.transcript_document_id;
+    const versionId = meeting.transcript_version_id;
+    if (!documentId || !versionId) {
+      setPaceOffer(false);
+      return;
+    }
+    paceAbort.current?.abort();
+    const controller = new AbortController();
+    paceAbort.current = controller;
+    setPaceBusy(true);
+    void loadArtifactPreview({
+      client,
+      documentId,
+      signal: controller.signal,
+      versionId,
+    })
+      .then((preview) => {
+        const points = meetingPace(preview.textContent ?? "");
+        preview.dispose();
+        if (controller.signal.aborted) return;
+        if (!points) {
+          setPaceOffer(false);
+          return;
+        }
+        setPace(points);
+        setHearingPace(true);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setPaceOffer(false);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPaceBusy(false);
+      });
+  }
   const tab: MeetingTab =
     file === "summary" || file === "transcript"
       ? file
@@ -474,7 +528,15 @@ export function MeetingReader({
                 accountId={accountId}
                 documentId={meeting.recording_document_id}
                 filename={meeting.recording_filename}
+                hearingPace={hearingPace}
                 meetingId={entry.id}
+                onHearPace={
+                  paceOffer && meeting.transcript_document_id
+                    ? hearPace
+                    : undefined
+                }
+                pace={hearingPace ? pace : undefined}
+                paceBusy={paceBusy}
                 variant="player"
                 versionId={meeting.recording_version_id}
               />
@@ -503,7 +565,11 @@ function MeetingVersionReader({
   documentId,
   versionId,
   filename,
+  hearingPace,
   meetingId,
+  onHearPace,
+  pace,
+  paceBusy,
   variant,
 }: {
   /** Whose listening positions the player remembers. */
@@ -511,8 +577,14 @@ function MeetingVersionReader({
   documentId: string;
   versionId: string;
   filename: string;
+  /** The recording is following how densely the room spoke. */
+  hearingPace?: boolean;
   /** Tells the player which meeting it is playing, so its speed starts over. */
   meetingId?: string;
+  /** Starts or stops hearing the recording at the pace the room spoke. */
+  onHearPace?: () => void;
+  pace?: readonly MeetingPacePoint[];
+  paceBusy?: boolean;
   variant: "player" | "document";
 }) {
   const { client } = useTeamHubRuntime();
@@ -820,9 +892,13 @@ function MeetingVersionReader({
         accountId={accountId}
         downloadDisabled={!preview || downloading}
         filename={filename}
+        hearingPace={hearingPace}
         mediaType={preview?.version.media_type}
         meetingId={meetingId}
         onDownload={() => void download()}
+        onHearPace={onHearPace}
+        pace={pace}
+        paceBusy={paceBusy}
         src={playable ? preview.objectUrl : undefined}
         status={
           !preview
