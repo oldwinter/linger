@@ -17,6 +17,7 @@ import {
   type RefObject,
   type ReactNode,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -63,6 +64,7 @@ import { useOptionalVoiceModeSession } from "./chat/voice-mode/voice-mode-sessio
 import { RoomRealtimeSync } from "./chat/room-realtime-sync";
 import { PinnedMessagesControl } from "./chat/message-pins/pinned-messages-control";
 import { handOffPath } from "./hand-off";
+import { rememberLastRoom } from "./last-room";
 import { AgentStatusDot } from "./members/agent-status";
 import { RoomAvatar } from "./members/room-avatar";
 import { ActorAvatar } from "./members/actor-avatar";
@@ -364,6 +366,10 @@ function RoomSurfaceContent({
   );
   const canDeleteDeletedAgentRoom =
     isDirectRoom && room.direct_peer_active === false && currentActorIsOwner;
+
+  useEffect(() => {
+    rememberLastRoom(identity.account.id, tenantId, roomId);
+  }, [identity.account.id, roomId, tenantId]);
 
   const scope = useMemo(
     () => ({

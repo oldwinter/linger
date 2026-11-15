@@ -32,6 +32,7 @@ import {
   tenantRoomsQueryOptions,
   tenantAgentsQueryOptions,
 } from "@/features/rooms/room-queries";
+import { pickLandingRoom, readLastRoom } from "@/features/rooms/last-room";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { RoomShell } from "@/features/rooms/room-shell";
 import { RoomSurface } from "@/features/rooms/room-surface";
@@ -711,27 +712,32 @@ function loadRoomBootstrapProjection(
 }
 
 /**
- * The Room a Space opens on: the Human's Another Me Chat, where onboarding
- * starts, else the first Room. The starter Rooms share the Chat's creation
- * time, so list order alone would pick one of them by ID. The Room shell reads
- * the Another Me too, so this adds no request; a failed read only drops the
- * preference.
+ * The Room a Space opens on. After the person has been in a Room, that is the
+ * one they left, when it still exists. Otherwise it is the Human's Another Me
+ * Chat, where onboarding starts, else the first Room. The starter Rooms share
+ * the Chat's creation time, so list order alone would pick one of them by ID.
+ * The Room shell reads the Another Me and the identity too, so this adds no
+ * request; a failed read only drops that preference.
  */
 async function landingRoomId(
   queryClient: QueryClient,
   client: TeamHubClient,
   tenantId: string,
 ): Promise<string | undefined> {
-  const [rooms, anotherMe] = await Promise.all([
+  const [rooms, anotherMe, identity] = await Promise.all([
     queryClient.ensureQueryData(tenantRoomsQueryOptions(client, tenantId)),
     queryClient
       .ensureQueryData(anotherMeQueryOptions(client, tenantId))
       .catch(() => undefined),
+    queryClient
+      .ensureQueryData(teamHubIdentityQueryOptions(client))
+      .catch(() => undefined),
   ]);
-  const preferred = anotherMe?.room_id;
-  return preferred && rooms.items.some((room) => room.id === preferred)
-    ? preferred
-    : rooms.items[0]?.id;
+  return pickLandingRoom(
+    rooms.items.map((room) => room.id),
+    anotherMe?.room_id,
+    readLastRoom(identity?.account.id, tenantId),
+  );
 }
 
 /**
