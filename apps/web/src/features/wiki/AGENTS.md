@@ -31,6 +31,8 @@
   `clients` entries; keep their routes and data keys.
   The Wiki home's Surprise me action opens one of the pages already listed at
   random through the normal page route, adding no query or refetch.
+  When the open page and exactly one other page link each other, and that
+  other page has words in the graph, those words are shown on this page.
   Wiki routes show the overview and collection pages without a sidebar; the directory
   appears only beside an opened Wiki page and lists that page's own collection,
   following links into other collections, until Back.

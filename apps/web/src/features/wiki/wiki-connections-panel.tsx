@@ -7,6 +7,7 @@ import type { WikiGraphNode } from "@/features/memory/wiki-graph-model";
 import { cn } from "@/lib/cn";
 
 import { useWikiGraphNodes } from "./wiki-graph-queries";
+import { mutualPage } from "./wiki-mutual-page";
 import { useWikiPageHrefs } from "./wiki-page-links";
 
 /** Connections shown per direction before "Show all" reveals the rest. */
@@ -37,7 +38,8 @@ export function WikiConnectionsPanel({
   if (!node) return null;
   const linksTo = wikiConnections(node.links, nodes, hrefs);
   const linkedFrom = wikiConnections(node.backlinks, nodes, hrefs);
-  if (!linksTo.length && !linkedFrom.length) return null;
+  const partner = mutualPage(pageKey, nodes);
+  if (!linksTo.length && !linkedFrom.length && !partner) return null;
   return (
     <details
       className={cn("group mt-6 border-t border-app-border pt-4", className)}
@@ -55,7 +57,39 @@ export function WikiConnectionsPanel({
         <ConnectionList entries={linksTo} title="Links to" />
         <ConnectionList entries={linkedFrom} title="Linked from" />
       </div>
+      {partner ? (
+        <PointedBackPage href={hrefs.get(partner.id)} page={partner} />
+      ) : null}
     </details>
+  );
+}
+
+function PointedBackPage({
+  href,
+  page,
+}: {
+  href?: string;
+  page: WikiGraphNode;
+}) {
+  const title = page.title.trim() || page.id;
+  return (
+    <section aria-label="The page that points back" className="mt-4">
+      <h3 className="text-sm font-medium text-app-ink">
+        {href ? (
+          <Link
+            className="hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app-focus"
+            to={href}
+          >
+            {title}
+          </Link>
+        ) : (
+          title
+        )}
+      </h3>
+      <p className="mt-1 text-sm whitespace-pre-wrap text-app-body">
+        {page.body.trim()}
+      </p>
+    </section>
   );
 }
 
