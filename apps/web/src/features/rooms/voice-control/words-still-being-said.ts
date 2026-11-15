@@ -11,7 +11,9 @@ export function wordsStillBeingSaid(
   const text = partial?.trim();
   if (!text) return;
   const last = confirmed.at(-1)?.text.trim();
-  if (!last || text === last) return text === last ? undefined : text;
+  // A sentence said again is still being said. Only a hypothesis that
+  // continues the last confirmed line drops the words already on the page.
+  if (!last || text === last) return text;
   if (text.startsWith(`${last} `) || text.startsWith(`${last}\n`)) {
     const rest = text.slice(last.length).trim();
     return rest || undefined;

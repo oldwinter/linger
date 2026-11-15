@@ -16,7 +16,7 @@ describe("wordsStillBeingSaid", () => {
       wordsStillBeingSaid("Confirmed live transcript", [
         { text: "Confirmed live transcript" },
       ]),
-    ).toBeUndefined();
+    ).toBe("Confirmed live transcript");
     expect(
       wordsStillBeingSaid("Recognizing this sentence live", [
         { text: "Confirmed live transcript" },
