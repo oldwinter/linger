@@ -14,6 +14,7 @@ import {
   type MutableRefObject,
   type ReactNode,
 } from "react";
+import { Link } from "react-router";
 
 import { extractRenderedDocumentHeadings } from "@/components/document-headings";
 import { ActionMenu } from "@/components/ui/action-menu";
@@ -28,6 +29,7 @@ import {
   useDocumentRename,
 } from "@/features/library/use-document-rename";
 import { WORKSPACE_TREE_ID } from "@/features/library/workspace-tree";
+import { markMomentPath } from "./mark-moment";
 import { writeDocumentLinkClipboard } from "@/features/rooms/files/document-clipboard-link";
 import { documentDetailPath } from "@/features/rooms/files/document-detail-routes";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
@@ -269,6 +271,14 @@ function UnifiedDocumentHeader({
             <span className="truncate text-sm font-semibold text-app-ink">
               {documentFileName(document)}
             </span>
+            {document.capabilities.write ? (
+              <Link
+                className="shrink-0 text-xs text-app-muted underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                to={markMomentPath(tenantId, document.id)}
+              >
+                Mark this moment
+              </Link>
+            ) : null}
           </div>
         ) : null}
         {!sidebar && document ? (
