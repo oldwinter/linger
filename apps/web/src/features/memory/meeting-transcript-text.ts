@@ -54,9 +54,11 @@ function cueRange(block: string): TranscriptCue | undefined {
     .replace(/\s*\n\s*/gu, " ")
     .trim();
   const match = CUE_CLOCK.exec(text);
-  if (!match) return;
-  const start = clockSeconds(match[1]);
-  const end = clockSeconds(match[2]);
+  const startClock = match?.[1];
+  const endClock = match?.[2];
+  if (!startClock || !endClock) return;
+  const start = clockSeconds(startClock);
+  const end = clockSeconds(endClock);
   if (start === undefined || end === undefined || end < start) return;
   return { start, end };
 }
