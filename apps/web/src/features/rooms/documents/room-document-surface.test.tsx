@@ -1808,6 +1808,7 @@ describe("Unified Document page", () => {
     const breadcrumb = await screen.findByRole("navigation", {
       name: "Breadcrumb",
     });
+    expect(breadcrumb.className.split(/\s+/)).not.toContain("hidden");
     expect(breadcrumb).toHaveTextContent("Owned by Me");
     expect(breadcrumb).toHaveTextContent(/untitled\.md/i);
     expect(breadcrumb).toHaveTextContent("Product");

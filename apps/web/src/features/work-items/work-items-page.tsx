@@ -697,7 +697,7 @@ function WorkItemBoard({
         </div>
       ) : null}
       <div className="work-items-board workspace-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-hidden p-4 sm:p-5">
-        <div className="grid h-full min-w-[1180px] grid-cols-5 gap-3">
+        <div className="grid h-full min-w-[960px] grid-cols-4 gap-3">
           {sections.map(({ column, items }) => (
             <WorkItemColumn
               closedExpanded={closedExpanded}
