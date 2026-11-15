@@ -34,6 +34,7 @@ import {
   useSearchParams,
 } from "react-router";
 
+import { useCloseDepartedProfile } from "./close-departed-profile";
 import { RouteContentBoundary } from "@/features/rooms/route-content-boundary";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -290,6 +291,14 @@ function RoomSurfaceContent({
   );
   const { data: members } = useSuspenseQuery(
     roomMembersQueryOptions(client, tenantId, roomId),
+  );
+  const closeDepartedProfile = useCallback(() => {
+    setSearchParams((current) => roomProfileSearchParams(current));
+  }, [setSearchParams]);
+  useCloseDepartedProfile(
+    searchParams.get("profile"),
+    members.items.map((member) => member.actor.id),
+    closeDepartedProfile,
   );
   const { data: messageHistory } = useSuspenseInfiniteQuery(
     roomMessagesInfiniteQueryOptions(client, tenantId, roomId),
