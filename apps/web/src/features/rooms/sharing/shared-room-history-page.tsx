@@ -3,6 +3,12 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { File01Icon } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
 import { useEffect, useState } from "react";
+
+import {
+  CONVERSATION_BEAT_MIN_MS,
+  conversationBeatDelay,
+  conversationSpeaker,
+} from "./conversation-pace";
 import { useLocation } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -32,6 +38,42 @@ function SharedHistory({ token }: { token: string }) {
     gcTime: 0,
   });
   const share = query.data?.pages[0]?.share;
+  const messages = query.data?.pages.flatMap((page) => page.items) ?? [];
+  const [watching, setWatching] = useState(false);
+  const [index, setIndex] = useState(0);
+  const [notice, setNotice] = useState<string>();
+  const current = watching ? messages[index] : undefined;
+  const previous = index > 0 ? messages[index - 1] : undefined;
+  const speaker = current
+    ? conversationSpeaker(
+        current.author.display_name,
+        previous?.created_at,
+        current.created_at,
+      )
+    : undefined;
+  const nextMessage = messages[index + 1];
+  useEffect(() => {
+    if (!watching || !current) return;
+    const following = nextMessage;
+    const delay = following
+      ? conversationBeatDelay(current.created_at, following.created_at)
+      : CONVERSATION_BEAT_MIN_MS;
+    const timer = window.setTimeout(() => {
+      if (following) {
+        setIndex((value) => value + 1);
+        return;
+      }
+      setWatching(false);
+      setNotice(
+        query.hasNextPage
+          ? "The rest is still on the next page."
+          : "That's the whole conversation.",
+      );
+    }, delay);
+    const node = document.querySelector("[data-conversation-current]");
+    node?.scrollIntoView?.({ block: "nearest" });
+    return () => window.clearTimeout(timer);
+  }, [current, nextMessage, query.hasNextPage, watching]);
   return (
     <main className="min-h-dvh bg-app-surface text-app-body">
       <header className="border-b border-app-border px-6 py-5">
@@ -43,6 +85,33 @@ function SharedHistory({ token }: { token: string }) {
             Read-only snapshot
             {share ? ` · ${formatDateTime(share.created_at)}` : ""}
           </p>
+          {messages.length > 0 ? (
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <Button
+                onClick={() => {
+                  if (watching) {
+                    setWatching(false);
+                    return;
+                  }
+                  setNotice(undefined);
+                  setIndex(0);
+                  setWatching(true);
+                }}
+                tone="secondary"
+              >
+                {watching ? "Stop watching" : "Watch it happen"}
+              </Button>
+              {speaker ? (
+                <p className="text-sm text-foreground" role="status">
+                  {speaker}
+                </p>
+              ) : notice ? (
+                <p className="text-sm text-app-muted" role="status">
+                  {notice}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </header>
       <div className="mx-auto max-w-3xl px-6 py-6">
@@ -70,6 +139,7 @@ function SharedHistory({ token }: { token: string }) {
               {query.data.pages.flatMap((page) =>
                 page.items.map((message) => (
                   <SnapshotMessage
+                    current={current?.id === message.id}
                     key={message.id}
                     message={message}
                     token={token}
@@ -93,16 +163,24 @@ function SharedHistory({ token }: { token: string }) {
   );
 }
 function SnapshotMessage({
+  current,
   message,
   token,
 }: {
+  current: boolean;
   message: RoomHistoryMessage;
   token: string;
 }) {
   return (
     <article
-      className="flex gap-3"
+      aria-current={current ? "step" : undefined}
       aria-label={`Message from ${message.author.display_name}`}
+      className={
+        current
+          ? "flex gap-3 rounded-xl bg-app-surface-soft px-3 py-2 ring-2 ring-ring"
+          : "flex gap-3"
+      }
+      data-conversation-current={current ? "" : undefined}
     >
       {message.avatar_image ? (
         <img

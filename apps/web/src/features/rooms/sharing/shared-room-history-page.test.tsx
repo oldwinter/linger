@@ -102,4 +102,37 @@ describe("shared Room history", () => {
     );
     expect(screen.queryByText("secret database error")).toBeNull();
   });
+
+  it("watches the snapshot from the first message and can stop", async () => {
+    read.mockResolvedValueOnce({
+      share: {
+        room_name: "Snapshot Room",
+        message_count: 2,
+        created_at: message.created_at,
+      },
+      items: [
+        message,
+        {
+          ...message,
+          id: "message_2",
+          author: { ...message.author, display_name: "Blake" },
+          body: "Later in snapshot",
+          created_at: "2026-09-21T00:04:00Z",
+          attachments: [],
+          card: undefined,
+        },
+      ],
+      next_after: 0,
+    });
+    open();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Watch it happen" }),
+    );
+    expect(
+      screen.getByRole("article", { current: "step" }),
+    ).toHaveAccessibleName("Message from Alice");
+    expect(screen.getByRole("status")).toHaveTextContent("Alice");
+    fireEvent.click(screen.getByRole("button", { name: "Stop watching" }));
+    expect(screen.queryByRole("article", { current: "step" })).toBeNull();
+  });
 });
