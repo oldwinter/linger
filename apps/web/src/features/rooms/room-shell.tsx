@@ -24,6 +24,7 @@ import { AccountMenu } from "@/features/auth/account-menu";
 import { LOGOUT_ERROR_MESSAGE, useLogout } from "@/features/auth/use-logout";
 
 import { Button } from "@/components/ui/button";
+import { useCarriedMeeting } from "@/features/memory/meeting-carry";
 import { jumpPath } from "@/features/jump/jump-path";
 import { useJumpShortcut } from "@/features/jump/jump-shortcut";
 import type {
@@ -88,6 +89,10 @@ const LocalComputerGate = lazy(async () => ({
 const RoomAddMembersDialog = lazy(async () => ({
   default: (await import("./members/room-add-members-dialog"))
     .RoomAddMembersDialog,
+}));
+const MeetingCarryBar = lazy(async () => ({
+  default: (await import("@/features/memory/meeting-carry-bar"))
+    .MeetingCarryBar,
 }));
 
 const EMPTY_ROOMS: TeamHubRoomListItem[] = [];
@@ -285,6 +290,7 @@ function RoomShellContent({
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
+  const carriedMeeting = useCarriedMeeting();
   const location = useLocation();
   const navigate = useNavigate();
   useScrollPaneActivity();
@@ -465,6 +471,11 @@ function RoomShellContent({
                 )}
               </DesktopBarSlot>
             </div>
+            {carriedMeeting ? (
+              <Suspense fallback={null}>
+                <MeetingCarryBar key={carriedMeeting.meetingId} />
+              </Suspense>
+            ) : null}
           </div>
           {newRoomId ? (
             <Suspense fallback={null}>

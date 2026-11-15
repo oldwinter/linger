@@ -16,6 +16,7 @@ import {
   type SyntheticEvent,
 } from "react";
 
+import { releaseCarriedMeeting, type PlaybackLeave } from "./meeting-carry";
 import {
   forgetMeetingPosition,
   readMeetingResume,
@@ -73,6 +74,7 @@ export function MeetingAudioPlayer({
   mediaType,
   meetingId,
   onDownload,
+  onLeavePlayback,
   src,
   status,
 }: {
@@ -84,6 +86,8 @@ export function MeetingAudioPlayer({
   /** Changes with the meeting, so the next one carries its Account's speed. */
   meetingId?: string;
   onDownload: () => void;
+  /** Reports the playhead when this player leaves the screen. */
+  onLeavePlayback?: (leave: PlaybackLeave) => void;
   src?: string;
   /** Replaces the time line, e.g. while the recording is still loading. */
   status?: string;
@@ -102,6 +106,20 @@ export function MeetingAudioPlayer({
   const rateNoticeTimer = useRef<number | undefined>(undefined);
   const restoredRef = useRef(false);
   const lastSavedAt = useRef(0);
+  const leaveRef = useRef<PlaybackLeave>({
+    playing: false,
+    rate,
+    seconds: 0,
+  });
+  // Separate from the element: detaching it pauses, and that pause is not a stop.
+  const wasPlayingRef = useRef(false);
+  const onLeaveRef = useRef(onLeavePlayback);
+  leaveRef.current = {
+    playing: wasPlayingRef.current,
+    rate,
+    seconds: current,
+  };
+  onLeaveRef.current = onLeavePlayback;
   const ready = Boolean(src) && !failed;
   const progress = duration ? Math.min(100, (current / duration) * 100) : 0;
 
@@ -143,6 +161,8 @@ export function MeetingAudioPlayer({
   }, [accountId, meetingId]);
 
   useEffect(() => () => window.clearTimeout(rateNoticeTimer.current), []);
+  // Unmount is the moment the recording either stops or leaves with the listener.
+  useEffect(() => () => onLeaveRef.current?.(leaveRef.current), []);
 
   /** Saves the place now; a position at the very start is no place to return to. */
   function savePosition(at: number) {
@@ -178,6 +198,7 @@ export function MeetingAudioPlayer({
 
   function onTimeUpdate(event: SyntheticEvent<HTMLAudioElement>) {
     const at = event.currentTarget.currentTime;
+    leaveRef.current = { ...leaveRef.current, seconds: at };
     setCurrent(at);
     // Scrubbing fires time updates in a burst; one write per interval is enough
     // to survive a reload, and pause or seek saves land immediately.
@@ -188,8 +209,20 @@ export function MeetingAudioPlayer({
   function toggle() {
     const audio = audioRef.current;
     if (!audio) return;
-    if (audio.paused) void audio.play().catch(() => setPlaying(false));
-    else audio.pause();
+    if (audio.paused) {
+      // This meeting is the one playing now, so a recording that followed
+      // the listener here stops instead of talking over it.
+      wasPlayingRef.current = true;
+      releaseCarriedMeeting();
+      void audio.play().catch(() => {
+        wasPlayingRef.current = false;
+        setPlaying(false);
+      });
+    } else {
+      wasPlayingRef.current = false;
+      leaveRef.current = { ...leaveRef.current, playing: false };
+      audio.pause();
+    }
   }
 
   /** Moves the playhead five seconds and stops at either end of the recording. */
@@ -265,6 +298,7 @@ export function MeetingAudioPlayer({
     }
     // Some browsers clamp the rate rather than throw, so read it back.
     if (audio.playbackRate === requested) {
+      leaveRef.current = { ...leaveRef.current, rate: requested };
       setRate(requested);
       // The Account's choice outlives this meeting and this tab.
       writeMeetingPlaybackSpeed(accountId, requested);
@@ -295,17 +329,27 @@ export function MeetingAudioPlayer({
           onDurationChange={(event) =>
             setDuration(event.currentTarget.duration)
           }
-          onEnded={() => setPlaying(false)}
+          onEnded={() => {
+            wasPlayingRef.current = false;
+            setPlaying(false);
+          }}
           onError={() => setFailed(true)}
           onLoadedMetadata={(event) => {
             setDuration(event.currentTarget.duration);
             restorePosition(event.currentTarget);
           }}
           onPause={(event) => {
+            // Removing the element pauses it too. That pause must not look like
+            // the listener stopped, or the recording could not follow them out.
+            leaveRef.current = {
+              ...leaveRef.current,
+              seconds: event.currentTarget.currentTime,
+            };
             setPlaying(false);
             savePosition(event.currentTarget.currentTime);
           }}
           onPlay={() => {
+            wasPlayingRef.current = true;
             setPlaying(true);
             setResumeFrom(undefined);
           }}

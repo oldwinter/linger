@@ -24,6 +24,11 @@ import {
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 import { MeetingAudioPlayer } from "./meeting-audio-player";
+import {
+  carriedMeetingFromLeave,
+  carryMeeting,
+  useCarriedMeeting,
+} from "./meeting-carry";
 import { carryDecisionPath, meetingDecisions } from "./carry-decision";
 import { parseMeetingSummary } from "./meeting-overview";
 import {
@@ -112,6 +117,8 @@ export function MeetingReader({
         : "transcript";
   const when = meetingWhen(entry.path);
   const title = meetingTitle(entry);
+  // The bar already owns this recording, so the page must not start a second one.
+  const soundStayed = useCarriedMeeting()?.meetingId === entry.id;
   const trackAction = useMeetingActionTrack({
     meetingId: entry.id,
     meetingTitle: title,
@@ -467,18 +474,25 @@ export function MeetingReader({
                 The summary is still being written. The transcript is ready now.
               </p>
             )}
-            {/* The recording closes the summary, ready to replay a moment. */}
-            <div className="mt-8">
-              <MeetingVersionReader
-                key={meeting.recording_version_id}
-                accountId={accountId}
-                documentId={meeting.recording_document_id}
-                filename={meeting.recording_filename}
-                meetingId={entry.id}
-                variant="player"
-                versionId={meeting.recording_version_id}
-              />
-            </div>
+            {/* The recording closes the summary, ready to replay a moment.
+                Once it has followed the listener out, the bar is the player. */}
+            {soundStayed ? null : (
+              <div className="mt-8">
+                <MeetingVersionReader
+                  key={meeting.recording_version_id}
+                  accountId={accountId}
+                  carry={{
+                    href: meetingPath(tenantId, entry.id),
+                    title,
+                  }}
+                  documentId={meeting.recording_document_id}
+                  filename={meeting.recording_filename}
+                  meetingId={entry.id}
+                  variant="player"
+                  versionId={meeting.recording_version_id}
+                />
+              </div>
+            )}
           </>
         ) : (
           <MeetingVersionReader
@@ -500,6 +514,7 @@ export function MeetingReader({
  */
 function MeetingVersionReader({
   accountId,
+  carry,
   documentId,
   versionId,
   filename,
@@ -508,6 +523,8 @@ function MeetingVersionReader({
 }: {
   /** Whose listening positions the player remembers. */
   accountId?: string;
+  /** Where a playing recording can keep going once this page closes. */
+  carry?: { href: string; title: string };
   documentId: string;
   versionId: string;
   filename: string;
@@ -517,6 +534,10 @@ function MeetingVersionReader({
 }) {
   const { client } = useTeamHubRuntime();
   const [preview, setPreview] = useState<LoadedArtifactPreview>();
+  const previewRef = useRef(preview);
+  const carryRef = useRef(carry);
+  previewRef.current = preview;
+  carryRef.current = carry;
   const [error, setError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   const [downloading, setDownloading] = useState(false);
@@ -823,6 +844,24 @@ function MeetingVersionReader({
         mediaType={preview?.version.media_type}
         meetingId={meetingId}
         onDownload={() => void download()}
+        onLeavePlayback={(leave) => {
+          const request = carryRef.current;
+          const loaded = previewRef.current;
+          if (!request || !meetingId) return;
+          const draft = carriedMeetingFromLeave(
+            {
+              accountId,
+              blob: loaded?.blob,
+              filename,
+              href: request.href,
+              mediaType: loaded?.version.media_type,
+              meetingId,
+              title: request.title,
+            },
+            leave,
+          );
+          if (draft) carryMeeting(draft);
+        }}
         src={playable ? preview.objectUrl : undefined}
         status={
           !preview
