@@ -687,10 +687,28 @@ export async function prepareNativeDependencies(options: {
     )
       throw new Error("Native PostgreSQL archive is missing an executable.");
   }
+  const scrubbedEnvKeys = new Set([
+    "PATH",
+    "GOROOT",
+    "GOTOOLCHAIN",
+    "GOPATH",
+    "GOCACHE",
+    "GOMODCACHE",
+    "GOBIN",
+    "CGO_ENABLED",
+    "PNPM_HOME",
+    "NPM_CONFIG_CACHE",
+    "NPM_CONFIG_USERCONFIG",
+    "NPM_CONFIG_GLOBALCONFIG",
+    "NPM_CONFIG_REGISTRY",
+    "PNPM_CONFIG_REGISTRY",
+  ]);
   const inherited = { ...process.env };
-  // Windows keeps one case-insensitive Path; a second spelling would shadow ours.
+  // Windows keeps case-insensitive env vars; scrub owned toolchain/package keys
+  // across all casings so host globals (e.g. mise GOROOT/GOBIN or registries)
+  // never leak into private or offline installs.
   for (const key of Object.keys(inherited))
-    if (key !== "PATH" && key.toUpperCase() === "PATH") delete inherited[key];
+    if (scrubbedEnvKeys.has(key.toUpperCase())) delete inherited[key];
   const env = {
     ...inherited,
     PATH: [bin, path.join(pg, "bin"), process.env.PATH ?? ""].join(
