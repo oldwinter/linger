@@ -3,12 +3,13 @@ import { useMemo } from "react";
 
 import {
   parseEmbeddedWikiGraph,
+  type WikiGraphData,
   type WikiGraphNode,
 } from "@/features/memory/wiki-graph-model";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
-/** Graph nodes by Wiki page key; descriptions and links feed the cards. */
-export function useWikiGraphNodes(tenantId: string) {
+/** The published graph, when the visualization has been read. */
+export function useWikiGraph(tenantId: string): WikiGraphData | undefined {
   const { client } = useTeamHubRuntime();
   const graph = useQuery({
     queryFn: () => client.getPersonalKnowledgeGraphVisualization(tenantId),
@@ -16,12 +17,19 @@ export function useWikiGraphNodes(tenantId: string) {
     retry: false,
   });
   return useMemo(
+    () => (graph.data ? parseEmbeddedWikiGraph(graph.data) : undefined),
+    [graph.data],
+  );
+}
+
+/** Graph nodes by Wiki page key; descriptions and links feed the cards. */
+export function useWikiGraphNodes(tenantId: string) {
+  const graph = useWikiGraph(tenantId);
+  return useMemo(
     () =>
       new Map<string, WikiGraphNode>(
-        (graph.data ? parseEmbeddedWikiGraph(graph.data)?.nodes : [])?.map(
-          (node) => [node.id, node],
-        ),
+        graph?.nodes.map((node) => [node.id, node]),
       ),
-    [graph.data],
+    [graph],
   );
 }
