@@ -24,7 +24,6 @@ import {
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 import { MeetingAudioPlayer } from "./meeting-audio-player";
-import { loadArtifactPreview } from "@/features/rooms/files/artifact-preview-loader";
 import { timedTranscriptTurns, wordsInTopic } from "./topic-words";
 import { carryDecisionPath, meetingDecisions } from "./carry-decision";
 import { parseMeetingSummary } from "./meeting-overview";
