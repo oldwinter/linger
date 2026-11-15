@@ -33,6 +33,7 @@ import {
 } from "@/test/teamhub-test-server";
 
 import { roomPinsQueryKey, roomPinsQueryOptions } from "../../room-queries";
+import { roomMessageUrl } from "../../room-routes";
 import { MessageTimeline } from "../message-timeline";
 import { PinnedMessagesControl } from "./pinned-messages-control";
 import { useMessagePinToggle } from "./use-message-pin-toggle";
@@ -698,14 +699,14 @@ describe("Pinned messages copy", () => {
     return `${window.location.origin}/t/tenant-1/rooms/room-1/chat?message=${messageId}`;
   }
 
-  function renderControl(getPins: TestRouteHandler) {
+  function renderControl(getPins: TestRouteHandler, onJump = vi.fn()) {
     const { client, queryClient } = setup((server) =>
       server.on("GET", pinsPath, getPins),
     );
     render(
       <MemoryRouter>
         <PinnedMessagesControl
-          onJump={vi.fn()}
+          onJump={onJump}
           roomId="room-1"
           roomName="Design"
           tenantId="tenant-1"
@@ -755,6 +756,73 @@ describe("Pinned messages copy", () => {
     expect(await within(dialog).findByRole("status")).toHaveTextContent(
       "Copied",
     );
+  });
+
+  it("copies only the link of the pin whose row asked", async () => {
+    const writeText = mockClipboard(() => Promise.resolve());
+    const onJump = vi.fn();
+    renderControl(
+      () =>
+        pinList([
+          pinned(bob, "2026-10-10T08:00:00.000Z"),
+          pinned(alice, "2026-10-09T08:00:00.000Z"),
+        ]),
+      onJump,
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Pinned messages",
+    });
+    const rows = await within(dialog).findAllByRole("listitem");
+    // The row copies the same absolute link Copy pins writes for that Message.
+    const expected = roomMessageUrl(window.location.origin, "tenant-1", bob);
+    expect(expected).toBe(link("message-2"));
+
+    fireEvent.click(
+      within(rows[0]!).getByRole("button", {
+        name: "Copy link to this message",
+      }),
+    );
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(expected));
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(await within(rows[0]!).findByRole("status")).toHaveTextContent(
+      "Copied",
+    );
+    // Copying stays in the panel and in place, so the row's other actions work.
+    expect(onJump).not.toHaveBeenCalled();
+    expect(within(dialog).getByText("Freeze the release")).toBeVisible();
+    expect(
+      within(rows[1]!).getByRole("button", { name: "Unpin" }),
+    ).toBeEnabled();
+
+    fireEvent.click(
+      within(rows[0]!).getByRole("button", { name: "Go to message" }),
+    );
+    expect(onJump).toHaveBeenCalledWith("message-2");
+  });
+
+  it("says so in the row when the clipboard refuses a link", async () => {
+    mockClipboard(() => Promise.reject(new Error("Clipboard is unavailable")));
+    renderControl(() => pinList([pinned(alice, "2026-10-09T08:00:00.000Z")]));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Pinned messages",
+    });
+    const rows = await within(dialog).findAllByRole("listitem");
+
+    fireEvent.click(
+      within(rows[0]!).getByRole("button", {
+        name: "Copy link to this message",
+      }),
+    );
+
+    expect(await within(rows[0]!).findByRole("alert")).toHaveTextContent(
+      "Copy failed",
+    );
+    // A refused copy leaves the pin and its actions alone.
+    expect(within(rows[0]!).getByText("Freeze the release")).toBeVisible();
+    expect(
+      within(rows[0]!).getByRole("button", { name: "Unpin" }),
+    ).toBeEnabled();
   });
 
   it("copies only the pins the filter shows", async () => {

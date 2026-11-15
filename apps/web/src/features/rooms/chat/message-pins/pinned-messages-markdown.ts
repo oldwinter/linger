@@ -1,4 +1,4 @@
-import { roomMessagePath } from "../../room-routes";
+import { roomMessageUrl } from "../../room-routes";
 import { messageBodyText } from "../message-plain-text";
 import { messageLocalTime, messageQuoteAuthor } from "../message-quote";
 
@@ -40,9 +40,6 @@ function pinSection(
 ): string {
   const head = `**${messageQuoteAuthor(pin.message.author.display_name)}, ${messageLocalTime(pin.message.created_at)}**`;
   const body = messageBodyText(pin.message.raw_message).trimEnd();
-  const link = new URL(
-    roomMessagePath(input.tenantId, pin.message),
-    input.origin,
-  ).toString();
+  const link = roomMessageUrl(input.origin, input.tenantId, pin.message);
   return body ? `${head}\n${body}\n${link}` : `${head}\n${link}`;
 }

@@ -17,3 +17,15 @@ export function roomMessagePath(
 ) {
   return messageLink(roomChatPath(tenantId, message.room_id), message.id);
 }
+
+/**
+ * A Message's link with its origin, so it opens from a document or another
+ * app rather than only inside this page.
+ */
+export function roomMessageUrl(
+  origin: string,
+  tenantId: string,
+  message: Pick<TeamHubMessage, "id" | "room_id">,
+) {
+  return new URL(roomMessagePath(tenantId, message), origin).toString();
+}

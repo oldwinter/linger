@@ -63,7 +63,7 @@ import {
 import { ActorAvatar } from "../members/actor-avatar";
 import { AgentStatusAvatar } from "../members/agent-status-avatar";
 import { saveMessageToPocketNote } from "../pocket-notes/save-message-to-pocket-note";
-import { roomMessagePath } from "../room-routes";
+import { roomMessageUrl } from "../room-routes";
 import { useRoomRenderTiming } from "../room-render-timing";
 import {
   messageBodyBlocks,
@@ -907,12 +907,7 @@ function ConversationMessageActions({
     label: "Copy link",
     // Absolute, so the link opens from a document or another app.
     onSelect: () =>
-      copyText(
-        new URL(
-          roomMessagePath(tenantId, message),
-          window.location.origin,
-        ).toString(),
-      ),
+      copyText(roomMessageUrl(window.location.origin, tenantId, message)),
   });
   overflowItems.push({
     icon: <Icon icon={Copy01Icon} size={14} />,
