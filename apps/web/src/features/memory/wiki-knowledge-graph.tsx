@@ -6,11 +6,14 @@ import "./wiki-knowledge-graph.css";
 import {
   buildTimeline,
   nodeMoments,
+  pageTitle,
   type NodeMoment,
   type TimeGranularity,
   type WikiGraphData,
   type WikiGraphNode,
 } from "./wiki-graph-model";
+import { graphNeighborhood } from "./graph-neighborhood";
+import { GraphNeighborhoodView } from "./graph-neighborhood-view";
 import { WikiGraphTimeline } from "./wiki-graph-timeline";
 
 /** Daily or Weekly report cards above a ruler of dated Wiki pages. */
@@ -108,6 +111,10 @@ export function WikiKnowledgeGraph({
         )
       : graph.nodes;
   }, [graph, query]);
+  const neighborhood = useMemo(
+    () => graphNeighborhood(graph, query),
+    [graph, query],
+  );
 
   return (
     <div className="wiki-graph-surface">
@@ -140,6 +147,13 @@ export function WikiKnowledgeGraph({
           />
         </label>
       </div>
+
+      {neighborhood ? (
+        <GraphNeighborhoodView
+          neighborhood={neighborhood}
+          onOpen={(node) => setQuery(pageTitle(node))}
+        />
+      ) : null}
 
       <div className="wiki-graph-reading-row">
         {renderTimeline?.(matchingPages, granularity, {

@@ -3,7 +3,9 @@
 - Own the authenticated Human's Tenant-scoped Memory views: the Timeline graph
   with its Daily and Weekly reports, Meetings (calendar, reader, audio), and
   This day (`/library/day`), which reads Pocket, meetings, and the Daily for
-  one calendar day. Personal Wiki navigation in `features/wiki` links here.
+  one calendar day. Searching the Timeline centers the best matching page and
+  shows the pages the graph links to it. Opening one recenters the search on
+  that page. Personal Wiki navigation in `features/wiki` links here.
 - Call TeamHub through the generated client (`client.api`) and generated
   Memory types; do not handwrite URLs or wire DTOs in components.
 - From a meeting, Ask Another Me writes a follow-up into that room's
