@@ -153,6 +153,31 @@ describe("BackgroundTasksIndicator", () => {
       }),
     ).toBeVisible();
   });
+
+  it("prevents default when Escape closes the task list", async () => {
+    renderIndicator(tasks);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "2 tasks running in the background",
+      }),
+    );
+    expect(
+      screen.getByRole("region", { name: "Background tasks" }),
+    ).toBeVisible();
+
+    const escape = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Escape",
+    });
+    document.dispatchEvent(escape);
+    expect(escape.defaultPrevented).toBe(true);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("region", { name: "Background tasks" }),
+      ).not.toBeInTheDocument(),
+    );
+  });
 });
 
 describe("runningFor", () => {

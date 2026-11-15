@@ -343,11 +343,14 @@ function AgentInfoIdentity({
           onBlur={() => void saveName()}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing || event.keyCode === 229) return;
             if (event.key === "Enter") {
               restoreFocus.current = true;
               event.currentTarget.blur();
             }
             if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
               restoreFocus.current = true;
               setDraft(actor.display_name);
               setEditing(false);

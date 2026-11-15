@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type UIEvent,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useRef,
   useState,
@@ -59,6 +60,40 @@ export function PinnedMessagesControl({
     mutationFn: (pin: MessagePin) => togglePin(pin.message, true),
   });
 
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const pins = data?.items ?? [];
+  // The filter is view state for this opening in this Room; closing the panel
+  // or opening another Room starts it over.
+  const [query, setQuery] = useState("");
+  const listRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef(0);
+  const restoreScroll = useRef(false);
+  const onEscape = useEffectEvent((event: KeyboardEvent) => {
+    if (
+      event.key !== "Escape" ||
+      event.defaultPrevented ||
+      event.isComposing ||
+      event.keyCode === 229 ||
+      document.querySelector("dialog[open]")
+    ) {
+      return;
+    }
+    event.preventDefault();
+    if (
+      searchInputRef.current &&
+      (event.target === searchInputRef.current ||
+        document.activeElement === searchInputRef.current) &&
+      query.length > 0
+    ) {
+      changeQuery("");
+      return;
+    }
+    setOpen(false);
+    rootRef.current
+      ?.querySelector<HTMLButtonElement>(":scope > button")
+      ?.focus();
+  });
+
   useEffect(() => {
     if (!open) return;
     function onPointerDown(event: PointerEvent) {
@@ -70,7 +105,7 @@ export function PinnedMessagesControl({
         setOpen(false);
     }
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
+      onEscape(event);
     }
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
@@ -79,14 +114,6 @@ export function PinnedMessagesControl({
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [open]);
-
-  const pins = data?.items ?? [];
-  // The filter is view state for this opening in this Room; closing the panel
-  // or opening another Room starts it over.
-  const [query, setQuery] = useState("");
-  const listRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef(0);
-  const restoreScroll = useRef(false);
   useEffect(() => {
     setQuery("");
     scrollRef.current = 0;
@@ -163,6 +190,7 @@ export function PinnedMessagesControl({
                 className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
                 onChange={(event) => changeQuery(event.target.value)}
                 placeholder="Search pinned messages"
+                ref={searchInputRef}
                 role="searchbox"
                 type="text"
                 value={query}

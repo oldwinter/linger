@@ -1405,6 +1405,28 @@ describe("TaskSidebar", () => {
     expect(onCollapse).not.toHaveBeenCalled();
   });
 
+  it("leaves Escape alone while a role=dialog overlay is open", () => {
+    const onCloseTab = vi.fn();
+    const onCollapse = vi.fn();
+    renderSidebar({
+      activeTabId: panelTabKey("thread", { anchorMessageId: "msg-a" }),
+      onCloseTab,
+      onCollapse,
+      tabs: [threadTab("msg-a", "Alpha task", 1)],
+    });
+
+    const overlay = document.createElement("div");
+    overlay.setAttribute("role", "dialog");
+    document.body.append(overlay);
+    try {
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onCloseTab).not.toHaveBeenCalled();
+      expect(onCollapse).not.toHaveBeenCalled();
+    } finally {
+      overlay.remove();
+    }
+  });
+
   it("moves the active tab on Cmd+Alt+ArrowRight", () => {
     const onActiveChange = vi.fn();
     renderSidebar({

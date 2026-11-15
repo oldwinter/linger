@@ -65,6 +65,13 @@ describe("isShortcutKeyEvent", () => {
     document.body.append(menu);
 
     expect(isShortcutKeyEvent(press(document.body))).toBe(false);
+
+    menu.remove();
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    document.body.append(dialog);
+
+    expect(isShortcutKeyEvent(press(document.body))).toBe(false);
   });
 
   it("ignores every modifier-held chord", () => {
