@@ -361,6 +361,14 @@ export function createAppRoutes(
         },
         {
           ErrorBoundary: PanelRouteErrorSurface,
+          lazy: async () => ({
+            Component: (await import("@/features/rooms/surprise-room-page"))
+              .SurpriseRoomPage,
+          }),
+          path: "surprise",
+        },
+        {
+          ErrorBoundary: PanelRouteErrorSurface,
           lazy: loadConnectedAppsPage,
           path: "apps",
         },

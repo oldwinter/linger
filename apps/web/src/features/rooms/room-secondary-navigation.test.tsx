@@ -150,7 +150,10 @@ describe("RoomSecondaryNavigation attention", () => {
         .getAllByRole("link")
         .map((link) => link.getAttribute("href"))
         .filter(
-          (href) => !href?.endsWith("/jump") && !href?.endsWith("/awake"),
+          (href) =>
+            !href?.endsWith("/jump") &&
+            !href?.endsWith("/awake") &&
+            !href?.endsWith("/surprise"),
         );
       expect(links).toEqual(
         [
