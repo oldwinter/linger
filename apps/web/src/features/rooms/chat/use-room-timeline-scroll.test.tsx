@@ -1,6 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useRoomTimelineScroll } from "./use-room-timeline-scroll";
+import {
+  QUIET_ROOM_MS,
+  useRoomTimelineScroll,
+} from "./use-room-timeline-scroll";
 
 function Timeline({
   visible,
@@ -393,5 +396,24 @@ describe("Unread divider visibility", () => {
       block: "center",
       inline: "nearest",
     });
+  });
+
+  it("stops following once the open room has been quiet", async () => {
+    vi.useFakeTimers();
+    let height = 1000;
+    vi.spyOn(Element.prototype, "scrollHeight", "get").mockImplementation(
+      () => height,
+    );
+    vi.spyOn(Element.prototype, "clientHeight", "get").mockReturnValue(200);
+    const view = render(<Timeline visible messageIds={["a"]} />);
+    const timeline = screen.getByLabelText("Room timeline");
+    expect(timeline.scrollTop).toBe(1000);
+    await vi.advanceTimersByTimeAsync(QUIET_ROOM_MS);
+    height = 1400;
+    view.rerender(
+      <Timeline visible messageCount={11} messageIds={["a", "b"]} />,
+    );
+    expect(timeline.scrollTop).toBe(1000);
+    vi.useRealTimers();
   });
 });
