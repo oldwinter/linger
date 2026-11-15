@@ -24,6 +24,7 @@ import {
   WikiWorkingLine,
 } from "./wiki-working-card";
 import { introductionPath } from "./introduction";
+import { lifePath } from "./life-telling";
 import { WikiProfileEditor } from "./wiki-profile-editor";
 import { rememberedPath } from "./remembered-changes";
 import "./wiki-profile-page.css";
@@ -273,6 +274,14 @@ export function WikiProfilePage() {
               >
                 How Another Me would introduce you
               </Link>
+              {current.profile.background.timeline.length ? (
+                <Link
+                  className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  to={lifePath(tenantId)}
+                >
+                  How Another Me would tell your life
+                </Link>
+              ) : null}
             </p>
           ) : null}
           {building && parts.length ? (

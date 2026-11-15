@@ -830,6 +830,13 @@ function createLibraryRoute(): RouteObject {
       {
         ErrorBoundary: PanelRouteErrorSurface,
         lazy: async () => ({
+          Component: (await import("@/features/wiki/life-page")).LifePage,
+        }),
+        path: "life",
+      },
+      {
+        ErrorBoundary: PanelRouteErrorSurface,
+        lazy: async () => ({
           Component: (await import("@/features/library/library-week-page"))
             .LibraryWeekPage,
         }),
