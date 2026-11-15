@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubRoomPage } from "@/features/teamhub/teamhub-types";
@@ -21,6 +21,11 @@ export function RoomReadStateSync({
   const advancerRef = useRef<ReturnType<
     typeof createRoomReadStateAdvancer
   > | null>(null);
+  // Messages that arrive while the window is hidden stay unread until the
+  // person clicks, types, or scrolls. A hidden timeline would otherwise mark
+  // them read before anyone sees them.
+  const heldSeq = useRef<number | undefined>(undefined);
+  const paused = useRef(false);
 
   // Create and dispose in one effect so a StrictMode or Activity remount gets
   // a live advancer instead of a disposed one that silently drops new seqs.
@@ -87,8 +92,37 @@ export function RoomReadStateSync({
   }, [client, queryClient, roomId, tenantId]);
 
   useLayoutEffect(() => {
+    if (document.hidden || paused.current) {
+      heldSeq.current = throughRoomSeq;
+      paused.current = true;
+      return;
+    }
     advancerRef.current?.advance(throughRoomSeq);
   }, [client, queryClient, roomId, tenantId, throughRoomSeq]);
+
+  useEffect(() => {
+    function pause() {
+      if (!document.hidden) return;
+      paused.current = true;
+    }
+    function resume() {
+      if (document.hidden || !paused.current) return;
+      paused.current = false;
+      const seq = heldSeq.current;
+      heldSeq.current = undefined;
+      if (seq !== undefined) advancerRef.current?.advance(seq);
+    }
+    document.addEventListener("visibilitychange", pause);
+    document.addEventListener("pointerdown", resume);
+    document.addEventListener("keydown", resume);
+    document.addEventListener("wheel", resume);
+    return () => {
+      document.removeEventListener("visibilitychange", pause);
+      document.removeEventListener("pointerdown", resume);
+      document.removeEventListener("keydown", resume);
+      document.removeEventListener("wheel", resume);
+    };
+  }, []);
 
   return null;
 }
