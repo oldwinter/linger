@@ -907,6 +907,14 @@ function createSettingsRoute(): RouteObject {
       },
       {
         lazy: async () => ({
+          Component: (
+            await import("@/features/local-computer/computer-can-do-page")
+          ).ComputerCanDoPage,
+        }),
+        path: "computers/:computerId/can-do",
+      },
+      {
+        lazy: async () => ({
           Component: (await import("@/features/local-computer/computers-page"))
             .ComputersPage,
         }),
