@@ -286,6 +286,32 @@ describe("Meetings panel", () => {
     expect(within(all).getByText("No meetings match “nothing”.")).toBeVisible();
   });
 
+  it("jumps the year calendar and the list back to today", async () => {
+    const scrollIntoView = vi.fn();
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    renderPanel("&meetings=all");
+    const calendar = await screen.findByRole("region", {
+      name: "Meeting calendar",
+    });
+    fireEvent.click(
+      within(calendar).getByRole("button", { name: "2026-09-23: 1 meeting" }),
+    );
+    expect(
+      within(calendar).getByRole("button", { name: "2026-09-23: 1 meeting" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Jump to today" }));
+    expect(
+      within(calendar).getByRole("button", { name: "2026-10-01: 2 meetings" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      block: "nearest",
+      inline: "center",
+    });
+    expect(
+      screen.getByRole("region", { name: "Meetings on 2026-10-01" }),
+    ).toBeVisible();
+  });
+
   it("shows only today's meetings and no calendar under Today", async () => {
     renderPanel("&meetings=today");
     const today = await screen.findByRole("region", { name: "Today" });
