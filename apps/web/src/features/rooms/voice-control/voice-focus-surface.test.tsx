@@ -632,6 +632,36 @@ describe("VoiceFocusSurface", () => {
     expect(transcript).toHaveTextContent("Recognizing this sentence live");
   });
 
+  it("grows words that continue the last line on that line", () => {
+    render(
+      <VoiceControlContext.Provider
+        value={voiceValue({
+          partialTranscript: "We should ship it. And then we",
+          transcriptItems: [
+            {
+              createdAtMs: 1,
+              endOffsetMs: 1_000,
+              id: "final-1",
+              speakerLabel: "Alex",
+              startOffsetMs: 0,
+              text: "We should ship it.",
+            },
+          ],
+        })}
+      >
+        <VoiceFocusSurface onExit={vi.fn()} />
+      </VoiceControlContext.Provider>,
+    );
+    const transcript = screen.getByRole("log", {
+      name: "Voice focus transcript",
+    });
+    expect(transcript).toHaveTextContent("We should ship it. And then we");
+    expect(transcript.querySelector("span.italic")).toHaveTextContent(
+      "And then we",
+    );
+    expect(transcript.querySelectorAll("p")).toHaveLength(1);
+  });
+
   it("shows saving until finalization completes and returns to Room on exit", async () => {
     const stopCapture = vi.fn(async () => undefined);
     const onExit = vi.fn();

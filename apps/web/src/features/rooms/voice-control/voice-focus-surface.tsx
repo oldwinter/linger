@@ -36,6 +36,7 @@ import {
   useSpeakerNames,
   voicesInTranscript,
 } from "./speaker-names";
+import { wordsGrowingOnTheLine } from "./words-growing-on-the-line";
 
 export type RecordingView = "transcript" | "ask";
 
@@ -153,6 +154,7 @@ export function VoiceFocusSurface({
       !voice.boundDevice);
   const visibleItems = idle ? [] : voice.transcriptItems;
   const partial = idle || captureError ? undefined : voice.partialTranscript;
+  const growing = wordsGrowingOnTheLine(partial, visibleItems.at(-1));
   const title = recoveryFailed
     ? "Recording saved. Transcript recovery paused"
     : inputInterrupted
@@ -450,20 +452,28 @@ export function VoiceFocusSurface({
                     className="w-full space-y-1"
                     role="log"
                   >
-                    {visibleItems.map((item) => (
-                      <VoiceFocusTranscriptRow item={item} key={item.id} />
+                    {visibleItems.map((item, index) => (
+                      <VoiceFocusTranscriptRow
+                        growing={
+                          index === visibleItems.length - 1
+                            ? growing.growing
+                            : undefined
+                        }
+                        item={item}
+                        key={item.id}
+                      />
                     ))}
-                    {partial ? (
+                    {growing.aside ? (
                       <div className="flex gap-2 rounded-lg px-2.5 py-1.5 text-sm leading-5 text-app-muted">
                         <Icon
                           icon={Loading03Icon}
                           className="mt-[3px] shrink-0 animate-spin text-app-muted"
                           size={14}
                         />
-                        <span className="min-w-0 italic">{partial}</span>
+                        <span className="min-w-0 italic">{growing.aside}</span>
                       </div>
                     ) : null}
-                    {visibleItems.length === 0 && !partial ? (
+                    {visibleItems.length === 0 && !growing.aside ? (
                       <p className="py-3 text-center text-[12px] leading-[18px] text-app-muted">
                         {idle
                           ? "This recording’s transcript will appear here. View previous transcripts in the chat."
@@ -650,7 +660,13 @@ function speakerColor(speakerId: string | undefined, label: string) {
   return speakerColors[(Math.max(index, 1) - 1) % speakerColors.length]!;
 }
 
-function VoiceFocusTranscriptRow({ item }: { item: VoiceTranscriptItem }) {
+function VoiceFocusTranscriptRow({
+  growing,
+  item,
+}: {
+  growing?: string;
+  item: VoiceTranscriptItem;
+}) {
   const names = useSpeakerNames(item.captureId);
   const label = speakerDisplayName(item.speakerId, item.speakerLabel, names);
   // Town message rows: a 13px name line over 14px body text, starting
@@ -664,7 +680,12 @@ function VoiceFocusTranscriptRow({ item }: { item: VoiceTranscriptItem }) {
           {label}
         </span>
       ) : null}
-      <p className="m-0 text-sm leading-5 text-app-body">{item.text}</p>
+      <p className="m-0 text-sm leading-5 text-app-body">
+        {item.text}
+        {growing ? (
+          <span className="text-app-muted italic"> {growing}</span>
+        ) : null}
+      </p>
     </div>
   );
 }
