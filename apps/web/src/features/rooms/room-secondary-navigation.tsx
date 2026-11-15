@@ -56,6 +56,8 @@ import {
   roomsWithDrafts,
   subscribeRoomComposerDrafts,
 } from "./room-drafts";
+import { WorkingNowStrip } from "./working-now-strip";
+import { workingNowRooms } from "./working-now";
 import { RecordingEntry } from "./voice-control/recording-entry";
 import { useNavReorderFlip } from "./use-nav-reorder-flip";
 import {
@@ -447,6 +449,11 @@ export function RoomSecondaryNavigation({
             <span className="text-xs text-app-muted">{catchUpCount}</span>
           </Link>
         ) : null}
+        <WorkingNowStrip
+          onNavigate={onCloseMobile}
+          rooms={workingNowRooms(rooms, runningRoomIds)}
+          tenantId={tenant.id}
+        />
         {/* While the list loads only its skeleton shows; the card and list
             land together once everything has settled. */}
         {navigationStatus ?? (
