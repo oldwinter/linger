@@ -17,8 +17,8 @@ import {
   monthLabels,
 } from "./meetings-calendar";
 import { Spinner } from "@/components/ui/spinner";
-import { dayKey } from "@/lib/date-format";
 import { dayShapePath } from "./day-shape";
+import { useLocalCalendarDay } from "./local-calendar-day";
 import { useMeetings } from "./memory-queries";
 import { meetingPath } from "./meeting-routes";
 import { weekMemoryPath } from "./week-memory";
@@ -79,7 +79,7 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
     () => meetingsByDate(meetings.data ?? []),
     [meetings.data],
   );
-  const today = dayKey(new Date());
+  const today = useLocalCalendarDay();
   const months = useMemo(
     () =>
       calendarMonths(

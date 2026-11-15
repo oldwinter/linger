@@ -3,7 +3,9 @@
 - Own the authenticated Human's Tenant-scoped Memory views: the Timeline graph
   with its Daily and Weekly reports, Meetings (calendar, reader, audio), and
   This day (`/library/day`), which reads Pocket, meetings, and the Daily for
-  one calendar day. Shape of today draws one calendar day as open stretches
+  one calendar day. The Meetings tab keeps Today and the past seven days on
+  the viewer's calendar day: when that day ends, yesterday's meetings leave
+  Today and the seven squares slide forward. Shape of today draws one calendar day as open stretches
   and the meetings that sit in them. Searching the Timeline centers the best
   matching page and shows the pages the graph links to it. Opening one
   recenters the search on that page. Tell this story retells a meeting as
