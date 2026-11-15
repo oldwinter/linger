@@ -23,6 +23,8 @@
 - What Another Me remembers compares the current Profile revision with the
   previous one: name, each module, and the Background timeline. History from
   TeamHub is newest first and includes the current revision.
+  While Another Me is still writing the profile, the page follows the section
+  that just gained words.
 - How Another Me would introduce you turns the profile into a short card.
   The Human chooses which line leads, then can leave that card on today's
   Pocket note.

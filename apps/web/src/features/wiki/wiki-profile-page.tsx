@@ -1,5 +1,6 @@
 import { WikiProfileSourcesRow } from "./wiki-profile-sources";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { ReadOnlyBlockNoteDocument } from "@/components/read-only-blocknote-document";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,10 @@ import {
 import { introductionPath } from "./introduction";
 import { WikiProfileEditor } from "./wiki-profile-editor";
 import { rememberedPath } from "./remembered-changes";
+import {
+  profileSectionBeingWritten,
+  profileSectionDomId,
+} from "./profile-writing";
 import "./wiki-profile-page.css";
 
 type ProfilePart =
@@ -119,6 +124,45 @@ function oldestFirst(
     .map(({ entry }) => entry);
 }
 
+function sectionAnchor(
+  parts: readonly ProfilePart[],
+  index: number,
+): string | undefined {
+  let section = "Background";
+  const seen = new Set<string>();
+  for (let cursor = 0; cursor <= index; cursor += 1) {
+    const part = parts[cursor];
+    if (!part) continue;
+    if (part.kind === "markdown") {
+      const heading = /^##\s+(.+)$/mu.exec(part.markdown.trim());
+      if (heading?.[1] && part.markdown.trim().startsWith("##")) {
+        section = heading[1];
+      }
+    }
+    if (cursor === index)
+      return seen.has(section) ? undefined : profileSectionDomId(section);
+    seen.add(section);
+  }
+  return;
+}
+
+function ProfileSection({ id, part }: { id?: string; part: ProfilePart }) {
+  return (
+    <div id={id}>
+      {part.kind === "timeline" ? (
+        <ProfileTimeline entries={part.entries} />
+      ) : (
+        <ReadOnlyBlockNoteDocument
+          ariaLabel="Profile section"
+          markdown={part.markdown}
+          presentation="knowledge"
+          documentTitle="Profile"
+        />
+      )}
+    </div>
+  );
+}
+
 function ProfileTimeline({
   entries,
 }: {
@@ -186,6 +230,30 @@ export function WikiProfilePage() {
       setEditing(false);
     },
   });
+  const buildingNow = Boolean(profile.data?.building_since);
+  const writtenProfile = profile.data?.current?.profile;
+  const previousProfile = useRef<TeamHubPersonalProfileDocument | undefined>(
+    undefined,
+  );
+  const [writingSection, setWritingSection] = useState<string>();
+  // While Another Me is writing, follow the section that just gained words.
+  useEffect(() => {
+    if (!writtenProfile) return;
+    if (!buildingNow) {
+      previousProfile.current = writtenProfile;
+      return;
+    }
+    const section = profileSectionBeingWritten(
+      previousProfile.current,
+      writtenProfile,
+    );
+    previousProfile.current = writtenProfile;
+    if (!section) return;
+    setWritingSection(section);
+    document
+      .getElementById(profileSectionDomId(section))
+      ?.scrollIntoView({ block: "start" });
+  }, [buildingNow, writtenProfile]);
   const saveError =
     save.error instanceof TeamHubError && save.error.status === 409
       ? "Your Profile changed while you were editing, perhaps because Another Me updated it. Cancel to see the latest version, then edit again."
@@ -279,7 +347,11 @@ export function WikiProfilePage() {
             <WikiWorkingLine
               actorId={anotherMe}
               className="mb-6"
-              text="Another Me is updating your profile"
+              text={
+                writingSection
+                  ? `Another Me is writing ${writingSection}`
+                  : "Another Me is updating your profile"
+              }
             />
           ) : null}
           {current && editing ? (
@@ -302,19 +374,13 @@ export function WikiProfilePage() {
               data-editable="false"
               role="article"
             >
-              {parts.map((part, index) =>
-                part.kind === "timeline" ? (
-                  <ProfileTimeline entries={part.entries} key={index} />
-                ) : (
-                  <ReadOnlyBlockNoteDocument
-                    ariaLabel="Profile section"
-                    key={index}
-                    markdown={part.markdown}
-                    presentation="knowledge"
-                    documentTitle="Profile"
-                  />
-                ),
-              )}
+              {parts.map((part, index) => (
+                <ProfileSection
+                  id={sectionAnchor(parts, index)}
+                  key={index}
+                  part={part}
+                />
+              ))}
             </div>
           ) : building ? (
             <WikiWorkingCenter
