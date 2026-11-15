@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
 import {
   ArrowDown01Icon,
   ArrowUp01Icon,
@@ -41,6 +42,7 @@ import {
   meetingTitle,
   meetingWhen,
 } from "./meetings-calendar";
+import { keepMeetingPath } from "./keep-meeting";
 import { meetingPath } from "./meeting-routes";
 import { MeetingShareAction } from "./meeting-share-action";
 import {
@@ -255,6 +257,17 @@ export function MeetingReader({
             <Link className="underline" to={askMeetingPath(tenantId, entry.id)}>
               Ask the recording
             </Link>
+            {meeting.summary_ready ? (
+              <>
+                {" · "}
+                <Link
+                  className="underline"
+                  to={keepMeetingPath(tenantId, entry.id)}
+                >
+                  Keep as a page
+                </Link>
+              </>
+            ) : null}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">

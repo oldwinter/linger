@@ -1187,6 +1187,7 @@ describe("MeetingPage", () => {
       await screen.findByRole("article", { name: "Meeting" }),
     ).toBeVisible();
     expect(screen.queryByRole("button", { name: "Send to Room" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Keep as a page" })).toBeNull();
   });
 
   it("disables the Rooms while the summary is being sent", async () => {
@@ -1205,6 +1206,12 @@ describe("MeetingPage", () => {
     );
     renderPage(runtime, `?entry=${entry.id}`);
 
+    expect(
+      await screen.findByRole("link", { name: "Keep as a page" }),
+    ).toHaveAttribute(
+      "href",
+      `/t/tenant-northstar/library/meetings/keep?entry=${entry.id}`,
+    );
     fireEvent.click(
       await screen.findByRole("button", { name: "Send to Room" }),
     );
