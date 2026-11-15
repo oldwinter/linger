@@ -30,6 +30,7 @@ import {
   type ReportShare,
 } from "./report-share";
 
+import { sameCalendarDay } from "./on-this-day";
 import {
   periodLabel,
   reportDate,
@@ -130,11 +131,14 @@ export function WikiGraphDailyPanel({
   day,
   kind = "daily",
   onClose,
+  onOpenDay,
 }: {
   tenantId: string;
   day: string;
   kind?: PeriodReportKind;
   onClose: () => void;
+  /** Opens another year's Daily that falls on this month and day. */
+  onOpenDay?: (day: string) => void;
 }) {
   const label = kind === "daily" ? "Daily" : "Weekly";
   const contentRef = useRef<HTMLDivElement>(null);
@@ -150,6 +154,10 @@ export function WikiGraphDailyPanel({
   const [headings, setHeadings] = useState<DocumentHeading[]>([]);
   const [activeHeading, setActiveHeading] = useState<string>();
   const reports = usePeriodReports(tenantId, kind);
+  const otherYears =
+    kind === "daily" && onOpenDay
+      ? sameCalendarDay(reports.data ?? [], day).slice(0, 4)
+      : [];
   const listedEntry = reports.data?.find((item) => reportDate(item) === day);
   const daily = usePeriodReport(tenantId, kind, day, listedEntry);
   const entry = daily.data;
@@ -374,6 +382,24 @@ export function WikiGraphDailyPanel({
             <h2>
               <time dateTime={day}>{periodLabel(day, kind)}</time>
             </h2>
+            {otherYears.length ? (
+              <nav
+                aria-label="Also on this day"
+                className="mt-1 flex flex-wrap items-center gap-1"
+              >
+                <span className="text-xs text-app-muted">Also on this day</span>
+                {otherYears.map((item) => (
+                  <Button
+                    key={item.day}
+                    onClick={() => onOpenDay?.(item.day)}
+                    size="compact"
+                    tone="ghost"
+                  >
+                    {item.day.slice(0, 4)}
+                  </Button>
+                ))}
+              </nav>
+            ) : null}
           </div>
           <div className="flex shrink-0 items-center gap-1">
             {share?.text ? (
