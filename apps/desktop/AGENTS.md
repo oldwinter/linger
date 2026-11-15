@@ -177,13 +177,13 @@ Gateway and runs Agents. The daemon exits with the app.
 - `src/main/diagnostics.ts`: Diagnostics, "Show Logs" (opens
   `<userData>/logs`) and "Save Diagnostics" (a redacted
   `linger-diagnostics-<time>.zip` in Downloads) for the setup page's failed
-  step, the start failure page and the tray. The zip holds the Desktop logs
-  and `config.json`, the installer job JSON and logs, the instance JSON and
-  service logs under each install home. Credential files (`gateway.json`, `caller.key`,
+  step, the start failure page and the tray. The zip holds the Desktop logs,
+  `computer/state/service-logs`, and `config.json`, the installer job JSON and logs, the instance JSON and
+  service logs under each install home. Credential files (`gateway.json`, `daemon-identity.json`, `caller.key`,
   `control.key`, `credential.json`, `launch.html`, `*.env`, `*.input.json`,
   keys, cookies, databases) never go in, every saved voice key is replaced
   wherever a log printed it, and every text passes through `redact` plus a
-  secret-key JSON filter. It imports no Electron API, so it is
+  secret-key JSON filter, alongside daemon connection/status summary fields. It imports no Electron API, so it is
   tested with Windows paths on any platform.
 - `src/main/window-manager.ts`: one `BaseWindow` with two views, the title bar
   (`app://shell/titlebar`) and the SPA. macOS keeps native traffic lights,

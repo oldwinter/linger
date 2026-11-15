@@ -1,5 +1,5 @@
 import { createWriteStream } from "node:fs";
-import { open, readdir, rename, rm, stat } from "node:fs/promises";
+import { mkdir, open, readdir, rename, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -7,10 +7,12 @@ import { pipeline } from "node:stream/promises";
 import { redact } from "@linger/local-installation/redaction";
 import { ZipFile } from "yazl";
 
+import type { ComputerDaemonModule } from "./computer-daemon.js";
 import type { LocalServerModule } from "./local-server.js";
 import { LOCAL_INSTANCE } from "./local-server.js";
 import type { Module, ModuleContext } from "./modules.js";
 import { savedSecretValues } from "./provider-keys.js";
+import type { StatusModule } from "./status.js";
 
 // A file put into the bundle: where it is read from and its name inside.
 export interface DiagnosticsFile {
@@ -23,6 +25,7 @@ export interface DiagnosticsFile {
 // since Windows paths are.
 const EXCLUDED_NAMES = new Set([
   "gateway.json",
+  "daemon-identity.json",
   "caller.key",
   "control.key",
   "credential.json",
@@ -158,6 +161,12 @@ export const desktopFiles = async (
     () => true,
   ))
     files.push({ file, entry: diagnosticsEntry("desktop", userData, file) });
+  for (const file of await listFiles(
+    path.join(userData, "computer", "state", "service-logs"),
+    1,
+    () => true,
+  ))
+    files.push({ file, entry: diagnosticsEntry("desktop", userData, file) });
   for (const file of [
     path.join(userData, "config.json"),
     path.join(userData, "computer", "config.json"),
@@ -228,6 +237,7 @@ export const collectDiagnostics = async (
     .replace("T", "-");
   const target = path.join(options.output, `linger-diagnostics-${stamp}.zip`);
   const partial = `${target}.partial`;
+  await mkdir(options.output, { recursive: true });
   try {
     await pipeline(
       zip.outputStream,
@@ -256,7 +266,7 @@ export interface DiagnosticsModuleOptions {
 // page and the tray.
 export class DiagnosticsModule implements Module {
   readonly name = "Diagnostics";
-  readonly dependsOn = ["LocalServer"];
+  readonly dependsOn = ["LocalServer", "ComputerDaemon", "Status"];
   readonly #options: DiagnosticsModuleOptions;
   #ctx: ModuleContext | undefined;
   #saving: Promise<string> | undefined;
@@ -287,6 +297,8 @@ export class DiagnosticsModule implements Module {
 
   async #save(): Promise<string> {
     const local = this.#ctx?.get<LocalServerModule>("LocalServer").status();
+    const daemon = this.#optionalModule<ComputerDaemonModule>("ComputerDaemon");
+    const status = this.#optionalModule<StatusModule>("Status")?.current();
     const config = this.#ctx?.config.get();
     const file = await collectDiagnostics({
       userData: this.#options.userData,
@@ -297,6 +309,14 @@ export class DiagnosticsModule implements Module {
         platform: `${process.platform}-${process.arch}`,
         serverUrl: config?.serverUrl,
         computerId: config?.computerId,
+        status,
+        daemon: daemon && {
+          runtime: daemon.state(),
+          connection: daemon.connection(),
+          running: daemon.running(),
+          connectionError: daemon.connectionError(),
+          failure: daemon.failure(),
+        },
         localServer: local && {
           phase: local.phase,
           step: local.step,
@@ -308,5 +328,13 @@ export class DiagnosticsModule implements Module {
     this.#ctx?.log.info("diagnostics.saved", { file });
     this.#options.showFile(file);
     return file;
+  }
+
+  #optionalModule<T extends Module>(name: string): T | undefined {
+    try {
+      return this.#ctx?.get<T>(name);
+    } catch {
+      return undefined;
+    }
   }
 }
