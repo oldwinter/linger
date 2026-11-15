@@ -8,7 +8,10 @@ import {
 } from "./meeting-playback-speed";
 import { readMeetingResume, rememberMeetingPosition } from "./meeting-resume";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 beforeEach(() => localStorage.clear());
 
 const rateLabels = ["0.75x", "1x", "1.25x", "1.5x", "2x"];
@@ -75,6 +78,35 @@ describe("MeetingAudioPlayer", () => {
     ).toBeDisabled();
     expect(speedTrigger()).toBeDisabled();
     expect(screen.getByText("Loading...")).toBeVisible();
+  });
+
+  it("walks from the left ear to the right as it plays", () => {
+    const panner = {
+      connect: () => undefined,
+      pan: { value: 9 },
+    };
+    class FakeAudioContext {
+      close() {
+        return Promise.resolve();
+      }
+      createMediaElementSource() {
+        return { connect: () => undefined };
+      }
+      createStereoPanner() {
+        return panner;
+      }
+      resume() {
+        return Promise.resolve();
+      }
+    }
+    vi.stubGlobal("AudioContext", FakeAudioContext);
+    const { audio } = renderPlayer();
+    loadDuration(audio, 100);
+    fireEvent.play(audio);
+    expect(panner.pan.value).toBe(-1);
+    audio.currentTime = 100;
+    fireEvent.timeUpdate(audio);
+    expect(panner.pan.value).toBe(1);
   });
 
   it("plays, follows the playhead, seeks, and downloads", () => {

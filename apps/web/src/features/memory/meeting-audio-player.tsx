@@ -16,6 +16,7 @@ import {
   type SyntheticEvent,
 } from "react";
 
+import { walkMeetingEars, type MeetingEarWalk } from "./meeting-ear";
 import {
   forgetMeetingPosition,
   readMeetingResume,
@@ -89,6 +90,7 @@ export function MeetingAudioPlayer({
   status?: string;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const earRef = useRef<MeetingEarWalk | undefined>(undefined);
   const sectionRef = useRef<HTMLElement>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
@@ -142,7 +144,14 @@ export function MeetingAudioPlayer({
     if (audioRef.current) audioRef.current.playbackRate = storedRate;
   }, [accountId, meetingId]);
 
-  useEffect(() => () => window.clearTimeout(rateNoticeTimer.current), []);
+  useEffect(
+    () => () => {
+      window.clearTimeout(rateNoticeTimer.current);
+      earRef.current?.close();
+      earRef.current = undefined;
+    },
+    [],
+  );
 
   /** Saves the place now; a position at the very start is no place to return to. */
   function savePosition(at: number) {
@@ -178,6 +187,7 @@ export function MeetingAudioPlayer({
 
   function onTimeUpdate(event: SyntheticEvent<HTMLAudioElement>) {
     const at = event.currentTarget.currentTime;
+    earRef.current?.place(at, event.currentTarget.duration);
     setCurrent(at);
     // Scrubbing fires time updates in a burst; one write per interval is enough
     // to survive a reload, and pause or seek saves land immediately.
@@ -305,9 +315,10 @@ export function MeetingAudioPlayer({
             setPlaying(false);
             savePosition(event.currentTarget.currentTime);
           }}
-          onPlay={() => {
+          onPlay={(event) => {
             setPlaying(true);
             setResumeFrom(undefined);
+            earRef.current ??= walkMeetingEars(event.currentTarget);
           }}
           onTimeUpdate={onTimeUpdate}
           preload="metadata"
