@@ -1,13 +1,21 @@
 import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 
 import { Icon } from "@/components/ui/icon";
+import { useRecentDocumentsAccountId } from "@/features/library/use-recent-documents";
 import type { WikiGraphNode } from "@/features/memory/wiki-graph-model";
 import { cn } from "@/lib/cn";
 
+import {
+  readRecentWikiPages,
+  subscribeRecentWikiPages,
+  type RecentWikiPage,
+} from "./recent-wiki-pages";
 import { useWikiGraphNodes } from "./wiki-graph-queries";
 import { useWikiPageHrefs } from "./wiki-page-links";
+import { WikiReachNote } from "./wiki-reach-note";
+import { pageKeyForHref, wikiReach } from "./wiki-reach";
 
 /** Connections shown per direction before "Show all" reveals the rest. */
 const VISIBLE_CONNECTIONS = 6;
@@ -33,29 +41,52 @@ export function WikiConnectionsPanel({
 }) {
   const nodes = useWikiGraphNodes(tenantId);
   const hrefs = useWikiPageHrefs(tenantId);
+  const accountId = useRecentDocumentsAccountId();
+  const [recent, setRecent] = useState<RecentWikiPage[]>([]);
+  useEffect(() => {
+    const refresh = () => setRecent(readRecentWikiPages(accountId, tenantId));
+    refresh();
+    return subscribeRecentWikiPages(refresh);
+  }, [accountId, tenantId]);
   const node = nodes.get(pageKey);
   if (!node) return null;
   const linksTo = wikiConnections(node.links, nodes, hrefs);
   const linkedFrom = wikiConnections(node.backlinks, nodes, hrefs);
-  if (!linksTo.length && !linkedFrom.length) return null;
+  const earlierKey = recent
+    .map((entry) => pageKeyForHref(hrefs, entry.path))
+    .find((key) => key && key !== pageKey);
+  const path =
+    earlierKey && earlierKey !== pageKey
+      ? wikiReach(nodes, earlierKey, pageKey)
+      : undefined;
+  if (!linksTo.length && !linkedFrom.length && !path) return null;
+  const connections = linksTo.length > 0 || linkedFrom.length > 0;
   return (
-    <details
-      className={cn("group mt-6 border-t border-app-border pt-4", className)}
-      open
-    >
-      <summary className="flex w-fit cursor-pointer list-none items-center gap-1.5 rounded-sm text-sm font-semibold text-app-ink hover:text-app-body focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app-focus [&::-webkit-details-marker]:hidden">
-        <Icon
-          className="transition-transform group-open:rotate-90"
-          icon={ArrowRight01Icon}
-          size={14}
-        />
-        Connections
-      </summary>
-      <div className="mt-3 grid gap-4 sm:grid-cols-2">
-        <ConnectionList entries={linksTo} title="Links to" />
-        <ConnectionList entries={linkedFrom} title="Linked from" />
-      </div>
-    </details>
+    <div className={cn("mt-6", className)}>
+      {path ? <WikiReachNote hrefs={hrefs} path={path} /> : null}
+      {connections ? (
+        <details
+          className={cn(
+            "group border-t border-app-border pt-4",
+            path && "mt-6",
+          )}
+          open
+        >
+          <summary className="flex w-fit cursor-pointer list-none items-center gap-1.5 rounded-sm text-sm font-semibold text-app-ink hover:text-app-body focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app-focus [&::-webkit-details-marker]:hidden">
+            <Icon
+              className="transition-transform group-open:rotate-90"
+              icon={ArrowRight01Icon}
+              size={14}
+            />
+            Connections
+          </summary>
+          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+            <ConnectionList entries={linksTo} title="Links to" />
+            <ConnectionList entries={linkedFrom} title="Linked from" />
+          </div>
+        </details>
+      ) : null}
+    </div>
   );
 }
 

@@ -4,6 +4,7 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { expect, it, vi } from "vitest";
 
 import type { WikiGraphNode } from "@/features/memory/wiki-graph-model";
+import { teamHubIdentityQueryKey } from "@/features/rooms/room-queries";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import {
   createTestTeamHubRuntime,
@@ -11,6 +12,7 @@ import {
 } from "@/test/teamhub-test-runtime";
 
 import { WikiConnectionsPanel } from "./wiki-connections-panel";
+import { writeRecentWikiPages } from "./recent-wiki-pages";
 import { serveWikiDocuments, wikiDocument } from "./wiki.test-support";
 
 function graphNode(
@@ -132,4 +134,79 @@ it("hides the section when the page has no graph node", async () => {
   await waitFor(() => expect(graph).toHaveBeenCalledOnce());
   await act(async () => undefined);
   expect(screen.queryByText("Connections")).not.toBeInTheDocument();
+});
+
+it("says how the page you left reaches this one", async () => {
+  localStorage.clear();
+  const runtime = createTestTeamHubRuntime();
+  serveWikiDocuments(runtime).mockResolvedValue({
+    items: [
+      pageDocument("doc-monday", "meetings/monday.md"),
+      pageDocument("doc-maya", "people/maya.md"),
+      pageDocument("doc-alpha", "projects/alpha.md"),
+    ],
+    page: { has_more: false },
+  });
+  serveGraph(runtime, [
+    graphNode("meetings/monday", "Monday", ["people/maya"]),
+    graphNode("people/maya", "Maya", ["projects/alpha"]),
+    graphNode("projects/alpha", "Alpha"),
+  ]);
+  writeRecentWikiPages("account-jenny", "tenant-northstar", [
+    {
+      id: "doc-alpha",
+      name: "Alpha",
+      openedAt: "2026-11-16T03:00:00.000Z",
+      path: "/t/tenant-northstar/documents/doc-alpha",
+    },
+    {
+      id: "doc-monday",
+      name: "Monday",
+      openedAt: "2026-11-16T02:00:00.000Z",
+      path: "/t/tenant-northstar/documents/doc-monday",
+    },
+  ]);
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  queryClient.setQueryData(teamHubIdentityQueryKey, {
+    account: {
+      created_at: "2026-07-24T09:00:00Z",
+      email: "jenny@northstar.example",
+      id: "account-jenny",
+    },
+    actors: [],
+  });
+  const router = createMemoryRouter([
+    {
+      path: "/",
+      element: (
+        <WikiConnectionsPanel
+          pageKey="projects/alpha"
+          tenantId="tenant-northstar"
+        />
+      ),
+    },
+  ]);
+  render(
+    <QueryClientProvider client={queryClient}>
+      <TeamHubRuntimeProvider runtime={runtime}>
+        <RouterProvider router={router} />
+      </TeamHubRuntimeProvider>
+    </QueryClientProvider>,
+  );
+
+  expect(
+    await screen.findByText(
+      (_text, element) =>
+        element?.tagName === "P" &&
+        (element.textContent ?? "").includes(
+          "Monday reaches this page through Maya",
+        ),
+    ),
+  ).toBeVisible();
+  expect(screen.getByRole("link", { name: "Maya" })).toHaveAttribute(
+    "href",
+    "/t/tenant-northstar/documents/doc-maya",
+  );
 });
