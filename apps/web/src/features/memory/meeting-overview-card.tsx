@@ -1,6 +1,6 @@
 import { cn } from "@/lib/cn";
 import { BubbleChatIcon } from "@hugeicons/core-free-icons";
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { meetingActionChecklist } from "./meeting-action-checklist";
@@ -30,11 +30,69 @@ const sectionHeadingRow = "mb-2 mt-7 flex items-center justify-between gap-3";
 /** Long card text reads better in two columns than three. */
 const LONG_TOPIC_TEXT = 120;
 
+function TopicSpoken({
+  lines,
+  onRead,
+}: {
+  lines: string[] | "empty" | "failed" | "loading" | undefined;
+  onRead: () => void;
+}) {
+  return (
+    <div className="px-2 pb-1">
+      <button
+        className="text-xs text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={onRead}
+        type="button"
+      >
+        {lines && lines !== "loading" ? "Hide what was said" : "What was said"}
+      </button>
+      {lines === "loading" ? (
+        <p className="mt-1 text-xs text-app-muted" role="status">
+          Reading the recording.
+        </p>
+      ) : null}
+      {lines === "empty" ? (
+        <p className="mt-1 text-xs text-app-muted" role="status">
+          Nothing from the recording begins in this stretch.
+        </p>
+      ) : null}
+      {lines === "failed" ? (
+        <p className="mt-1 text-xs text-app-danger" role="alert">
+          The recording could not be read.
+        </p>
+      ) : null}
+      {Array.isArray(lines) ? (
+        <ul aria-label="What was said" className="mt-1 flex flex-col gap-1">
+          {lines.map((line, index) => (
+            <li
+              className="text-xs leading-5 text-app-body"
+              key={`${index}-${line}`}
+            >
+              {line}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * The Session page's Meeting Summary section, shown in place as one card per
  * topic. The heading matches the knowledge document's H2 around it.
  */
-export function MeetingOverviewCard({ topics }: { topics: MeetingTopic[] }) {
+export function MeetingOverviewCard({
+  onReadSpoken,
+  topics,
+}: {
+  /** Reads the recording's lines that begin inside a topic's clock. */
+  onReadSpoken?: (range: string) => Promise<string[]>;
+  topics: MeetingTopic[];
+}) {
+  const [spoken, setSpoken] = useState<
+    | { lines: string[] | "empty" | "failed" | "loading"; time: string }
+    | undefined
+  >();
   const longTopics = topics.some(
     (topic) =>
       (topic.intro ?? "").length +
@@ -104,6 +162,28 @@ export function MeetingOverviewCard({ topics }: { topics: MeetingTopic[] }) {
                 </ul>
               ) : null}
             </div>
+            {topic.time && onReadSpoken ? (
+              <TopicSpoken
+                lines={spoken?.time === topic.time ? spoken.lines : undefined}
+                onRead={() => {
+                  const time = topic.time;
+                  if (!time || !onReadSpoken) return;
+                  if (spoken?.time === time && spoken.lines !== "loading") {
+                    setSpoken(undefined);
+                    return;
+                  }
+                  setSpoken({ lines: "loading", time });
+                  void onReadSpoken(time).then(
+                    (lines) =>
+                      setSpoken({
+                        lines: lines.length > 0 ? lines : "empty",
+                        time,
+                      }),
+                    () => setSpoken({ lines: "failed", time }),
+                  );
+                }}
+              />
+            ) : null}
           </li>
         ))}
       </ol>

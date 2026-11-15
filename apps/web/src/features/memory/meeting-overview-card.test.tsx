@@ -50,6 +50,18 @@ describe("MeetingOverviewCard", () => {
     expect(card).not.toHaveTextContent(/more/u);
   });
 
+  it("opens the lines spoken during a topic", async () => {
+    const onReadSpoken = vi
+      .fn()
+      .mockResolvedValue(["Speaker 1 We should ship Friday."]);
+    render(<MeetingOverviewCard onReadSpoken={onReadSpoken} topics={topics} />);
+    fireEvent.click(screen.getByRole("button", { name: "What was said" }));
+    expect(onReadSpoken).toHaveBeenCalledWith("00:00:33 – 00:03:51");
+    expect(
+      await screen.findByText("Speaker 1 We should ship Friday."),
+    ).toBeVisible();
+  });
+
   it("uses two columns when topic text is long", () => {
     const { rerender } = render(
       <MeetingOverviewCard topics={topics.slice(1)} />,
