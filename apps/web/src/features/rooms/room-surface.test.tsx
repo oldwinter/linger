@@ -344,6 +344,11 @@ describe("RoomSurface command availability", () => {
     const settings = within(header).getByRole("button", {
       name: "Open all settings from avatar",
     });
+    const handOff = within(header).getByRole("link", { name: "Hand off" });
+    expect(handOff).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/rooms/room-all/hand-off",
+    );
     const sidebar = within(header).getByRole("button", {
       name: "Show sidebar",
     });

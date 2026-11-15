@@ -63,6 +63,7 @@ import {
 import { useOptionalVoiceModeSession } from "./chat/voice-mode/voice-mode-session";
 import { RoomRealtimeSync } from "./chat/room-realtime-sync";
 import { PinnedMessagesControl } from "./chat/message-pins/pinned-messages-control";
+import { handOffPath } from "./hand-off";
 import { AgentStatusDot } from "./members/agent-status";
 import { RoomAvatar } from "./members/room-avatar";
 import { ActorAvatar } from "./members/actor-avatar";
@@ -868,6 +869,14 @@ function RoomHeader({
         <WorkMovesLink roomId={roomId} tenantId={tenantId} />
         <WhoManagesLink roomId={roomId} tenantId={tenantId} />
         <SteerRunLink roomId={roomId} tenantId={tenantId} />
+        {room.kind !== "thread" ? (
+          <Link
+            className="shrink-0 rounded-lg px-2 py-1 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+            to={handOffPath(tenantId, room.id)}
+          >
+            Hand off
+          </Link>
+        ) : null}
         {/* Bootstrap sync is background work; the header shows nothing for it. */}
         <Suspense fallback={null}>
           <Await resolve={pendingBootstrap ?? { initialRoomSeq }}>

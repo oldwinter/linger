@@ -99,6 +99,10 @@ describe("Web app route contract", () => {
     expect(
       matchRoutes(routes, "/t/tenant-a/rooms/room-a/chat")?.at(-1)?.route.path,
     ).toBe("chat");
+    expect(
+      matchRoutes(routes, "/t/tenant-a/rooms/room-a/hand-off")?.at(-1)?.route
+        .path,
+    ).toBe("hand-off");
   });
 
   it("mounts My Documents, Shared with me, and Wiki below Library", () => {
