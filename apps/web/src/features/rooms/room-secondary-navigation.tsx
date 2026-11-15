@@ -28,6 +28,7 @@ import { Icon } from "@/components/ui/icon";
 import { jumpPath } from "@/features/jump/jump-path";
 import { jumpShortcutLabel } from "@/features/jump/jump-shortcut";
 import { searchShortcutLabel } from "@/features/search/search-shortcut";
+import { whoIsAwakePath } from "./who-is-awake";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import { myRulesQueryOptions } from "@/features/settings/my-rules-queries";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
@@ -448,6 +449,13 @@ export function RoomSecondaryNavigation({
         >
           <span>Jump anywhere</span>
           <span>{jumpShortcutLabel()}</span>
+        </Link>
+        <Link
+          className="mx-2 flex h-7 items-center rounded-lg px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={onCloseMobile}
+          to={whoIsAwakePath(tenant.id)}
+        >
+          Who is awake
         </Link>
         {onCollapse ? searchButton : null}
         {catchUpCount > 0 ? (

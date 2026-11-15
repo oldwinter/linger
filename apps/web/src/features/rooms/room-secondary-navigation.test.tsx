@@ -149,7 +149,9 @@ describe("RoomSecondaryNavigation attention", () => {
       const links = screen
         .getAllByRole("link")
         .map((link) => link.getAttribute("href"))
-        .filter((href) => !href?.endsWith("/jump"));
+        .filter(
+          (href) => !href?.endsWith("/jump") && !href?.endsWith("/awake"),
+        );
       expect(links).toEqual(
         [
           "another-me",
