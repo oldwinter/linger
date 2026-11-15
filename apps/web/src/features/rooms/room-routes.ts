@@ -11,7 +11,7 @@ export function roomChatPath(tenantId: string, roomId: string) {
  * A link that opens a Message's Room at that Message. A thread reply's Room is
  * the thread, so the same link opens the reply inside its thread.
  */
-export function roomMessagePath(
+function roomMessagePath(
   tenantId: string,
   message: Pick<TeamHubMessage, "id" | "room_id">,
 ) {
