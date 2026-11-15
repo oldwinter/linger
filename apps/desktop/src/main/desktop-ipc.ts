@@ -2,6 +2,7 @@ import { ipcMain, type IpcMainInvokeEvent } from "electron";
 import { z } from "zod";
 
 import {
+  DAEMON_IDENTITY_CONFLICT,
   IPC,
   type ComputerStatus,
   type DesktopSettings,
@@ -102,8 +103,11 @@ export class DesktopIpcModule implements Module {
     const localServer = ctx.get<LocalServerModule>("LocalServer");
 
     const status = (): ComputerStatus => {
-      const computerId = ctx.config.get().computerId;
-      const connectionError = daemon.connectionError();
+      const config = ctx.config.get();
+      const computerId = config.computerId;
+      const connectionError =
+        daemon.connectionError() ??
+        (config.identityConflict ? DAEMON_IDENTITY_CONFLICT : undefined);
       return {
         bridge: daemon.connection(),
         runtime: daemon.state(),

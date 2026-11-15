@@ -285,6 +285,7 @@ export class EnrollmentModule implements Module {
 
   async start(ctx: ModuleContext): Promise<void> {
     this.#ctx = ctx;
+    this.#identityConflict = !!ctx.config.get().identityConflict;
     // An enrollment belongs to one server; switching servers drops it,
     // including a renewal kept for the server being left.
     this.#offServerChanged = ctx.bus.on("server.changed", (serverUrl) => {
@@ -307,7 +308,11 @@ export class EnrollmentModule implements Module {
     );
     this.#offConnection = ctx.bus.on("computer.connection", (state) => {
       // The Gateway accepted this Computer, so its identity is this one's.
-      if (state === "online") this.#identityConflict = false;
+      if (state === "online") {
+        this.#identityConflict = false;
+        if (ctx.config.get().identityConflict)
+          ctx.config.update({ identityConflict: undefined });
+      }
     });
     // Enrollments made before the owner was kept, or whose credential did
     // not carry over from the bridge, are renewed for the same Computer.
@@ -375,6 +380,7 @@ export class EnrollmentModule implements Module {
       tenantId: undefined,
       ownerActorId: undefined,
       renewalEnrollment: undefined,
+      identityConflict: undefined,
     });
     this.#identityConflict = false;
     ctx.bus.emit("computer.changed", undefined);
@@ -388,8 +394,8 @@ export class EnrollmentModule implements Module {
   // reuse, so it goes too and the daemon makes a new one.
   async resetLocalServer(): Promise<void> {
     const ctx = this.#ctx!;
-    const { computerId, serverUrl } = ctx.config.get();
-    const discardIdentity = this.#identityConflict;
+    const { computerId, serverUrl, identityConflict } = ctx.config.get();
+    const discardIdentity = this.#identityConflict || !!identityConflict;
     this.#options.credentials.clear();
     ctx.config.update({
       computerId: undefined,
@@ -399,6 +405,7 @@ export class EnrollmentModule implements Module {
         computerId && serverUrl
           ? { computerId, origin: new URL(serverUrl).origin }
           : undefined,
+      identityConflict: undefined,
     });
     // Only once the reset is stored: TeamHub binds an identity only to an
     // unbound Computer, so a discard that outran it would leave no way back.

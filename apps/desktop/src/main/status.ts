@@ -85,7 +85,9 @@ export class StatusModule implements Module {
       runtime: daemon.state(),
       enrolled: !!ctx.config.get().computerId,
       running: daemon.running(),
-      identityConflict: daemon.connectionError() !== undefined,
+      identityConflict:
+        daemon.connectionError() !== undefined ||
+        !!ctx.config.get().identityConflict,
     });
     if (next.tone === this.#current.tone && next.label === this.#current.label)
       return;

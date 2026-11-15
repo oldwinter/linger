@@ -149,10 +149,11 @@ Gateway and runs Agents. The daemon exits with the app.
   presented it, since TeamHub binds it there for good: an enrollment that does
   not renew that Computer discards it once that enrollment is stored
   (`daemon-identity.ts`), so the daemon makes one for the Computer now
-  enrolled. A Gateway report that the identity is another Computer's survives
-  daemon restarts within the app session, until this Computer connects with it
-  or the identity is discarded; Set Up Again discards it, and Reconnect This
-  Computer refuses with that reason instead of renewing into the same conflict.
+  enrolled. A Gateway report that the identity is another Computer's persists in
+  `config.json` (`identityConflict`) across daemon backoff and app restarts,
+  until this Computer connects with it or the identity is discarded; Set Up
+  Again (from setup or the tray menu) discards it, and Reconnect This Computer
+  refuses with that reason instead of renewing into the same conflict.
   Before installing or resuming it moves the
   `COMPOSIO_API_KEY`, `SONIOX_API_KEY`, `XAI_API_KEY` and `TZ` of an unpacked
   source package's `.env` into `<home>/instances/desktop/user.env` once and
