@@ -63,6 +63,7 @@ import {
   PocketNoteEditor,
   type PocketNoteEditorHandle,
 } from "./pocket-note-editor";
+import { registerPocketNoteClose } from "./pocket-note-hold";
 import { searchPocketNotes } from "./pocket-note-search";
 
 const autosaveDelayMs = 800;
@@ -94,14 +95,15 @@ interface CloseGuard {
 }
 
 export default function PocketNotePanel({
-  anchorRef,
+  anchor,
   anotherMeRoomId,
   closeRef,
   onClose,
   onOpenChat,
   tenantId,
 }: {
-  anchorRef: RefObject<HTMLButtonElement | null>;
+  /** The toolbar button, when that room's navigation is on screen. */
+  anchor: HTMLButtonElement | null;
   anotherMeRoomId?: string;
   /** Receives the guarded close, so the trigger closes the same way. */
   closeRef: RefObject<(() => void) | undefined>;
@@ -114,7 +116,7 @@ export default function PocketNotePanel({
   const notes = useInfiniteQuery(pocketNotesQueryOptions(client, tenantId));
   const [view, setView] = useState<PocketNoteView>({ kind: "today" });
   const panelRef = useRef<HTMLDivElement>(null);
-  const position = usePanelPosition(anchorRef);
+  const position = usePanelPosition(anchor);
   const closeGuard = useRef<CloseGuard | undefined>(undefined);
   // Dictation in progress settles its last words into the page first.
   const close = () => {
@@ -126,6 +128,8 @@ export default function PocketNotePanel({
   useLayoutEffect(() => {
     latestClose.current = close;
     closeRef.current = close;
+    registerPocketNoteClose(close);
+    return () => registerPocketNoteClose(undefined);
   });
   useLayoutEffect(
     () => () => {
@@ -137,10 +141,7 @@ export default function PocketNotePanel({
   useEffect(() => {
     function closeOnOutside(event: PointerEvent) {
       const target = event.target as Node;
-      if (
-        panelRef.current?.contains(target) ||
-        anchorRef.current?.contains(target)
-      ) {
+      if (panelRef.current?.contains(target) || anchor?.contains(target)) {
         return;
       }
       latestClose.current();
@@ -163,7 +164,7 @@ export default function PocketNotePanel({
       }
       if (guard?.onEscape?.()) return;
       latestClose.current();
-      anchorRef.current?.focus();
+      anchor?.focus();
     }
     document.addEventListener("pointerdown", closeOnOutside);
     document.addEventListener("keydown", closeOnEscape);
@@ -171,7 +172,7 @@ export default function PocketNotePanel({
       document.removeEventListener("pointerdown", closeOnOutside);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [anchorRef, onClose]);
+  }, [anchor, onClose]);
 
   const firstPage = notes.data?.pages[0];
   const items = notes.data?.pages.flatMap((page) => page.items) ?? [];
@@ -1081,26 +1082,27 @@ function PocketNoteCopyAction({ text }: { text: string }) {
 }
 
 /** Opens beside the sidebar row and stays inside the viewport. */
-function usePanelPosition(
-  anchorRef: RefObject<HTMLButtonElement | null>,
-): CSSProperties {
+function usePanelPosition(anchor: HTMLButtonElement | null): CSSProperties {
   const [position, setPosition] = useState<CSSProperties>({
-    left: 0,
-    top: 0,
-    visibility: "hidden",
+    left: panelGap,
+    top: panelGap,
   });
   useLayoutEffect(() => {
     function place() {
-      // Open beside the whole navigation column, not over it.
-      const anchor = (
-        anchorRef.current?.closest(".app-secondary-navigation") ??
-        anchorRef.current
-      )?.getBoundingClientRect();
-      const trigger = anchorRef.current?.getBoundingClientRect();
-      if (!anchor || !trigger) return;
       const height = 440;
+      const column = anchor?.closest(".app-secondary-navigation");
+      const beside = (column ?? anchor)?.getBoundingClientRect();
+      const trigger = anchor?.getBoundingClientRect();
+      // The room that opened the note has gone; keep the page on screen.
+      if (!beside || !trigger) {
+        setPosition({
+          left: panelGap,
+          top: Math.max(panelGap, window.innerHeight - height - panelGap),
+        });
+        return;
+      }
       const left = Math.min(
-        anchor.right + panelGap,
+        beside.right + panelGap,
         window.innerWidth - panelWidth - panelGap,
       );
       const top = Math.max(
@@ -1112,7 +1114,7 @@ function usePanelPosition(
     place();
     window.addEventListener("resize", place);
     return () => window.removeEventListener("resize", place);
-  }, [anchorRef]);
+  }, [anchor]);
   return position;
 }
 

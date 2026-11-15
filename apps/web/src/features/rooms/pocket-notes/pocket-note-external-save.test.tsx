@@ -12,6 +12,8 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 
+import { closePocketNote } from "./pocket-note-hold";
+import { PocketNoteHost } from "./pocket-note-host";
 import { PocketNoteLauncher } from "./pocket-note-launcher";
 import { storeTodayPocketNote } from "./pocket-note-queries";
 
@@ -41,6 +43,7 @@ function renderLauncher(storedText: string) {
     <QueryClientProvider client={queryClient}>
       <TeamHubRuntimeProvider runtime={runtime}>
         <MemoryRouter>
+          <PocketNoteHost />
           <PocketNoteLauncher tenantId={tenantId} />
         </MemoryRouter>
       </TeamHubRuntimeProvider>
@@ -62,6 +65,7 @@ async function openToday() {
 describe("A save from the Message menu while the notepad is open", () => {
   // JSDOM has no text-range layout; browser coverage exercises caret scrolling.
   beforeEach(() => {
+    closePocketNote();
     Object.defineProperties(Range.prototype, {
       getClientRects: { configurable: true, value: () => [] },
       getBoundingClientRect: { configurable: true, value: () => new DOMRect() },

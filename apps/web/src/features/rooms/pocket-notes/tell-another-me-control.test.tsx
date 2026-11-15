@@ -10,6 +10,8 @@ import {
   type TestRouteHandler,
 } from "@/test/teamhub-test-server";
 
+import { closePocketNote } from "./pocket-note-hold";
+import { PocketNoteHost } from "./pocket-note-host";
 import { PocketNoteLauncher } from "./pocket-note-launcher";
 
 const notes = {
@@ -25,6 +27,7 @@ const notes = {
 };
 
 function renderNotes() {
+  closePocketNote();
   const runtime = createTestTeamHubRuntime();
   runtime.server.on(
     "GET",
@@ -35,10 +38,13 @@ function renderNotes() {
     [
       {
         element: (
-          <PocketNoteLauncher
-            anotherMeRoomId="room-another-me"
-            tenantId="tenant-northstar"
-          />
+          <>
+            <PocketNoteHost />
+            <PocketNoteLauncher
+              anotherMeRoomId="room-another-me"
+              tenantId="tenant-northstar"
+            />
+          </>
         ),
         path: "/t/:tenantId/rooms",
       },
