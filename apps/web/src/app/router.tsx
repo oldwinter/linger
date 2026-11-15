@@ -324,6 +324,15 @@ export function createAppRoutes(
           path: "profile",
         },
         createWorkItemDashboardRoute(queryClient, client, "dashboard"),
+        {
+          ErrorBoundary: PanelRouteErrorSurface,
+          lazy: async () => ({
+            Component: (
+              await import("@/features/work-items/work-item-pair-page")
+            ).WorkItemPairPage,
+          }),
+          path: "dashboard/side-by-side",
+        },
         createWorkItemDashboardRoute(
           queryClient,
           client,
