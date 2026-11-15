@@ -14,7 +14,8 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubPocketNotePage } from "@/features/teamhub/teamhub-types";
 
 import { isCalendarDay, reviewDay, shiftDay } from "./day-review";
-import { meetingPath, useMeetings } from "./memory-queries";
+import { useMeetings } from "./memory-queries";
+import { meetingPath } from "./meeting-routes";
 import { formatMeetingWhen, meetingsByDate } from "./meetings-calendar";
 import { reportDate, usePeriodReports } from "./wiki-period-reports";
 

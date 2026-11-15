@@ -7,7 +7,6 @@ import {
   Cancel01Icon,
   Search01Icon,
 } from "@hugeicons/core-free-icons";
-import { Link } from "react-router";
 import { ReadOnlyBlockNoteDocumentLoader } from "@/components/read-only-blocknote-document-loader";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";

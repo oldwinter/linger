@@ -21,6 +21,7 @@ import {
 
 import { LibraryLayout } from "@/features/library/library-layout";
 import {
+  clearRoomDrafts,
   readRoomComposerDraft,
   writeRoomComposerDraft,
 } from "@/features/rooms/room-drafts";
@@ -36,11 +37,6 @@ import type {
   TeamHubMessageCreateInput,
   TeamHubRoomListItem,
 } from "@/features/teamhub/teamhub-types";
-
-import {
-  clearRoomDrafts,
-  readRoomComposerDraft,
-} from "@/features/rooms/room-drafts";
 
 import { meetingPath } from "./meeting-routes";
 import { MeetingPage } from "./meeting-page";

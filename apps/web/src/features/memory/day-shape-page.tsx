@@ -11,7 +11,8 @@ import {
   openStretchPhrase,
   shiftDay,
 } from "./day-shape";
-import { meetingPath, useMeetings } from "./memory-queries";
+import { useMeetings } from "./memory-queries";
+import { meetingPath } from "./meeting-routes";
 import {
   formatMeetingDay,
   formatMeetingWhen,

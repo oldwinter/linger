@@ -1,4 +1,4 @@
-import { meetingPath } from "@/features/memory/memory-queries";
+import { meetingPath } from "@/features/memory/meeting-routes";
 import {
   formatMeetingWhen,
   meetingWhen,

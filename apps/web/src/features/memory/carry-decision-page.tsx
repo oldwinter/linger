@@ -16,7 +16,8 @@ import {
   meetingDecisions,
   roomsThatCanReceive,
 } from "./carry-decision";
-import { meetingPath, useMeetings } from "./memory-queries";
+import { useMeetings } from "./memory-queries";
+import { meetingPath } from "./meeting-routes";
 import { formatMeetingWhen, meetingWhen } from "./meetings-calendar";
 
 /** Posts one meeting decision into a room. The meeting itself stays as it is. */

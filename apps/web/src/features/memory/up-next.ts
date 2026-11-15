@@ -1,6 +1,6 @@
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 
-import { meetingPath } from "./memory-queries";
+import { meetingPath } from "./meeting-routes";
 import { formatMeetingWhen, meetingWhen } from "./meetings-calendar";
 
 /** A meeting still counts as underway for this long after it starts. */

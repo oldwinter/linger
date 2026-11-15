@@ -3,7 +3,8 @@ import { useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
-import { meetingPath, useMeetings } from "@/features/memory/memory-queries";
+import { useMeetings } from "@/features/memory/memory-queries";
+import { meetingPath } from "@/features/memory/meeting-routes";
 import { anotherMeQueryOptions } from "@/features/rooms/room-queries";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { teamHubData } from "@/features/teamhub/teamhub-api";

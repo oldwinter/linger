@@ -7,7 +7,7 @@ import { idempotencyHeader, teamHubData } from "@/features/teamhub/teamhub-api";
 import { createTeamHubIdempotencyKey } from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { dashboardWorkItemPath } from "@/features/work-items/work-item-routes";
-import { tenantWorkItemsDashboardQueryKey } from "@/features/work-items/work-item-queries";
+import { tenantWorkItemsDashboardQueryPrefix } from "@/features/work-items/work-item-queries";
 
 import { handOffCandidates } from "./hand-off";
 import {
@@ -59,7 +59,7 @@ export function HandOffPage() {
         workItemId,
       });
       await queryClient.invalidateQueries({
-        queryKey: tenantWorkItemsDashboardQueryKey(tenantId),
+        queryKey: tenantWorkItemsDashboardQueryPrefix(tenantId),
       });
     },
   });

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 
 import { usePersonalWikiRefresh } from "./wiki-refresh";
-import { wikiPreviewPath } from "./wiki-preview-page";
+import { wikiPreviewPath } from "./wiki-routes";
 import { wikiWritingPages, type WikiWritingPage } from "./wiki-writing-walk";
 
 /**

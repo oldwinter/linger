@@ -7,7 +7,8 @@ import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
-import { meetingPath, useMeetings } from "./memory-queries";
+import { useMeetings } from "./memory-queries";
+import { meetingPath } from "./meeting-routes";
 import { formatMeetingWhen, meetingWhen } from "./meetings-calendar";
 import { meetingStoryBeats, storySentence } from "./meeting-story";
 

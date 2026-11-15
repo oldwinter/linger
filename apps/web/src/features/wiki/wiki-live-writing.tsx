@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 
 import { wikiCollectionLabels } from "./wiki-display-state";
-import { wikiPreviewPath } from "./wiki-preview-page";
+import { wikiPreviewPath } from "./wiki-routes";
 import { wikiPageExcerpt } from "./wiki-live-focus";
 import type { WikiPreviewPage } from "./wiki-preview-pages";
 

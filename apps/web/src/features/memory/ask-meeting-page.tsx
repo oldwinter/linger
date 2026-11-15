@@ -9,7 +9,8 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubVoiceCaptureQuestion } from "@/features/teamhub/teamhub-types";
 
 import { meetingQuestionsKey } from "./ask-meeting";
-import { meetingPath, useMeetings } from "./memory-queries";
+import { useMeetings } from "./memory-queries";
+import { meetingPath } from "./meeting-routes";
 import { formatMeetingWhen, meetingWhen } from "./meetings-calendar";
 
 export function AskMeetingPage() {
