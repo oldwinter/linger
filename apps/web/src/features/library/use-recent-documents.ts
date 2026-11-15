@@ -1,5 +1,5 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { QueryClientContext } from "@tanstack/react-query";
+import { useContext, useEffect } from "react";
 
 import { teamHubIdentityQueryKey } from "@/features/rooms/room-queries";
 import type {
@@ -17,8 +17,8 @@ import { recordRecentDocument } from "./recent-documents";
  * free of requests.
  */
 export function useRecentDocumentsAccountId(): string | undefined {
-  const queryClient = useQueryClient();
-  return queryClient.getQueryData<TeamHubCurrentIdentity>(
+  const queryClient = useContext(QueryClientContext);
+  return queryClient?.getQueryData<TeamHubCurrentIdentity>(
     teamHubIdentityQueryKey,
   )?.account.id;
 }
@@ -35,12 +35,12 @@ export function useRecordRecentDocument(document: TeamHubDocument | undefined) {
     ? documentFormatLabel(document.format)
     : undefined;
   useEffect(() => {
-    if (!accountId || !documentId || !name) return;
-    recordRecentDocument(accountId, {
+    if (!accountId || !documentId || !name || !document?.tenant_id) return;
+    recordRecentDocument(accountId, document.tenant_id, {
       formatLabel: formatLabel ?? "",
       id: documentId,
       name,
       openedAt: new Date().toISOString(),
     });
-  }, [accountId, documentId, formatLabel, name]);
+  }, [accountId, document?.tenant_id, documentId, formatLabel, name]);
 }

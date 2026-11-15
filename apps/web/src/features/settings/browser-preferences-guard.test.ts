@@ -13,6 +13,10 @@ const srcRoot = fileURLToPath(new URL("../../", import.meta.url));
  * browser storage has to be registered, so a new store cannot be forgotten.
  */
 const excluded: Readonly<Record<string, string>> = {
+  "app/desktop-shell.ts":
+    "Desktop shell Chats list collapsed state, per-Tenant layout state.",
+  "components/ui/use-sidebar-width.ts":
+    "Resized sidebar widths, per-Tenant layout state.",
   "features/rooms/away-recap.ts":
     "Remembers which away recap was dismissed; clearing it would replay a summary, not reset a preference.",
   "features/rooms/chat/use-another-me-onboarding.ts":
@@ -29,6 +33,10 @@ const excluded: Readonly<Record<string, string>> = {
     "Voice control's device and session keys, owned by the microphone session and its own disconnect.",
   "features/wiki/wiki-display-state.ts":
     "Per-page wiki display choices, layout state owned by the wiki view.",
+  "lib/local-preference-keys.ts":
+    "Shared helper that enumerates and removes browser preference keys on behalf of registered stores.",
+  "lib/room-diagnostics.ts":
+    "Developer opt-in flag (`linger.roomDiagnostics`) checked during room debugging, not a preference.",
 };
 
 describe("browser preference registry", () => {
@@ -73,10 +81,10 @@ describe("browser preference registry", () => {
   });
 });
 
-/** Feature module paths, relative to `src/`, that touch browser storage. */
+/** App module paths, relative to `src/`, that touch browser storage. */
 async function storageModules(): Promise<string[]> {
   const modules: string[] = [];
-  for (const file of await sourceFiles(join(srcRoot, "features"), "features")) {
+  for (const file of await sourceFiles(srcRoot)) {
     const text = await readFile(join(srcRoot, file), "utf8");
     if (text.includes("localStorage")) modules.push(file);
   }

@@ -1,4 +1,7 @@
+import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:net";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { Worker } from "node:worker_threads";
 
 import type { JsonLogger } from "@linger/service-kit/node";
@@ -13,21 +16,34 @@ const environment = {
   TEAMHUB_DATABASE_URL: "postgres://teamhub@127.0.0.1:9/teamhub",
 };
 const savedEnvironment = new Map<string, string | undefined>();
+const temporaryHomes: string[] = [];
 
-function setEnvironment(values: Record<string, string>): void {
-  for (const [name, value] of Object.entries(values)) {
+async function setTestEnvironment(
+  values: Record<string, string>,
+): Promise<void> {
+  const agentHome = await mkdtemp(path.join(tmpdir(), "document-role-home-"));
+  temporaryHomes.push(agentHome);
+  for (const [name, value] of Object.entries({
+    AGENT_HOME: agentHome,
+    ...values,
+  })) {
     if (!savedEnvironment.has(name))
       savedEnvironment.set(name, process.env[name]);
     process.env[name] = value;
   }
 }
 
-afterEach(() => {
+afterEach(async () => {
   for (const [name, value] of savedEnvironment) {
     if (value === undefined) delete process.env[name];
     else process.env[name] = value;
   }
   savedEnvironment.clear();
+  await Promise.all(
+    temporaryHomes
+      .splice(0)
+      .map((dir) => rm(dir, { force: true, recursive: true })),
+  );
 });
 
 function testLogger() {
@@ -62,7 +78,7 @@ async function freePort(): Promise<number> {
 describe("Document role", () => {
   it("serves from its own thread without leaking DOM globals into the host", async () => {
     const port = await freePort();
-    setEnvironment({
+    await setTestEnvironment({
       ...environment,
       DOCUMENT_RUNTIME_HTTP_ADDRESS: `127.0.0.1:${port}`,
     });
@@ -80,7 +96,7 @@ describe("Document role", () => {
   });
 
   it("fails startup with the thread's configuration error", async () => {
-    setEnvironment({
+    await setTestEnvironment({
       ...environment,
       DOCUMENT_RUNTIME_HTTP_ADDRESS: "127.0.0.1:0",
     });
@@ -94,7 +110,7 @@ describe("Document role", () => {
   it("starts without the thread while its port is busy and serves once the port frees", async () => {
     const blocker = createServer();
     const port = await occupyPort(blocker);
-    setEnvironment({
+    await setTestEnvironment({
       ...environment,
       DOCUMENT_RUNTIME_HTTP_ADDRESS: `127.0.0.1:${port}`,
     });
@@ -154,5 +170,26 @@ describe("Document role", () => {
     }
     await expect(rebuiltExit).resolves.toEqual(expect.any(Number));
     expect(threads).toHaveLength(2);
+  });
+
+  it("terminates a wedged thread when its drain reply times out", async () => {
+    const threads: Worker[] = [];
+    const role = await startDocumentService({
+      logger: testLogger().logger,
+      drainTimeoutMs: 50,
+      createThread: () => {
+        const thread = new Worker(
+          'const { parentPort } = require("node:worker_threads"); parentPort.on("message", () => {}); parentPort.postMessage("listening");',
+          { eval: true },
+        );
+        threads.push(thread);
+        return thread;
+      },
+    });
+    const exited = new Promise((resolve) => threads[0]!.once("exit", resolve));
+    await expect(role.stop()).rejects.toThrow(
+      "Document Runtime thread timed out during drain",
+    );
+    await expect(exited).resolves.toEqual(expect.any(Number));
   });
 });

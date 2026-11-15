@@ -54,7 +54,13 @@ export function isRoomSearchShortcut(event: KeyboardEvent) {
 }
 
 function keystrokeHasOwner(target: EventTarget | null) {
-  if (document.querySelector("dialog[open]")) return true;
+  if (
+    document.querySelector(
+      "dialog[open], [role='dialog']:not(dialog), [role='alertdialog']:not(dialog)",
+    )
+  ) {
+    return true;
+  }
   if (!(target instanceof Element)) return false;
   return (
     target.closest(

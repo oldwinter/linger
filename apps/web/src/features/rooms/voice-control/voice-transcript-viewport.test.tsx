@@ -83,9 +83,12 @@ describe("VoiceTranscriptViewport", () => {
       <VoiceTranscriptViewport>Next sentence</VoiceTranscriptViewport>,
     );
     expect(viewport.scrollTop).toBe(0);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Follow latest transcript" }),
-    );
+    const followButton = screen.getByRole("button", {
+      name: "Follow latest transcript",
+    });
+    expect(followButton.className).not.toContain("absolute");
+    expect(followButton.parentElement?.className).toContain("absolute");
+    fireEvent.click(followButton);
     expect(viewport.scrollTop).toBe(400);
   });
 

@@ -3,6 +3,7 @@ import type { UpdateState } from "./updater.js";
 
 export type TrayAction =
   | "enroll"
+  | "resolve-identity-conflict"
   | "open"
   | "quick-note"
   | "toggle-prevent-sleep"
@@ -26,6 +27,7 @@ export interface TrayMenuState {
   readonly status: StatusSummary;
   readonly preventSleep: boolean;
   readonly enrolled: boolean;
+  readonly identityConflict?: boolean;
   // The updater's progress; a failure says why, since it is otherwise only
   // in the log.
   readonly update?: UpdateState;
@@ -35,6 +37,15 @@ export interface TrayMenuState {
 // (pause, approvals) are added with those features.
 export const trayMenu = (state: TrayMenuState): TrayMenuItem[] => [
   { kind: "label", label: state.status.label },
+  ...(state.identityConflict
+    ? ([
+        {
+          kind: "action",
+          action: "resolve-identity-conflict",
+          label: "Set Up Again…",
+        },
+      ] as const)
+    : []),
   ...updateItems(state.update),
   { kind: "separator" },
   { kind: "action", action: "open", label: "Open Linger" },

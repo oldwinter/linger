@@ -94,10 +94,21 @@ function isEditableTarget(target: EventTarget | null) {
 }
 
 function shouldDeferEscape(event: KeyboardEvent) {
-  if (event.defaultPrevented) return true;
-  if (document.querySelector("dialog[open]")) return true;
+  if (event.defaultPrevented || event.isComposing || event.keyCode === 229) {
+    return true;
+  }
+  if (
+    document.querySelector(
+      "dialog[open], [role='dialog']:not(dialog), [role='alertdialog']:not(dialog)",
+    )
+  ) {
+    return true;
+  }
   return (
-    event.target instanceof Element && Boolean(event.target.closest("dialog"))
+    event.target instanceof Element &&
+    Boolean(
+      event.target.closest("dialog, [role='dialog'], [role='alertdialog']"),
+    )
   );
 }
 

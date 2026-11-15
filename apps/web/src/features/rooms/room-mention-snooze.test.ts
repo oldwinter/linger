@@ -174,11 +174,14 @@ describe("room mention mute", () => {
       true,
     );
     expect(readRoomMentionSnooze(ACCOUNT, now)).toEqual({});
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
 
     unmuteRoomMention(ACCOUNT, "room-a");
 
     expect(readRoomMentionMute(ACCOUNT).size).toBe(0);
+    expect(localStorage.getItem(MUTE_STORAGE_KEY)).toBeNull();
     expect(readRoomMentionSnooze(ACCOUNT, now)).toEqual({});
+    expect(hasRoomMentionPreferences()).toBe(false);
   });
 
   it("leaves another Room's snooze in place when muting one", () => {

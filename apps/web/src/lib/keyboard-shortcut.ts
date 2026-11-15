@@ -15,7 +15,7 @@ const fieldSelector = [
 ].join(", ");
 
 const openOverlaySelector =
-  "dialog[open], [role='menu'], [role='listbox'], [role='alertdialog']";
+  "dialog[open], [role='menu'], [role='listbox'], [role='alertdialog'], [role='dialog']:not(dialog)";
 
 /**
  * Whether a bare key event belongs to the page rather than to a field, a menu,

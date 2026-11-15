@@ -49,6 +49,7 @@ export class QuickNoteModule implements Module {
   #ctx: ModuleContext | undefined;
   #window: BrowserWindow | undefined;
   #closeTimer: NodeJS.Timeout | undefined;
+  #submitQueue: Promise<unknown> = Promise.resolve();
   readonly #unsubscribe: (() => void)[] = [];
 
   constructor(options: QuickNoteOptions) {
@@ -89,6 +90,7 @@ export class QuickNoteModule implements Module {
   }
 
   show(): void {
+    this.#clearCloseTimer();
     if (this.#window && !this.#window.isDestroyed()) {
       this.#window.show();
       this.#window.focus();
@@ -130,20 +132,24 @@ export class QuickNoteModule implements Module {
     void window.loadURL(QUICK_NOTE_URL).catch(() => undefined);
   }
 
-  async #submit(value: unknown): Promise<QuickNoteResult> {
-    const parsed = noteInput.safeParse(value);
-    if (!parsed.success)
-      return { ok: false, message: "This note is too long." };
-    const note = parsed.data.trim();
-    if (!note) return { ok: false, message: "Write something first." };
-    try {
-      const result = await this.#appendToToday(note);
-      if (result.ok) this.#closeSoon();
-      return result;
-    } catch (error) {
-      this.#ctx?.log.warn("quick_note.failed", { error: String(error) });
-      return { ok: false, message: "Couldn't save the note. Try again." };
-    }
+  #submit(value: unknown): Promise<QuickNoteResult> {
+    const run = this.#submitQueue.then(async (): Promise<QuickNoteResult> => {
+      const parsed = noteInput.safeParse(value);
+      if (!parsed.success)
+        return { ok: false, message: "This note is too long." };
+      const note = parsed.data.trim();
+      if (!note) return { ok: false, message: "Write something first." };
+      try {
+        const result = await this.#appendToToday(note);
+        if (result.ok) this.#closeSoon();
+        return result;
+      } catch (error) {
+        this.#ctx?.log.warn("quick_note.failed", { error: String(error) });
+        return { ok: false, message: "Couldn't save the note. Try again." };
+      }
+    });
+    this.#submitQueue = run.catch(() => undefined);
+    return run;
   }
 
   async #appendToToday(note: string): Promise<QuickNoteResult> {

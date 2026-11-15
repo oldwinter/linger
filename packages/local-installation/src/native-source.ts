@@ -586,7 +586,6 @@ async function runNativeSource(
               "Voice stays off: this installation has no voice tools for this computer.\n",
           });
         const env: NodeJS.ProcessEnv = {
-          ...process.env,
           ...tools.env,
           ...configured.env,
           ...(voice

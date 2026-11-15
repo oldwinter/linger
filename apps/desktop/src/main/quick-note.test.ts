@@ -272,4 +272,63 @@ describe("QuickNoteModule", () => {
     expect(f.window.close).toHaveBeenCalledOnce();
     await f.host.stop("quit");
   });
+
+  it("cancels the delayed auto-close when reopened before 900ms", async () => {
+    vi.useFakeTimers();
+    respond([pageResponse("Earlier"), pageResponse("")]);
+    const f = await fixture();
+
+    expect(await f.invoke("Follow-up")).toEqual({ ok: true });
+    vi.advanceTimersByTime(400);
+    f.module.show();
+    vi.advanceTimersByTime(600);
+
+    expect(f.window.close).not.toHaveBeenCalled();
+    expect(f.window.show).toHaveBeenCalledOnce();
+    expect(f.window.focus).toHaveBeenCalledOnce();
+    await f.host.stop("quit");
+  });
+
+  it("serializes concurrent submissions so notes do not overwrite each other", async () => {
+    let saved = "";
+    const order: string[] = [];
+    let releaseFirstGet!: () => void;
+    const firstGetGate = new Promise<void>((resolve) => {
+      releaseFirstGet = resolve;
+    });
+    let getCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: unknown, init: RequestInit = {}) => {
+        if (!init.method || init.method === "GET") {
+          getCount += 1;
+          order.push(`GET#${getCount}`);
+          if (getCount === 1) await firstGetGate;
+          return pageResponse(saved);
+        }
+        const body = JSON.parse(String(init.body)) as { text: string };
+        saved = body.text;
+        order.push(`PUT:${body.text}`);
+        return pageResponse(saved);
+      }),
+    );
+    const f = await fixture();
+
+    const first = f.invoke("First");
+    const second = f.invoke("Second");
+    await vi.waitFor(() => expect(order).toEqual(["GET#1"]));
+    releaseFirstGet();
+
+    expect(await Promise.all([first, second])).toEqual([
+      { ok: true },
+      { ok: true },
+    ]);
+    expect(order).toEqual([
+      "GET#1",
+      "PUT:First",
+      "GET#2",
+      "PUT:First\n\nSecond",
+    ]);
+    await f.host.stop("quit");
+  });
 });

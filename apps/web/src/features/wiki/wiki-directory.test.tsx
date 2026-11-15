@@ -436,7 +436,7 @@ describe("Wiki directory", () => {
     expect(await screen.findByRole("link", { name: "beta" })).toBeVisible();
 
     await waitFor(() =>
-      expect(readRecentWikiPages("account-jenny")).toEqual([
+      expect(readRecentWikiPages("account-jenny", "tenant-northstar")).toEqual([
         {
           id: "alpha",
           name: "alpha",
@@ -454,13 +454,15 @@ describe("Wiki directory", () => {
     fireEvent.click(await screen.findByRole("link", { name: "beta" }));
 
     await waitFor(() =>
-      expect(readRecentWikiPages("account-jenny").map((row) => row.id)).toEqual(
-        ["beta", "alpha"],
-      ),
+      expect(
+        readRecentWikiPages("account-jenny", "tenant-northstar").map(
+          (row) => row.id,
+        ),
+      ).toEqual(["beta", "alpha"]),
     );
   });
   it("shows recently opened pages above the daily cards", async () => {
-    writeRecentWikiPages("account-jenny", [
+    writeRecentWikiPages("account-jenny", "tenant-northstar", [
       {
         id: "alpha",
         name: "Alpha notes",

@@ -149,10 +149,11 @@ Gateway and runs Agents. The daemon exits with the app.
   presented it, since TeamHub binds it there for good: an enrollment that does
   not renew that Computer discards it once that enrollment is stored
   (`daemon-identity.ts`), so the daemon makes one for the Computer now
-  enrolled. A Gateway report that the identity is another Computer's survives
-  daemon restarts within the app session, until this Computer connects with it
-  or the identity is discarded; Set Up Again discards it, and Reconnect This
-  Computer refuses with that reason instead of renewing into the same conflict.
+  enrolled. A Gateway report that the identity is another Computer's persists in
+  `config.json` (`identityConflict`) across daemon backoff and app restarts,
+  until this Computer connects with it or the identity is discarded; Set Up
+  Again (from setup or the tray menu) discards it, and Reconnect This Computer
+  refuses with that reason instead of renewing into the same conflict.
   Before installing or resuming it moves the
   `COMPOSIO_API_KEY`, `SONIOX_API_KEY`, `XAI_API_KEY` and `TZ` of an unpacked
   source package's `.env` into `<home>/instances/desktop/user.env` once and
@@ -177,13 +178,13 @@ Gateway and runs Agents. The daemon exits with the app.
 - `src/main/diagnostics.ts`: Diagnostics, "Show Logs" (opens
   `<userData>/logs`) and "Save Diagnostics" (a redacted
   `linger-diagnostics-<time>.zip` in Downloads) for the setup page's failed
-  step, the start failure page and the tray. The zip holds the Desktop logs
-  and `config.json`, the installer job JSON and logs, the instance JSON and
-  service logs under each install home. Credential files (`gateway.json`, `caller.key`,
+  step, the start failure page and the tray. The zip holds the Desktop logs,
+  `computer/state/service-logs`, and `config.json`, the installer job JSON and logs, the instance JSON and
+  service logs under each install home. Credential files (`gateway.json`, `daemon-identity.json`, `caller.key`,
   `control.key`, `credential.json`, `launch.html`, `*.env`, `*.input.json`,
   keys, cookies, databases) never go in, every saved voice key is replaced
   wherever a log printed it, and every text passes through `redact` plus a
-  secret-key JSON filter. It imports no Electron API, so it is
+  secret-key JSON filter, alongside daemon connection/status summary fields. It imports no Electron API, so it is
   tested with Windows paths on any platform.
 - `src/main/window-manager.ts`: one `BaseWindow` with two views, the title bar
   (`app://shell/titlebar`) and the SPA. macOS keeps native traffic lights,

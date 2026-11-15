@@ -139,7 +139,7 @@ it("records the previewed page for the Wiki home", async () => {
     await screen.findByRole("heading", { level: 1, name: "Lev8" }),
   ).toBeVisible();
   await waitFor(() =>
-    expect(readRecentWikiPages("account-jenny")).toEqual([
+    expect(readRecentWikiPages("account-jenny", "tenant-northstar")).toEqual([
       {
         id: "projects/lev8",
         name: "Lev8",

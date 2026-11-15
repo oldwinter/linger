@@ -28,6 +28,7 @@ const desktopConfig = z.object({
   renewalEnrollment: z
     .object({ computerId: z.string().min(1), origin: z.string().url() })
     .optional(),
+  identityConflict: z.boolean().optional(),
   workspaceGrants: z.array(workspaceGrant).default([]),
   // Always-on mode: keep the system awake even when idle.
   preventSleep: z.boolean().default(false),

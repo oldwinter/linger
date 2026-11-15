@@ -3020,7 +3020,7 @@ describe("Recently opened documents", () => {
 
   it("lists stored opens above the documents tree", async () => {
     localStorage.setItem(
-      "library-recent-documents.v1:account-jenny",
+      "library-recent-documents.v1:account-jenny.tenant-northstar",
       JSON.stringify([
         {
           formatLabel: "md",
@@ -3041,5 +3041,56 @@ describe("Recently opened documents", () => {
     expect(
       strip.compareDocumentPosition(filters) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  it("removes a document from the strip when it is trashed", async () => {
+    const runtime = await signedInRuntime();
+    const document = seedNativeDocument(runtime, "recent-strip-trash");
+    const trash = declareTrashResponse(runtime, document);
+    localStorage.setItem(
+      "library-recent-documents.v1:account-jenny.tenant-northstar",
+      JSON.stringify([
+        {
+          formatLabel: "md",
+          id: document.id,
+          name: document.title,
+          openedAt: "2026-07-24T10:00:00Z",
+        },
+      ]),
+    );
+    renderPage(runtime);
+
+    const strip = screen.getByRole("region", { name: "Recently opened" });
+    expect(
+      within(strip).getByRole("link", { name: `${document.title}, md` }),
+    ).toBeVisible();
+
+    const recent = await screen.findByRole("region", { name: "Recent" });
+    fireEvent.click(
+      await within(recent).findByRole("button", {
+        name: `Actions for ${document.title}`,
+      }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Delete Document?",
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() =>
+      expect(trash).toHaveBeenCalledWith(
+        expect.objectContaining({ params: { documentId: document.id } }),
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("region", { name: "Recently opened" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      localStorage.getItem(
+        "library-recent-documents.v1:account-jenny.tenant-northstar",
+      ),
+    ).toBeNull();
   });
 });

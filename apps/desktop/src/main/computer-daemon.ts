@@ -251,6 +251,8 @@ export class ComputerDaemonModule implements Module {
 
   async start(ctx: ModuleContext): Promise<void> {
     this.#ctx = ctx;
+    if (ctx.config.get().identityConflict)
+      this.#connectionError = DAEMON_IDENTITY_CONFLICT;
     this.#unsubscribe.push(
       // A different (or no) computer identity applies at once.
       ctx.bus.on("computer.changed", () => this.#requestRestart(false)),
@@ -339,6 +341,7 @@ export class ComputerDaemonModule implements Module {
     const ctx = this.#ctx!;
     if (this.#stopping || this.#child || !this.#env) return;
     const config = ctx.config.get();
+    if (!config.identityConflict) this.#setConnectionError(undefined);
     if (!config.computerId || !config.tenantId) {
       this.#setConnection("disconnected");
       this.#setState("stopped");
@@ -356,7 +359,7 @@ export class ComputerDaemonModule implements Module {
     const configFile = this.#writeConfig(config, credential, env);
     this.#setState("starting");
     this.#setConnection("connecting");
-    this.#setConnectionError(undefined);
+    if (!config.identityConflict) this.#setConnectionError(undefined);
     this.#startedAt = Date.now();
     const child = this.#options.spawn(configFile, {
       ...env,
@@ -394,9 +397,22 @@ export class ComputerDaemonModule implements Module {
       this.#startFailures = 0;
       this.#setFailure(undefined);
       this.#setState("ready");
-      this.#setConnectionError(connectionError(status.connection_error));
-      if (typeof status.gateway_state === "string")
-        this.#setConnection(connectionState(status.gateway_state));
+      const reportedError = connectionError(status.connection_error);
+      const gateway =
+        typeof status.gateway_state === "string"
+          ? connectionState(status.gateway_state)
+          : undefined;
+      if (reportedError === DAEMON_IDENTITY_CONFLICT) {
+        if (!ctx.config.get().identityConflict)
+          ctx.config.update({ identityConflict: true });
+        this.#setConnectionError(DAEMON_IDENTITY_CONFLICT);
+      } else if (gateway === "online") {
+        // Only a successful connection proves the Gateway accepted this identity.
+        if (ctx.config.get().identityConflict)
+          ctx.config.update({ identityConflict: undefined });
+        this.#setConnectionError(undefined);
+      }
+      if (gateway !== undefined) this.#setConnection(gateway);
       if (typeof status.active_operations === "number")
         this.#setRunning(status.active_operations);
     });
@@ -405,7 +421,6 @@ export class ComputerDaemonModule implements Module {
       this.#child = undefined;
       this.#setRunning(0);
       this.#setConnection("disconnected");
-      this.#setConnectionError(undefined);
       if (this.#stopping) return;
       if (Date.now() - this.#startedAt >= HEALTHY_AFTER_MS) this.#failures = 0;
       this.#failures += 1;
@@ -486,7 +501,8 @@ export class ComputerDaemonModule implements Module {
     this.#child = undefined;
     this.#setRunning(0);
     this.#setConnection("disconnected");
-    this.#setConnectionError(undefined);
+    if (!this.#ctx?.config.get().identityConflict)
+      this.#setConnectionError(undefined);
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
         this.#ctx?.log.warn("computer_daemon.kill");

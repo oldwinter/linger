@@ -400,6 +400,7 @@ export class LocalServerModule implements Module {
     let record = await this.#readRecord();
     if (record) this.#home = record.home;
     const config = ctx.config.get();
+    this.#identityConflict = !!config.identityConflict;
     const resumes =
       !!record && config.serverUrl === record.origin && !!config.computerId;
     if (migrationFailure) {
@@ -1953,6 +1954,7 @@ export class LocalServerModule implements Module {
       this.#set("idle", "");
       ctx.log.info("local_server.reset");
       await ctx.get<EnrollmentModule>("Enrollment").resetLocalServer();
+      this.#identityConflict = false;
       ctx.config.update({ serverUrl: undefined });
       ctx.get<WindowManagerModule>("WindowManager").loadServer();
     } catch (error) {

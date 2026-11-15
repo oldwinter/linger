@@ -35,6 +35,7 @@ export function WikiPreviewPage() {
           id: page.key,
           name: page.name,
           path: wikiPreviewPath(tenantId, page.path),
+          tenantId,
         }
       : undefined,
   );

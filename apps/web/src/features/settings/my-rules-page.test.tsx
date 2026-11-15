@@ -15,6 +15,7 @@ import type {
   TeamHubProactiveRuleBook,
 } from "@/features/teamhub/teamhub-types";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
+import { teamHubErrorResponse } from "@/test/teamhub-test-server";
 
 import { MyRulesPage } from "./my-rules-page";
 
@@ -71,9 +72,12 @@ const book: TeamHubProactiveRuleBook = {
   mandates: [],
 };
 
-function renderPage() {
+function renderPage(
+  setup?: (runtime: ReturnType<typeof createTestTeamHubRuntime>) => void,
+) {
   const runtime = createTestTeamHubRuntime();
   runtime.server.on("GET", rulesPath, () => book);
+  setup?.(runtime);
   render(
     <QueryClientProvider
       client={
@@ -356,14 +360,89 @@ describe("My Rules", () => {
     const actions = await screen.findByRole("list", {
       name: "Actions taken under this rule",
     });
-    expect(
-      within(actions).getByText("#7 Answer the Acme reply: created for gmail"),
-    ).toBeTruthy();
+    const workItemLink = within(actions).getByRole("link", {
+      name: "#7 Answer the Acme reply",
+    });
+    expect(workItemLink.getAttribute("href")).toBe(
+      "/t/tenant-northstar/dashboard/workitem_1",
+    );
+    expect(within(actions).getByRole("listitem").textContent).toBe(
+      "#7 Answer the Acme reply: created for gmail",
+    );
     expect(
       within(await row("Client replies → remind directly")).getByRole(
         "combobox",
         { name: "Mandate" },
       ).textContent,
     ).toContain("Create a Work Item");
+  });
+
+  it("shows a retry action when rules fail to load", async () => {
+    let attempts = 0;
+    renderPage((runtime) => {
+      runtime.server.on("GET", rulesPath, () => {
+        attempts += 1;
+        if (attempts === 1) {
+          return teamHubErrorResponse(500, "INTERNAL_ERROR");
+        }
+        return book;
+      });
+    });
+
+    expect(await screen.findByText("Rules could not be loaded.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(await row("Client replies → remind directly")).toBeTruthy();
+  });
+
+  it("keeps the edit draft on save failure and supports Escape and Ctrl+Enter shortcuts", async () => {
+    let patchFail = true;
+    const runtime = renderPage();
+    runtime.server.on("PATCH", rulePath, ({ body }) => {
+      if (patchFail) {
+        return teamHubErrorResponse(500, "INTERNAL_ERROR");
+      }
+      return {
+        ...book,
+        rules: [
+          book.rules[0]!,
+          {
+            ...book.rules[1]!,
+            text: (body as { text: string }).text,
+            source: "user" as const,
+          },
+        ],
+      };
+    });
+
+    const shadow = await row("Vendor invoices → track for follow-up");
+    fireEvent.click(within(shadow).getByRole("button", { name: "Edit rule" }));
+    const field = screen.getByRole("textbox", { name: "Rule text" });
+    fireEvent.change(field, {
+      target: { value: "Vendor invoices over 2000 → track" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(
+      await screen.findByText("The change was not saved. Try again."),
+    ).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Rule text" })).toHaveValue(
+      "Vendor invoices over 2000 → track",
+    );
+
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Rule text" }), {
+      key: "Escape",
+    });
+    expect(screen.queryByRole("textbox", { name: "Rule text" })).toBeNull();
+
+    patchFail = false;
+    fireEvent.click(within(shadow).getByRole("button", { name: "Edit rule" }));
+    const reopened = screen.getByRole("textbox", { name: "Rule text" });
+    fireEvent.change(reopened, {
+      target: { value: "Vendor invoices over 2000 → track" },
+    });
+    fireEvent.keyDown(reopened, { ctrlKey: true, key: "Enter" });
+
+    expect(await row("Vendor invoices over 2000 → track")).toBeTruthy();
   });
 });

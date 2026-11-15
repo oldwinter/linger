@@ -110,6 +110,7 @@ export function WikiDirectory({
           id: opened.id,
           name: pageRowTitle(opened),
           path: wikiDocumentPath(tenantId, opened.id),
+          tenantId,
         }
       : undefined,
   );

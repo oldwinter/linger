@@ -2,12 +2,14 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 
+import { teamHubIdentityQueryKey } from "@/features/rooms/room-queries";
 import { writeDocumentLinkClipboard } from "@/features/rooms/files/document-clipboard-link";
 import { triggerArtifactDownload } from "@/features/rooms/files/artifact-preview-loader";
 import { documentDetailPath } from "@/features/rooms/files/document-detail-routes";
 import { teamHubData, teamHubDone } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
+  TeamHubCurrentIdentity,
   TeamHubDocumentPlacementNode,
   TeamHubDocumentTreeSummary,
 } from "@/features/teamhub/teamhub-types";
@@ -18,6 +20,7 @@ import {
   myDocumentTreeQueryKey,
   updateMyDocumentTreeCache,
 } from "./my-documents-tree-helpers";
+import { removeRecentDocument } from "./recent-documents";
 
 interface MyDocumentsDocumentActionsInput {
   activeDocumentId?: string;
@@ -132,6 +135,10 @@ export function useMyDocumentsDocumentActions({
           params: { path: { documentId: document.id } },
         }),
       );
+      const accountId = queryClient.getQueryData<TeamHubCurrentIdentity>(
+        teamHubIdentityQueryKey,
+      )?.account.id;
+      removeRecentDocument(accountId, tenantId, document.id);
       if (activeDocumentId === document.id) {
         void navigate(
           nextDocumentId

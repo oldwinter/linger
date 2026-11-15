@@ -75,11 +75,11 @@ describe("Recording an opened Document", () => {
         wrapper: wrapper(true),
       },
     );
-    expect(readRecentDocuments("account-a")).toEqual([]);
+    expect(readRecentDocuments("account-a", "tenant-northstar")).toEqual([]);
 
     rerender({ opened: document() });
 
-    expect(readRecentDocuments("account-a")).toEqual([
+    expect(readRecentDocuments("account-a", "tenant-northstar")).toEqual([
       expect.objectContaining({
         formatLabel: "md",
         id: "document-design",
@@ -97,7 +97,9 @@ describe("Recording an opened Document", () => {
     );
     rerender({ opened: document() });
 
-    expect(readRecentDocuments("account-a")).toHaveLength(1);
+    expect(readRecentDocuments("account-a", "tenant-northstar")).toHaveLength(
+      1,
+    );
   });
 
   it("records nothing without a signed-in Account", () => {

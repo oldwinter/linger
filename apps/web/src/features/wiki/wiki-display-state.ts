@@ -4,6 +4,9 @@ import { teamHubIdentityQueryOptions } from "@/features/rooms/room-queries";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubDocument } from "@/features/teamhub/teamhub-types";
 import type { WikiGraphData } from "@/features/memory/wiki-graph-model";
+import { removePreferenceKeys } from "@/lib/local-preference-keys";
+
+const WIKI_DISPLAY_PREFIX = "linger:wiki-display:v1:";
 
 export const wikiCollectionLabels = {
   projects: "Projects",
@@ -34,11 +37,16 @@ export function wikiCollection(
   return first && isWikiCollection(first) ? first : null;
 }
 export type WikiDisplayDecisions = Record<string, "keep" | "delete">;
+
+export function clearAllWikiDisplayState(): void {
+  removePreferenceKeys([WIKI_DISPLAY_PREFIX]);
+}
+
 export function useWikiDisplayState(tenantId: string) {
   const { client } = useTeamHubRuntime();
   const identity = useQuery(teamHubIdentityQueryOptions(client));
   const accountId = identity.data?.account.id;
-  const key = `linger:wiki-display:v1:${tenantId}:${accountId ?? "pending"}`;
+  const key = `${WIKI_DISPLAY_PREFIX}${tenantId}:${accountId ?? "pending"}`;
   const [decisions, setDecisions] = useLibraryTreeState<WikiDisplayDecisions>(
     tenantId,
     key,

@@ -90,6 +90,7 @@ function renderPanel(
     current: document.createElement("button"),
   };
   const closeRef: RefObject<(() => void) | undefined> = { current: undefined };
+  const onClose = vi.fn();
   render(
     <QueryClientProvider
       client={
@@ -100,13 +101,13 @@ function renderPanel(
         <PocketNotePanel
           anchorRef={anchorRef}
           closeRef={closeRef}
-          onClose={() => undefined}
+          onClose={onClose}
           tenantId="tenant-1"
         />
       </TeamHubRuntimeProvider>
     </QueryClientProvider>,
   );
-  return { runtime };
+  return { onClose, runtime };
 }
 
 async function openAllNotes() {
@@ -537,6 +538,29 @@ describe("PocketNotePanel jump to today", () => {
     expect(search).toHaveValue("first");
     expect(screen.getByRole("button", { name: /First note/ })).toBeVisible();
     expect(screen.queryByText("Yesterday's idea")).not.toBeInTheDocument();
+  });
+
+  it("cancels confirmation and clears search on Escape before closing", async () => {
+    const { onClose } = renderPanel(async () =>
+      page([note("2026-09-30", "Yesterday's idea")]),
+    );
+    await openAllNotes();
+    const search = screen.getByRole("searchbox", { name: "Search notes" });
+    fireEvent.change(search, { target: { value: "Yesterday" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /^Delete / }));
+    expect(screen.getByRole("alertdialog")).toBeVisible();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(search).toHaveValue("");
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });
 
