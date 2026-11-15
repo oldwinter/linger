@@ -66,6 +66,8 @@ export function useComposerTextarea({
       textarea?.setSelectionRange(textarea.value.length, textarea.value.length);
     },
     insertMention: insertMentionAtCursor,
+    insertMentionQuietly: (actor) =>
+      insertMentionAtCursor(actor, { focus: false }),
     stageQuoteReply,
   }));
 

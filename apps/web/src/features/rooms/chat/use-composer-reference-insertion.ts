@@ -172,7 +172,10 @@ export function useComposerReferenceInsertion({
     setSkillQuery(null);
   }
 
-  function insertMentionAtCursor(actor: TeamHubActorRef) {
+  function insertMentionAtCursor(
+    actor: TeamHubActorRef,
+    options?: { focus?: boolean },
+  ) {
     const textarea = textareaRef.current;
     const cursor = textarea?.selectionStart ?? body.length;
     const before = body.slice(0, cursor);
@@ -181,8 +184,10 @@ export function useComposerReferenceInsertion({
     const suffix = after.length === 0 || !/^\s/.test(after) ? " " : "";
     const token = formatMentionToken(actor);
     const nextBody = `${before}${prefix}${token}${suffix}${after}`;
-    pendingCaretRef.current =
-      before.length + prefix.length + token.length + suffix.length;
+    const caret = before.length + prefix.length + token.length + suffix.length;
+    // A follow-up placed while the reader is elsewhere must not take focus.
+    if (options?.focus !== false || document.activeElement === textarea)
+      pendingCaretRef.current = caret;
     if (!selectedMentionsRef.current.some((item) => item.id === actor.id)) {
       selectedMentionsRef.current = [...selectedMentionsRef.current, actor];
     }
