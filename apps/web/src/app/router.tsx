@@ -711,6 +711,14 @@ function createLibraryRoute(): RouteObject {
         },
         path: "meeting-reminders",
       },
+      {
+        ErrorBoundary: PanelRouteErrorSurface,
+        lazy: async () => ({
+          Component: (await import("@/features/memory/day-shape-page"))
+            .DayShapePage,
+        }),
+        path: "day-shape",
+      },
     ],
     path: "library",
   };

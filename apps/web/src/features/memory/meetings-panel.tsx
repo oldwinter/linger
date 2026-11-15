@@ -18,8 +18,9 @@ import {
 } from "./meetings-calendar";
 import { Spinner } from "@/components/ui/spinner";
 import { dayKey } from "@/lib/date-format";
-import { meetingPath } from "./meeting-routes";
+import { dayShapePath } from "./day-shape";
 import { useMeetings } from "./memory-queries";
+import { meetingPath } from "./meeting-routes";
 import { HideMeetingDialog } from "./hide-meeting-dialog";
 
 const levelClass = [
@@ -181,27 +182,35 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div
-        aria-label="Meeting range"
-        className="inline-flex w-fit gap-0.5 rounded-lg bg-muted p-0.5"
-        role="radiogroup"
-      >
-        {meetingRanges.map((candidate) => (
-          <button
-            aria-checked={candidate.id === range}
-            className={`h-7 rounded-md px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
-              candidate.id === range
-                ? "bg-card text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-            key={candidate.id}
-            onClick={() => chooseRange(candidate.id)}
-            role="radio"
-            type="button"
-          >
-            {candidate.label}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div
+          aria-label="Meeting range"
+          className="inline-flex w-fit gap-0.5 rounded-lg bg-muted p-0.5"
+          role="radiogroup"
+        >
+          {meetingRanges.map((candidate) => (
+            <button
+              aria-checked={candidate.id === range}
+              className={`h-7 rounded-md px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
+                candidate.id === range
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+              key={candidate.id}
+              onClick={() => chooseRange(candidate.id)}
+              role="radio"
+              type="button"
+            >
+              {candidate.label}
+            </button>
+          ))}
+        </div>
+        <Link
+          className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          to={dayShapePath(tenantId, today)}
+        >
+          Shape of today
+        </Link>
       </div>
       <div>
         {meetings.isPending ? (
