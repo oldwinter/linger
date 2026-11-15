@@ -129,7 +129,8 @@ function workspaceSection(pathname: string): LibrarySection | null {
   if (rest.startsWith("/wiki")) return "wiki";
   // This day is a reading page, like the Library home, with no file tree.
   if (rest === "/day") return "overview";
-  // An open meeting keeps the Library sidebar beside it.
-  if (rest.startsWith("/meetings")) return null;
+  // An open meeting, and carrying one of its decisions, keeps the Library sidebar beside it.
+  if (rest.startsWith("/meetings") || rest.startsWith("/carry-decision"))
+    return null;
   return "overview";
 }

@@ -24,6 +24,7 @@ import {
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 import { MeetingAudioPlayer } from "./meeting-audio-player";
+import { carryDecisionPath, meetingDecisions } from "./carry-decision";
 import { parseMeetingSummary } from "./meeting-overview";
 import {
   MeetingKeywords,
@@ -221,6 +222,10 @@ export function MeetingReader({
     () => meetingStoryBeats(summaryMarkdown),
     [summaryMarkdown],
   );
+  const decisions = useMemo(
+    () => meetingDecisions(summaryMarkdown),
+    [summaryMarkdown],
+  );
   const summaryDocument = (markdown: string) => (
     <ReadOnlyBlockNoteDocumentLoader
       ariaLabel="Meeting summary document"
@@ -364,6 +369,14 @@ export function MeetingReader({
                     >
                       Copy summary
                     </Button>
+                  ) : null}
+                  {decisions.length ? (
+                    <Link
+                      className="text-sm text-app-ink underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                      to={carryDecisionPath(tenantId, entry.id)}
+                    >
+                      Carry a decision
+                    </Link>
                   ) : null}
                   <Button
                     size="compact"
