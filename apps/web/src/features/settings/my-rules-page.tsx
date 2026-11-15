@@ -7,7 +7,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { useParams } from "react-router";
+import { Link, useParams } from "react-router";
 
 import { QuietRemindersControl } from "@/features/rooms/another-me-quiet-control";
 import { teamHubIdentityQueryOptions } from "@/features/rooms/room-queries";
@@ -32,6 +32,7 @@ import {
   runMyRulesCommand,
   type MyRulesCommand,
 } from "./my-rules-queries";
+import { shadowRuleIds } from "./shadow-rule-review";
 import { SettingsPageHeading } from "./settings-page-heading";
 
 const actionLabel: Record<TeamHubProactiveAction, string> = {
@@ -99,6 +100,7 @@ export function MyRulesPage() {
           book={rules.data}
           busy={command.isPending}
           onCommand={(input) => command.mutateAsync(input)}
+          reviewPath={`/t/${encodeURIComponent(tenantId)}/settings/my-rules/review`}
         />
       )}
       {command.isError ? (
@@ -114,19 +116,31 @@ function RuleBook({
   book,
   busy,
   onCommand,
+  reviewPath,
 }: {
   book: TeamHubProactiveRuleBook;
   busy: boolean;
   onCommand: (input: MyRulesCommand) => Promise<unknown>;
+  reviewPath: string;
 }) {
   const [armedRuleId, setArmedRuleId] = useState<string | null>(null);
-
+  const shadowCount = shadowRuleIds(book).length;
   return (
     <>
       <section aria-labelledby="my-rules-rules" className="flex flex-col gap-3">
-        <h2 className="text-sm text-foreground" id="my-rules-rules">
-          Rules
-        </h2>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm text-foreground" id="my-rules-rules">
+            Rules
+          </h2>
+          {shadowCount > 0 ? (
+            <Link
+              className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              to={reviewPath}
+            >
+              {`Review ${shadowCount} new ${shadowCount === 1 ? "rule" : "rules"}`}
+            </Link>
+          ) : null}
+        </div>
         {book.rules.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No rules yet. When you tell Another Me how you want a kind of thing
