@@ -1,0 +1,92 @@
+import { useQuery } from "@tanstack/react-query";
+import { Link, useParams } from "react-router";
+
+import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { requireRoomRouteParam } from "./room-route-params";
+import { roomTeamMdQueryOptions } from "./task-sidebar/team-md-query";
+import {
+  patternAccounts,
+  patternTitle,
+  workMoves,
+  workMoveText,
+} from "./work-moves";
+
+/**
+ * The room's team.md as a sequence. The query is the one a published team.md
+ * refreshes, so a new protocol replaces this page while it is open.
+ */
+export function WorkMovesPage() {
+  const { client } = useTeamHubRuntime();
+  const params = useParams();
+  const tenantId = requireRoomRouteParam(params.tenantId, "Tenant");
+  const roomId = requireRoomRouteParam(params.roomId, "Room");
+  const protocol = useQuery(roomTeamMdQueryOptions(client, tenantId, roomId));
+  const document = protocol.data;
+  const steps = document ? workMoves(document) : [];
+  const chat = `/t/${encodeURIComponent(tenantId)}/rooms/${encodeURIComponent(roomId)}/chat`;
+
+  return (
+    <main className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-5 py-7">
+      <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
+        <header>
+          <h1 className="text-xl text-foreground">How work moves</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            The path an agent published for this room. A newer team.md replaces
+            it here.
+          </p>
+        </header>
+        {protocol.isPending ? (
+          <p className="text-sm text-muted-foreground" role="status">
+            Loading how work moves.
+          </p>
+        ) : protocol.isError ? (
+          <p className="text-sm text-destructive" role="alert">
+            How work moves could not be loaded.
+          </p>
+        ) : !document ? (
+          <p className="text-sm text-muted-foreground" role="status">
+            No collaboration plan yet. When an agent publishes one, the path
+            shows up here.
+          </p>
+        ) : (
+          <>
+            <section aria-labelledby="work-moves-pattern">
+              <h2 className="text-lg text-foreground" id="work-moves-pattern">
+                {patternTitle(document.collaborate_pattern)}
+              </h2>
+              <p className="mt-2 text-sm text-foreground">
+                {patternAccounts[document.collaborate_pattern]}
+              </p>
+              <p className="mt-3 text-sm text-muted-foreground">
+                {document.task_goal}
+              </p>
+            </section>
+            <ol aria-label="Work path" className="flex flex-col gap-3">
+              {steps.map((step, index) => (
+                <li
+                  className="rounded-2xl border border-border px-4 py-3"
+                  key={`${step.kind}-${step.who}-${step.other ?? ""}-${index}`}
+                >
+                  <p className="text-sm text-foreground">
+                    {workMoveText(step)}
+                  </p>
+                  {step.role ? (
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {step.role}
+                    </p>
+                  ) : null}
+                </li>
+              ))}
+            </ol>
+          </>
+        )}
+        <Link
+          className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          to={chat}
+        >
+          Back to chat
+        </Link>
+      </div>
+    </main>
+  );
+}
