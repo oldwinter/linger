@@ -104,6 +104,10 @@ export function MeetingReader({
   const accountId = identity.data?.account.id;
   const anotherMe = useQuery(anotherMeQueryOptions(client, tenantId));
   const [deleting, setDeleting] = useState(false);
+  // Each click is its own request, so playing the same topic again seeks again.
+  const [playFrom, setPlayFrom] = useState<
+    { at: number; request: number } | undefined
+  >();
   const tab: MeetingTab =
     file === "summary" || file === "transcript"
       ? file
@@ -432,7 +436,19 @@ export function MeetingReader({
                         title={block.title}
                       />
                     ) : block.kind === "topics" ? (
-                      <MeetingOverviewCard key={index} topics={block.topics} />
+                      <MeetingOverviewCard
+                        key={index}
+                        onPlayTopic={
+                          meeting.recording_document_id
+                            ? (at) =>
+                                setPlayFrom((current) => ({
+                                  at,
+                                  request: (current?.request ?? 0) + 1,
+                                }))
+                            : undefined
+                        }
+                        topics={block.topics}
+                      />
                     ) : (
                       <MeetingOutcomes
                         checks={
@@ -475,6 +491,7 @@ export function MeetingReader({
                 documentId={meeting.recording_document_id}
                 filename={meeting.recording_filename}
                 meetingId={entry.id}
+                playFrom={playFrom}
                 variant="player"
                 versionId={meeting.recording_version_id}
               />
@@ -504,6 +521,7 @@ function MeetingVersionReader({
   versionId,
   filename,
   meetingId,
+  playFrom,
   variant,
 }: {
   /** Whose listening positions the player remembers. */
@@ -513,6 +531,8 @@ function MeetingVersionReader({
   filename: string;
   /** Tells the player which meeting it is playing, so its speed starts over. */
   meetingId?: string;
+  /** A topic asked the recording to start at this moment. */
+  playFrom?: { at: number; request: number };
   variant: "player" | "document";
 }) {
   const { client } = useTeamHubRuntime();
@@ -823,6 +843,7 @@ function MeetingVersionReader({
         mediaType={preview?.version.media_type}
         meetingId={meetingId}
         onDownload={() => void download()}
+        playFrom={playFrom}
         src={playable ? preview.objectUrl : undefined}
         status={
           !preview

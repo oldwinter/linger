@@ -77,6 +77,30 @@ describe("MeetingAudioPlayer", () => {
     expect(screen.getByText("Loading...")).toBeVisible();
   });
 
+  it("starts at a topic's moment and plays", async () => {
+    const play = vi
+      .spyOn(HTMLMediaElement.prototype, "play")
+      .mockResolvedValue(undefined);
+    const { container } = render(
+      <MeetingAudioPlayer
+        filename="recording.m4a"
+        mediaType="audio/mp4"
+        onDownload={vi.fn()}
+        playFrom={{ at: 33, request: 1 }}
+        src="blob:recording"
+      />,
+    );
+    const audio = container.querySelector("audio")!;
+    Object.defineProperty(audio, "duration", {
+      configurable: true,
+      value: 125,
+    });
+    fireEvent.loadedMetadata(audio);
+    await waitFor(() => expect(audio.currentTime).toBe(33));
+    expect(play).toHaveBeenCalled();
+    expect(screen.getByText("0:33 / 2:05")).toBeVisible();
+  });
+
   it("plays, follows the playhead, seeks, and downloads", () => {
     const play = vi
       .spyOn(HTMLMediaElement.prototype, "play")

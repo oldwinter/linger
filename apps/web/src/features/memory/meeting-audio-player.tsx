@@ -73,6 +73,7 @@ export function MeetingAudioPlayer({
   mediaType,
   meetingId,
   onDownload,
+  playFrom,
   src,
   status,
 }: {
@@ -84,6 +85,8 @@ export function MeetingAudioPlayer({
   /** Changes with the meeting, so the next one carries its Account's speed. */
   meetingId?: string;
   onDownload: () => void;
+  /** A topic asked to start here. A new request plays even at the same time. */
+  playFrom?: { at: number; request: number };
   src?: string;
   /** Replaces the time line, e.g. while the recording is still loading. */
   status?: string;
@@ -102,6 +105,8 @@ export function MeetingAudioPlayer({
   const rateNoticeTimer = useRef<number | undefined>(undefined);
   const restoredRef = useRef(false);
   const lastSavedAt = useRef(0);
+  const playFromRef = useRef(playFrom);
+  playFromRef.current = playFrom;
   const ready = Boolean(src) && !failed;
   const progress = duration ? Math.min(100, (current / duration) * 100) : 0;
 
@@ -144,6 +149,36 @@ export function MeetingAudioPlayer({
 
   useEffect(() => () => window.clearTimeout(rateNoticeTimer.current), []);
 
+  // A topic's clock starts the recording there, once the file can be seeked.
+  useEffect(() => {
+    const audio = audioRef.current;
+    const requested = playFrom;
+    if (!requested || !audio || !src) return;
+    let cancelled = false;
+    const start = () => {
+      if (cancelled) return;
+      const duration = audio.duration;
+      const at =
+        Number.isFinite(duration) && duration > 0
+          ? Math.min(Math.max(requested.at, 0), duration)
+          : Math.max(requested.at, 0);
+      audio.currentTime = at;
+      setCurrent(at);
+      setResumeFrom(undefined);
+      void audio.play().then(
+        () => setPlaying(true),
+        () => setPlaying(false),
+      );
+      sectionRef.current?.scrollIntoView({ block: "nearest" });
+    };
+    if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) start();
+    else audio.addEventListener("loadedmetadata", start, { once: true });
+    return () => {
+      cancelled = true;
+      audio.removeEventListener("loadedmetadata", start);
+    };
+  }, [playFrom, src]);
+
   /** Saves the place now; a position at the very start is no place to return to. */
   function savePosition(at: number) {
     if (!accountId || !meetingId) return;
@@ -157,6 +192,8 @@ export function MeetingAudioPlayer({
   function restorePosition(audio: HTMLAudioElement) {
     if (restoredRef.current || !accountId || !meetingId) return;
     restoredRef.current = true;
+    // A topic start owns this playback; the remembered place must not replace it.
+    if (playFromRef.current) return;
     const entry = readMeetingResume(accountId)[meetingId];
     const position = entry
       ? resumablePosition(entry.position, audio.duration)

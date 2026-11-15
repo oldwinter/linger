@@ -50,6 +50,19 @@ describe("MeetingOverviewCard", () => {
     expect(card).not.toHaveTextContent(/more/u);
   });
 
+  it("starts the recording at a topic that has a clock", () => {
+    const onPlayTopic = vi.fn();
+    render(<MeetingOverviewCard onPlayTopic={onPlayTopic} topics={topics} />);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Play Target users from 00:00:33 – 00:03:51",
+      }),
+    );
+    expect(onPlayTopic).toHaveBeenCalledOnce();
+    expect(onPlayTopic).toHaveBeenCalledWith(33);
+    expect(screen.queryByRole("button", { name: /Release plan/ })).toBeNull();
+  });
+
   it("uses two columns when topic text is long", () => {
     const { rerender } = render(
       <MeetingOverviewCard topics={topics.slice(1)} />,

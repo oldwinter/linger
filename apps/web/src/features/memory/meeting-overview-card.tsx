@@ -6,6 +6,7 @@ import { Icon } from "@/components/ui/icon";
 import { meetingActionChecklist } from "./meeting-action-checklist";
 import { followUpProgress, followUpTexts } from "./meeting-follow-ups";
 import type { MeetingOutcome, MeetingTopic } from "./meeting-overview";
+import { topicStartSeconds } from "./topic-playback";
 
 /**
  * Topic cards cycle through categorical Nature tints (500 shell at 10%,
@@ -30,11 +31,46 @@ const sectionHeadingRow = "mb-2 mt-7 flex items-center justify-between gap-3";
 /** Long card text reads better in two columns than three. */
 const LONG_TOPIC_TEXT = 120;
 
+/** The topic's clock. With a recording, it starts playback at that moment. */
+function TopicTime({
+  onPlayTopic,
+  topic,
+}: {
+  onPlayTopic?: (seconds: number) => void;
+  topic: MeetingTopic;
+}) {
+  const time = topic.time;
+  if (!time) return null;
+  const start = onPlayTopic ? topicStartSeconds(time) : null;
+  const className =
+    "shrink-0 self-start pt-px text-[12px] font-medium tabular-nums opacity-60";
+  if (start === null || !onPlayTopic) {
+    return <span className={className}>{time}</span>;
+  }
+  return (
+    <button
+      aria-label={`Play ${topic.title} from ${time}`}
+      className={`${className} underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+      onClick={() => onPlayTopic(start)}
+      type="button"
+    >
+      {time}
+    </button>
+  );
+}
+
 /**
  * The Session page's Meeting Summary section, shown in place as one card per
  * topic. The heading matches the knowledge document's H2 around it.
  */
-export function MeetingOverviewCard({ topics }: { topics: MeetingTopic[] }) {
+export function MeetingOverviewCard({
+  onPlayTopic,
+  topics,
+}: {
+  /** Starts the recording at a topic. Absent when this meeting has no recording. */
+  onPlayTopic?: (seconds: number) => void;
+  topics: MeetingTopic[];
+}) {
   const longTopics = topics.some(
     (topic) =>
       (topic.intro ?? "").length +
@@ -69,9 +105,7 @@ export function MeetingOverviewCard({ topics }: { topics: MeetingTopic[] }) {
               </span>
               <span className="min-w-0 flex-1 break-words">{topic.title}</span>
               {topic.time ? (
-                <span className="shrink-0 self-start pt-px text-[12px] font-medium tabular-nums opacity-60">
-                  {topic.time}
-                </span>
+                <TopicTime onPlayTopic={onPlayTopic} topic={topic} />
               ) : null}
             </div>
             <div className="flex-1 rounded-md bg-app-surface px-3 py-2.5 text-[14px] leading-relaxed text-app-body">
