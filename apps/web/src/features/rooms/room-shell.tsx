@@ -24,6 +24,7 @@ import { AccountMenu } from "@/features/auth/account-menu";
 import { LOGOUT_ERROR_MESSAGE, useLogout } from "@/features/auth/use-logout";
 
 import { Button } from "@/components/ui/button";
+import { useOpenMeetingAtStart } from "@/features/memory/use-open-meeting-at-start";
 import { jumpPath } from "@/features/jump/jump-path";
 import { useJumpShortcut } from "@/features/jump/jump-shortcut";
 import type {
@@ -165,6 +166,7 @@ function RoomShellReady({
     baseTitle: `${spaceOwnerName}'s space`,
     rooms: roomsQuery.data?.items,
   });
+  useOpenMeetingAtStart(tenantId);
 
   const rooms = roomsQuery.data;
   return (
