@@ -17,6 +17,10 @@ import {
 } from "react";
 
 import {
+  bindMeetingMediaSession,
+  placeMeetingMediaSession,
+} from "./meeting-media-session";
+import {
   forgetMeetingPosition,
   readMeetingResume,
   rememberMeetingPosition,
@@ -73,6 +77,7 @@ export function MeetingAudioPlayer({
   mediaType,
   meetingId,
   onDownload,
+  sessionTitle,
   src,
   status,
 }: {
@@ -84,6 +89,8 @@ export function MeetingAudioPlayer({
   /** Changes with the meeting, so the next one carries its Account's speed. */
   meetingId?: string;
   onDownload: () => void;
+  /** The meeting's name for the browser's media controls. */
+  sessionTitle?: string;
   src?: string;
   /** Replaces the time line, e.g. while the recording is still loading. */
   status?: string;
@@ -144,6 +151,17 @@ export function MeetingAudioPlayer({
 
   useEffect(() => () => window.clearTimeout(rateNoticeTimer.current), []);
 
+  useEffect(() => {
+    if (!src) return undefined;
+    return bindMeetingMediaSession({
+      onPause: () => audioRef.current?.pause(),
+      onPlay: () => {
+        void audioRef.current?.play().catch(() => setPlaying(false));
+      },
+      title: sessionTitle || filename,
+    });
+  }, [filename, sessionTitle, src]);
+
   /** Saves the place now; a position at the very start is no place to return to. */
   function savePosition(at: number) {
     if (!accountId || !meetingId) return;
@@ -176,8 +194,18 @@ export function MeetingAudioPlayer({
     forgetMeetingPosition(accountId, meetingId);
   }
 
+  function publishMedia(audio: HTMLAudioElement, at: number) {
+    placeMeetingMediaSession({
+      duration: audio.duration,
+      playbackRate: audio.playbackRate,
+      playing: !audio.paused,
+      position: at,
+    });
+  }
+
   function onTimeUpdate(event: SyntheticEvent<HTMLAudioElement>) {
     const at = event.currentTarget.currentTime;
+    publishMedia(event.currentTarget, at);
     setCurrent(at);
     // Scrubbing fires time updates in a burst; one write per interval is enough
     // to survive a reload, and pause or seek saves land immediately.
@@ -295,7 +323,10 @@ export function MeetingAudioPlayer({
           onDurationChange={(event) =>
             setDuration(event.currentTarget.duration)
           }
-          onEnded={() => setPlaying(false)}
+          onEnded={(event) => {
+            setPlaying(false);
+            publishMedia(event.currentTarget, event.currentTarget.currentTime);
+          }}
           onError={() => setFailed(true)}
           onLoadedMetadata={(event) => {
             setDuration(event.currentTarget.duration);
@@ -304,10 +335,22 @@ export function MeetingAudioPlayer({
           onPause={(event) => {
             setPlaying(false);
             savePosition(event.currentTarget.currentTime);
+            placeMeetingMediaSession({
+              duration: event.currentTarget.duration,
+              playbackRate: event.currentTarget.playbackRate,
+              playing: false,
+              position: event.currentTarget.currentTime,
+            });
           }}
-          onPlay={() => {
+          onPlay={(event) => {
             setPlaying(true);
             setResumeFrom(undefined);
+            placeMeetingMediaSession({
+              duration: event.currentTarget.duration,
+              playbackRate: event.currentTarget.playbackRate,
+              playing: true,
+              position: event.currentTarget.currentTime,
+            });
           }}
           onTimeUpdate={onTimeUpdate}
           preload="metadata"

@@ -475,6 +475,7 @@ export function MeetingReader({
                 documentId={meeting.recording_document_id}
                 filename={meeting.recording_filename}
                 meetingId={entry.id}
+                sessionTitle={title}
                 variant="player"
                 versionId={meeting.recording_version_id}
               />
@@ -504,6 +505,7 @@ function MeetingVersionReader({
   versionId,
   filename,
   meetingId,
+  sessionTitle,
   variant,
 }: {
   /** Whose listening positions the player remembers. */
@@ -513,6 +515,8 @@ function MeetingVersionReader({
   filename: string;
   /** Tells the player which meeting it is playing, so its speed starts over. */
   meetingId?: string;
+  /** The meeting's name for the browser's media controls. */
+  sessionTitle?: string;
   variant: "player" | "document";
 }) {
   const { client } = useTeamHubRuntime();
@@ -823,6 +827,7 @@ function MeetingVersionReader({
         mediaType={preview?.version.media_type}
         meetingId={meetingId}
         onDownload={() => void download()}
+        sessionTitle={sessionTitle}
         src={playable ? preview.objectUrl : undefined}
         status={
           !preview

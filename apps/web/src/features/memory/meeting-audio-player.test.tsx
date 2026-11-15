@@ -77,6 +77,69 @@ describe("MeetingAudioPlayer", () => {
     expect(screen.getByText("Loading...")).toBeVisible();
   });
 
+  it("lets headphones play and pause the meeting by name", () => {
+    const handlers = new Map<string, (() => void) | null>();
+    const positions: { duration?: number; position?: number }[] = [];
+    const session = {
+      metadata: null as { title?: string } | null,
+      playbackState: "none",
+      setActionHandler(name: string, handler: (() => void) | null) {
+        handlers.set(name, handler);
+      },
+      setPositionState(state: { duration?: number; position?: number }) {
+        positions.push(state);
+      },
+    };
+    const previous = Object.getOwnPropertyDescriptor(navigator, "mediaSession");
+    Object.defineProperty(navigator, "mediaSession", {
+      configurable: true,
+      value: session,
+    });
+    vi.stubGlobal(
+      "MediaMetadata",
+      class FakeMetadata {
+        title: string;
+        constructor(init: { title: string }) {
+          this.title = init.title;
+        }
+      },
+    );
+    try {
+      const play = vi
+        .spyOn(HTMLMediaElement.prototype, "play")
+        .mockResolvedValue(undefined);
+      const pause = vi
+        .spyOn(HTMLMediaElement.prototype, "pause")
+        .mockImplementation(() => undefined);
+      const { container, unmount } = render(
+        <MeetingAudioPlayer
+          filename="recording.m4a"
+          onDownload={vi.fn()}
+          sessionTitle="Meeting · Oct 1, 09:05"
+          src="blob:recording"
+        />,
+      );
+      expect(session.metadata?.title).toBe("Meeting · Oct 1, 09:05");
+      const audio = container.querySelector("audio")!;
+      loadDuration(audio, 80);
+      fireEvent.play(audio);
+      expect(session.playbackState).toBe("playing");
+      expect(positions.at(-1)).toMatchObject({ duration: 80, position: 0 });
+      handlers.get("pause")?.();
+      expect(pause).toHaveBeenCalled();
+      handlers.get("play")?.();
+      expect(play).toHaveBeenCalled();
+      unmount();
+      expect(session.playbackState).toBe("none");
+      expect(handlers.get("play")).toBeNull();
+      expect(session.metadata).toBeNull();
+    } finally {
+      if (previous) Object.defineProperty(navigator, "mediaSession", previous);
+      else Reflect.deleteProperty(navigator, "mediaSession");
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("plays, follows the playhead, seeks, and downloads", () => {
     const play = vi
       .spyOn(HTMLMediaElement.prototype, "play")
