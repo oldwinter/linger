@@ -105,8 +105,6 @@ export function MeetingAudioPlayer({
   const rateNoticeTimer = useRef<number | undefined>(undefined);
   const restoredRef = useRef(false);
   const lastSavedAt = useRef(0);
-  const playFromRef = useRef(playFrom);
-  playFromRef.current = playFrom;
   const ready = Boolean(src) && !failed;
   const progress = duration ? Math.min(100, (current / duration) * 100) : 0;
 
@@ -193,7 +191,7 @@ export function MeetingAudioPlayer({
     if (restoredRef.current || !accountId || !meetingId) return;
     restoredRef.current = true;
     // A topic start owns this playback; the remembered place must not replace it.
-    if (playFromRef.current) return;
+    if (playFrom) return;
     const entry = readMeetingResume(accountId)[meetingId];
     const position = entry
       ? resumablePosition(entry.position, audio.duration)
