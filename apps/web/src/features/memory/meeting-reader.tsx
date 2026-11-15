@@ -53,6 +53,8 @@ import {
   previousMatchPosition,
   searchMeetingTranscript,
 } from "./meeting-transcript-search";
+import { MeetingFloorStrip } from "./meeting-floor-strip";
+import { meetingFloor } from "./meeting-floor";
 import {
   meetingTranscriptText,
   meetingTranscriptTurns,
@@ -531,6 +533,10 @@ function MeetingVersionReader({
     () => (transcriptText ? meetingTranscriptTurns(transcriptText) : []),
     [transcriptText],
   );
+  const floor = useMemo(
+    () => (transcriptText ? meetingFloor(transcriptText) : undefined),
+    [transcriptText],
+  );
   const match = useMemo(
     () => searchMeetingTranscript(turns, query),
     [query, turns],
@@ -838,6 +844,7 @@ function MeetingVersionReader({
     <>
       {searchBar}
       {header}
+      {floor ? <MeetingFloorStrip floor={floor} /> : null}
       <div ref={transcriptRoot}>{body}</div>
     </>
   );

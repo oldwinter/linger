@@ -44,6 +44,9 @@
 - A meeting reader may copy its transcript as plain text, one line per speaker
   turn, once the transcript text has loaded. The clipboard again holds derived
   reading state and the reader writes none.
+- A transcript with more than one clocked speaker shows who held the floor:
+  a strip from the first word to the last, and how long each voice spoke.
+  The recording is not moved.
 - A meeting reader may copy its summary as the Markdown the summary view renders
   from. The clipboard again holds derived reading state, and a refused copy says
   so.
