@@ -133,4 +133,94 @@ describe("WorkItemStoryPage", () => {
     ).toBeNull();
     expect(screen.queryByRole("textbox")).toBeNull();
   });
+
+  it("names the meeting that was underway when the work was opened", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const opened = new Date(2026, 10, 14, 10, 18, 0);
+    const start = new Date(2026, 10, 14, 10, 0, 0);
+    const pad = (value: number) => String(value).padStart(2, "0");
+    const path = `Meetings/${start.getFullYear()}/${pad(start.getMonth() + 1)}/${pad(start.getDate())}/Meeting ${pad(start.getHours())}-${pad(start.getMinutes())}-${pad(start.getSeconds())}`;
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/memory", () => ({
+      items: [
+        {
+          content: "",
+          id: "meeting-planning",
+          kind: "meeting",
+          meeting: {
+            capture_id: "meeting-planning",
+            recording_document_id: "audio",
+            recording_filename: "room.m4a",
+            recording_version_id: "v1",
+            started_at: start.toISOString(),
+            summary_ready: false,
+            transcript_document_id: "transcript",
+            transcript_version_id: "v1",
+          },
+          path,
+          summary: "",
+          title: path,
+          updated_at: start.toISOString(),
+        },
+      ],
+    }));
+    runtime.seed.workItems = [
+      {
+        assignees: [],
+        created_at: opened.toISOString(),
+        created_by: human,
+        description: "Write the follow-up.",
+        explicit_access_grants: [],
+        id: "workitem-follow-up",
+        kind: "issue",
+        number: 7,
+        priority: "medium",
+        referenced_actors: [],
+        state: "open",
+        tenant_id: "tenant-northstar",
+        title: "Send the follow-up",
+        updated_at: opened.toISOString(),
+        updated_by: human,
+        version: 1,
+      },
+    ];
+    runtime.server.on("GET", "/v0/work-items/{workItemId}/timeline", () => ({
+      items: [],
+      page: { has_more: false },
+    }));
+    const router = createMemoryRouter(
+      [
+        {
+          element: <WorkItemStoryPage />,
+          path: "/t/:tenantId/work-items/:workItemId",
+        },
+      ],
+      {
+        initialEntries: ["/t/tenant-northstar/work-items/workitem-follow-up"],
+      },
+    );
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <RouterProvider router={router} />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByText(
+        /Opened 18 minutes into Meeting · Nov 14, 10:00\./,
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "Open that meeting" }),
+    ).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/library/meetings?entry=meeting-planning",
+    );
+  });
 });
