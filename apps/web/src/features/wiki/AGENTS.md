@@ -23,6 +23,9 @@
 - What Another Me remembers compares the current Profile revision with the
   previous one: name, each module, and the Background timeline. History from
   TeamHub is newest first and includes the current revision.
+- How Another Me would introduce you turns the profile into a short card.
+  The Human chooses which line leads, then can leave that card on today's
+  Pocket note.
 - Wiki navigation owns Profile, Timeline, Projects, Topics, People, and Companies. Timeline, People
   and Companies are the display labels for the existing `graph`, `contacts` and
   `clients` entries; keep their routes and data keys.

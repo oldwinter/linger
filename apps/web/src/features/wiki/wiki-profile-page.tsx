@@ -23,6 +23,7 @@ import {
   WikiWorkingCenter,
   WikiWorkingLine,
 } from "./wiki-working-card";
+import { introductionPath } from "./introduction";
 import { WikiProfileEditor } from "./wiki-profile-editor";
 import { rememberedPath } from "./remembered-changes";
 import "./wiki-profile-page.css";
@@ -259,12 +260,18 @@ export function WikiProfilePage() {
         </aside>
         <div className="wiki-profile-body min-w-0 xl:order-1">
           {current ? (
-            <p className="mb-4">
+            <p className="mb-4 flex flex-wrap gap-x-4 gap-y-1">
               <Link
                 className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 to={rememberedPath(tenantId)}
               >
                 What Another Me remembers
+              </Link>
+              <Link
+                className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                to={introductionPath(tenantId)}
+              >
+                How Another Me would introduce you
               </Link>
             </p>
           ) : null}
