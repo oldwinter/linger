@@ -1,9 +1,29 @@
-import { queryOptions } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  queryOptions,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import { collectTeamHubCursorPages } from "@/features/teamhub/teamhub-cursor-pages";
 import { TeamHubError } from "@/features/teamhub/teamhub-error";
-import { teamHubData } from "@/features/teamhub/teamhub-api";
-import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
+import {
+  teamHubData,
+  teamHubDone,
+  idempotencyHeader,
+} from "@/features/teamhub/teamhub-api";
+import {
+  createTeamHubIdempotencyKey,
+  type TeamHubClient,
+} from "@/features/teamhub/teamhub-client";
+import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import type { TeamHubWorkItem } from "@/features/teamhub/teamhub-types";
+
+import {
+  workItemDashboardListFilterSearch,
+  workItemDashboardListQuery,
+  type WorkItemDashboardFilters,
+} from "./work-item-dashboard-filters";
 
 export function tenantWorkItemTargetQueryKey(
   tenantId: string,
@@ -43,8 +63,359 @@ export function tenantWorkItemTargetQueryOptions(
   });
 }
 
-export function tenantWorkItemsDashboardQueryKey(tenantId: string) {
+export function tenantWorkItemCommentsQueryKey(
+  tenantId: string,
+  workItemId: string,
+) {
+  return ["teamhub", tenantId, "work-items", "comments", workItemId] as const;
+}
+
+export function tenantWorkItemCommentsQueryOptions(
+  client: Pick<TeamHubClient, "api">,
+  tenantId: string,
+  workItemId: string,
+) {
+  return queryOptions({
+    queryFn: async () => {
+      const page = await collectTeamHubCursorPages((pagination) =>
+        teamHubData(
+          client.api.GET("/v0/work-items/{workItemId}/comments", {
+            params: { path: { workItemId }, query: pagination },
+          }),
+        ),
+      );
+      if (
+        page.items.some(
+          (comment) =>
+            comment.tenant_id !== tenantId ||
+            comment.work_item_id !== workItemId,
+        )
+      ) {
+        throw new Error("Work Item Comments do not match the requested Item.");
+      }
+      return page.items;
+    },
+    queryKey: tenantWorkItemCommentsQueryKey(tenantId, workItemId),
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  });
+}
+
+export function tenantWorkItemTimelineQueryKey(
+  tenantId: string,
+  workItemId: string,
+) {
+  return ["teamhub", tenantId, "work-items", "timeline", workItemId] as const;
+}
+
+export function tenantWorkItemTimelineQueryOptions(
+  client: Pick<TeamHubClient, "api">,
+  tenantId: string,
+  workItemId: string,
+) {
+  return queryOptions({
+    queryFn: async () => {
+      const page = await collectTeamHubCursorPages((pagination) =>
+        teamHubData(
+          client.api.GET("/v0/work-items/{workItemId}/timeline", {
+            params: { path: { workItemId }, query: pagination },
+          }),
+        ),
+      );
+      return page.items;
+    },
+    queryKey: tenantWorkItemTimelineQueryKey(tenantId, workItemId),
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  });
+}
+
+interface WorkItemCommentInput {
+  body: string;
+  idempotencyKey: string;
+}
+
+/**
+ * A comment appears in the peek's comment list and again as a timeline entry,
+ * so both queries refetch rather than merging the answer into either.
+ */
+export function useCreateWorkItemComment(tenantId: string, workItemId: string) {
+  const { client } = useTeamHubRuntime();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: WorkItemCommentInput) =>
+      teamHubData(
+        client.api.POST("/v0/work-items/{workItemId}/comments", {
+          body: {
+            body: input.body,
+            segments: [{ content: input.body, type: "text" }],
+          },
+          params: {
+            header: idempotencyHeader(input.idempotencyKey),
+            path: { workItemId },
+          },
+        }),
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: tenantWorkItemCommentsQueryKey(tenantId, workItemId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: tenantWorkItemTimelineQueryKey(tenantId, workItemId),
+      });
+    },
+  });
+}
+
+interface WorkItemTransitionInput {
+  expectedVersion: number;
+  resolution?: NonNullable<TeamHubWorkItem["resolution"]>;
+  state: TeamHubWorkItem["state"];
+}
+
+/**
+ * A transition changes both the board and the open peek, so the answer replaces
+ * the target cache and both lists refetch. The timeline gains its state entry.
+ */
+export function useWorkItemTransition(tenantId: string, workItemId: string) {
+  const { client } = useTeamHubRuntime();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: WorkItemTransitionInput) =>
+      teamHubData(
+        client.api.POST("/v0/work-items/{workItemId}/transitions", {
+          body: {
+            expected_version: input.expectedVersion,
+            resolution: input.resolution,
+            state: input.state,
+          },
+          params: {
+            header: idempotencyHeader(createTeamHubIdempotencyKey()),
+            path: { workItemId },
+          },
+        }),
+      ),
+    onSuccess: (item) => {
+      queryClient.setQueryData(
+        tenantWorkItemTargetQueryKey(tenantId, workItemId),
+        item,
+      );
+      void queryClient.invalidateQueries({
+        queryKey: tenantWorkItemsDashboardQueryPrefix(tenantId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: tenantWorkItemTargetQueryKey(tenantId, workItemId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: tenantWorkItemTimelineQueryKey(tenantId, workItemId),
+      });
+    },
+  });
+}
+
+export function tenantWorkItemsDashboardQueryPrefix(tenantId: string) {
   return ["teamhub", tenantId, "work-items", "dashboard"] as const;
+}
+
+interface WorkItemUpdateInput {
+  description?: string;
+  /** The revision the person saw, so a concurrent change conflicts. */
+  expectedVersion: number;
+  priority?: TeamHubWorkItem["priority"];
+  title?: string;
+}
+
+/**
+ * An update changes the facts the peek shows and the cards the board renders,
+ * so the answer replaces the target cache and both lists refetch. The timeline
+ * gains its metadata entry.
+ */
+export function useUpdateWorkItem(tenantId: string, workItemId: string) {
+  const { client } = useTeamHubRuntime();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: WorkItemUpdateInput) =>
+      teamHubData(
+        client.api.PATCH("/v0/work-items/{workItemId}", {
+          body: {
+            description: input.description,
+            expected_version: input.expectedVersion,
+            priority: input.priority,
+            title: input.title,
+          },
+          params: {
+            header: idempotencyHeader(createTeamHubIdempotencyKey()),
+            path: { workItemId },
+          },
+        }),
+      ),
+    onSuccess: (item) => {
+      queryClient.setQueryData(
+        tenantWorkItemTargetQueryKey(tenantId, workItemId),
+        item,
+      );
+      void queryClient.invalidateQueries({
+        queryKey: tenantWorkItemsDashboardQueryPrefix(tenantId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: tenantWorkItemTargetQueryKey(tenantId, workItemId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: tenantWorkItemTimelineQueryKey(tenantId, workItemId),
+      });
+    },
+  });
+}
+
+/**
+ * An archive or unarchive changes the board's membership and the open peek, and
+ * each timeline gains its entry, so the answers replace the target caches and
+ * the board and timelines refetch. The board refetches once for the whole batch,
+ * and no Item is copied into local state that could drift.
+ */
+export function refreshWorkItemsAfterArchive(
+  queryClient: ReturnType<typeof useQueryClient>,
+  tenantId: string,
+  items: readonly TeamHubWorkItem[],
+) {
+  for (const item of items) {
+    queryClient.setQueryData(
+      tenantWorkItemTargetQueryKey(tenantId, item.id),
+      item,
+    );
+    void queryClient.invalidateQueries({
+      queryKey: tenantWorkItemTargetQueryKey(tenantId, item.id),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: tenantWorkItemTimelineQueryKey(tenantId, item.id),
+    });
+  }
+  void queryClient.invalidateQueries({
+    queryKey: tenantWorkItemsDashboardQueryPrefix(tenantId),
+  });
+}
+
+/** The one archive request, so a bulk archive runs the same path per Item. */
+export function archiveWorkItemRequest(
+  client: Pick<TeamHubClient, "api">,
+  workItemId: string,
+  expectedVersion: number,
+) {
+  return teamHubData(
+    client.api.POST("/v0/work-items/{workItemId}/archive", {
+      body: { expected_version: expectedVersion },
+      params: {
+        header: idempotencyHeader(createTeamHubIdempotencyKey()),
+        path: { workItemId },
+      },
+    }),
+  );
+}
+
+export function useArchiveWorkItem(tenantId: string, workItemId: string) {
+  const { client } = useTeamHubRuntime();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (expectedVersion: number) =>
+      archiveWorkItemRequest(client, workItemId, expectedVersion),
+    onSuccess: (item) =>
+      refreshWorkItemsAfterArchive(queryClient, tenantId, [item]),
+  });
+}
+
+export function useUnarchiveWorkItem(tenantId: string, workItemId: string) {
+  const { client } = useTeamHubRuntime();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (expectedVersion: number) =>
+      teamHubData(
+        client.api.POST("/v0/work-items/{workItemId}/unarchive", {
+          body: { expected_version: expectedVersion },
+          params: {
+            header: idempotencyHeader(createTeamHubIdempotencyKey()),
+            path: { workItemId },
+          },
+        }),
+      ),
+    onSuccess: (item) =>
+      refreshWorkItemsAfterArchive(queryClient, tenantId, [item]),
+  });
+}
+
+/**
+ * An Assignment is one Actor's durable fact, shown by the peek's Assignees row
+ * and filtered by the board, so both refetch instead of either keeping a local
+ * copy of the list. The timeline gains the assignment activity.
+ */
+function refreshAfterAssignment(
+  queryClient: ReturnType<typeof useQueryClient>,
+  tenantId: string,
+  workItemId: string,
+) {
+  void queryClient.invalidateQueries({
+    queryKey: tenantWorkItemTargetQueryKey(tenantId, workItemId),
+  });
+  void queryClient.invalidateQueries({
+    queryKey: tenantWorkItemsDashboardQueryPrefix(tenantId),
+  });
+  void queryClient.invalidateQueries({
+    queryKey: tenantWorkItemTimelineQueryKey(tenantId, workItemId),
+  });
+}
+
+interface WorkItemAssignmentInput {
+  actorId: string;
+  /**
+   * The person's one choice to assign this Actor. A retry of the same choice
+   * reuses it; a different Actor gets a new one.
+   */
+  idempotencyKey?: string;
+}
+
+export function useAssignWorkItem(tenantId: string, workItemId: string) {
+  const { client } = useTeamHubRuntime();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: WorkItemAssignmentInput) =>
+      teamHubData(
+        client.api.PUT("/v0/work-items/{workItemId}/assignments/{actorId}", {
+          params: {
+            header: idempotencyHeader(
+              input.idempotencyKey ?? createTeamHubIdempotencyKey(),
+            ),
+            path: { actorId: input.actorId, workItemId },
+          },
+        }),
+      ),
+    onSuccess: () => refreshAfterAssignment(queryClient, tenantId, workItemId),
+  });
+}
+
+export function useUnassignWorkItem(tenantId: string, workItemId: string) {
+  const { client } = useTeamHubRuntime();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (actorId: string) =>
+      teamHubDone(
+        client.api.DELETE("/v0/work-items/{workItemId}/assignments/{actorId}", {
+          params: {
+            header: idempotencyHeader(createTeamHubIdempotencyKey()),
+            path: { actorId, workItemId },
+          },
+        }),
+      ),
+    onSuccess: () => refreshAfterAssignment(queryClient, tenantId, workItemId),
+  });
+}
+
+export function tenantWorkItemsDashboardQueryKey(
+  tenantId: string,
+  filters: WorkItemDashboardFilters,
+) {
+  return [
+    ...tenantWorkItemsDashboardQueryPrefix(tenantId),
+    workItemDashboardListFilterSearch(filters),
+  ] as const;
 }
 
 export function tenantAgentWorkItemsQueryKey(
@@ -94,15 +465,22 @@ export function tenantAgentWorkItemsQueryOptions(
 export function tenantWorkItemsDashboardQueryOptions(
   client: Pick<TeamHubClient, "api">,
   tenantId: string,
+  filters: WorkItemDashboardFilters,
+  currentActorId?: string,
 ) {
   return queryOptions({
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const page = await collectTeamHubCursorPages((pagination) =>
         teamHubData(
           client.api.GET("/v0/tenants/{tenantId}/work-items", {
             params: {
               path: { tenantId },
-              query: { ...pagination, scope: "personal" },
+              query: {
+                ...pagination,
+                ...workItemDashboardListQuery(filters, currentActorId),
+                scope: "personal",
+              },
             },
           }),
         ),
@@ -114,7 +492,7 @@ export function tenantWorkItemsDashboardQueryOptions(
       }
       return page;
     },
-    queryKey: tenantWorkItemsDashboardQueryKey(tenantId),
+    queryKey: tenantWorkItemsDashboardQueryKey(tenantId, filters),
     refetchOnWindowFocus: true,
     staleTime: 0,
   });

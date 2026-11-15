@@ -118,6 +118,9 @@ export async function loadAgentCommandSchema(
     case "update_agent":
       return (await import("./domains/collaboration/tools/agents.js"))
         .updateAgentSchema;
+    case "update_routine":
+      return (await import("./domains/collaboration/tools/routines.js"))
+        .updateRoutineSchema;
     case "create_task": {
       const { createTaskInputSchema, createTaskOutputSchema } =
         await import("./domains/collaboration/tools/creation-schemas.js");

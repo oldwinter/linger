@@ -137,6 +137,7 @@ describe("TeamHub Collaboration routines", () => {
       ...input,
       id: "routine_1",
       enabled: true,
+      revision: 1,
       next_run_at: "2026-10-09T13:00:00Z",
     };
     expect(await decodeAgentCommandResult("create_routine", result)).toEqual(

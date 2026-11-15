@@ -346,7 +346,7 @@ WHERE run.run_id=sqlc.arg(run_id)::text AND run.status='running'
   AND collaboration_membership_room_id(run.status_room_id)=collaboration_membership_room_id(sqlc.arg(room_id)::text);
 
 -- name: GetMessageForAccount :one
-SELECT m.id, m.tenant_id, m.room_id, m.author_actor_id, m.body, m.segments,
+SELECT m.id, m.tenant_id, m.room_id, m.room_seq, m.author_actor_id, m.body, m.segments,
        m.card_context_message_id, m.message_kind, m.notice, m.card_title, m.card_kind,
        m.created_at,
        m.reply_to_message_id,
@@ -403,7 +403,7 @@ WITH message_page AS (
   ORDER BY m.created_at DESC, m.id DESC
   LIMIT sqlc.arg(page_limit)::int
 )
-SELECT m.id, m.tenant_id, m.room_id, m.author_actor_id, m.body, m.segments,
+SELECT m.id, m.tenant_id, m.room_id, m.room_seq, m.author_actor_id, m.body, m.segments,
        m.card_context_message_id, m.message_kind, m.notice, m.card_title, m.card_kind,
        m.created_at,
        m.reply_to_message_id,

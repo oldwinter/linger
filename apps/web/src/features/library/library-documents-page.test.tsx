@@ -44,6 +44,8 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 import * as documentRoutePreload from "@/features/rooms/documents/document-route-preload";
 
+import { teamHubIdentityQueryKey } from "@/features/rooms/room-queries";
+
 import { LibraryLayout } from "./library-layout";
 import { LibrarySidebar } from "./library-sidebar";
 import { documentFileName } from "./document-display-name";
@@ -200,6 +202,8 @@ describe("Library Documents", () => {
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    Reflect.deleteProperty(navigator, "clipboard");
+    Reflect.deleteProperty(document, "execCommand");
     resetTenantUploadsForTest();
   });
 
@@ -1952,6 +1956,173 @@ describe("Library Documents", () => {
     });
   });
 
+  it("moves selected Library documents with one folder picker and rereads once", async () => {
+    const runtime = await signedInRuntime();
+    const alpha = seedNativeDocument(runtime, "bulk-move-alpha");
+    alpha.title = "Alpha plan";
+    const bravo = seedNativeDocument(runtime, "bulk-move-bravo");
+    bravo.title = "Bravo plan";
+    const folder = seedFolder(runtime, "bulk-move-folder", { name: "Archive" });
+    renderPage(runtime);
+
+    const files = await screen.findByLabelText("My pages documents");
+    fireEvent.click(
+      within(files).getByRole("checkbox", { name: "Select Alpha plan.md" }),
+    );
+    fireEvent.click(
+      within(files).getByRole("checkbox", { name: "Select Bravo plan.md" }),
+    );
+    expect(
+      screen.getByRole("group", { name: "Selected documents" }),
+    ).toHaveTextContent("2 selected");
+
+    fireEvent.click(screen.getByRole("button", { name: "Move to folder" }));
+    const dialog = screen.getByRole("dialog", {
+      name: "Move 2 documents to…",
+    });
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Select Archive" }),
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move here" }));
+
+    await waitFor(() => {
+      expect(documentSeeds(runtime).tree.items).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            document_id: alpha.id,
+            parent_id: folder.id,
+          }),
+          expect.objectContaining({
+            document_id: bravo.id,
+            parent_id: folder.id,
+          }),
+        ]),
+      );
+    });
+    expect(await screen.findByText("Moved 2 documents.")).toBeVisible();
+    expect(screen.queryByText("2 selected")).toBeNull();
+  });
+
+  it("keeps failed rows selected when a bulk trash partially fails", async () => {
+    const runtime = await signedInRuntime();
+    const alpha = seedNativeDocument(runtime, "bulk-trash-alpha");
+    alpha.title = "Alpha plan";
+    const bravo = seedNativeDocument(runtime, "bulk-trash-bravo");
+    bravo.title = "Bravo plan";
+    const trashed: string[] = [];
+    runtime.server.on("DELETE", "/v0/documents/{documentId}", ({ params }) => {
+      const documentId = params.documentId!;
+      if (documentId === alpha.id) {
+        return teamHubErrorResponse(503, "DOCUMENT_DELETION_UNAVAILABLE");
+      }
+      trashed.push(documentId);
+      const document = documentSeeds(runtime).documents.get(documentId);
+      if (document) showDocument(runtime, { ...document, status: "trashed" });
+      return undefined;
+    });
+    renderPage(runtime);
+
+    const files = await screen.findByLabelText("My pages documents");
+    fireEvent.click(
+      within(files).getByRole("checkbox", { name: "Select Alpha plan.md" }),
+    );
+    fireEvent.click(
+      within(files).getByRole("checkbox", { name: "Select Bravo plan.md" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Trash" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Delete Document?",
+    });
+    expect(dialog).toHaveTextContent("2 documents will be deleted");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Moved to trash 1 of 2 documents. Failed: Alpha plan.",
+    );
+    expect(trashed).toEqual([bravo.id]);
+    const remaining = await screen.findByLabelText("My pages documents");
+    expect(
+      within(remaining).getByRole("checkbox", { name: "Select Alpha plan.md" }),
+    ).toBeChecked();
+    expect(
+      within(remaining).queryByRole("checkbox", {
+        name: "Select Bravo plan.md",
+      }),
+    ).toBeNull();
+  });
+
+  it("copies the selected documents as ordered Markdown links and keeps them selected", async () => {
+    const runtime = await signedInRuntime();
+    const alpha = seedNativeDocument(runtime, "copy-links-alpha");
+    alpha.title = "Alpha plan";
+    const bravo = seedNativeDocument(runtime, "copy-links-bravo");
+    bravo.title = "Bravo plan";
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    renderPage(runtime);
+
+    const files = await screen.findByLabelText("My pages documents");
+    fireEvent.click(
+      within(files).getByRole("checkbox", { name: "Select Bravo plan.md" }),
+    );
+    fireEvent.click(
+      within(files).getByRole("checkbox", { name: "Select Alpha plan.md" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Copy links" }));
+
+    // The list order, not the order the rows were picked, is what gets copied.
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        [
+          `- [Alpha plan.md](${window.location.origin}/t/tenant-northstar/documents/${alpha.id})`,
+          `- [Bravo plan.md](${window.location.origin}/t/tenant-northstar/documents/${bravo.id})`,
+        ].join("\n"),
+      ),
+    );
+    expect(await screen.findByText("Copied")).toBeVisible();
+    expect(
+      screen.getByRole("group", { name: "Selected documents" }),
+    ).toHaveTextContent("2 selected");
+    const remaining = await screen.findByLabelText("My pages documents");
+    expect(
+      within(remaining).getByRole("checkbox", { name: "Select Alpha plan.md" }),
+    ).toBeChecked();
+    expect(
+      within(remaining).getByRole("checkbox", { name: "Select Bravo plan.md" }),
+    ).toBeChecked();
+  });
+
+  it("reports a refused copy and keeps the selection for a retry", async () => {
+    const runtime = await signedInRuntime();
+    seedNativeDocument(runtime, "copy-failure-alpha");
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: vi.fn(() =>
+          Promise.reject(new Error("Clipboard is denied")),
+        ),
+      },
+    });
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: vi.fn(() => false),
+    });
+    renderPage(runtime);
+
+    const files = await screen.findByLabelText("My pages documents");
+    fireEvent.click(
+      within(files).getByRole("checkbox", { name: "Select untitled.md" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Copy links" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
+    expect(screen.queryByText("Copied")).toBeNull();
+    const remaining = await screen.findByLabelText("My pages documents");
+    expect(
+      within(remaining).getByRole("checkbox", { name: "Select untitled.md" }),
+    ).toBeChecked();
+    expect(screen.getByRole("button", { name: "Copy links" })).toBeEnabled();
+  });
+
   it("uses one unclipped action menu per Folder and Document with typed items", async () => {
     const runtime = await signedInRuntime();
     seedFolder(runtime, "menu-folder-create", { name: "Plans" });
@@ -2351,6 +2522,116 @@ it("renames a binary file from its tree menu and keeps failures editable", async
   );
 });
 
+describe("Copy folder contents", () => {
+  it("copies the open folder's Documents and leaves its subfolders out", async () => {
+    const runtime = await signedInRuntime();
+    const folder = seedFolder(runtime, "copy-contents-folder", {
+      name: "Design",
+    });
+    const spec = seedNativeDocument(runtime, "copy-contents-spec", {
+      parent_id: folder.id,
+    });
+    spec.title = "Spec";
+    const notes = seedNativeDocument(runtime, "copy-contents-notes", {
+      parent_id: folder.id,
+    });
+    notes.title = "Notes";
+    const nested = seedFolder(runtime, "copy-contents-nested", {
+      name: "Archive",
+      parent_id: folder.id,
+    });
+    const buried = seedNativeDocument(runtime, "copy-contents-buried", {
+      parent_id: nested.id,
+    });
+    buried.title = "Buried";
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    renderPage(runtime);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open folder Design" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Copy contents" }),
+    );
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        [
+          "# Design",
+          "",
+          `- [Spec.md](${window.location.origin}/t/tenant-northstar/documents/${spec.id})`,
+          `- [Notes.md](${window.location.origin}/t/tenant-northstar/documents/${notes.id})`,
+        ].join("\n"),
+      ),
+    );
+    expect(await screen.findByText("Copied")).toBeVisible();
+  });
+
+  it("keeps Copy contents disabled while the tree loads", async () => {
+    const runtime = await signedInRuntime();
+    runtime.server.on(
+      "GET",
+      "/v0/tenants/{tenantId}/me/document-tree",
+      () => new Promise(() => undefined),
+    );
+
+    renderPage(runtime);
+
+    expect(
+      await screen.findByRole("button", { name: "Copy contents" }),
+    ).toBeDisabled();
+  });
+
+  it("keeps Copy contents disabled in an empty folder", async () => {
+    const runtime = await signedInRuntime();
+    seedFolder(runtime, "copy-contents-empty", { name: "Empty" });
+    renderPage(runtime);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open folder Empty" }),
+    );
+
+    expect(await screen.findByText("This folder is empty")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Copy contents" }),
+    ).toBeDisabled();
+  });
+
+  it("reports a refused clipboard write instead of Copied", async () => {
+    const runtime = await signedInRuntime();
+    const folder = seedFolder(runtime, "copy-contents-denied", {
+      name: "Design",
+    });
+    const spec = seedNativeDocument(runtime, "copy-contents-denied-spec", {
+      parent_id: folder.id,
+    });
+    spec.title = "Spec";
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: vi.fn(() =>
+          Promise.reject(new Error("Clipboard is denied")),
+        ),
+      },
+    });
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: vi.fn(() => false),
+    });
+    renderPage(runtime);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open folder Design" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Copy contents" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
+    expect(screen.queryByText("Copied")).toBeNull();
+  });
+});
+
 async function chooseCreateAction(action: "New folder" | "New file") {
   fireEvent.click(
     screen.getByRole("button", { name: "Create in Owned by Me" }),
@@ -2502,6 +2783,8 @@ function renderPage(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  // The shell's route loader caches the identity before a Library view renders.
+  queryClient.setQueryData(teamHubIdentityQueryKey, runtime.seed.identity);
   const routes = [
     {
       element: treeOnly ? <TreeSurface /> : <LibraryDocumentsPage />,
@@ -2729,3 +3012,34 @@ function readDocument(client: TeamHubClient, documentId: string) {
     }),
   );
 }
+
+describe("Recently opened documents", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("lists stored opens above the documents tree", async () => {
+    localStorage.setItem(
+      "library-recent-documents.v1:account-jenny",
+      JSON.stringify([
+        {
+          formatLabel: "md",
+          id: "document-design",
+          name: "Design notes",
+          openedAt: "2026-07-24T10:00:00Z",
+        },
+      ]),
+    );
+    const runtime = await signedInRuntime();
+    renderPage(runtime);
+
+    const strip = screen.getByRole("region", { name: "Recently opened" });
+    expect(
+      within(strip).getByRole("link", { name: "Design notes, md" }),
+    ).toHaveAttribute("href", "/t/tenant-northstar/documents/document-design");
+    const filters = await screen.findByRole("combobox", { name: "File type" });
+    expect(
+      strip.compareDocumentPosition(filters) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+});

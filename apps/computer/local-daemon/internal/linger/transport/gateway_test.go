@@ -516,12 +516,34 @@ func TestClassifyConnectionFailure(t *testing.T) {
 		{"network", &net.OpError{Op: "read", Err: errors.New("connection reset")}, FailureUnavailable},
 		{"end of stream", fmt.Errorf("read: %w", io.ErrUnexpectedEOF), FailureUnavailable},
 		{"internal error close", &websocket.CloseError{Code: websocket.CloseInternalServerErr}, FailureOther},
+		{"Daemon Identity in use", &websocket.CloseError{Code: websocket.CloseInternalServerErr, Text: "Runner daemon identity conflict"}, FailureOther},
 		{"decode", errors.New("decode Runner Gateway command: invalid character"), FailureOther},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := ClassifyConnectionFailure(tc.err); got != tc.want {
 				t.Fatalf("ClassifyConnectionFailure() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsDaemonIdentityConflict(t *testing.T) {
+	conflict := &websocket.CloseError{Code: websocket.CloseInternalServerErr, Text: "Runner daemon identity conflict"}
+	for _, tc := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"conflict close", conflict, true},
+		{"wrapped conflict close", fmt.Errorf("receive: %w", conflict), true},
+		{"another internal error", &websocket.CloseError{Code: websocket.CloseInternalServerErr, Text: "Runner service failure"}, false},
+		{"conflict text with another code", &websocket.CloseError{Code: websocket.ClosePolicyViolation, Text: "Runner daemon identity conflict"}, false},
+		{"no close", errors.New("Runner daemon identity conflict"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsDaemonIdentityConflict(tc.err); got != tc.want {
+				t.Fatalf("IsDaemonIdentityConflict() = %v, want %v", got, tc.want)
 			}
 		})
 	}

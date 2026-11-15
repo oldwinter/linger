@@ -41,6 +41,7 @@ export function ModalDialog({
   closeOnBackdrop = false,
   description,
   footer,
+  headerActions,
   onClose,
   size,
   title,
@@ -54,6 +55,8 @@ export function ModalDialog({
   description?: ReactNode;
   /** Right-aligned action row; omitted dialogs render no footer. */
   footer?: ReactNode;
+  /** Optional controls shown in the header before the close button. */
+  headerActions?: ReactNode;
   onClose: () => void;
   /** One of four standard widths; omit for a full-screen or custom frame. */
   size?: DialogSize;
@@ -134,15 +137,18 @@ export function ModalDialog({
                 <p className="app-dialog-description">{description}</p>
               ) : null}
             </div>
-            <button
-              aria-label="Close"
-              className="app-dialog-close"
-              ref={closeButtonRef}
-              onClick={onClose}
-              type="button"
-            >
-              <Icon icon={Cancel01Icon} size={16} />
-            </button>
+            <div className="flex shrink-0 items-center gap-1">
+              {headerActions}
+              <button
+                aria-label="Close"
+                className="app-dialog-close"
+                ref={closeButtonRef}
+                onClick={onClose}
+                type="button"
+              >
+                <Icon icon={Cancel01Icon} size={16} />
+              </button>
+            </div>
           </header>
           <div className="app-dialog-body">{children}</div>
           {footer !== undefined ? (

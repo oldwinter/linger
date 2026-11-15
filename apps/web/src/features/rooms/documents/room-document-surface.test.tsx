@@ -18,7 +18,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import {
   teamHubErrorResponse,
@@ -45,6 +45,8 @@ import { serveWikiDocuments } from "@/features/wiki/wiki.test-support";
 import type {
   TeamHubDocument,
   TeamHubDocumentShareViewV2,
+  TeamHubMessage,
+  TeamHubMessageCreateInput,
 } from "@/features/teamhub/teamhub-types";
 import {
   commentActor,
@@ -65,6 +67,18 @@ const ownerManagementCapabilities = {
 const wikiLink = vi.hoisted(() => ({
   href: "../projects/project.md#working-preferences",
 }));
+
+const downloadedArtifacts = vi.hoisted(() => ({ trigger: vi.fn() }));
+
+vi.mock(
+  "@/features/rooms/files/artifact-preview-loader",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@/features/rooms/files/artifact-preview-loader")
+    >()),
+    triggerArtifactDownload: downloadedArtifacts.trigger,
+  }),
+);
 
 vi.mock("./room-document-collaboration", async (importOriginal) => {
   const { openLocalDocumentSession } =
@@ -163,6 +177,11 @@ vi.mock("./room-document-blocknote-editor-loader", () => ({
     );
   },
 }));
+
+afterEach(() => {
+  downloadedArtifacts.trigger.mockClear();
+  Reflect.deleteProperty(navigator, "clipboard");
+});
 
 describe("Unified Document legacy convergence", () => {
   beforeEach(() => {
@@ -344,6 +363,7 @@ describe("Unified Document legacy convergence", () => {
       expect(actions).not.toBeNull();
       expect(within(actions as HTMLElement).getAllByRole("button")).toEqual([
         screen.getByRole("button", { name: "Table of contents" }),
+        screen.getByRole("button", { name: "Copy link" }),
       ]);
       expect(body).toHaveAttribute("data-editable", "false");
       expect(body).toHaveAttribute("data-knowledge-title", "Casey example");
@@ -371,12 +391,201 @@ describe("Unified Document legacy convergence", () => {
     ) as HTMLElement;
     expect(within(actions).getAllByRole("button")).toEqual([
       screen.getByRole("button", { name: "Table of contents" }),
+      screen.getByRole("button", { name: "Copy link" }),
+      screen.getByRole("button", { name: "Send to Room" }),
+      screen.getByRole("button", { name: "More Wiki page actions" }),
     ]);
+    expect(
+      within(actions).queryByRole("button", { name: "More Document actions" }),
+    ).toBeNull();
     expect(
       within(actions).queryByRole("status", {
         name: /people in this document/,
       }),
     ).toBeNull();
+  });
+
+  it("downloads a generated Wiki page as Markdown and keeps every other action absent", async () => {
+    const runtime = createDocumentTestRuntime();
+
+    const document = seedRoomDocument(runtime, "wiki-download");
+    showDocument(runtime, {
+      ...document,
+      from: [{ binding_kind: "wiki_page", context_id: "wiki-jenny" }],
+      title: "Casey example.md",
+    });
+    const downloadLatest = vi.spyOn(runtime.client, "downloadLatestDocument");
+    respond(downloadLatest, {
+      blob: new Blob(["# Casey example"]),
+      mediaType: "text/markdown",
+      sha256: "0".repeat(64),
+    });
+    renderUnifiedDocumentPage(
+      runtime,
+      `/t/tenant-northstar/documents/${document.id}`,
+    );
+
+    expect(await screen.findByTestId("document-body")).toBeVisible();
+
+    const actions = window.document.querySelector(
+      ".room-document-header-actions",
+    ) as HTMLElement;
+    expect(within(actions).getAllByRole("button")).toEqual([
+      screen.getByRole("button", { name: "Table of contents" }),
+      screen.getByRole("button", { name: "Copy link" }),
+      screen.getByRole("button", { name: "Send to Room" }),
+      screen.getByRole("button", { name: "More Wiki page actions" }),
+    ]);
+    expect(
+      within(actions).queryByRole("button", { name: "More Document actions" }),
+    ).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Rename" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "More Wiki page actions" }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Download" }));
+
+    await waitFor(() => expect(downloadLatest).toHaveBeenCalledOnce());
+    expect(downloadLatest).toHaveBeenCalledWith(document.id);
+  });
+
+  it("copies a Wiki page's link with the app origin and confirms it", async () => {
+    const runtime = createDocumentTestRuntime();
+    const document = seedRoomDocument(runtime, "wiki-copy-link");
+    showDocument(runtime, {
+      ...document,
+      from: [{ binding_kind: "wiki_page", context_id: "wiki-jenny" }],
+    });
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    renderUnifiedDocumentPage(
+      runtime,
+      `/t/tenant-northstar/documents/${document.id}`,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Copy link" }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledOnce());
+    expect(writeText).toHaveBeenCalledWith(
+      `${window.location.origin}/t/tenant-northstar/documents/${document.id}`,
+    );
+    const actions = window.document.querySelector(
+      ".room-document-header-actions",
+    ) as HTMLElement;
+    expect(await within(actions).findByRole("status")).toHaveTextContent(
+      "Copied",
+    );
+  });
+
+  it("copies exactly the Markdown Download saves for a Wiki page", async () => {
+    const runtime = createDocumentTestRuntime();
+    const document = seedRoomDocument(runtime, "wiki-copy-markdown");
+    showDocument(runtime, {
+      ...document,
+      from: [{ binding_kind: "wiki_page", context_id: "wiki-jenny" }],
+      title: "Casey example.md",
+    });
+    const downloadLatest = vi
+      .spyOn(runtime.client, "downloadLatestDocument")
+      .mockResolvedValue({
+        blob: new Blob(["# Casey example\n\nSaved bytes.\n"]),
+        mediaType: "text/markdown",
+        sha256: "0".repeat(64),
+      });
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    renderUnifiedDocumentPage(
+      runtime,
+      `/t/tenant-northstar/documents/${document.id}`,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "More Wiki page actions" }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Download" }));
+    await waitFor(() =>
+      expect(downloadedArtifacts.trigger).toHaveBeenCalledOnce(),
+    );
+    const saved = downloadedArtifacts.trigger.mock.calls[0]![0] as Blob;
+    expect(await saved.text()).toBe("# Casey example\n\nSaved bytes.\n");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "More Wiki page actions" }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy as Markdown" }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledOnce());
+    expect(writeText).toHaveBeenCalledWith(await saved.text());
+    expect(downloadLatest).toHaveBeenCalledTimes(2);
+    expect(downloadLatest).toHaveBeenCalledWith(document.id);
+    const actions = window.document.querySelector(
+      ".room-document-header-actions",
+    ) as HTMLElement;
+    expect(await within(actions).findByRole("status")).toHaveTextContent(
+      "Copied",
+    );
+  });
+
+  it("sends a Wiki page to a Room with a bounded excerpt and its link", async () => {
+    const runtime = createDocumentTestRuntime();
+    const document = seedRoomDocument(runtime, "wiki-send");
+    showDocument(runtime, {
+      ...document,
+      from: [{ binding_kind: "wiki_page", context_id: "wiki-jenny" }],
+      title: "Casey example.md",
+      updated_at: "2026-11-15T09:00:00Z",
+    });
+    vi.spyOn(runtime.client, "downloadLatestDocument").mockResolvedValue({
+      blob: new Blob(["# Casey example\n\nThe page opens here."]),
+      mediaType: "text/markdown",
+      sha256: "0".repeat(64),
+    });
+    const posts: {
+      body: TeamHubMessageCreateInput;
+      idempotencyKey: string | null;
+      path: string;
+    }[] = [];
+    runtime.server.on(
+      "POST",
+      "/v0/rooms/{roomId}/messages",
+      ({ body, params, request }) => {
+        posts.push({
+          body: body as TeamHubMessageCreateInput,
+          idempotencyKey: request.headers.get("Idempotency-Key"),
+          path: new URL(request.url).pathname,
+        });
+        return Response.json(sentWikiMessage(params.roomId!), {
+          status: 201,
+        });
+      },
+    );
+    renderUnifiedDocumentPage(
+      runtime,
+      `/t/tenant-northstar/documents/${document.id}`,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Send to Room" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "product-v0" }),
+    );
+
+    expect(await screen.findByText("Sent to product-v0.")).toBeVisible();
+    expect(posts).toHaveLength(1);
+    expect(posts[0]!.path).toBe("/v0/rooms/room-product-v0/messages");
+    expect(posts[0]!.body.raw_message).toBe(
+      [
+        "# Casey example",
+        "Casey example The page opens here.",
+        `${window.location.origin}/t/tenant-northstar/documents/${document.id}`,
+      ].join("\n\n"),
+    );
+    expect(posts[0]!.idempotencyKey).toBe(
+      `wiki-page-share:${document.id}:2026-11-15T09:00:00Z:room-product-v0`,
+    );
   });
 
   it.each(
@@ -2051,6 +2260,52 @@ describe("Unified Document page", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("offers Send to Room beside the unchanged Document menu", async () => {
+    const runtime = createDocumentTestRuntime();
+    const document = seedNativeDocument(runtime, "share-to-room-document");
+
+    renderUnifiedDocumentPage(
+      runtime,
+      `/t/tenant-northstar/documents/${document.id}`,
+    );
+
+    expect(await screen.findByText("Room BlockNote editor")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Send to Room" })).toBeVisible();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "More Document actions" }),
+    );
+    for (const name of [
+      "Copy link",
+      "Rename",
+      "Download",
+      "Duplicate",
+      "Page history",
+      "Delete",
+    ]) {
+      expect(await screen.findByRole("menuitem", { name })).toBeVisible();
+    }
+  });
+
+  it("hides Send to Room for a Document the person cannot read", async () => {
+    const runtime = createDocumentTestRuntime();
+    const document = seedNativeDocument(runtime, "unreadable-document");
+    showDocument(runtime, {
+      ...document,
+      capabilities: { ...document.capabilities, read: false },
+    });
+
+    renderUnifiedDocumentPage(
+      runtime,
+      `/t/tenant-northstar/documents/${document.id}`,
+    );
+
+    expect(await screen.findByText("Room BlockNote editor")).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Send to Room" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("fails closed when the stable route Tenant does not own the Document", async () => {
     const runtime = createDocumentTestRuntime();
 
@@ -2331,6 +2586,25 @@ function renderUnifiedDocumentPage(
   return { ...rendered, router };
 }
 
+function sentWikiMessage(roomId: string): TeamHubMessage {
+  return {
+    attachments: [],
+    author: {
+      display_name: "Jenny Bin",
+      id: "actor-jenny",
+      kind: "human",
+      tenant_id: "tenant-northstar",
+    },
+    created_at: "2026-11-15T12:00:00Z",
+    id: "message-wiki-page-1",
+    message_kind: "conversation",
+    raw_message: "",
+    room_id: roomId,
+    segments: [],
+    tenant_id: "tenant-northstar",
+  };
+}
+
 const versionCreatedAt = "2026-08-28T00:00:00Z";
 const emptyVersionSha256 =
   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
@@ -2401,6 +2675,11 @@ function versionDocumentRuntime(document: TeamHubDocument) {
     "GET",
     "/v0/tenants/{tenantId}/me/shared-document-tree",
     once({ items: [] }),
+  );
+  server.on(
+    "GET",
+    "/v0/tenants/{tenantId}/rooms",
+    once({ items: [], page: { has_more: false } }),
   );
   server.on("GET", "/v0/documents/{documentId}", once(document));
   server.on("POST", "/v0/documents/{documentId}/open", once({ document }));

@@ -1405,7 +1405,7 @@ components:
       type: object
       additionalProperties: false
       description: A Routine has exactly one of schedule and listener. A listener Routine is an app listener; it can only be paused and enabled, and goes away when the Human revokes AnotherMe's access to the app.
-      required: [id, name, instruction, enabled]
+      required: [id, name, instruction, enabled, revision]
       properties:
         id:
           $ref: "./common.yaml#/components/schemas/Id"
@@ -1431,6 +1431,11 @@ components:
         tracking_item_id:
           type: string
           description: Tracking Item this Routine serves, when it serves one.
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Monotonic revision, sent back as expected_revision to update.
     AgentRoutineCommandRequest:
       type: object
       additionalProperties: false
@@ -1468,6 +1473,42 @@ components:
           minLength: 1
           maxLength: 500
           description: What this Routine checks or reminds for its Tracking Item. Required with tracking_item_id.
+    AgentUpdateRoutineRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - invocation_id
+        - routine_id
+        - expected_revision
+      properties:
+        invocation_id:
+          $ref: "#/components/schemas/AgentInvocationId"
+        routine_id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        expected_revision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Revision from list_routines; a stale value is a conflict.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        instruction:
+          type: string
+          minLength: 1
+          maxLength: 50000
+        mention_actor_id:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 64
+          pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+          description: Omit to keep the mention. self wakes the calling Agent, any other value must be an Agent actor still in this room, and null clears it.
+        schedule:
+          $ref: "#/components/schemas/AgentRoutineSchedule"
+        enabled:
+          type: boolean
     AgentRoutineIdRequest:
       type: object
       additionalProperties: false

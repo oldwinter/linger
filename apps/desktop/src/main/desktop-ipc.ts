@@ -19,10 +19,14 @@ import {
   runDesktopPermissionStep,
   type DesktopPermissionHost,
 } from "./system-permissions.js";
+import type { DesktopTrayHost } from "./tray.js";
 import type { WindowManagerModule } from "./window-manager.js";
 import type { WorkspaceGrantsModule } from "./workspace-grants.js";
 
 const grantIdInput = z.string().min(1).max(128);
+// Electron's badge is a count on the app icon, so it takes only a small
+// non-negative integer.
+const badgeCountInput = z.number().int().min(0).max(1_000_000);
 // The server address is not settable from the SPA: a page served by one
 // server must not be able to repoint the app. It changes on app://offline.
 const settingsPatchInput = z
@@ -52,6 +56,11 @@ const permissionStepInput = z.discriminatedUnion("action", [
 
 const view = (grant: WorkspaceGrant): WorkspaceGrantView => ({ ...grant });
 
+/** The part of Electron's `app` that the unread badge uses; Windows has none. */
+export interface DesktopBadgeHost {
+  setBadgeCount(count: number): boolean;
+}
+
 // The preload API handlers. Every call must come from a frame on
 // the configured server origin; inputs are validated with zod.
 export class DesktopIpcModule implements Module {
@@ -63,18 +72,25 @@ export class DesktopIpcModule implements Module {
     "ComputerDaemon",
     "WindowManager",
     "WorkspaceGrants",
+    "Tray",
   ];
+  readonly #badge: DesktopBadgeHost | undefined;
   readonly #defaultDisplayName: string;
   // Set on macOS only.
   readonly #permissions: DesktopPermissionHost | undefined;
+  readonly #tray: DesktopTrayHost | undefined;
   readonly #unsubscribe: (() => void)[] = [];
 
   constructor(options: {
+    badge?: DesktopBadgeHost;
     defaultDisplayName: string;
     permissions?: DesktopPermissionHost;
+    tray?: DesktopTrayHost;
   }) {
+    this.#badge = options.badge;
     this.#defaultDisplayName = options.defaultDisplayName;
     this.#permissions = options.permissions;
+    this.#tray = options.tray;
   }
 
   async start(ctx: ModuleContext): Promise<void> {
@@ -87,12 +103,14 @@ export class DesktopIpcModule implements Module {
 
     const status = (): ComputerStatus => {
       const computerId = ctx.config.get().computerId;
+      const connectionError = daemon.connectionError();
       return {
         bridge: daemon.connection(),
         runtime: daemon.state(),
         ...(computerId ? { computerId } : {}),
         activeOperations: daemon.running(),
         preventSleep: power.active(),
+        ...(connectionError ? { connectionError } : {}),
       };
     };
     const settings = (): DesktopSettings => {
@@ -137,6 +155,11 @@ export class DesktopIpcModule implements Module {
       if (settings().displayName !== before) ctx.bus.emit("computer.renamed");
       return settings();
     });
+    handle(IPC.notificationsBadge, (count) => {
+      const unread = badgeCountInput.parse(count);
+      this.#badge?.setBadgeCount(unread);
+      this.#tray?.setUnreadCount(unread);
+    });
 
     // The handler already checked that the caller is the window's server, so
     // only the window's server needs to be the installed one.
@@ -164,6 +187,7 @@ export class DesktopIpcModule implements Module {
     };
     this.#unsubscribe.push(
       ctx.bus.on("computer.connection", push),
+      ctx.bus.on("computer.identity_conflict", push),
       ctx.bus.on("runtime.state", push),
       ctx.bus.on("runtime.activity", push),
       ctx.bus.on("power.changed", push),

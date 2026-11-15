@@ -576,6 +576,8 @@ func (a *App) writeAgentRuntimeStateError(c *gin.Context, operation string, err 
 		status, code, message = http.StatusConflict, "CONTEXT_FENCED", "Agent Runtime Context identity or Agent Service epoch is no longer authoritative"
 	case errors.Is(err, agentruntimestate.ErrInboxNotAuthorized):
 		status, code, message = http.StatusForbidden, "INBOX_NOT_AUTHORIZED", "Agent Runtime Context cannot receive this Inbox"
+	case errors.Is(err, agentruntimestate.ErrDaemonIdentityInUse):
+		status, code, message = http.StatusConflict, "AGENT_RUNTIME_DAEMON_IDENTITY_IN_USE", "Daemon Identity is already bound to another Local Computer"
 	case errors.Is(err, agentruntimestate.ErrConflict):
 		status, code, message = http.StatusConflict, "AGENT_RUNTIME_CONFLICT", "Agent Runtime State conflicts with the request"
 	case errors.Is(err, agentruntimestate.ErrDependency):

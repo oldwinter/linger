@@ -14,6 +14,7 @@ import { CredentialStore } from "./computer-credential.js";
 import {
   ComputerDaemonModule,
   TOKEN_ENV,
+  connectionError,
   connectionState,
   daemonConfig,
   daemonEnvironment,
@@ -284,6 +285,32 @@ describe("ComputerDaemonModule", () => {
     children[0]!.status("upgrade-required");
     expect(daemon.connection()).toBe("upgrade_required");
     expect(activity).toEqual([2, 0]);
+  });
+
+  it("reads the Gateway's identity conflict from the status line", async () => {
+    const { daemon, ctx, bus, children } = setup();
+    const conflicts: boolean[] = [];
+    bus.on("computer.identity_conflict", (conflict) =>
+      conflicts.push(conflict),
+    );
+    await daemon.start(ctx);
+    children[0]!.send({
+      type: "status",
+      gateway_state: "connecting",
+      connection_error: "daemon_identity_conflict",
+    });
+    expect(daemon.connectionError()).toBe("daemon_identity_conflict");
+    expect(conflicts).toEqual([true]);
+    // A status without the field clears it, and another value is ignored.
+    children[0]!.send({ type: "status", gateway_state: "connected" });
+    expect(daemon.connectionError()).toBeUndefined();
+    children[0]!.send({
+      type: "status",
+      gateway_state: "connected",
+      connection_error: "something_else",
+    });
+    expect(daemon.connectionError()).toBeUndefined();
+    expect(conflicts).toEqual([true, false]);
   });
 
   it("stays stopped until this computer is connected", async () => {
@@ -568,6 +595,16 @@ describe("connectionState", () => {
     expect(connectionState("connecting")).toBe("connecting");
     expect(connectionState("authentication-failed")).toBe("auth_failed");
     expect(connectionState("upgrade-required")).toBe("upgrade_required");
+  });
+});
+
+describe("connectionError", () => {
+  it("reads only the identity conflict the daemon reports", () => {
+    expect(connectionError("daemon_identity_conflict")).toBe(
+      "daemon_identity_conflict",
+    );
+    expect(connectionError(undefined)).toBeUndefined();
+    expect(connectionError("another-error")).toBeUndefined();
   });
 });
 

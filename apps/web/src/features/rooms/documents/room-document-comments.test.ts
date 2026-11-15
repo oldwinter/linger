@@ -463,8 +463,27 @@ describe("Room Document Comment ThreadStore", () => {
 
     expect(store.auth.canCreateThread()).toBe(true);
     expect(store.auth.canAddComment(projected)).toBe(true);
-    expect(store.auth.canResolveThread(projected)).toBe(false);
+    expect(store.auth.canResolveThread(projected)).toBe(true);
     expect(store.auth.canUnresolveThread(projected)).toBe(false);
+    expect(store.auth.canResolveThread({ ...projected, resolved: true })).toBe(
+      false,
+    );
+    expect(
+      store.auth.canUnresolveThread({ ...projected, resolved: true }),
+    ).toBe(true);
+    expect(
+      store.auth.canResolveThread({
+        ...projected,
+        metadata: { anchorStatus: "orphaned" },
+      }),
+    ).toBe(false);
+    expect(
+      store.auth.canUnresolveThread({
+        ...projected,
+        metadata: { anchorStatus: "orphaned" },
+        resolved: true,
+      }),
+    ).toBe(false);
     expect(store.auth.canDeleteThread(projected)).toBe(false);
     expect(store.auth.canUpdateComment(projected.comments[0]!)).toBe(true);
     expect(store.auth.canDeleteComment(projected.comments[0]!)).toBe(true);
@@ -513,25 +532,58 @@ describe("Room Document Comment ThreadStore", () => {
     });
   });
 
-  it("refuses to resolve or reopen a Thread", async () => {
+  it("resolves and reopens a Thread from TeamHub's authoritative projection", async () => {
+    const open = threadFixture();
+    const resolved = {
+      ...open,
+      resolved: true,
+      resolved_at: "2026-08-02T00:00:00Z",
+      resolved_by: open.created_by,
+      updated_at: "2026-08-02T00:00:00Z",
+    };
+    const updateRoomDocumentCommentThread = vi
+      .fn<(request: TestRouteRequest) => unknown>()
+      .mockReturnValueOnce(resolved)
+      .mockReturnValueOnce(open);
+    const server = new TeamHubTestServer().on(
+      "PATCH",
+      "/v0/document-comment-threads/{documentCommentThreadId}",
+      updateRoomDocumentCommentThread,
+    );
     const store = createTeamHubDocumentThreadStore({
-      client: testClient(new TeamHubTestServer()),
+      client: testClient(server),
       currentActorId: "actor_human_1",
       documentId: "document_1",
-      getCurrentAnchor: () => threadFixture().anchor,
+      getCurrentAnchor: () => open.anchor,
       getDurableHead: durableHead,
     });
-    store.replaceThreads([threadFixture()]);
+    store.replaceThreads([open]);
 
-    await expect(store.resolveThread()).rejects.toThrow(
-      "Document Comment Threads cannot be resolved",
+    await store.resolveThread({ threadId: "thread_1" });
+    expect(updateRoomDocumentCommentThread).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        params: { documentCommentThreadId: "thread_1" },
+        body: { resolved: true },
+      }),
     );
-    await expect(store.unresolveThread()).rejects.toThrow(
-      "Document Comment Threads cannot be resolved",
+    expect(store.getThread("thread_1")).toMatchObject({
+      metadata: { resolvedByName: open.created_by.display_name },
+      resolved: true,
+      resolvedBy: open.created_by.id,
+      resolvedUpdatedAt: new Date("2026-08-02T00:00:00Z"),
+    });
+
+    await store.unresolveThread({ threadId: "thread_1" });
+    expect(updateRoomDocumentCommentThread).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        params: { documentCommentThreadId: "thread_1" },
+        body: { resolved: false },
+      }),
     );
-    const thread = store.getThread("thread_1");
-    expect(store.auth.canResolveThread(thread)).toBe(false);
-    expect(store.auth.canUnresolveThread(thread)).toBe(false);
+    const reopened = store.getThread("thread_1");
+    expect(reopened.resolved).toBe(false);
+    expect(reopened.resolvedBy).toBeUndefined();
+    expect(reopened.resolvedUpdatedAt).toBeUndefined();
   });
 });
 

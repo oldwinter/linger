@@ -277,6 +277,17 @@ it("treats an already stopped instance as idle for repeated down", async () => {
   await expect(stopComputer(f.instance)).resolves.toBeUndefined();
 });
 
+it("treats a Computer whose executable is gone as nothing to stop", async () => {
+  const f = await fixture();
+  await writeFile(f.instance.computerConfig, "{}");
+  await rm(f.instance.computerExecutable, { force: true });
+  const run = vi.spyOn(processes, "runProcess");
+
+  await expect(stopComputer(f.instance)).resolves.toBeUndefined();
+
+  expect(run).not.toHaveBeenCalled();
+});
+
 async function connectingFixture(
   gateway: (statusCall: number) => string,
   runtimeReady = true,

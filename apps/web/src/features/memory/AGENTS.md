@@ -10,6 +10,38 @@
   Meetings through TeamHub's
   `DELETE /v0/tenants/{tenantId}/me/meetings/{captureSessionId}`. Web observes Memory generation state; it does not call the
   Memory service directly or orchestrate generation.
+- Tracking a meeting Action stages an unsent draft in the Human's Another Me
+  Chat and opens it; the reader still sends nothing itself and creates no Work
+  Item.
+- A reader may copy a report as Markdown or send it to a Room as one Message.
+  That Message is a copy of derived reading state, not source evidence, and
+  neither action writes Memory state.
+- A meeting reader may copy its Action items as a Markdown checklist. The
+  clipboard holds a copy of derived reading state and the reader writes none.
+- A meeting reader may copy its transcript as plain text, one line per speaker
+  turn, once the transcript text has loaded. The clipboard again holds derived
+  reading state and the reader writes none.
+- A meeting reader may copy its summary as the Markdown the summary view renders
+  from. The clipboard again holds derived reading state, and a refused copy says
+  so.
+- A meeting reader's header may copy the meeting's canonical link, built by
+  `meeting-routes.ts` with the origin the app is served from. The clipboard
+  again holds derived reading state, and a refused copy says so.
+- A meeting reader's recording player remembers the listener's playback speed
+  per Account in this browser only, so the next meeting opens at that speed; a
+  refused rate keeps the previous one and says so, and the This browser
+  settings clear it.
+- A meeting reader's recording player remembers where its listener stopped, per
+  meeting, in this browser only and keyed per Account. The place is offered on
+  reopen, never held by TeamHub, and the This browser settings clear it.
+- While the person is inside the meeting, Space plays or pauses the recording
+  and the left and right arrows move five seconds, stopping at either end. Keys
+  pressed in a field, inside a dialog, or on a focused control stay with it, and
+  no keypress announces anything.
+- A meeting reader may send its summary to a Room as one Message from the
+  header's Room picker. That Message copies derived reading state, writes no
+  Memory state, and reuses its idempotency key only when retrying the same
+  Room.
 - Timeline is the display label for the existing `graph` entry; keep its route
   and data key. Keep/Delete stay browser-local display decisions through
   `features/wiki/wiki-display-state.ts`: filter displayed graph nodes and edges

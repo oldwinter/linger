@@ -51,17 +51,42 @@ const (
 
 var herdrWord = regexp.MustCompile(`(^|[^A-Za-z0-9_.-])herdr([^A-Za-z0-9_.-]|$)`)
 
+// herdrShellWord matches one word of a delegating subcommand, bare or quoted.
+// The host cannot read the command at all here, so recognizing the word is
+// enough; a quoted word is the same argument to herdr.
+func herdrShellWord(word string) string {
+	return `(?:` + word + `|'` + word + `'|"` + word + `")`
+}
+
+// herdrDelegatingWord matches a herdr subcommand that hands text or keys to a
+// pane, across any shell whitespace or quoted word. When the host cannot read
+// a command's shell syntax, only one of these can hide delegated text from the
+// judge: a read-only herdr command with a redirect the host does not read hands
+// nothing over.
+var herdrDelegatingWord = regexp.MustCompile(
+	`(^|[^A-Za-z0-9_.-])(?:` +
+		herdrShellWord("pane") + `(?:[ \t]|\\\n)+` +
+		`(?:` + herdrShellWord("run") + `|` + herdrShellWord("send-text") + `|` + herdrShellWord("send-keys") + `)` +
+		`|` +
+		herdrShellWord("agent") + `(?:[ \t]|\\\n)+` +
+		`(?:` + herdrShellWord("send-keys") + `|` + herdrShellWord("prompt") + `|` + herdrShellWord("start") + `)` +
+		`)([^A-Za-z0-9_.-]|$)`,
+)
+
 // HerdrUnreadMissing tells the judge the host could not pick out what a herdr
 // command hands to a pane.
 const HerdrUnreadMissing = "The command runs herdr with shell syntax the host does not read, so the text it hands to a pane is not shown separately."
 
 // HerdrDelegations returns the text each herdr step of a shell command hands
-// to a pane. unread is set when the command names herdr but uses shell syntax
-// parseShell does not read.
+// to a pane. unread is set when the command uses shell syntax parseShell does
+// not read and names a subcommand that could hand text to a pane. The command
+// is matched whole, so text quoted for another program, such as
+// `echo "herdr pane run w2:p2 $HOME"`, also counts as unread: without a shell
+// parser the host cannot tell that text from an inner shell's command.
 func HerdrDelegations(command string) (delegations []Delegation, unread bool) {
 	steps, ok := parseShell(command)
 	if !ok {
-		return nil, herdrWord.MatchString(command)
+		return nil, herdrWord.MatchString(command) && herdrDelegatingWord.MatchString(command)
 	}
 	for _, step := range steps {
 		if step.words[0] != "herdr" {

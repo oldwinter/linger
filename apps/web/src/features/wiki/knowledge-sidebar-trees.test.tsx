@@ -1,21 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import {
-  createMemoryRouter,
-  MemoryRouter,
-  RouterProvider,
-  useLocation,
-} from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
-import type {
-  TeamHubDocument,
-  TeamHubMemoryEntry,
-} from "@/features/teamhub/teamhub-types";
+import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
-import { MeetingsSidebarTree, WikiFileTree } from "./knowledge-sidebar-trees";
-import { serveWikiDocuments } from "./wiki.test-support";
+import { MeetingsSidebarTree } from "./knowledge-sidebar-trees";
 
 describe("knowledge collection expansion", () => {
   it("starts the Meetings collection collapsed and toggles it in place", async () => {
@@ -138,106 +129,6 @@ describe("knowledge collection expansion", () => {
     expect(screen.queryByRole("button", { name: /Expand 2026/ })).toBeNull();
   });
 
-  it("opens the folder holding the Document the route names", async () => {
-    const runtime = createTestTeamHubRuntime();
-
-    serveWikiDocuments(runtime).mockResolvedValue({
-      items: [
-        wikiPage("document-plan", "Plan", "projects/lev8/plan.md"),
-        wikiPage("document-note", "Note", "topics/note.md"),
-      ],
-      page: { has_more: false },
-    });
-    const router = createMemoryRouter(
-      [
-        {
-          element: <WikiFileTree tenantId="tenant-northstar" />,
-          path: "/t/:tenantId/documents/:documentId",
-        },
-      ],
-      {
-        initialEntries: ["/t/tenant-northstar/documents/document-plan"],
-      },
-    );
-    render(
-      <QueryClientProvider
-        client={
-          new QueryClient({ defaultOptions: { queries: { retry: false } } })
-        }
-      >
-        <TeamHubRuntimeProvider runtime={runtime}>
-          <RouterProvider router={router} />
-        </TeamHubRuntimeProvider>
-      </QueryClientProvider>,
-    );
-
-    // The collection opens itself because the route named a file it holds, and
-    // both ancestors of that file open; the unrelated folder does not.
-    expect(
-      await screen.findByRole("button", { name: "Collapse projects" }),
-    ).toHaveAttribute("aria-expanded", "true");
-    expect(
-      screen.getByRole("button", { name: "Collapse lev8" }),
-    ).toHaveAttribute("aria-expanded", "true");
-    expect(
-      screen.getByRole("button", { name: "Expand topics" }),
-    ).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByRole("link", { name: /plan\.md/ })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
-  });
-
-  it("leaves recording Session summaries to Meetings instead of listing them in Wiki", async () => {
-    const runtime = createTestTeamHubRuntime();
-
-    serveWikiDocuments(runtime).mockResolvedValue({
-      items: [
-        wikiPage("document-planning", "Planning", "projects/planning.md"),
-        wikiPage(
-          "document-meeting-session",
-          "Meeting session",
-          "sessions/2026-10-01/capture_session_8036995d0af5.md",
-        ),
-        wikiPage(
-          "document-meeting-only-day",
-          "Meeting only",
-          "sessions/2026-09-30/capture_session_1234.md",
-        ),
-      ],
-      page: { has_more: false },
-    });
-    const router = createMemoryRouter(
-      [
-        {
-          element: <WikiFileTree tenantId="tenant-northstar" />,
-          path: "/t/:tenantId/documents/:documentId",
-        },
-      ],
-      {
-        initialEntries: ["/t/tenant-northstar/documents/document-planning"],
-      },
-    );
-    render(
-      <QueryClientProvider
-        client={
-          new QueryClient({ defaultOptions: { queries: { retry: false } } })
-        }
-      >
-        <TeamHubRuntimeProvider runtime={runtime}>
-          <RouterProvider router={router} />
-        </TeamHubRuntimeProvider>
-      </QueryClientProvider>,
-    );
-    expect(
-      await screen.findByRole("link", { name: /planning\.md/ }),
-    ).toBeVisible();
-    expect(screen.queryByRole("link", { name: /capture_session_/ })).toBeNull();
-    // Days holding only recording summaries do not appear in Wiki.
-    expect(screen.queryByText("2026-09-30")).toBeNull();
-    expect(screen.queryByText("2026-10-01")).toBeNull();
-  });
-
   it("preserves manual state on unrelated rerenders", async () => {
     const runtime = createTestTeamHubRuntime();
 
@@ -305,53 +196,4 @@ describe("knowledge collection expansion", () => {
 function LocationDisplay() {
   const { pathname } = useLocation();
   return <span data-testid="location">{pathname}</span>;
-}
-
-function wikiPage(id: string, title: string, pageKey: string): TeamHubDocument {
-  return {
-    capabilities: {
-      comment: true,
-      delete: true,
-      duplicate: true,
-      export: true,
-      manage: true,
-      read: true,
-      use_as_context: true,
-      write: true,
-    },
-    can_edit_native_content: true,
-    created_at: "2026-07-23T09:00:00Z",
-    creator: {
-      display_name: "Jenny Bin",
-      id: "actor-jenny",
-      kind: "human",
-      tenant_id: "tenant-northstar",
-    },
-    current_version: {
-      id: `${id}-v1`,
-      sha256: "a".repeat(64),
-      version_number: 1,
-    },
-    draft_capability: "write",
-    format: "markdown",
-    from: [
-      {
-        binding_kind: "wiki_page",
-        context_id: "wiki-jenny",
-        page_key: pageKey,
-      },
-    ],
-    id,
-    owner: {
-      display_name: "Jenny Bin",
-      id: "actor-jenny",
-      kind: "human",
-      tenant_id: "tenant-northstar",
-    },
-    representation_format: "markdown",
-    status: "active",
-    tenant_id: "tenant-northstar",
-    title,
-    updated_at: "2026-07-23T09:00:00Z",
-  };
 }

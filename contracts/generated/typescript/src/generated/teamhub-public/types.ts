@@ -1245,6 +1245,46 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v0/rooms/{roomId}/messages/{messageId}/pin": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        roomId: components["parameters"]["RoomId"];
+        messageId: components["parameters"]["MessageId"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    /** Idempotently pin a conversation Message for the whole Room. */
+    put: operations["putMessagePin"];
+    post?: never;
+    /** Idempotently remove a Message from the Room's Pinned list. */
+    delete: operations["deleteMessagePin"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v0/rooms/{roomId}/pins": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        roomId: components["parameters"]["RoomId"];
+      };
+      cookie?: never;
+    };
+    /** List the Room's pinned Messages, newest pin first, capped at 50. */
+    get: operations["listMessagePins"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v0/decisions/{decisionId}": {
     parameters: {
       query?: never;
@@ -1755,6 +1795,25 @@ export interface paths {
     get: operations["getPersonalWiki"];
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v0/tenants/{tenantId}/personal-wiki/refresh": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Request a refresh of the authenticated Human's Personal Wiki from Memory. */
+    post: operations["refreshPersonalWiki"];
     delete?: never;
     options?: never;
     head?: never;
@@ -5274,6 +5333,11 @@ export interface components {
       id: components["schemas"]["Id"];
       tenant_id: components["schemas"]["Id"];
       room_id: components["schemas"]["Id"];
+      /**
+       * Format: int64
+       * @description The Message's position in the Room's event sequence. A reader compares it with the Room's read_through_room_seq to place unread Messages. Present on every Message the public API returns.
+       */
+      room_seq?: number;
       author: components["schemas"]["ActorRef"];
       message_kind: components["schemas"]["MessageKind"];
       /** @description Exact display text reconstructed by concatenating segment content in array order. */
@@ -5619,6 +5683,15 @@ export interface components {
     };
     ThreadRoom: {
       room: components["schemas"]["Room"];
+    };
+    MessagePin: {
+      message: components["schemas"]["Message"];
+      pinned_by_actor_id: components["schemas"]["Id"];
+      pinned_at: components["schemas"]["Timestamp"];
+    };
+    MessagePinList: {
+      /** @description The Room's pinned Messages, newest pin first. */
+      items: components["schemas"]["MessagePin"][];
     };
     /** @description The answer the card's kind takes, with the fields DecisionAnswer describes for it. */
     DecisionRequest: {
@@ -6312,6 +6385,25 @@ export interface components {
       current_revision_id?: components["schemas"]["Id"];
       created_at?: components["schemas"]["Timestamp"];
       updated_at?: components["schemas"]["Timestamp"];
+    };
+    PersonalWikiRefreshRequest: {
+      /**
+       * Format: date
+       * @description The business date the refresh is for. It scopes the request's idempotency, not the sources; omit it for the current date.
+       */
+      date?: string;
+    };
+    /**
+     * @description accepted when the refresh was admitted and runs now; already_latest when every source is already in the published Wiki; in_progress when a refresh is already running; no_sources when the Wiki has no source to refresh from yet.
+     * @enum {string}
+     */
+    PersonalWikiRefreshOutcome:
+      | "accepted"
+      | "already_latest"
+      | "in_progress"
+      | "no_sources";
+    PersonalWikiRefresh: {
+      outcome: components["schemas"]["PersonalWikiRefreshOutcome"];
     };
     /** @enum {string} */
     MemoryEntryKind: "daily" | "weekly" | "meeting";
@@ -9142,6 +9234,8 @@ export interface operations {
         q: string;
         cursor?: components["parameters"]["Cursor"];
         limit?: components["parameters"]["Limit"];
+        /** @description Narrows the search to Messages in this Room. A Room the caller cannot read returns an empty items array instead of an error. */
+        room_id?: string;
       };
       header?: never;
       path: {
@@ -10078,6 +10172,76 @@ export interface operations {
       404: components["responses"]["NotFound"];
     };
   };
+  putMessagePin: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        roomId: components["parameters"]["RoomId"];
+        messageId: components["parameters"]["MessageId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The Message is pinned in this Room; repeating the request changes nothing. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  deleteMessagePin: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        roomId: components["parameters"]["RoomId"];
+        messageId: components["parameters"]["MessageId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The Message is not pinned in this Room; repeating the request changes nothing. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  listMessagePins: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        roomId: components["parameters"]["RoomId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The Room's pinned Messages. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MessagePinList"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+    };
+  };
   decideDecision: {
     parameters: {
       query?: never;
@@ -10806,6 +10970,46 @@ export interface operations {
       };
       401: components["responses"]["Unauthenticated"];
       404: components["responses"]["NotFound"];
+    };
+  };
+  refreshPersonalWiki: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["PersonalWikiRefreshRequest"];
+      };
+    };
+    responses: {
+      /** @description The Wiki already matches its sources, or has no source yet. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PersonalWikiRefresh"];
+        };
+      };
+      /** @description The refresh is accepted or already running. */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PersonalWikiRefresh"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      503: components["responses"]["ServiceUnavailable"];
     };
   };
   getPersonalWikiPreview: {

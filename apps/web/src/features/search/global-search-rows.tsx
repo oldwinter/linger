@@ -1,6 +1,7 @@
 import {
   ArrowRight01Icon,
   ArrowTurnBackwardIcon,
+  Cancel01Icon,
   Clock01Icon,
   Search01Icon,
 } from "@hugeicons/core-free-icons";
@@ -140,6 +141,7 @@ export function ResultRow({
   index,
   onActivate,
   onOpen,
+  onRemoveRecent,
   query,
   result,
 }: {
@@ -150,34 +152,28 @@ export function ResultRow({
   index: number;
   onActivate: () => void;
   onOpen: () => void;
+  /** Forgets a recent query; only recent rows carry the control. */
+  onRemoveRecent: (text: string) => void;
   query: string;
   result: SearchResult;
 }) {
-  if (result.kind === "scope") return null;
-  const target =
-    result.kind === "query" ? undefined : resultTarget(result, context);
-  const meta =
-    target?.kind === "message"
-      ? relativeTimeLabel(target.createdAt)
-      : target?.kind === "document"
-        ? relativeTimeLabel(target.updatedAt)
-        : "";
-  return (
-    <button
-      aria-selected={active}
-      className={`global-search-enter relative z-[1] grid w-full grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-3 rounded-sm px-3 text-left ${
-        result.kind === "query" ? "h-10" : "h-[52px]"
-      }`}
-      data-row
-      id={`global-search-result-${index}`}
-      onClick={onOpen}
-      onMouseMove={onActivate}
-      role="option"
-      style={{ "--enter-index": enterIndex } as CSSProperties}
-      type="button"
-    >
-      {result.kind === "query" ? (
-        <>
+  if (result.kind === "query") {
+    return (
+      <div
+        className="global-search-enter flex h-10 items-center"
+        onMouseMove={onActivate}
+        role="presentation"
+        style={{ "--enter-index": enterIndex } as CSSProperties}
+      >
+        <button
+          aria-selected={active}
+          className="relative z-[1] grid h-10 min-w-0 flex-1 grid-cols-[32px_minmax(0,1fr)] items-center gap-3 rounded-sm px-3 text-left"
+          data-row
+          id={`global-search-result-${index}`}
+          onClick={onOpen}
+          role="option"
+          type="button"
+        >
           <span className="grid size-8 place-items-center text-app-subtle">
             <Icon
               className="global-search-query-glyph"
@@ -186,18 +182,48 @@ export function ResultRow({
             />
           </span>
           <span className="truncate text-sm text-app-ink">{result.text}</span>
-        </>
-      ) : (
-        <TargetRowContent
-          query={query}
-          target={target!}
-          text={
-            result.kind === "message"
-              ? markdownPlainText(result.hit.message.raw_message)
-              : undefined
-          }
-        />
-      )}
+        </button>
+        <button
+          aria-keyshortcuts="Delete"
+          aria-label={`Remove recent search ${result.text}`}
+          className="relative z-[1] mr-2 grid size-6 shrink-0 place-items-center rounded-md text-app-subtle opacity-60 transition-[opacity,color,background-color] duration-150 hover:bg-app-hover hover:text-app-ink hover:opacity-100 focus-visible:opacity-100"
+          onClick={() => onRemoveRecent(result.text)}
+          type="button"
+        >
+          <Icon icon={Cancel01Icon} size={12} />
+        </button>
+      </div>
+    );
+  }
+  if (result.kind === "scope") return null;
+  const target = resultTarget(result, context);
+  const meta =
+    target.kind === "message"
+      ? relativeTimeLabel(target.createdAt)
+      : target.kind === "document"
+        ? relativeTimeLabel(target.updatedAt)
+        : "";
+  return (
+    <button
+      aria-selected={active}
+      className="global-search-enter relative z-[1] grid h-[52px] w-full grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-3 rounded-sm px-3 text-left"
+      data-row
+      id={`global-search-result-${index}`}
+      onClick={onOpen}
+      onMouseMove={onActivate}
+      role="option"
+      style={{ "--enter-index": enterIndex } as CSSProperties}
+      type="button"
+    >
+      <TargetRowContent
+        query={query}
+        target={target}
+        text={
+          result.kind === "message"
+            ? markdownPlainText(result.hit.message.raw_message)
+            : undefined
+        }
+      />
       <span className="grid min-w-10 justify-items-end">
         <span
           className={`col-start-1 row-start-1 text-xs tabular-nums text-app-subtle transition-opacity duration-[var(--app-micro-duration)] ${

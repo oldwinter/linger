@@ -1,6 +1,9 @@
-import type { ComponentProps } from "react";
+import { type ComponentProps, useMemo } from "react";
 
+import { timelineMessages } from "./message-grouping";
 import { MessageTimeline } from "./message-timeline";
+import { RoomUnreadJump } from "./room-unread-jump";
+import { findUnreadDividerIndex } from "./unread-divider";
 import type { RoomChatData } from "./use-room-chat-data";
 import type { RoomChatConversationState } from "./use-room-chat-conversation-state";
 import type { RoomChatTimelineActions } from "./use-room-chat-timeline-actions";
@@ -25,6 +28,7 @@ export function RoomChatTimelineSection({
     members,
     messages,
     navigation,
+    setCreateIssueMessage,
     setForwardMessage,
     tenantId,
   } = data;
@@ -40,9 +44,26 @@ export function RoomChatTimelineSection({
     mentionOptions,
     onboarding,
     presentedMessages,
+    readBoundary,
     timeline,
     voiceLiveDraft,
   } = state;
+  const unreadDivider = useMemo(
+    () =>
+      readBoundary
+        ? findUnreadDividerIndex(
+            timelineMessages(presentedMessages),
+            readBoundary.readThroughRoomSeq,
+          )
+        : ({ kind: "none" } as const),
+    [presentedMessages, readBoundary],
+  );
+  const unreadDividerIndex =
+    unreadDivider.kind === "none"
+      ? undefined
+      : unreadDivider.kind === "beyond-page"
+        ? 0
+        : unreadDivider.index;
   return (
     <RoomTimelineViewport
       actorDisplayNames={actions.actorDisplayNames}
@@ -80,7 +101,10 @@ export function RoomChatTimelineSection({
       onCardDecision={actions.timelineActions.onCardDecision}
       onCloseLinkedSource={navigation.closeLinkedMessage}
       onToggleReaction={conversation.toggleReaction}
+      onTogglePin={conversation.togglePin}
+      pinnedMessageIds={conversation.pinnedMessageIds}
       actorKinds={actions.actorKinds}
+      onCreateIssueMessage={setCreateIssueMessage}
       onForwardMessage={setForwardMessage}
       onMentionAuthor={interactions.mentionAuthor}
       onOpenMessageFile={navigation.openMessageFile}
@@ -98,6 +122,13 @@ export function RoomChatTimelineSection({
       onOpenUrl={actions.timelineActions.onOpenUrl}
       onOpenThread={navigation.openThread}
       onReply={interactions.replyToMessage}
+      onReplyWithQuote={
+        // A structured reply already stages the same Message as context, so
+        // the quote action steps aside rather than stacking a second strip.
+        interactions.selectedContextMessages.length
+          ? undefined
+          : interactions.stageQuoteReply
+      }
       onRetry={delivery.retryMessage}
       pendingMessages={conversation.pendingMessages}
       presentations={actions.resolvedPresentations}
@@ -112,6 +143,14 @@ export function RoomChatTimelineSection({
       focusedMessageHighlight={
         linkedInTimeline ? navigation.linkedMessageHighlight : undefined
       }
+      onJumpToUnread={timeline.jumpToUnreadDivider}
+      showUnreadJump={
+        unreadDividerIndex !== undefined &&
+        timeline.initialScrollReady &&
+        !timeline.unreadDividerVisible
+      }
+      unreadDividerIndex={unreadDividerIndex}
+      unreadDividerRef={timeline.unreadDividerRef}
       viewportOnScroll={(event) => {
         timeline.recordTimelineScroll(event.currentTarget);
         actions.loadOlderNearTop(event.currentTarget);
@@ -123,28 +162,35 @@ export function RoomChatTimelineSection({
 
 type RoomTimelineViewportProps = ComponentProps<typeof MessageTimeline> & {
   initialScrollReady: boolean;
+  onJumpToUnread: () => void;
+  showUnreadJump: boolean;
   viewportOnScroll: NonNullable<ComponentProps<"div">["onScroll"]>;
   viewportRef: ComponentProps<"div">["ref"];
 };
 
 function RoomTimelineViewport({
   initialScrollReady,
+  onJumpToUnread,
+  showUnreadJump,
   viewportOnScroll,
   viewportRef,
   ...timelineProps
 }: RoomTimelineViewportProps) {
   return (
-    <div
-      aria-label="Room timeline"
-      data-voice-scroll="main"
-      className={`room-timeline workspace-scrollbar flex flex-1 flex-col overflow-y-scroll [overflow-anchor:none] ${
-        initialScrollReady ? "" : "invisible"
-      }`}
-      data-initial-scroll-ready={initialScrollReady}
-      onScroll={viewportOnScroll}
-      ref={viewportRef}
-    >
-      <MessageTimeline {...timelineProps} />
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <div
+        aria-label="Room timeline"
+        data-voice-scroll="main"
+        className={`room-timeline workspace-scrollbar flex flex-1 flex-col overflow-y-scroll [overflow-anchor:none] ${
+          initialScrollReady ? "" : "invisible"
+        }`}
+        data-initial-scroll-ready={initialScrollReady}
+        onScroll={viewportOnScroll}
+        ref={viewportRef}
+      >
+        <MessageTimeline {...timelineProps} />
+      </div>
+      {showUnreadJump ? <RoomUnreadJump onJump={onJumpToUnread} /> : null}
     </div>
   );
 }

@@ -41,7 +41,9 @@ function section(markdown: string, titles: string[]): string {
   return "";
 }
 
-function plain(text: string): string {
+/** One line of Report Markdown as plain reading text: no wiki links, link
+ * targets, emphasis, or source markers. */
+export function plain(text: string): string {
   return text
     .replace(/\[\[source:[^\]]*\]\]/gu, "")
     .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/gu, "$2")

@@ -35,7 +35,9 @@ before the product was renamed Linger convert once in
 the desktop runs through `installer.js --migrate`. Under each instance's lock
 it stops the instance's Computer and native services, renames `SIMPLEX_*`
 keys in the generated env files, and gives the instance its
-`linger-<name>-<hash>` project name. The legacy project name in
+`linger-<name>-<hash>` project name. A stop whose release folder or Computer
+executable is gone counts as done, since an upgrade can leave the record
+after the files it names are removed. The legacy project name in
 `instance.json` marks an instance as not yet converted, so it is written last
 and a rerun after a crash converges. A damaged record is skipped, and a
 failing instance does not stop the others; the migration then throws one

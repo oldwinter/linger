@@ -131,6 +131,17 @@ export function formatMeetingWhen(date: string, time: string) {
   return `${monthLabels[Number(month) - 1]} ${Number(day)}, ${time.slice(0, 5)}`;
 }
 
+/** The reader title of a meeting: its folder's start time, because the
+ * meeting's own title is a generated recording ID. */
+export function meetingTitle(
+  entry: Pick<TeamHubMemoryEntry, "path" | "title">,
+) {
+  const when = meetingWhen(entry.path);
+  return when
+    ? `Meeting · ${formatMeetingWhen(when.date, when.time)}`
+    : entry.title;
+}
+
 /** "2026-10-01" -> "Thu, Oct 1"; the date is already a local day. */
 export function formatMeetingDay(date: string) {
   const [, month, day] = date.split("-");

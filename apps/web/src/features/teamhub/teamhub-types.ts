@@ -97,6 +97,10 @@ export type TeamHubVoiceTranscriptEvent =
 export type TeamHubVoiceTranscriptEventPage =
   components["schemas"]["VoiceTranscriptEventPage"];
 export type TeamHubPersonalWiki = components["schemas"]["PersonalWiki"];
+export type TeamHubPersonalWikiRefresh =
+  components["schemas"]["PersonalWikiRefresh"];
+export type TeamHubPersonalWikiRefreshOutcome =
+  components["schemas"]["PersonalWikiRefreshOutcome"];
 export type TeamHubMemoryEntry = components["schemas"]["MemoryEntry"];
 export type TeamHubExternalConnection =
   components["schemas"]["ExternalConnection"];
@@ -169,7 +173,13 @@ export type TeamHubMessageCard =
 export type TeamHubMessageCardHumanActorRef =
   components["schemas"]["MessageCardHumanActorRef"];
 export type TeamHubWorkItem = components["schemas"]["WorkItem"];
+export type TeamHubWorkItemCreateInput =
+  components["schemas"]["WorkItemCreateRequest"];
 export type TeamHubWorkItemPage = components["schemas"]["WorkItemPage"];
+export type TeamHubWorkItemComment = components["schemas"]["WorkItemComment"];
+export type TeamHubWorkItemTimelineEntry =
+  components["schemas"]["WorkItemTimelineEntry"];
+export type TeamHubWorkItemPriority = components["schemas"]["WorkItemPriority"];
 export type TeamHubTaskExecution =
   components["schemas"]["TaskExecutionProjection"];
 export type TeamHubTaskActivityPage = Omit<
@@ -196,6 +206,7 @@ export type TeamHubMessageDocumentSegment =
   components["schemas"]["DocumentSegment"];
 export type TeamHubMessageSegment = components["schemas"]["MessageSegment"];
 export type TeamHubMessagePage = components["schemas"]["MessagePage"];
+export type TeamHubMessagePinList = components["schemas"]["MessagePinList"];
 export type TeamHubMessageSearchHit = components["schemas"]["MessageSearchHit"];
 export type TeamHubMessageThreadSummary =
   components["schemas"]["MessageThreadSummary"];

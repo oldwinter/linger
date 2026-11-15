@@ -244,7 +244,7 @@ func (s *Service) ListMessages(ctx context.Context, accountID, roomID string, pa
 			DisplayName: item.AuthorDisplayName, AccountID: item.AuthorAccountID,
 			Handle: item.AuthorHandle, CreatedAt: item.AuthorCreatedAt,
 		}
-		model, err := messageModel(item.ID, item.TenantID, item.RoomID, item.Body, item.Segments, item.MessageKind, item.CardContextMessageID, item.ReplyToMessageID, item.CardTitle, item.CardKind, item.CreatedAt, author)
+		model, err := messageModel(item.ID, item.TenantID, item.RoomID, item.RoomSeq, item.Body, item.Segments, item.MessageKind, item.CardContextMessageID, item.ReplyToMessageID, item.CardTitle, item.CardKind, item.CreatedAt, author)
 		if err == nil {
 			err = ApplyMessageNotice(&model, item.Notice)
 		}
@@ -291,7 +291,7 @@ func (s *Service) GetMessage(ctx context.Context, accountID, roomID, messageID s
 		DisplayName: message.AuthorDisplayName, AccountID: message.AuthorAccountID,
 		Handle: message.AuthorHandle, CreatedAt: message.AuthorCreatedAt,
 	}
-	model, err := messageModel(message.ID, message.TenantID, message.RoomID, message.Body, message.Segments, message.MessageKind, message.CardContextMessageID, message.ReplyToMessageID, message.CardTitle, message.CardKind, message.CreatedAt, author)
+	model, err := messageModel(message.ID, message.TenantID, message.RoomID, message.RoomSeq, message.Body, message.Segments, message.MessageKind, message.CardContextMessageID, message.ReplyToMessageID, message.CardTitle, message.CardKind, message.CreatedAt, author)
 	if err == nil {
 		err = ApplyMessageNotice(&model, message.Notice)
 	}

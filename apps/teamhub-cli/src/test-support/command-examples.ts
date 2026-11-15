@@ -88,6 +88,7 @@ export const commandExamples: Record<string, string[]> = {
     "block_card",
   ],
   get_document_image: ["document_one", "block_card", "-o", "card-copy.png"],
+  get_document_file: ["document_one", "block_file"],
   put_document_file: [
     "document_one",
     "playground/report.md",
@@ -232,6 +233,7 @@ export const commandExamples: Record<string, string[]> = {
   pause_routine: ["routine_one"],
   enable_routine: ["routine_one"],
   run_routine: ["routine_one"],
+  update_routine: ["routine_one", "--name", "Review"],
   delete_routine: ["routine_one"],
   get_personal_profile: [],
   start_personal_profile_build: [],

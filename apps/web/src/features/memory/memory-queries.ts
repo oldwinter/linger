@@ -5,11 +5,6 @@ import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 
-/** The read-only page of one meeting. */
-export function meetingPath(tenantId: string, meetingId: string) {
-  return `/t/${encodeURIComponent(tenantId)}/library/meetings?entry=${encodeURIComponent(meetingId)}`;
-}
-
 export function useMeetings(tenantId: string) {
   const { client } = useTeamHubRuntime();
   return useQuery({

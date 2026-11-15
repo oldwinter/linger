@@ -59,6 +59,7 @@ import {
 
 import { writeRoomComposerDraft } from "../room-drafts";
 import * as documentRoutePreload from "../documents/document-route-preload";
+import { messageQuoteText } from "./message-quote";
 import { RoomChat } from "./room-chat";
 import { roomMessageSender } from "./room-message-sender";
 import { browserRoomMessageOutbox } from "./room-message-outbox";
@@ -1625,6 +1626,93 @@ describe("Room Chat", () => {
     cleanup();
   });
 
+  it("sends a quoted reply as one message without reply context", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const createMessage = vi.spyOn(
+      roomMessageSender(runtime.client),
+      "createMessage",
+    );
+
+    renderRoomChat(runtime, testQueryClient());
+
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("Message Room");
+    fireEvent.click(
+      (
+        await screen.findAllByRole("button", {
+          name: "More message actions",
+        })
+      )[0]!,
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Reply with quote" }),
+    );
+
+    const strip = screen.getByLabelText("Quoted reply");
+    expect(strip).toBeVisible();
+    const staged = editor.value;
+    expect(staged).toMatch(/^> .+, \d{4}-\d\d-\d\d \d\d:\d\d\n>\n/u);
+    expect(staged.endsWith("\n\n")).toBe(true);
+
+    fireEvent.change(editor, {
+      target: { value: `${staged}Under the quote.` },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() => expect(createMessage).toHaveBeenCalledOnce());
+    const sent = createMessage.mock.calls[0]?.[0];
+    expect(sent?.body).toBe(`${staged}Under the quote.`);
+    expect(sent?.contextMessageIds).toEqual([]);
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Quoted reply")).toBeNull(),
+    );
+  });
+
+  it("hides the quoted reply while a structured reply is staged", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const createMessage = vi.spyOn(
+      roomMessageSender(runtime.client),
+      "createMessage",
+    );
+
+    renderRoomChat(runtime, testQueryClient());
+
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("Message Room");
+    fireEvent.click(
+      (
+        await screen.findAllByRole("button", {
+          name: "More message actions",
+        })
+      )[0]!,
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Reply to message" }),
+    );
+    expect(screen.getByLabelText("Selected reply context")).toBeVisible();
+
+    fireEvent.click(
+      (
+        await screen.findAllByRole("button", {
+          name: "More message actions",
+        })
+      )[0]!,
+    );
+    expect(
+      await screen.findByRole("menuitem", { name: "Reply to message" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("menuitem", { name: "Reply with quote" }),
+    ).toBeNull();
+    fireEvent.keyDown(editor, { key: "Escape" });
+
+    fireEvent.change(editor, { target: { value: "Continuing the context." } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() => expect(createMessage).toHaveBeenCalledOnce());
+    expect(createMessage.mock.calls[0]?.[0].contextMessageIds).toHaveLength(1);
+  });
+
   it("positions an independently loaded linked source without changing recent history", async () => {
     const runtime = createTestTeamHubRuntime();
 
@@ -1770,6 +1858,119 @@ describe("Room Chat", () => {
         originalScrollHeight,
       );
     }
+  });
+
+  it("focuses and highlights the Message a link names", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      renderRoomChat(
+        runtime,
+        testQueryClient(),
+        "/t/tenant-northstar/rooms/room-all/chat?message=message-2",
+      );
+
+      const target = (await screen.findAllByRole("article")).find(
+        (article) => article.dataset.messageId === "message-2",
+      );
+      expect(target).toBeDefined();
+      expect(target).toHaveAttribute("data-focused-message", "true");
+      expect(target).toHaveClass("message-row-focused");
+      expect(
+        screen
+          .getAllByRole("article")
+          .filter((article) => article.hasAttribute("data-focused-message")),
+      ).toHaveLength(1);
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: originalScrollIntoView,
+      });
+    }
+  });
+
+  it("leaves the timeline unfocused when the location names no Message", async () => {
+    const runtime = createTestTeamHubRuntime();
+
+    renderRoomChat(runtime, testQueryClient());
+
+    await screen.findByText(/Reviewed the checklist/);
+    expect(
+      screen
+        .getByLabelText("Room timeline")
+        .querySelector("[data-focused-message]"),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("region", { name: "Linked source Message" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("drops the highlight when the location no longer names the Message", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      const router = renderRoomChat(
+        runtime,
+        testQueryClient(),
+        "/t/tenant-northstar/rooms/room-all/chat?message=message-2",
+      );
+      await waitFor(() =>
+        expect(
+          screen
+            .getByLabelText("Room timeline")
+            .querySelector("[data-focused-message]"),
+        ).not.toBeNull(),
+      );
+
+      await act(async () => {
+        await router.navigate("/t/tenant-northstar/rooms/room-all/chat");
+      });
+
+      expect(
+        screen
+          .getByLabelText("Room timeline")
+          .querySelector("[data-focused-message]"),
+      ).toBeNull();
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: originalScrollIntoView,
+      });
+    }
+  });
+
+  it("says a linked Message is unavailable instead of failing the Room", async () => {
+    const runtime = createTestTeamHubRuntime();
+    runtime.server.on("GET", "/v0/rooms/{roomId}/messages/{messageId}", () =>
+      teamHubErrorResponse(
+        404,
+        "MESSAGE_NOT_FOUND",
+        "The Message was not found.",
+      ),
+    );
+
+    renderRoomChat(
+      runtime,
+      testQueryClient(),
+      "/t/tenant-northstar/rooms/room-all/chat?message=message-deleted",
+    );
+
+    expect(
+      await screen.findByText("Source Message is unavailable."),
+    ).toBeVisible();
+    expect(await screen.findByText(/Reviewed the checklist/)).toBeVisible();
   });
 
   it("retries the accepted contextual composition without restoring it over the next draft", async () => {
@@ -2061,6 +2262,73 @@ describe("Room Chat", () => {
       ),
     );
     expect(router.state.location.search).toBe("");
+  });
+
+  it("creates a Work Item issue from a Message draft", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const raw =
+      "I moved the launch notes into Shared Documents. @codex, please review the release checklist.";
+    const create = vi.fn<TestRouteHandler>(() => ({
+      assignees: [],
+      created_at: "2026-07-23T10:00:00Z",
+      created_by: runtime.seed.actors[0]!,
+      description: "",
+      explicit_access_grants: [],
+      id: "workitem-from-message",
+      kind: "issue",
+      number: 43,
+      priority: "medium",
+      referenced_actors: [],
+      state: "open",
+      tenant_id: "tenant-northstar",
+      title: raw,
+      updated_at: "2026-07-23T10:00:00Z",
+      updated_by: runtime.seed.actors[0]!,
+      version: 1,
+    }));
+    runtime.server.on("POST", "/v0/tenants/{tenantId}/work-items", create);
+
+    const router = renderRoomChat(runtime, testQueryClient());
+
+    const body = await screen.findByText(/I moved the launch notes/);
+    fireEvent.click(
+      within(body.closest("article")!).getByRole("button", {
+        name: "More message actions",
+      }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Create issue" }));
+
+    const description = messageQuoteText({
+      authorName: "Maya Chen",
+      createdAt: "2026-07-23T09:12:00Z",
+      message: raw,
+    });
+    const dialog = screen.getByRole("dialog", { name: "New issue" });
+    expect(within(dialog).getByLabelText("Title")).toHaveValue(raw);
+    expect(within(dialog).getByLabelText("Description")).toHaveValue(
+      description,
+    );
+    expect(
+      within(dialog).getByRole("combobox", { name: "Origin Room" }),
+    ).toHaveTextContent("#all");
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Create issue" }),
+    );
+
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(create.mock.calls[0]![0].body).toEqual({
+      description,
+      kind: "issue",
+      origin_room_id: "room-all",
+      priority: "medium",
+      title: raw,
+    });
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(
+        "/t/tenant-northstar/dashboard/workitem-from-message",
+      ),
+    );
   });
 
   it("keeps Human avatars static while names mention and Agent avatars open Agent info", async () => {
@@ -2643,6 +2911,10 @@ function renderRoomChat(
       {
         element: <p>Unified Document</p>,
         path: "/t/:tenantId/documents/:documentId",
+      },
+      {
+        element: <p>Work Item dashboard</p>,
+        path: "/t/:tenantId/dashboard/:workItemId",
       },
     ],
     {

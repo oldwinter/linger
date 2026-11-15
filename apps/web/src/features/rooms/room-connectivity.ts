@@ -8,6 +8,7 @@ import { useOutletContext } from "react-router";
 
 import type { RoomRealtimeStatus } from "@/features/teamhub/event-transport";
 import type { TeamHubMessagePresentation } from "@/features/teamhub/teamhub-runtime";
+import type { SearchRoomScope } from "@/features/search/room-search-scope";
 
 import type { PanelTabKind } from "./task-sidebar/panel-tab-types";
 
@@ -34,6 +35,8 @@ export interface RoomOutletContext {
   messagePresentations: Readonly<Record<string, TeamHubMessagePresentation>>;
   openProfile: (actorId: string) => void;
   openPanelTab: (input: OpenPanelTabInput) => void;
+  /** Opens global search narrowed to a Room; a Thread passes its Thread Room. */
+  openRoomSearch?: (room: SearchRoomScope) => void;
   recordMessagePresentation: (
     messageId: string,
     presentation: TeamHubMessagePresentation,

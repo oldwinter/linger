@@ -3,17 +3,15 @@ import { ReadOnlyBlockNoteDocumentLoader } from "@/components/read-only-blocknot
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 
 import { useWikiDocuments } from "./knowledge-sidebar-trees";
+import { WikiConnectionsPanel } from "./wiki-connections-panel";
 import { wikiPageKey, wikiPagePath } from "./wiki-display-state";
 import { resolveWikiPageReference } from "./wiki-document-links";
 import { wikiPreviewPages } from "./wiki-preview-pages";
 import { usePersonalWikiRefresh } from "./wiki-refresh";
+import { wikiDocumentPath, wikiPreviewPath } from "./wiki-routes";
+import { useRecordRecentWikiPage } from "./use-recent-wiki-pages";
 import "@/features/rooms/documents/room-document-blocknote.css";
 import "./wiki-working-card.css";
-
-/** Where a Wiki page opens: its Document once published, else its preview. */
-export function wikiPreviewPath(tenantId: string, path: string) {
-  return `/t/${encodeURIComponent(tenantId)}/wiki-preview?page=${encodeURIComponent(path)}`;
-}
 
 /**
  * A page the running refresh has written but not published, in the same
@@ -29,6 +27,16 @@ export function WikiPreviewPage() {
   const key = wikiPageKey(path);
   const page = wikiPreviewPages(refresh.preview).find(
     (item) => item.key === key,
+  );
+  // The preview already names the page, so recording the open needs no request.
+  useRecordRecentWikiPage(
+    page
+      ? {
+          id: page.key,
+          name: page.name,
+          path: wikiPreviewPath(tenantId, page.path),
+        }
+      : undefined,
   );
   const published = documents.data?.pages
     .flatMap((item) => item.items)
@@ -48,19 +56,12 @@ export function WikiPreviewPage() {
     if (previewKeys.has(targetKey))
       return wikiPreviewPath(tenantId, target.pageKey);
     const id = documentsByKey.get(targetKey);
-    return id
-      ? `/t/${encodeURIComponent(tenantId)}/documents/${encodeURIComponent(id)}${target.hash}`
-      : null;
+    return id ? `${wikiDocumentPath(tenantId, id)}${target.hash}` : null;
   };
 
   if (!page) {
     if (!refresh.refreshing && published)
-      return (
-        <Navigate
-          replace
-          to={`/t/${encodeURIComponent(tenantId)}/documents/${encodeURIComponent(published.id)}`}
-        />
-      );
+      return <Navigate replace to={wikiDocumentPath(tenantId, published.id)} />;
     return (
       <main className="flex min-w-0 flex-1 items-start justify-center bg-app-surface p-10">
         <p className="text-sm text-app-muted" role="status">
@@ -105,6 +106,11 @@ export function WikiPreviewPage() {
                 resolveLink={resolveLink}
               />
             </div>
+            <WikiConnectionsPanel
+              className="room-document-content-lane mx-auto"
+              pageKey={key}
+              tenantId={tenantId}
+            />
           </div>
         </div>
       </main>

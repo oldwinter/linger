@@ -36,8 +36,8 @@ func TestBuiltinCatalogLoadsVersionedPackages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Skills) != 16+importedBuiltinSkillCount {
-		t.Fatalf("catalog Skills=%d, want %d", len(catalog.Skills), 16+importedBuiltinSkillCount)
+	if len(catalog.Skills) != 17+importedBuiltinSkillCount {
+		t.Fatalf("catalog Skills=%d, want %d", len(catalog.Skills), 17+importedBuiltinSkillCount)
 	}
 	assertImportedBuiltinSkillDefaults(t, catalog)
 	for _, skill := range catalog.Skills {

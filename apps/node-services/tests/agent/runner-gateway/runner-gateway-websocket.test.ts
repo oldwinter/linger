@@ -40,9 +40,11 @@ import type {
 import { type RunnerCredentialAuthenticator } from "../../../src/agent/runner-gateway/runner-credential-authority.js";
 import {
   attachRunnerGatewayWebSocket,
+  RUNNER_DAEMON_IDENTITY_CONFLICT_CLOSE_REASON,
   RUNNER_UPGRADE_REQUIRED_CLOSE_REASON,
   type AttachRunnerGatewayWebSocketOptions,
 } from "../../../src/agent/runner-gateway/runner-gateway-websocket.js";
+import { TeamHubRuntimeStateError } from "../../../src/agent/executor/teamhub-runtime-state-client.js";
 import {
   RunnerGatewayProtocolError,
   RunnerUpgradeRequiredError,
@@ -363,6 +365,34 @@ describe("Runner Gateway WebSocket", () => {
     expect(JSON.stringify(onSessionError.mock.calls)).not.toContain(
       "workspace_grants",
     );
+  });
+  it("reports a Daemon Identity conflict as its own actionable close", async () => {
+    const onSessionError = vi.fn();
+    const fixture = await startFixture({ onSessionError });
+    const conflict = new TeamHubRuntimeStateError(
+      409,
+      "Daemon Identity is already bound to another Local Computer",
+      "AGENT_RUNTIME_DAEMON_IDENTITY_IN_USE",
+    );
+    vi.spyOn(fixture.gateway, "acceptConnection").mockRejectedValueOnce(
+      conflict,
+    );
+    const socket = new WebSocket(fixture.url, {
+      headers: { Authorization: "Bearer runner-secret" },
+    });
+    await opened(socket);
+    const closed = onceClosed(socket);
+    socket.send(JSON.stringify(hello()));
+    expect(await closed).toMatchObject({
+      code: 1011,
+      reason: RUNNER_DAEMON_IDENTITY_CONFLICT_CLOSE_REASON,
+    });
+    expect(onSessionError).toHaveBeenCalledWith(conflict, {
+      computerId: "runner-local",
+      phase: "runner.hello",
+      agentId: undefined,
+      code: "AGENT_RUNTIME_DAEMON_IDENTITY_IN_USE",
+    });
   });
   it("keeps received heartbeats live while a registry write blocks the business queue", async () => {
     const fixture = await startFixture({ heartbeatTimeoutMs: 200 });

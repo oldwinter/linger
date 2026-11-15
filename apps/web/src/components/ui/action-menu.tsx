@@ -26,6 +26,8 @@ export interface ActionMenuItem {
   danger?: boolean;
   disabled?: boolean;
   icon?: ReactNode;
+  /** Stays open after selection, for an action that can fail and be retried. */
+  keepOpen?: boolean;
   label: string;
   onSelect?: () => void;
   separatorBefore?: boolean;
@@ -300,7 +302,7 @@ export function ActionMenu({
                       );
                     }}
                     onSelect={() => {
-                      closeMenu();
+                      if (!item.keepOpen) closeMenu();
                       item.onSelect?.();
                     }}
                     ref={(node) => {
@@ -325,7 +327,9 @@ export function ActionMenu({
                 ) : null}
               </div>
             </>,
-            document.body,
+            // A modal dialog makes everything outside it inert, so a menu for a
+            // trigger inside one stays in the dialog to be visible and clickable.
+            triggerRef.current?.closest("dialog[open]") ?? document.body,
           )
         : null}
     </>

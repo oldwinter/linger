@@ -38,6 +38,7 @@ import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 
 const openPanelTab = vi.fn();
+const openRoomSearch = vi.fn();
 
 vi.mock("../room-connectivity", async () => {
   const actual = await vi.importActual<typeof import("../room-connectivity")>(
@@ -50,6 +51,7 @@ vi.mock("../room-connectivity", async () => {
       lastAppliedRoomSeq: 0,
       messagePresentations: {},
       openPanelTab,
+      openRoomSearch,
       recordMessagePresentation: () => undefined,
       status: "connected" as const,
     }),
@@ -59,6 +61,7 @@ vi.mock("../room-connectivity", async () => {
 describe("ThreadPanel", () => {
   beforeEach(() => {
     openPanelTab.mockReset();
+    openRoomSearch.mockReset();
     const store = new Map<string, string>();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
@@ -114,6 +117,29 @@ describe("ThreadPanel", () => {
     );
     expect(screen.getByLabelText("Reply in Thread")).toBeDisabled();
     expect(screen.getByRole("heading", { name: "Thread" })).toHaveFocus();
+  });
+
+  it("opens search narrowed to the Thread Room and names the Thread", async () => {
+    await renderThreadPanel(
+      <ThreadPanel
+        accountId="account-jenny"
+        rootMessage={message("message-2", "Thread root")}
+        tenantId="tenant-northstar"
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Search thread" }),
+    );
+
+    expect(openRoomSearch).toHaveBeenCalledWith({
+      id: "room-thread-1",
+      label: "Thread · Thread root",
+      name: "Thread root",
+    });
+    // Opening search leaves the Thread itself alone.
+    expect(screen.getByRole("heading", { name: "Thread" })).toBeVisible();
+    expect(screen.getByText("Thread root")).toBeVisible();
   });
 
   it("focuses the ready Thread composer with the caret after the draft for Reply to thread", async () => {
@@ -1096,6 +1122,187 @@ describe("ThreadPanel", () => {
       ).toBeVisible(),
     );
   });
+
+  it("copies the Thread as Markdown from its header", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMessages(runtime);
+    const fixture = await fixtureRoot(runtime);
+    // Local timestamps, so the printed clock is the same everywhere.
+    const root = {
+      ...fixture,
+      created_at: "2026-07-23T10:00:00",
+      raw_message: "Thread root",
+    };
+    const seeded = createTestTeamHubRuntime(runtime.seed);
+    runtime.server.on(
+      "GET",
+      "/v0/rooms/{roomId}/messages",
+      ({ params, request }) =>
+        params.roomId === root.room_id
+          ? seeded.server.fetch(request)
+          : {
+              items: [
+                {
+                  ...reply(params.roomId!, "reply-codex", "A reply.", 1),
+                  created_at: "2026-07-23T10:01:00",
+                },
+              ],
+              page: { has_more: false },
+              snapshot_room_seq: 0,
+            },
+    );
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(
+      wrap(
+        runtime,
+        <ThreadPanel
+          accountId="account-jenny"
+          mentionOptions={[codex]}
+          rootMessage={root}
+          tenantId="tenant-northstar"
+        />,
+      ),
+    );
+
+    await screen.findByText("A reply.");
+    fireEvent.click(screen.getByRole("button", { name: "Copy thread" }));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        [
+          "# Thread",
+          "**Codex, 2026-07-23 10:00**\nThread root",
+          "**Codex, 2026-07-23 10:01**\nA reply.",
+        ].join("\n\n"),
+      ),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent("Copied");
+  });
+
+  it("summarizes the Thread's replies and participants in its header", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMessages(runtime);
+    const fixture = await fixtureRoot(runtime);
+    const root = { ...fixture, raw_message: "Thread root" };
+    const seeded = createTestTeamHubRuntime(runtime.seed);
+    runtime.server.on(
+      "GET",
+      "/v0/rooms/{roomId}/messages",
+      ({ params, request }) =>
+        params.roomId === root.room_id
+          ? seeded.server.fetch(request)
+          : {
+              items: [
+                authorReply(
+                  lev8,
+                  params.roomId!,
+                  "reply-lev8",
+                  "From Lev8.",
+                  1,
+                ),
+                authorReply(
+                  jenny,
+                  params.roomId!,
+                  "reply-jenny",
+                  "From Jenny.",
+                  2,
+                ),
+                authorReply(
+                  maya,
+                  params.roomId!,
+                  "reply-maya",
+                  "From Maya.",
+                  3,
+                ),
+              ],
+              page: { has_more: false },
+              snapshot_room_seq: 0,
+            },
+    );
+    render(
+      wrap(
+        runtime,
+        <ThreadPanel
+          accountId="account-jenny"
+          mentionOptions={[codex]}
+          rootMessage={root}
+          tenantId="tenant-northstar"
+        />,
+      ),
+    );
+
+    // Codex wrote the root and a reply; the viewer is counted like everyone
+    // else, and the rows' names come from the loaded actors.
+    const summary = await screen.findByText("3 replies · Codex, Lev8 GTM +2");
+    expect(summary).toBeVisible();
+    expect(summary).toHaveAttribute(
+      "title",
+      "3 replies · Codex, Lev8 GTM, Jenny Bin, Maya Chen",
+    );
+    // The one row keeps every header action and truncates the summary instead.
+    const header = summary.closest("header")!;
+    expect(summary).toHaveClass("min-w-0", "flex-1", "truncate");
+    expect(header).toHaveClass("flex", "h-9", "shrink-0");
+    for (const name of ["Search thread", "Copy thread", "Copy link"]) {
+      expect(within(header).getByRole("button", { name })).toBeVisible();
+    }
+    // The facts read from the query the panel already runs.
+    expect(
+      runtime.server
+        .requestsTo("GET", "/v0/rooms/{roomId}/messages")
+        .filter(
+          (request) =>
+            new URL(request.url).pathname ===
+            "/v0/rooms/room-thread-1/messages",
+        ),
+    ).toHaveLength(1);
+  });
+
+  it("copies the Thread's absolute link from its header", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMessages(runtime);
+    const fixture = await fixtureRoot(runtime);
+    const root = { ...fixture, raw_message: "Thread root" };
+    const seeded = createTestTeamHubRuntime(runtime.seed);
+    runtime.server.on(
+      "GET",
+      "/v0/rooms/{roomId}/messages",
+      ({ params, request }) =>
+        params.roomId === root.room_id
+          ? seeded.server.fetch(request)
+          : {
+              items: [reply(params.roomId!, "reply-codex", "A reply.", 1)],
+              page: { has_more: false },
+              snapshot_room_seq: 0,
+            },
+    );
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(
+      wrap(
+        runtime,
+        <ThreadPanel
+          accountId="account-jenny"
+          mentionOptions={[codex]}
+          rootMessage={root}
+          tenantId="tenant-northstar"
+        />,
+      ),
+    );
+
+    await screen.findByText("A reply.");
+    // Copy link is its own action, not Copy thread's.
+    expect(screen.getByRole("button", { name: "Copy thread" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        `${window.location.origin}/t/tenant-northstar/rooms/room-thread-1/chat`,
+      ),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent("Copied");
+  });
 });
 
 const codex: TeamHubActorRef = {
@@ -1109,6 +1316,20 @@ const lev8: TeamHubActorRef = {
   display_name: "Lev8 GTM",
   id: "actor-lev8",
   kind: "agent",
+  tenant_id: "tenant-northstar",
+};
+
+const jenny: TeamHubActorRef = {
+  display_name: "Jenny Bin",
+  id: "actor-jenny",
+  kind: "human",
+  tenant_id: "tenant-northstar",
+};
+
+const maya: TeamHubActorRef = {
+  display_name: "Maya Chen",
+  id: "actor-maya",
+  kind: "human",
   tenant_id: "tenant-northstar",
 };
 
@@ -1174,6 +1395,16 @@ function reply(
     created_at: `2026-07-23T10:0${minute}:00Z`,
     room_id: roomId,
   };
+}
+
+function authorReply(
+  author: TeamHubActorRef,
+  roomId: string,
+  id: string,
+  body: string,
+  minute: number,
+): TeamHubMessage {
+  return { ...reply(roomId, id, body, minute), author };
 }
 
 function abortedRunStatus(

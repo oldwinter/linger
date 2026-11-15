@@ -90,6 +90,53 @@ func (a *App) setAgentRoutineEnabled(c *gin.Context, tool string, enabled bool) 
 	a.finishAgentRoutine(c, result)
 }
 
+func (a *App) updateAgentRoutine(c *gin.Context) {
+	raw, request, ok := decodeAgentRoutineBody[teamhubagentapi.AgentUpdateRoutineRequest](c)
+	if !ok {
+		return
+	}
+	room, ok := a.authorizeAgentRoutine(c, "update_routine")
+	if !ok {
+		return
+	}
+	if request.ExpectedRevision < 1 {
+		a.writeAgentAPIError(c, http.StatusBadRequest, teamhubagentapi.AgentApiErrorCodeInvalidRequest, "Routine input is invalid")
+		return
+	}
+	input, err := agentRoutineUpdateInput(request, room.ActorID, raw)
+	if a.writeAgentRoutineError(c, err) {
+		return
+	}
+	result, err := a.reminders.Update(c.Request.Context(), reminder.AgentCaller(room), request.RoutineId, agentauth.IdempotencyKey("update_routine", request.InvocationId), hashRoutineBody(raw), input)
+	if a.writeAgentRoutineError(c, err) {
+		return
+	}
+	a.finishAgentRoutine(c, result)
+}
+
+// agentRoutineUpdateInput changes only the fields the request carries. The raw
+// body distinguishes an absent mention from an explicit null that clears it.
+func agentRoutineUpdateInput(request teamhubagentapi.AgentUpdateRoutineRequest, roomActorID string, raw []byte) (reminder.UpdateInput, error) {
+	input := reminder.UpdateInput{
+		ExpectedRevision: request.ExpectedRevision, Name: request.Name,
+		Instruction: request.Instruction, Enabled: request.Enabled,
+	}
+	if request.Schedule != nil {
+		cadence, err := reminder.ParseSchedule(reminderSchedule(*request.Schedule))
+		if err != nil {
+			return reminder.UpdateInput{}, err
+		}
+		input.Cadence = &cadence
+	}
+	if mention, ok := mentionPatch(raw); ok {
+		if mention != nil && *mention == "self" {
+			mention = &roomActorID
+		}
+		input.MentionActorID = &mention
+	}
+	return input, nil
+}
+
 func (a *App) runAgentRoutine(c *gin.Context) {
 	raw, request, ok := decodeAgentRoutineBody[teamhubagentapi.AgentRoutineIdRequest](c)
 	if !ok {
@@ -247,6 +294,7 @@ func reminderSchedule(schedule teamhubagentapi.AgentRoutineSchedule) reminder.Sc
 func agentRoutineModel(value reminder.Reminder) teamhubagentapi.AgentRoutine {
 	model := teamhubagentapi.AgentRoutine{
 		Id: value.ID, Name: value.Name, Instruction: value.Instruction, Enabled: value.Enabled,
+		Revision: value.Revision,
 	}
 	if value.Listener != nil {
 		model.Listener = &teamhubagentapi.AgentRoutineListener{App: teamhubagentapi.AgentRoutineListenerApp(value.Listener.App)}

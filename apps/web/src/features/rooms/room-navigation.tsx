@@ -4,6 +4,7 @@ import { Link, useLocation, useParams } from "react-router";
 
 import {
   BookOpen01Icon,
+  DashboardSquare01Icon,
   LibrariesIcon,
   Message01Icon,
   Plug01Icon,
@@ -32,6 +33,7 @@ const RoomSecondaryNavigation = lazy(async () => ({
 const RAIL_TOGGLE_MS = 450;
 
 export function RoomNavigation({
+  accountId,
   accountMenu,
   username,
   anotherMeRoomId,
@@ -44,6 +46,8 @@ export function RoomNavigation({
   rooms,
   tenant,
 }: {
+  /** Scopes the away recap's dismissal to this Account in this Tenant. */
+  accountId?: string;
   accountMenu?: ReactNode;
   username: string;
   anotherMeRoomId?: string;
@@ -81,6 +85,9 @@ export function RoomNavigation({
     roomIdFromPath(effectivePathname, tenant.id) ?? roomId;
   const roomNavigationVisible = effectivePathname.startsWith(
     `/t/${tenant.id}/rooms`,
+  );
+  const dashboardVisible = effectivePathname.startsWith(
+    `/t/${tenant.id}/dashboard`,
   );
   const secondaryNavigationVisible =
     roomNavigationVisible && !(desktopShell && listCollapsed);
@@ -195,6 +202,13 @@ export function RoomNavigation({
               }
             />
             <RailLink
+              active={dashboardVisible}
+              icon={<RoomRailGlyph icon={DashboardSquare01Icon} />}
+              label="Dashboard"
+              onNavigate={onCloseMobile}
+              to={`/t/${tenant.id}/dashboard`}
+            />
+            <RailLink
               active={workspaceVisible}
               icon={<RoomRailGlyph icon={LibrariesIcon} />}
               label="Library"
@@ -224,6 +238,7 @@ export function RoomNavigation({
         {secondaryNavigationVisible ? (
           <Suspense fallback={null}>
             <RoomSecondaryNavigation
+              accountId={accountId}
               activeRoomId={effectiveRoomId}
               onCloseMobile={onCloseMobile}
               onCreateRoom={onCreateRoom}

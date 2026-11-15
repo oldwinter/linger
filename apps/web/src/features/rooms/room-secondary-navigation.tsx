@@ -7,6 +7,7 @@ import {
   PinIcon,
   Search01Icon,
   SidebarLeftIcon,
+  TickDouble02Icon,
 } from "@hugeicons/core-free-icons";
 import {
   type CSSProperties,
@@ -25,8 +26,10 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { searchShortcutLabel } from "@/features/search/search-shortcut";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
+import { cn } from "@/lib/cn";
 
 import { AgentCreateMenu } from "./agent-create-menu";
+import { AwayRecapCard } from "./away-recap-card";
 import type {
   TeamHubRoomListItem,
   TeamHubTenant,
@@ -40,15 +43,45 @@ import {
 } from "./members/agent-avatar";
 import { RoomAvatar } from "./members/room-avatar";
 import { PocketNoteLauncher } from "./pocket-notes/pocket-note-launcher";
+import {
+  draftStorageEntries,
+  roomsWithDrafts,
+  subscribeRoomComposerDrafts,
+} from "./room-drafts";
 import { RecordingEntry } from "./voice-control/recording-entry";
 import { useNavReorderFlip } from "./use-nav-reorder-flip";
 
 import {
   AgentRowMenu,
   pinnedFirst,
+  RoomMentionMenu,
   RoomPinButton,
+  useMarkAllRoomsRead,
   useRoomPin,
 } from "./room-nav-actions";
+import { markAllRoomsReadTargets } from "./room-mark-all-read";
+import {
+  isRoomMentionMuted,
+  isRoomMentionSnoozed,
+  useRoomMentionMute,
+  useRoomMentionSnooze,
+} from "./room-mention-snooze";
+import { RoomListCopyMenu } from "./room-list-copy-menu";
+import { roomMarkReadCursor } from "./room-mark-read";
+import {
+  clearRoomSnooze,
+  isRoomSnoozed,
+  roomSnoozedIds,
+  useRoomSnooze,
+} from "./room-snooze";
+import { splitSnoozedRooms } from "./room-snooze-filter";
+import {
+  readRoomFilterMode,
+  roomFilterRows,
+  subscribeRoomUnreadFilter,
+  writeRoomFilterMode,
+  type RoomFilterMode,
+} from "./room-unread-filter";
 const QuickCreateLocalAgentDialog = lazy(async () => ({
   default: (await import("./quick-create-local-agent-dialog"))
     .QuickCreateLocalAgentDialog,
@@ -83,7 +116,29 @@ function usePrefetchTemplateFlow() {
   }, []);
 }
 
+/**
+ * Room ids whose saved composer holds text. The composer already announces its
+ * own saves and clears, so the hint follows them without a query or a timer,
+ * and the subscription only changes when the Account or Tenant does.
+ */
+function useDraftRoomIds(
+  accountId: string | undefined,
+  tenantId: string,
+): Set<string> {
+  const [roomIds, setRoomIds] = useState(() =>
+    roomsWithDrafts(draftStorageEntries(), accountId, tenantId),
+  );
+  useEffect(() => {
+    const refresh = () =>
+      setRoomIds(roomsWithDrafts(draftStorageEntries(), accountId, tenantId));
+    refresh();
+    return subscribeRoomComposerDrafts(refresh);
+  }, [accountId, tenantId]);
+  return roomIds;
+}
+
 export function RoomSecondaryNavigation({
+  accountId,
   activeRoomId,
   anotherMeRoomId,
   navigationStatus,
@@ -96,6 +151,8 @@ export function RoomSecondaryNavigation({
   runningRoomIds = [],
   tenant,
 }: {
+  /** Scopes the away recap's dismissal to this Account in this Tenant. */
+  accountId?: string;
   activeRoomId?: string;
   anotherMeRoomId?: string;
   navigationStatus?: ReactNode;
@@ -115,8 +172,28 @@ export function RoomSecondaryNavigation({
   usePrefetchTemplateFlow();
   const [localAgentOpen, setLocalAgentOpen] = useState(false);
   const [templateAgentOpen, setTemplateAgentOpen] = useState(false);
+  const [filterMode, setFilterModeState] = useState<RoomFilterMode>(() =>
+    readRoomFilterMode(accountId),
+  );
+  // Clearing this browser's preferences elsewhere returns the filter to All.
+  useEffect(() => {
+    const refresh = () => setFilterModeState(readRoomFilterMode(accountId));
+    refresh();
+    return subscribeRoomUnreadFilter(refresh);
+  }, [accountId]);
+  function setFilterMode(next: RoomFilterMode) {
+    setFilterModeState(next);
+    writeRoomFilterMode(accountId, next);
+  }
+  const mentionSnooze = useRoomMentionSnooze(accountId);
+  const mentionMute = useRoomMentionMute(accountId);
+  const roomSnooze = useRoomSnooze(accountId);
+  // Rows judge expiry against this reading, so a snooze that ends passes on
+  // the next render without a cleanup step.
+  const now = new Date();
   const runningRooms = new Set(runningRoomIds);
   const failedRooms = new Set(failedRoomIds);
+  const draftRoomIds = useDraftRoomIds(accountId, tenant.id);
   const visibleRoomIds = new Set(
     rooms.flatMap((room) =>
       room.parent_room_id ? [room.parent_room_id] : [room.id],
@@ -139,16 +216,42 @@ export function RoomSecondaryNavigation({
       ),
   );
   const roomPin = useRoomPin(tenant.id);
+  const markAllRead = useMarkAllRoomsRead(tenant.id);
+  // Every chat row can acknowledge a cursor, including a filtered-out or
+  // snoozed one: the action clears the Room, not just what the list shows.
+  const unreadRoomCount = markAllRoomsReadTargets(chats).length;
   function togglePin(room: TeamHubRoomListItem) {
     roomPin.mutate({ pinned: !room.pinned_at, roomId: room.id });
+  }
+  // A snoozed row's Unpin writes through the same pin mutation as the row
+  // button, so only this attempt's failure needs its own report.
+  const [unpinFailed, setUnpinFailed] = useState(false);
+  function unpinSnoozedRoom(roomId: string) {
+    setUnpinFailed(false);
+    roomPin.mutate(
+      { pinned: false, roomId },
+      {
+        onError: () => setUnpinFailed(true),
+        onSuccess: () => setUnpinFailed(false),
+      },
+    );
   }
   const visibleAnotherMeRoom =
     anotherMeRoom && visibleRoomIds.has(anotherMeRoom.id)
       ? anotherMeRoom
       : undefined;
   const visibleChats = chats.filter((room) => visibleRoomIds.has(room.id));
+  const listedChats = roomFilterRows(visibleChats, activeRoomId, filterMode);
+  // A snoozed Room leaves the list until its instant passes; the active Room
+  // stays, so opening one never hides it. Hidden rows are still the same Rooms
+  // with the same unread counts, listed behind the snoozed line.
+  const { hidden: snoozedChats, visible: shownChats } = splitSnoozedRooms(
+    listedChats,
+    roomSnoozedIds(roomSnooze, now),
+    activeRoomId,
+  );
   const listRef = useRef<HTMLDivElement>(null);
-  const reorderKey = visibleChats
+  const reorderKey = shownChats
     .map((room) => `${room.id}:${room.pinned_at ? 1 : 0}`)
     .join("|");
   useNavReorderFlip(listRef, reorderKey);
@@ -219,6 +322,7 @@ export function RoomSecondaryNavigation({
               anotherMeRoomId={anotherMeRoomId}
               tenantId={tenant.id}
             />
+            <RoomListCopyMenu rooms={shownChats} tenantId={tenant.id} />
           </div>
           <button
             aria-label="Hide Chat list"
@@ -243,6 +347,7 @@ export function RoomSecondaryNavigation({
             anotherMeRoomId={anotherMeRoomId}
             tenantId={tenant.id}
           />
+          <RoomListCopyMenu rooms={shownChats} tenantId={tenant.id} />
           <button
             aria-keyshortcuts="Control+k Meta+k"
             aria-label="Search"
@@ -303,6 +408,14 @@ export function RoomSecondaryNavigation({
             land together once everything has settled. */}
         {navigationStatus ?? (
           <>
+            <AwayRecapCard
+              accountId={accountId}
+              activeRoomId={activeRoomId}
+              key={`${accountId}:${tenant.id}`}
+              onNavigate={completeNavigation}
+              rooms={rooms}
+              tenantId={tenant.id}
+            />
             {visibleAnotherMeRoom ? (
               <AnotherMeCard
                 active={visibleAnotherMeRoom.id === activeRoomId}
@@ -317,29 +430,86 @@ export function RoomSecondaryNavigation({
             ) : null}
             <NavSection
               action={
-                <AgentCreateMenu
-                  onCreateFromTemplate={() => setTemplateAgentOpen(true)}
-                  onCreateRoom={onCreateRoom}
-                  onCreateAgent={() => {
-                    setLocalAgentOpen(true);
-                    onCloseMobile();
-                  }}
-                />
+                <>
+                  <Button
+                    aria-label="Mark all Rooms as read"
+                    className="!rounded-lg border-0 text-app-muted"
+                    disabled={unreadRoomCount === 0}
+                    loading={markAllRead.running}
+                    onClick={() => void markAllRead.markAll(chats)}
+                    size="compactIcon"
+                    title="Mark all as read"
+                    tone="ghost"
+                  >
+                    <Icon icon={TickDouble02Icon} size={16} />
+                  </Button>
+                  <AgentCreateMenu
+                    onCreateFromTemplate={() => setTemplateAgentOpen(true)}
+                    onCreateRoom={onCreateRoom}
+                    onCreateAgent={() => {
+                      setLocalAgentOpen(true);
+                      onCloseMobile();
+                    }}
+                  />
+                </>
               }
               title="Messages"
             >
-              {visibleChats.map((room) => {
-                if (room.kind === "room")
+              {markAllRead.running && markAllRead.progress ? (
+                <p className="px-2 text-xs text-app-muted" role="status">
+                  Marking {markAllRead.progress.completed} of{" "}
+                  {markAllRead.progress.total}…
+                </p>
+              ) : markAllRead.report ? (
+                <p
+                  className={`px-2 text-xs ${markAllRead.report.failed ? "text-app-danger" : "text-app-muted"}`}
+                  role={markAllRead.report.failed ? "alert" : "status"}
+                >
+                  {markAllRead.report.message}
+                </p>
+              ) : null}
+              <RoomFilterChoice mode={filterMode} onChange={setFilterMode} />
+              {filterMode !== "all" && shownChats.length === 0 ? (
+                <FilterEmptyState
+                  mode={filterMode}
+                  onShowAll={() => setFilterMode("all")}
+                />
+              ) : null}
+              {shownChats.map((room) => {
+                if (room.kind === "room") {
+                  const muted = isRoomMentionMuted(mentionMute, room.id);
+                  const snoozed = isRoomMentionSnoozed(
+                    mentionSnooze,
+                    room.id,
+                    now,
+                  );
                   return (
                     <NavRow
                       actions={
-                        <RoomPinButton
-                          name={room.name}
-                          onToggle={() => togglePin(room)}
-                          pinned={Boolean(room.pinned_at)}
-                        />
+                        <>
+                          <RoomPinButton
+                            name={room.name}
+                            onToggle={() => togglePin(room)}
+                            pinned={Boolean(room.pinned_at)}
+                          />
+                          <RoomMentionMenu
+                            accountId={accountId}
+                            markReadThrough={roomMarkReadCursor(room)}
+                            muted={muted}
+                            name={room.name}
+                            roomId={room.id}
+                            roomSnoozed={isRoomSnoozed(
+                              roomSnooze,
+                              room.id,
+                              now,
+                            )}
+                            snoozed={snoozed}
+                            tenantId={tenant.id}
+                          />
+                        </>
                       }
                       active={room.id === activeRoomId}
+                      fade="64px"
                       key={room.id}
                     >
                       <Link
@@ -353,7 +523,14 @@ export function RoomSecondaryNavigation({
                       >
                         <RoomAvatar members={room.member_preview ?? []} />
                         <span className="min-w-0 flex-1 px-1">
-                          <RoomRowTitle pinned={Boolean(room.pinned_at)}>
+                          <RoomRowTitle
+                            draftName={
+                              draftRoomIds.has(room.id) ? room.name : undefined
+                            }
+                            muted={muted}
+                            pinned={Boolean(room.pinned_at)}
+                            snoozed={snoozed}
+                          >
                             {room.name}
                           </RoomRowTitle>
                           <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">
@@ -372,6 +549,7 @@ export function RoomSecondaryNavigation({
                       </Link>
                     </NavRow>
                   );
+                }
                 const name = room.direct_peer!.display_name;
                 return (
                   <NavRow
@@ -388,9 +566,11 @@ export function RoomSecondaryNavigation({
                               ? undefined
                               : room.direct_peer?.id
                           }
+                          markReadThrough={roomMarkReadCursor(room)}
                           name={name}
                           onTogglePin={() => togglePin(room)}
                           pinned={Boolean(room.pinned_at)}
+                          roomId={room.id}
                           tenantId={tenant.id}
                         />
                       </>
@@ -401,6 +581,7 @@ export function RoomSecondaryNavigation({
                   >
                     <DirectRoomLink
                       active={room.id === activeRoomId}
+                      draftName={draftRoomIds.has(room.id) ? name : undefined}
                       onNavigate={(event) => completeNavigation(event, room.id)}
                       room={room}
                       failed={failedRooms.has(room.id)}
@@ -410,11 +591,178 @@ export function RoomSecondaryNavigation({
                   </NavRow>
                 );
               })}
+              <SnoozedRoomsLine
+                onBringBack={(roomId) =>
+                  clearRoomSnooze(accountId, roomId, new Date())
+                }
+                onUnpin={unpinSnoozedRoom}
+                rooms={snoozedChats}
+                unpinFailed={unpinFailed}
+              />
             </NavSection>
           </>
         )}
       </div>
     </nav>
+  );
+}
+
+const filterChoices: Array<{
+  label: string;
+  mode: RoomFilterMode;
+  title: string;
+}> = [
+  { label: "All", mode: "all", title: "Show all Rooms" },
+  { label: "Unread", mode: "unread", title: "Show only unread Rooms" },
+  {
+    label: "Mentions",
+    mode: "mentions",
+    title: "Show only Rooms with unread mentions",
+  },
+];
+
+/**
+ * The three choices read as pressed toggles rather than commands: each announces
+ * its state and its title names what pressing it does, and pressing the chosen
+ * filter again returns to every Room.
+ */
+function RoomFilterChoice({
+  mode,
+  onChange,
+}: {
+  mode: RoomFilterMode;
+  onChange: (mode: RoomFilterMode) => void;
+}) {
+  return (
+    <div
+      aria-label="Room filter"
+      className="mx-2 mb-1 flex items-center gap-0.5 rounded-lg bg-card p-0.5 shadow-outline"
+      role="group"
+    >
+      {filterChoices.map((choice) => {
+        const active = choice.mode === mode;
+        return (
+          <button
+            aria-pressed={active}
+            className={cn(
+              "flex h-6 min-w-0 flex-1 items-center justify-center truncate rounded-md px-1.5 text-2xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              active
+                ? "bg-(--app-unread) text-(--app-unread-foreground)"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+            )}
+            key={choice.mode}
+            onClick={() =>
+              onChange(active && choice.mode !== "all" ? "all" : choice.mode)
+            }
+            title={active ? "Show all Rooms" : choice.title}
+            type="button"
+          >
+            {choice.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function FilterEmptyState({
+  mode,
+  onShowAll,
+}: {
+  mode: Exclude<RoomFilterMode, "all">;
+  onShowAll: () => void;
+}) {
+  return (
+    <div className="rounded-lg px-2 py-3">
+      <p className="text-xs leading-4 text-muted-foreground">
+        {mode === "unread" ? "No unread Rooms" : "No unread mentions"}
+      </p>
+      <button
+        className="mt-1 text-xs font-medium text-foreground underline underline-offset-2 transition-colors hover:text-app-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={onShowAll}
+        type="button"
+      >
+        Show all Rooms
+      </button>
+    </div>
+  );
+}
+
+/** The list's one quiet line for snoozed Rooms, collapsed until asked. */
+function SnoozedRoomsLine({
+  onBringBack,
+  onUnpin,
+  rooms,
+  unpinFailed,
+}: {
+  onBringBack: (roomId: string) => void;
+  onUnpin: (roomId: string) => void;
+  rooms: TeamHubRoomListItem[];
+  unpinFailed: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (rooms.length === 0) return null;
+  return (
+    <div className="pt-0.5">
+      <button
+        aria-expanded={expanded}
+        className="flex min-h-7 w-full items-center gap-1 rounded-md px-2 text-left text-xs leading-4 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={() => setExpanded((value) => !value)}
+        type="button"
+      >
+        <Icon
+          className={`size-3.5 shrink-0 transition-transform ${expanded ? "" : "-rotate-90"}`}
+          icon={ArrowDown01Icon}
+          size={14}
+        />
+        <span className="truncate">
+          {rooms.length} snoozed Room{rooms.length === 1 ? "" : "s"}
+        </span>
+      </button>
+      {expanded ? (
+        <>
+          <ul className="mt-0.5 space-y-0.5 pr-2 pb-1 pl-6">
+            {rooms.map((room) => (
+              <li
+                className="flex items-center gap-2 text-xs leading-4 text-muted-foreground"
+                key={room.id}
+              >
+                <span className="min-w-0 flex-1 truncate">{room.name}</span>
+                {room.pinned_at ? <RoomPinnedMarker /> : null}
+                {room.pinned_at ? (
+                  // Pinning is the only thing this removes; the Room stays
+                  // snoozed, and Bring back never touches the pin.
+                  <button
+                    aria-label={`Unpin ${room.name}`}
+                    className="shrink-0 rounded-sm font-medium text-foreground underline underline-offset-2 transition-colors hover:text-app-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => onUnpin(room.id)}
+                    type="button"
+                  >
+                    Unpin
+                  </button>
+                ) : null}
+                <button
+                  aria-label={`Bring back ${room.name}`}
+                  className="shrink-0 rounded-sm font-medium text-foreground underline underline-offset-2 transition-colors hover:text-app-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => onBringBack(room.id)}
+                  type="button"
+                >
+                  Bring back
+                </button>
+              </li>
+            ))}
+          </ul>
+          {unpinFailed ? (
+            <p
+              className="px-2 pb-1 text-xs leading-4 text-app-danger"
+              role="alert"
+            >
+              Could not unpin the Room.
+            </p>
+          ) : null}
+        </>
+      ) : null}
+    </div>
   );
 }
 
@@ -449,7 +797,9 @@ function NavSection({
           </button>
         </h2>
         {action ? (
-          <div className="relative flex shrink-0 items-center">{action}</div>
+          <div className="relative flex shrink-0 items-center gap-1">
+            {action}
+          </div>
         ) : null}
       </div>
       {collapsed ? null : <div className="space-y-1">{children}</div>}
@@ -493,23 +843,54 @@ function NavRow({
   );
 }
 
+/** The same marker on a Room row and on its snoozed row. */
+function RoomPinnedMarker() {
+  return (
+    <span
+      aria-label="Pinned"
+      className="room-pin-badge town-pill-pop ml-0.5 flex shrink-0 text-muted-foreground"
+      role="img"
+    >
+      <Icon icon={PinIcon} size={12} />
+    </span>
+  );
+}
+
 function RoomRowTitle({
   children,
+  draftName,
+  muted = false,
   pinned,
+  snoozed = false,
 }: {
   children: ReactNode;
+  /** The Room's name while it holds an unsent draft. */
+  draftName?: string;
+  muted?: boolean;
   pinned: boolean;
+  snoozed?: boolean;
 }) {
+  // Mute and snooze both quiet the same notifications, so one hint says which.
+  const quietHint = muted ? "Muted" : snoozed ? "Snoozed" : undefined;
   return (
     <span className="flex min-w-0 items-center gap-1 text-sm leading-[18px] font-medium text-foreground">
       <span className="min-w-0 truncate">{children}</span>
-      {pinned ? (
+      {draftName ? (
         <span
-          aria-label="Pinned"
-          className="room-pin-badge town-pill-pop ml-0.5 flex shrink-0 text-muted-foreground"
+          aria-label={`Draft in ${draftName}`}
+          className="ml-0.5 flex shrink-0 items-center rounded-full bg-muted px-1.5 text-2xs leading-4 font-medium text-muted-foreground"
           role="img"
         >
-          <Icon icon={PinIcon} size={12} />
+          Draft
+        </span>
+      ) : null}
+      {pinned ? <RoomPinnedMarker /> : null}
+      {quietHint ? (
+        <span
+          className="shrink-0 text-2xs font-medium leading-4 text-muted-foreground"
+          title={`Mention notifications are ${quietHint.toLowerCase()}`}
+        >
+          {quietHint}
         </span>
       ) : null}
     </span>
@@ -518,6 +899,7 @@ function RoomRowTitle({
 
 function DirectRoomLink({
   active,
+  draftName,
   failed,
   working,
   onNavigate,
@@ -525,6 +907,7 @@ function DirectRoomLink({
   tenantId,
 }: {
   active: boolean;
+  draftName?: string;
   failed?: boolean;
   working: boolean;
   onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
@@ -555,7 +938,7 @@ function DirectRoomLink({
         size="nav"
       />
       <span className="min-w-0 flex-1 px-1">
-        <RoomRowTitle pinned={Boolean(room.pinned_at)}>
+        <RoomRowTitle draftName={draftName} pinned={Boolean(room.pinned_at)}>
           {displayName}
         </RoomRowTitle>
         <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">

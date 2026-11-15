@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   acceptRoomUpdates,
@@ -10,11 +10,21 @@ import {
 import type { TestRouteHandler } from "@/test/teamhub-test-server";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
+import { writeClipboardText } from "@/lib/clipboard";
 
 import { roomQueryKey } from "./room-queries";
 import { RoomSettingsDialog } from "./room-settings-dialog";
 
+vi.mock("@/lib/clipboard", () => ({ writeClipboardText: vi.fn() }));
+
+const copy = vi.mocked(writeClipboardText);
+
 describe("Room settings", () => {
+  beforeEach(() => {
+    copy.mockReset();
+    copy.mockResolvedValue(undefined);
+  });
+
   it("opens deletion through a separate owner-controlled action", async () => {
     const runtime = createTestTeamHubRuntime();
     acceptRoomUpdates(runtime);
@@ -214,6 +224,93 @@ describe("Room settings", () => {
     expect(
       queryClient.getQueryData(roomQueryKey("tenant-northstar", room.id)),
     ).toEqual(room);
+  });
+
+  it("shows the Room's ID and copies exactly it", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const room = await getRoom(runtime, "room-all");
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <RoomSettingsDialog
+            onClose={vi.fn()}
+            onDelete={vi.fn()}
+            room={room}
+            tenantId="tenant-northstar"
+          />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText("Room ID")).toBeVisible();
+    expect(screen.getByText(room.id)).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy Room ID" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Copied");
+    expect(copy).toHaveBeenCalledWith(room.id);
+  });
+
+  it("reports a refused clipboard write instead of Copied", async () => {
+    copy.mockRejectedValue(new Error("Clipboard is unavailable"));
+    const runtime = createTestTeamHubRuntime();
+    const room = await getRoom(runtime, "room-all");
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <RoomSettingsDialog
+            onClose={vi.fn()}
+            onDelete={vi.fn()}
+            room={room}
+            tenantId="tenant-northstar"
+          />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy Room ID" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
+    expect(screen.queryByText("Copied")).toBeNull();
+  });
+
+  it("leaves the form untouched when the ID is copied", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomUpdates(runtime);
+    const room = await getRoom(runtime, "room-all");
+    const updateRoom = vi.fn<TestRouteHandler>(() => ({
+      ...room,
+      name: "Renamed",
+    }));
+    runtime.server.on("PATCH", "/v0/rooms/{roomId}", updateRoom);
+    const onClose = vi.fn();
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <RoomSettingsDialog
+            embedded
+            onClose={onClose}
+            onDelete={vi.fn()}
+            room={room}
+            tenantId="tenant-northstar"
+          />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText("Room name"), {
+      target: { value: "Renamed" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Copy Room ID" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Copied");
+    expect(screen.getByLabelText("Room name")).toHaveValue("Renamed");
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
+    expect(updateRoom).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 });
 

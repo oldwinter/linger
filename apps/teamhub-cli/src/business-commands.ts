@@ -1162,6 +1162,25 @@ async function schedule(
   }
   return { kind: "weekly", time: weekly, timezone, weekdays: [...weekdays] };
 }
+
+async function schedulePatch(
+  args: CommandArguments,
+  reader: CommandInputReader,
+): Promise<unknown> {
+  const provided =
+    [
+      "--schedule",
+      "--schedule-file",
+      "--daily",
+      "--weekly",
+      "--every-hours",
+      "--at",
+      "--timezone",
+    ].some((name) => option(args, name) !== undefined) ||
+    values(args, "--weekday").length > 0;
+  return provided ? schedule(args, reader) : undefined;
+}
+
 const routines = ["create", "list", "pause", "enable", "run", "delete"].map(
   (action) =>
     definition(
@@ -1244,6 +1263,83 @@ const routines = ["create", "list", "pause", "enable", "run", "delete"].map(
           : {}),
       },
     ),
+);
+
+const routineUpdate = definition(
+  ["routine", "update"],
+  "update_routine",
+  "Change a Routine in the configured Room; omitted fields stay as they are.",
+  {
+    "--name": flag("New Routine name."),
+    ...bodyOptions,
+    "--mention-actor-id": flag("Current Room Agent Actor ID, or self."),
+    "--no-mention": {
+      description: "Clear the mention so the Routine posts plain text.",
+      boolean: true,
+    },
+    ...jsonOptions(
+      "schedule",
+      "Complete daily, weekly, every_n_hours or once schedule JSON.",
+    ),
+    "--daily": flag("Daily local time as HH:MM."),
+    "--weekly": flag("Weekly local time as HH:MM."),
+    "--weekday": flag("Selected weekday; repeat unique days.", true),
+    "--timezone": flag("Explicit IANA timezone for daily or weekly."),
+    "--every-hours": flag("Repeat every 1-168 hours."),
+    "--at": flag(
+      "Fire once at this RFC 3339 time (with offset); done afterwards.",
+    ),
+    "--on": { description: "Enable the Routine.", boolean: true },
+    "--off": { description: "Pause the Routine.", boolean: true },
+    "--expected-revision": flag(
+      "Revision from teamhub routine list; resolved automatically when omitted.",
+    ),
+  },
+  async (args, reader) => {
+    assertPositionals(args, 1);
+    const mention = option(args, "--mention-actor-id"),
+      clearMention = option(args, "--no-mention") !== undefined;
+    if (mention !== undefined && clearMention)
+      invalid("Choose --mention-actor-id or --no-mention, not both.");
+    const on = option(args, "--on") !== undefined,
+      off = option(args, "--off") !== undefined;
+    if (on && off) invalid("Choose --on or --off, not both.");
+    const input: Json = {
+      routine_id: args.positionals[0],
+      ...optional("name", option(args, "--name")),
+      ...optional("instruction", await markdownBodySource(args, reader, false)),
+      ...optional("schedule", await schedulePatch(args, reader)),
+      ...(clearMention
+        ? { mention_actor_id: null }
+        : optional("mention_actor_id", mention)),
+      ...optional("enabled", on !== off ? on : undefined),
+      ...optional(
+        "expected_revision",
+        integer(option(args, "--expected-revision"), "--expected-revision", 1),
+      ),
+    };
+    if (Object.keys(input).length === 1)
+      invalid(
+        "Provide --name, --content, a schedule flag, a mention flag, --on or --off.",
+      );
+    return { input: await validate("update_routine", input) };
+  },
+  {
+    defaultTarget: "room-or-task",
+    arguments: ["<routine-id>"],
+    prepare: async (input, context) => {
+      if (input.expected_revision !== undefined) return input;
+      const page = await teamHubData(
+        context.client.api.POST("/api/agent/v1/routines/query", {
+          body: {},
+        }),
+      );
+      const found = page.routines.find((item) => item.id === input.routine_id);
+      if (!found)
+        throw new CliError("not_found", "No Routine in this Room has that id.");
+      return { ...input, expected_revision: found.revision };
+    },
+  },
 );
 
 const trackingItemCommands = (
@@ -1444,4 +1540,5 @@ export const businessCommandDefinitions: readonly CommandDefinition[] = [
   taskSend,
   taskStop,
   ...routines,
+  routineUpdate,
 ];

@@ -225,6 +225,26 @@ describe("ActionMenu", () => {
     });
   });
 
+  it("keeps the menu open for an item that asks to stay, then closes on the next", () => {
+    const retry = vi.fn();
+    render(
+      <ActionMenu
+        label="Send to Room"
+        items={[
+          { keepOpen: true, label: "product-v0", onSelect: retry },
+          { label: "all" },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Send to Room" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "product-v0" }));
+
+    expect(retry).toHaveBeenCalledOnce();
+    expect(screen.getByRole("menu")).toBeVisible();
+    fireEvent.click(screen.getByRole("menuitem", { name: "all" }));
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it("stays open when a nested surface scrolls and still closes on viewport resize", () => {
     render(
       <div data-testid="nested-scroll" style={{ height: 48, overflow: "auto" }}>
@@ -245,5 +265,18 @@ describe("ActionMenu", () => {
     ).toBeVisible();
     fireEvent(window, new Event("resize"));
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("keeps a menu for a trigger inside an open dialog in the dialog", () => {
+    render(
+      <dialog aria-label="Peek" open>
+        <ActionMenu label="Send to Room" items={[{ label: "product-v0" }]} />
+      </dialog>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Send to Room" }));
+
+    expect(screen.getByRole("dialog", { name: "Peek" })).toContainElement(
+      screen.getByRole("menu"),
+    );
   });
 });

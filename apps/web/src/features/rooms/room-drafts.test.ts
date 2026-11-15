@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearRoomDrafts,
+  draftStorageEntries,
+  hasRoomDrafts,
   readRoomComposerDraft,
+  roomsWithDrafts,
   subscribeRoomComposerDrafts,
   writeRoomComposerDraft,
 } from "./room-drafts";
@@ -73,6 +76,18 @@ describe("Room drafts", () => {
 
     expect(readRoomComposerDraft(firstRoom).body).toBe("");
     expect(window.localStorage.getItem("unrelated")).toBe("keep");
+  });
+
+  it("reports whether any Room draft is stored", () => {
+    expect(hasRoomDrafts()).toBe(false);
+
+    writeRoomComposerDraft(firstRoom, textDraft("private draft"));
+
+    expect(hasRoomDrafts()).toBe(true);
+
+    clearRoomDrafts();
+
+    expect(hasRoomDrafts()).toBe(false);
   });
 
   it("round-trips structured Composer references", () => {
@@ -235,6 +250,76 @@ describe("Room drafts", () => {
         "linger.room-composer-draft:account-1:tenant-1:room-1",
       ),
     ).toBeNull();
+  });
+});
+
+describe("roomsWithDrafts", () => {
+  beforeEach(() => {
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: createTestStorage(),
+    });
+  });
+
+  function roomIdsFor(
+    accountId = firstRoom.accountId,
+    tenantId = firstRoom.tenantId,
+  ) {
+    return roomsWithDrafts(draftStorageEntries(), accountId, tenantId);
+  }
+
+  it("names a Room whose composer holds text", () => {
+    writeRoomComposerDraft(firstRoom, textDraft("Unsent"));
+
+    expect([...roomIdsFor()]).toEqual(["room-1"]);
+  });
+
+  it("names the parent Room for a thread draft", () => {
+    writeRoomComposerDraft(
+      { ...firstRoom, threadId: "message-1" },
+      textDraft("A reply"),
+    );
+
+    expect([...roomIdsFor()]).toEqual(["room-1"]);
+  });
+
+  it("treats a whitespace-only draft as empty", () => {
+    writeRoomComposerDraft(firstRoom, textDraft("  \n\t "));
+
+    expect(roomIdsFor().size).toBe(0);
+  });
+
+  it("ignores another Account's or Tenant's drafts", () => {
+    writeRoomComposerDraft(
+      { ...firstRoom, accountId: "account-2" },
+      textDraft("Other account"),
+    );
+    writeRoomComposerDraft(
+      { ...firstRoom, tenantId: "tenant-2" },
+      textDraft("Other tenant"),
+    );
+
+    expect(roomIdsFor().size).toBe(0);
+    expect([...roomIdsFor("account-2", firstRoom.tenantId)]).toEqual([
+      "room-1",
+    ]);
+  });
+
+  it("names no Room when a stored value cannot be read", () => {
+    writeRoomComposerDraft(firstRoom, textDraft("Unsent"));
+    const [entry] = draftStorageEntries();
+    window.localStorage.setItem(entry![0], "{not json");
+
+    expect(roomIdsFor().size).toBe(0);
+  });
+
+  it("names no Room without an Account", () => {
+    writeRoomComposerDraft(firstRoom, textDraft("Unsent"));
+
+    expect(
+      roomsWithDrafts(draftStorageEntries(), undefined, firstRoom.tenantId)
+        .size,
+    ).toBe(0);
   });
 });
 

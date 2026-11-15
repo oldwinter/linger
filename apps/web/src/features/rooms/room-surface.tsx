@@ -5,7 +5,11 @@ import {
   useSuspenseInfiniteQuery,
   useSuspenseQuery,
 } from "@tanstack/react-query";
-import { Delete02Icon, SidebarRightIcon } from "@hugeicons/core-free-icons";
+import {
+  Delete02Icon,
+  Search01Icon,
+  SidebarRightIcon,
+} from "@hugeicons/core-free-icons";
 import {
   lazy,
   Suspense,
@@ -24,6 +28,7 @@ import {
   useLoaderData,
   useLocation,
   useMatch,
+  useOutletContext,
   useParams,
   useSearchParams,
 } from "react-router";
@@ -31,6 +36,11 @@ import {
 import { RouteContentBoundary } from "@/features/rooms/route-content-boundary";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import type {
+  RoomShellOutletContext,
+  SearchRoomScope,
+} from "@/features/search/room-search-scope";
+import { useRoomSearchShortcut } from "@/features/search/search-shortcut";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMessagePresentation } from "@/features/teamhub/teamhub-runtime";
 import type { RoomRealtimeStatus } from "@/features/teamhub/event-transport";
@@ -50,6 +60,7 @@ import {
 } from "./chat/voice-mode/voice-materials-context";
 import { useOptionalVoiceModeSession } from "./chat/voice-mode/voice-mode-session";
 import { RoomRealtimeSync } from "./chat/room-realtime-sync";
+import { PinnedMessagesControl } from "./chat/message-pins/pinned-messages-control";
 import { AgentStatusDot } from "./members/agent-status";
 import { RoomAvatar } from "./members/room-avatar";
 import { ActorAvatar } from "./members/actor-avatar";
@@ -58,6 +69,7 @@ import {
   type OpenPanelTabInput,
   type RoomOutletContext,
 } from "./room-connectivity";
+import { RoomHeaderMenu } from "./room-nav-actions";
 import { requireRoomRouteParam } from "./room-route-params";
 import {
   roomMembersQueryOptions,
@@ -262,6 +274,7 @@ function RoomSurfaceContent({
   tenantId,
 }: RoomSurfaceContentProps) {
   const { client } = useTeamHubRuntime();
+  const shell = useOutletContext<RoomShellOutletContext | undefined>();
   const [searchParams, setSearchParams] = useSearchParams();
   const isChatView = Boolean(useMatch("/t/:tenantId/rooms/:roomId/chat"));
   const { data: room } = useSuspenseQuery(
@@ -332,6 +345,12 @@ function RoomSurfaceContent({
   const roomTitle = isDirectRoom && livePeerName ? livePeerName : room.name;
   const presentationRoom =
     roomTitle === room.name ? room : { ...room, name: roomTitle };
+  // Cmd/Ctrl+F finds inside the open Room, at the same scope the header's
+  // Search control opens. Outside a Room this component is not mounted.
+  useRoomSearchShortcut(
+    () => shell?.openRoomSearch?.({ id: roomId, name: roomTitle }),
+    Boolean(shell?.openRoomSearch),
+  );
   const currentActorIsOwner = members.items.some(
     (member) => member.actor.id === currentActorId && member.role === "owner",
   );
@@ -412,6 +431,7 @@ function RoomSurfaceContent({
     messagePresentations,
     openProfile,
     openPanelTab: openPanelTabFromRoom,
+    openRoomSearch: shell?.openRoomSearch,
     recordMessagePresentation,
     status: realtimeStatus,
   };
@@ -431,6 +451,12 @@ function RoomSurfaceContent({
 
   function closeProfile() {
     setSearchParams(roomProfileSearchParams(searchParams));
+  }
+
+  function openPinnedMessage(messageId: string) {
+    const next = new URLSearchParams(searchParams);
+    next.set("message", messageId);
+    setSearchParams(next);
   }
 
   return (
@@ -465,8 +491,10 @@ function RoomSurfaceContent({
                 isChatView={isChatView}
                 members={members.items}
                 onAppliedRoomSeq={setLastAppliedRoomSeq}
+                onOpenSearch={shell?.openRoomSearch}
                 onMessageCreated={openCanvasMessage}
                 onTeamMdPublished={openCollaboration}
+                onJumpToPinnedMessage={openPinnedMessage}
                 onOpenAgent={openProfile}
                 onOpenDelete={() => setDeleteOpen(true)}
                 onOpenSettings={() =>
@@ -724,8 +752,10 @@ function RoomHeader({
   onAppliedRoomSeq,
   onMessageCreated,
   onTeamMdPublished,
+  onJumpToPinnedMessage,
   onOpenAgent,
   onOpenDelete,
+  onOpenSearch,
   onOpenSettings,
   onTogglePanel,
   onStatusChange,
@@ -745,8 +775,10 @@ function RoomHeader({
   onAppliedRoomSeq: (roomSeq: number) => void;
   onMessageCreated: (message: TeamHubMessage) => void;
   onTeamMdPublished: () => void;
+  onJumpToPinnedMessage: (messageId: string) => void;
   onOpenAgent: (actorId: string) => void;
   onOpenDelete: () => void;
+  onOpenSearch?: (room: SearchRoomScope) => void;
   onOpenSettings: () => void;
   onTogglePanel: () => void;
   onStatusChange: (status: RoomRealtimeStatus) => void;
@@ -842,6 +874,22 @@ function RoomHeader({
             }
           </Await>
         </Suspense>
+        <Button
+          aria-label="Search this Room"
+          className="!rounded-lg border-0 text-app-muted"
+          onClick={() => onOpenSearch?.({ id: roomId, name: headerName })}
+          size="compactIcon"
+          title="Search this Room"
+          tone="ghost"
+        >
+          <Icon icon={Search01Icon} size={16} />
+        </Button>
+        <PinnedMessagesControl
+          onJump={onJumpToPinnedMessage}
+          roomId={roomId}
+          roomName={headerName}
+          tenantId={tenantId}
+        />
         {canDeleteDeletedAgentRoom ? (
           <Button
             aria-label="Delete Room"
@@ -854,6 +902,7 @@ function RoomHeader({
             <Icon icon={Delete02Icon} size={16} />
           </Button>
         ) : null}
+        <RoomHeaderMenu name={headerName} roomId={roomId} tenantId={tenantId} />
         {panelOpen ? (
           <span
             aria-hidden="true"

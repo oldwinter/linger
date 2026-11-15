@@ -123,6 +123,50 @@ func TestGlobalSearchMessagesPublicHTTP(t *testing.T) {
 	}
 }
 
+// TestGlobalSearchMessagesRoomFilter proves a room_id limits hits to that Room,
+// keeps cursor pagination within the filter, and answers an unreadable Room
+// with an empty page so the endpoint does not reveal that Room exists.
+func TestGlobalSearchMessagesRoomFilter(t *testing.T) {
+	allowParallelIntegrationTest(t)
+	env, alice := newRoomDocumentRealtimeEnv(t)
+	suffix := hex.EncodeToString([]byte(time.Now().UTC().Format("150405.000000")))
+	firstRoom := env.createRoom(alice, acmeTenant, "scope-first-"+suffix, "scope-first-"+suffix)
+	secondRoom := env.createRoom(alice, acmeTenant, "scope-second-"+suffix, "scope-second-"+suffix)
+	env.createMessage(alice, firstRoom, "narwhal first "+suffix, "scope-first-message-"+suffix)
+	env.createMessage(alice, secondRoom, "narwhal second one "+suffix, "scope-second-message-1-"+suffix)
+	env.createMessage(alice, secondRoom, "narwhal second two "+suffix, "scope-second-message-2-"+suffix)
+
+	status, page := searchMessages(t, env, alice, acmeTenant,
+		url.Values{"q": {"narwhal"}, "room_id": {firstRoom}})
+	if status != http.StatusOK || len(page.Items) != 1 || page.Items[0].Room.ID != firstRoom {
+		t.Fatalf("scoped search status=%d items=%+v", status, page.Items)
+	}
+
+	status, firstPage := searchMessages(t, env, alice, acmeTenant,
+		url.Values{"q": {"narwhal"}, "room_id": {secondRoom}, "limit": {"1"}})
+	if status != http.StatusOK || len(firstPage.Items) != 1 || !firstPage.Page.HasMore || firstPage.Page.NextCursor == nil {
+		t.Fatalf("scoped first page status=%d page=%+v", status, firstPage.Page)
+	}
+	status, secondPage := searchMessages(t, env, alice, acmeTenant,
+		url.Values{"q": {"narwhal"}, "room_id": {secondRoom}, "limit": {"1"}, "cursor": {*firstPage.Page.NextCursor}})
+	if status != http.StatusOK || len(secondPage.Items) != 1 || secondPage.Page.HasMore {
+		t.Fatalf("scoped second page status=%d page=%+v", status, secondPage.Page)
+	}
+	if secondPage.Items[0].Message.ID == firstPage.Items[0].Message.ID {
+		t.Fatal("scoped pages overlap")
+	}
+
+	// Bob's Room exists in the same Tenant but is not Alice's to read.
+	bob := seedPeerHuman(t, env)
+	bobRoom := env.createRoom(bob, acmeTenant, "scope-bob-"+suffix, "scope-bob-"+suffix)
+	env.createMessage(bob, bobRoom, "narwhal bob "+suffix, "scope-bob-message-"+suffix)
+	status, page = searchMessages(t, env, alice, acmeTenant,
+		url.Values{"q": {"narwhal"}, "room_id": {bobRoom}})
+	if status != http.StatusOK || len(page.Items) != 0 {
+		t.Fatalf("unreadable Room search status=%d items=%+v", status, page.Items)
+	}
+}
+
 // TestGlobalSearchFreezesRoomsAndThreadsAfterLeaving checks the leave freeze
 // in each Room's own sequence: after the Human leaves, newer Room and Thread Messages
 // are neither searchable nor readable one by one, while earlier ones stay.

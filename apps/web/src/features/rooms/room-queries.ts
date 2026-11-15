@@ -15,6 +15,7 @@ import { collectTeamHubCursorPages } from "@/features/teamhub/teamhub-cursor-pag
 import type {
   TeamHubDocument,
   TeamHubMessage,
+  TeamHubMessagePinList,
   TeamHubRunStatusList,
   TeamHubMessagePage,
   TeamHubRoom,
@@ -392,6 +393,31 @@ export function roomMessageQueryKey(
   return [...roomMessagesQueryKey(tenantId, roomId), messageId] as const;
 }
 
+export function roomPinsQueryKey(tenantId: string, roomId: string) {
+  return [...teamHubQueryRoot, tenantId, "room", roomId, "pins"] as const;
+}
+
+export function roomPinsQueryOptions(
+  client: TeamHubClient,
+  tenantId: string,
+  roomId: string,
+) {
+  return queryOptions({
+    queryFn: async () =>
+      requireMessagePinListScope(
+        await teamHubData(
+          client.api.GET("/v0/rooms/{roomId}/pins", {
+            params: { path: { roomId } },
+          }),
+        ),
+        tenantId,
+        roomId,
+      ),
+    queryKey: roomPinsQueryKey(tenantId, roomId),
+    staleTime: 10_000,
+  });
+}
+
 export function roomMessageQueryOptions(
   client: TeamHubClient,
   tenantId: string,
@@ -718,6 +744,22 @@ function compareMessages(left: TeamHubMessage, right: TeamHubMessage) {
   }
   if (left.id === right.id) return 0;
   return left.id < right.id ? -1 : 1;
+}
+
+function requireMessagePinListScope(
+  list: TeamHubMessagePinList,
+  tenantId: string,
+  roomId: string,
+) {
+  return requireScope(
+    list.items.every(
+      (pin) =>
+        pin.message.room_id === roomId &&
+        pin.message.tenant_id === tenantId &&
+        pin.message.author.tenant_id === tenantId,
+    ),
+    list,
+  );
 }
 
 function requireMessageScope(

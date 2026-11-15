@@ -7,6 +7,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { useState } from "react";
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -37,6 +38,7 @@ import {
   readGlobalSearchStore,
   type GlobalSearchStore,
 } from "./global-search-recent";
+import type { SearchRoomScope } from "./room-search-scope";
 import { isGlobalSearchShortcut } from "./search-shortcut";
 
 const TENANT = "tenant-northstar";
@@ -75,6 +77,9 @@ describe("Global search dialog", () => {
     expect(
       screen.queryByRole("combobox", { name: /Filter search/ }),
     ).toBeNull();
+    expect(
+      screen.queryByRole("group", { name: "Filter search results by kind" }),
+    ).toBeNull();
     expect(screen.getByText("Search in")).toBeVisible();
     expect(
       results()
@@ -86,6 +91,81 @@ describe("Global search dialog", () => {
       "DocsDocs and notes",
       "RoomsRooms you can join",
     ]);
+  });
+
+  it("searches only the Room it opened on until the chip is cleared", async () => {
+    const harness = await renderDialog({
+      room: { id: "room-all", name: "All hands" },
+    });
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    expect(screen.getByText("This Room")).toBeVisible();
+    expect(input).toHaveAttribute("placeholder", "Search messages");
+    expect(
+      screen.queryByRole("button", { name: "Remove Messages scope" }),
+    ).toBeNull();
+
+    fireEvent.change(input, { target: { value: "deploy" } });
+    await waitFor(() =>
+      expect(searchRequests(harness.searchMessages)).toContainEqual({
+        params: { tenantId: TENANT },
+        query: { limit: "20", q: "deploy", room_id: "room-all" },
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    expect(harness.searchDocuments).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove This Room scope" }),
+    );
+    expect(screen.queryByText("This Room")).toBeNull();
+    expect(input).toHaveFocus();
+    await waitFor(() =>
+      expect(searchRequests(harness.searchMessages)).toContainEqual({
+        params: { tenantId: TENANT },
+        query: { limit: "20", q: "deploy" },
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    await waitFor(() => expect(harness.searchDocuments).toHaveBeenCalled());
+  });
+
+  it("names a Thread in the scope chip and widens to global search when cleared", async () => {
+    const harness = await renderDialog({
+      room: {
+        id: "room-thread-1",
+        label: "Thread · Rollout plan",
+        name: "Rollout plan",
+      },
+    });
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    expect(screen.getByText("Thread · Rollout plan")).toBeVisible();
+    expect(input).toHaveAttribute("placeholder", "Search messages");
+
+    fireEvent.change(input, { target: { value: "rollout" } });
+    await waitFor(() =>
+      expect(searchRequests(harness.searchMessages)).toContainEqual({
+        params: { tenantId: TENANT },
+        query: { limit: "20", q: "rollout", room_id: "room-thread-1" },
+        signal: expect.any(AbortSignal),
+      }),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Remove Thread · Rollout plan scope",
+      }),
+    );
+    // Removing the chip widens the same search instead of closing it.
+    expect(screen.queryByText("Thread · Rollout plan")).toBeNull();
+    expect(input).toHaveFocus();
+    await waitFor(() =>
+      expect(searchRequests(harness.searchMessages)).toContainEqual({
+        params: { tenantId: TENANT },
+        query: { limit: "20", q: "rollout" },
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    expect(harness.onClose).not.toHaveBeenCalled();
   });
 
   it("searches messages and docs after the debounce without a preview pane", async () => {
@@ -222,6 +302,220 @@ describe("Global search dialog", () => {
       "placeholder",
       "Search messages, docs, members and rooms",
     );
+  });
+
+  it("filters loaded results by kind with counted chips and keeps arrow keys", async () => {
+    const harness = await renderDialog();
+    const { message, document } = await harness.samples();
+    harness.searchMessages.mockReturnValue({
+      items: [
+        messageHit(message, "Deploy to test after the freeze", {
+          id: "room-all",
+          kind: "room",
+          name: "All hands",
+        }),
+      ],
+      page: { has_more: false },
+    });
+    harness.searchDocuments.mockReturnValue({
+      items: Array.from({ length: 4 }, (_, index) => ({
+        ...document,
+        id: `kind-document-${index}`,
+        title: `Kind doc ${index}.md`,
+      })),
+      page: { has_more: false },
+    });
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    fireEvent.change(input, { target: { value: "zqx" } });
+
+    const chips = await screen.findByRole("group", {
+      name: "Filter search results by kind",
+    });
+    const chip = (name: string) => within(chips).getByRole("button", { name });
+    await waitFor(() => expect(chip("Docs 4")).toBeEnabled());
+    expect(chip("All 5")).toHaveAttribute("aria-pressed", "true");
+    expect(chip("Messages 1")).toHaveAttribute("aria-pressed", "false");
+    // Empty kinds stay visible and cannot be chosen.
+    expect(chip("Members 0")).toBeDisabled();
+    expect(chip("Rooms 0")).toBeDisabled();
+    await waitFor(() =>
+      expect(
+        results().queryAllByRole("option", { name: /Kind doc/ }),
+      ).toHaveLength(3),
+    );
+
+    fireEvent.click(chip("Docs 4"));
+    expect(chip("Docs 4")).toHaveAttribute("aria-pressed", "true");
+    expect(chip("All 5")).toHaveAttribute("aria-pressed", "false");
+    expect(input).toHaveFocus();
+    // The chosen kind shows every loaded row and no other kind's row.
+    expect(
+      results().queryAllByRole("option", { name: /Kind doc/ }),
+    ).toHaveLength(4);
+    expect(
+      results().queryByRole("option", { name: /Deploy to test/ }),
+    ).toBeNull();
+    // Filtering reuses the rows already fetched.
+    expect(harness.searchMessages).toHaveBeenCalledTimes(1);
+    expect(harness.searchDocuments).toHaveBeenCalledTimes(1);
+
+    // Arrow keys walk the filtered rows only.
+    const docs = results().getAllByRole("option");
+    expect(input).toHaveAttribute("aria-activedescendant", docs[0]!.id);
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(input).toHaveAttribute("aria-activedescendant", docs[1]!.id);
+  });
+
+  it("falls back to All when the chosen kind loses its results", async () => {
+    const harness = await renderDialog();
+    const { message, document } = await harness.samples();
+    harness.searchMessages.mockReturnValue({
+      items: [
+        messageHit(message, "Deploy to test after the freeze", {
+          id: "room-all",
+          kind: "room",
+          name: "All hands",
+        }),
+      ],
+      page: { has_more: false },
+    });
+    harness.searchDocuments.mockReturnValue({
+      items: [
+        { ...document, id: "fallback-document", title: "Fallback doc.md" },
+      ],
+      page: { has_more: false },
+    });
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    fireEvent.change(input, { target: { value: "zqx" } });
+
+    const chips = await screen.findByRole("group", {
+      name: "Filter search results by kind",
+    });
+    const chip = (name: string) => within(chips).getByRole("button", { name });
+    await waitFor(() => expect(chip("Docs 1")).toBeEnabled());
+    fireEvent.click(chip("Docs 1"));
+    await results().findByRole("option", { name: /Fallback doc/ });
+
+    harness.searchDocuments.mockReturnValue(emptySearchPage);
+    fireEvent.change(input, { target: { value: "zqx freeze" } });
+    await waitFor(() =>
+      expect(chip("All 1")).toHaveAttribute("aria-pressed", "true"),
+    );
+    expect(chip("Docs 0")).toBeDisabled();
+    // The dialog shows the remaining kinds instead of an empty list.
+    expect(
+      await results().findByRole("option", { name: /Deploy to test/ }),
+    ).toBeVisible();
+  });
+
+  it("starts on All and composes kind chips with the Room scope chip", async () => {
+    const harness = await renderDialog({
+      room: { id: "room-all", name: "All hands" },
+    });
+    const { message } = await harness.samples();
+    harness.searchMessages.mockReturnValue({
+      items: [
+        messageHit(message, "Deploy to test after the freeze", {
+          id: "room-all",
+          kind: "room",
+          name: "All hands",
+        }),
+        messageHit(
+          { ...message, id: "message-second" },
+          "Deploy the second service",
+          { id: "room-all", kind: "room", name: "All hands" },
+        ),
+      ],
+      page: { has_more: false },
+    });
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    fireEvent.change(input, { target: { value: "deploy" } });
+
+    const chips = await screen.findByRole("group", {
+      name: "Filter search results by kind",
+    });
+    await waitFor(() =>
+      expect(
+        within(chips).getByRole("button", { name: "Messages 2" }),
+      ).toBeEnabled(),
+    );
+    expect(screen.getByText("This Room")).toBeVisible();
+    expect(
+      within(chips).getByRole("button", { name: "All 2" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    // A Room-scoped search produces Messages alone.
+    expect(within(chips).queryByRole("button", { name: /^Docs / })).toBeNull();
+    expect(harness.searchDocuments).not.toHaveBeenCalled();
+  });
+
+  it("offers the kind chips for the type scope in effect", async () => {
+    await renderDialog();
+    fireEvent.click(results().getByRole("option", { name: /^Members/ }));
+
+    const chips = await screen.findByRole("group", {
+      name: "Filter search results by kind",
+    });
+    await waitFor(() =>
+      expect(
+        within(chips).getByRole("button", { name: /^Members \d+$/ }),
+      ).toBeEnabled(),
+    );
+    expect(
+      within(chips).getByRole("button", { name: /^All \d+$/ }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(within(chips).queryByRole("button", { name: /^Docs / })).toBeNull();
+  });
+
+  it("returns to All when the dialog closes and opens again", async () => {
+    const harness = await renderDialog({ closable: true });
+    const { message, document } = await harness.samples();
+    harness.searchMessages.mockReturnValue({
+      items: [
+        messageHit(message, "Deploy to test after the freeze", {
+          id: "room-all",
+          kind: "room",
+          name: "All hands",
+        }),
+      ],
+      page: { has_more: false },
+    });
+    harness.searchDocuments.mockReturnValue({
+      items: [{ ...document, id: "reset-document", title: "Reset doc.md" }],
+      page: { has_more: false },
+    });
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    fireEvent.change(input, { target: { value: "zqx" } });
+
+    let chips = await screen.findByRole("group", {
+      name: "Filter search results by kind",
+    });
+    await waitFor(() =>
+      expect(
+        within(chips).getByRole("button", { name: "Docs 1" }),
+      ).toBeEnabled(),
+    );
+    fireEvent.click(within(chips).getByRole("button", { name: "Docs 1" }));
+    expect(
+      within(chips).getByRole("button", { name: "Docs 1" }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(harness.onClose).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Reopen search" }));
+    const reopened = await screen.findByRole("combobox", { name: INPUT_NAME });
+    fireEvent.change(reopened, { target: { value: "zqx" } });
+
+    chips = await screen.findByRole("group", {
+      name: "Filter search results by kind",
+    });
+    await waitFor(() =>
+      expect(
+        within(chips).getByRole("button", { name: /^All / }),
+      ).toHaveAttribute("aria-pressed", "true"),
+    );
+    expect(
+      within(chips).getByRole("button", { name: /^Docs / }),
+    ).toHaveAttribute("aria-pressed", "false");
   });
 
   it("opens a message hit with the keyword highlight and records the open", async () => {
@@ -588,6 +882,163 @@ describe("Global search dialog", () => {
     expect(screen.queryByText("Recent")).not.toBeInTheDocument();
     expect(readGlobalSearchStore(TENANT).queries).toEqual([]);
   });
+  it("shows the eight most recent queries and runs one by click", async () => {
+    const queries = Array.from({ length: 10 }, (_, index) => `query ${index}`);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ queries }));
+    await renderDialog();
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+
+    const rows = results().getAllByRole("option").slice(4);
+    expect(rows.map((row) => row.textContent)).toEqual(queries.slice(0, 8));
+
+    fireEvent.click(rows[0]!);
+    expect(input).toHaveValue("query 0");
+    await waitFor(() => expect(screen.queryByText("Recent")).toBeNull());
+  });
+
+  it("removes one recent search without running it", async () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seededStore()));
+    const harness = await renderDialog();
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove recent search deploy" }),
+    );
+
+    expect(readGlobalSearchStore(TENANT).queries).toEqual(["freeze"]);
+    expect(results().queryByRole("option", { name: "deploy" })).toBeNull();
+    expect(results().getByRole("option", { name: "freeze" })).toBeVisible();
+    // Removing forgets the entry; it does not run it.
+    expect(input).toHaveValue("");
+    expect(input).toHaveFocus();
+    expect(harness.searchMessages).not.toHaveBeenCalled();
+    expect(harness.onClose).not.toHaveBeenCalled();
+  });
+
+  it("removes the selected recent search with Delete", async () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seededStore()));
+    await renderDialog();
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    for (let step = 0; step < 4; step += 1) {
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+    }
+    expect(input).toHaveAttribute(
+      "aria-activedescendant",
+      results().getAllByRole("option")[4]!.id,
+    );
+    expect(screen.getByText("Remove recent")).toBeVisible();
+
+    fireEvent.keyDown(input, { key: "Delete" });
+
+    expect(readGlobalSearchStore(TENANT).queries).toEqual(["freeze"]);
+    expect(results().queryByRole("option", { name: "deploy" })).toBeNull();
+    expect(input).toHaveValue("");
+    expect(input).toHaveFocus();
+  });
+
+  it("hides the recent searches while a query is being searched", async () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seededStore()));
+    await renderDialog();
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    expect(screen.getByText("Recent")).toBeVisible();
+
+    fireEvent.change(input, { target: { value: "deploy" } });
+    await waitFor(() => expect(screen.queryByText("Recent")).toBeNull());
+
+    fireEvent.change(input, { target: { value: "" } });
+    expect(await screen.findByText("Recent")).toBeVisible();
+  });
+
+  it("keeps the recent searches out of a scoped search until the chip is cleared", async () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seededStore()));
+    const harness = await renderDialog({
+      room: { id: "room-all", name: "All hands" },
+    });
+    expect(screen.queryByText("Recent")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Remove This Room scope" }),
+    ).toBeVisible();
+    expect(harness.searchMessages).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove This Room scope" }),
+    );
+
+    expect(await screen.findByText("Recent")).toBeVisible();
+    expect(results().getByRole("option", { name: "deploy" })).toBeVisible();
+    expect(results().getByRole("option", { name: "freeze" })).toBeVisible();
+  });
+
+  it("keeps every recent option owned by the listbox and reports its Delete shortcut", async () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seededStore()));
+    await renderDialog();
+    const listbox = screen.getByRole("listbox");
+    const recent = results().getByRole("option", { name: "deploy" });
+
+    expect(recent).toHaveAttribute("aria-selected", "false");
+    expect(recent.parentElement).toHaveAttribute("role", "presentation");
+    expect(recent.closest('[role="listbox"]')).toBe(listbox);
+    expect(
+      screen.getByRole("button", { name: "Remove recent search deploy" }),
+    ).toHaveAttribute("aria-keyshortcuts", "Delete");
+  });
+
+  it("keeps the highlight on the next recent after a removal and runs it on Enter", async () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seededStore()));
+    await renderDialog();
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    for (let step = 0; step < 4; step += 1) {
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+    }
+    expect(results().getAllByRole("option")[4]).toHaveTextContent("deploy");
+
+    fireEvent.keyDown(input, { key: "Delete" });
+
+    const options = results().getAllByRole("option");
+    expect(options[4]).toHaveTextContent("freeze");
+    // The highlight follows the row that moved up, rather than resetting to the
+    // first scope card.
+    expect(input).toHaveAttribute("aria-activedescendant", options[4]!.id);
+    expect(options[4]).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(input).toHaveValue("freeze");
+  });
+
+  it("forgets the next recent with a second Delete", async () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seededStore()));
+    await renderDialog();
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    for (let step = 0; step < 4; step += 1) {
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+    }
+
+    fireEvent.keyDown(input, { key: "Delete" });
+    fireEvent.keyDown(input, { key: "Delete" });
+
+    expect(readGlobalSearchStore(TENANT).queries).toEqual([]);
+    expect(screen.queryByText("Recent")).toBeNull();
+    const options = results().getAllByRole("option");
+    expect(options).toHaveLength(4);
+    // The highlight clamps to the last remaining row.
+    expect(input).toHaveAttribute("aria-activedescendant", options[3]!.id);
+  });
+
+  it("leaves Delete to the field while it holds text", async () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seededStore()));
+    await renderDialog();
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    for (let step = 0; step < 4; step += 1) {
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+    }
+
+    // Recent rows stay on screen while the typed query is still settling.
+    fireEvent.change(input, { target: { value: "deploy" } });
+    expect(screen.getByText("Recent")).toBeVisible();
+    expect(fireEvent.keyDown(input, { key: "Delete" })).toBe(true);
+    expect(readGlobalSearchStore(TENANT).queries).toEqual(["deploy", "freeze"]);
+  });
+
   it("accepts Cmd/Ctrl+K anywhere, including editors, but not mid-composition", () => {
     expect(
       isGlobalSearchShortcut(
@@ -653,11 +1104,39 @@ function LocationProbe() {
   );
 }
 
+/** The shell mounts the dialog only while search is open, so closing unmounts
+ * it and the next opening starts fresh. */
+function ClosableSearch({ onClose }: { onClose: () => void }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <>
+      {open ? (
+        <GlobalSearchDialog
+          onClose={() => {
+            setOpen(false);
+            onClose();
+          }}
+          tenantId={TENANT}
+        />
+      ) : null}
+      <button onClick={() => setOpen(true)} type="button">
+        Reopen search
+      </button>
+    </>
+  );
+}
+
 async function renderDialog({
+  closable = false,
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   }),
-}: { queryClient?: QueryClient } = {}) {
+  room,
+}: {
+  closable?: boolean;
+  queryClient?: QueryClient;
+  room?: SearchRoomScope;
+} = {}) {
   const runtime = createTestTeamHubRuntime();
 
   const documents = await teamHubData(
@@ -692,7 +1171,15 @@ async function renderDialog({
       {
         element: (
           <>
-            <GlobalSearchDialog onClose={onClose} tenantId={TENANT} />
+            {closable ? (
+              <ClosableSearch onClose={onClose} />
+            ) : (
+              <GlobalSearchDialog
+                onClose={onClose}
+                room={room}
+                tenantId={TENANT}
+              />
+            )}
             <LocationProbe />
           </>
         ),

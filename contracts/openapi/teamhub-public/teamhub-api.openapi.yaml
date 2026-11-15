@@ -1203,6 +1203,13 @@ paths:
           schema: { type: string, minLength: 1, maxLength: 200 }
         - $ref: '../components/common.yaml#/components/parameters/Cursor'
         - $ref: '../components/common.yaml#/components/parameters/Limit'
+        - name: room_id
+          in: query
+          required: false
+          description: >-
+            Narrows the search to Messages in this Room. A Room the caller cannot read
+            returns an empty items array instead of an error.
+          schema: { type: string }
       responses:
         '200':
           description: Matching Messages newest first with the Room each one belongs to; no matches returns an empty items array.
@@ -1791,6 +1798,50 @@ paths:
           $ref: '../components/common.yaml#/components/responses/Unauthenticated'
         '404':
           $ref: '../components/common.yaml#/components/responses/NotFound'
+  /v0/rooms/{roomId}/messages/{messageId}/pin:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/MessageId'
+    put:
+      tags: [Messages]
+      operationId: putMessagePin
+      summary: Idempotently pin a conversation Message for the whole Room.
+      responses:
+        '204':
+          description: The Message is pinned in this Room; repeating the request changes nothing.
+        '401':
+          $ref: '../components/common.yaml#/components/responses/Unauthenticated'
+        '404':
+          $ref: '../components/common.yaml#/components/responses/NotFound'
+    delete:
+      tags: [Messages]
+      operationId: deleteMessagePin
+      summary: Idempotently remove a Message from the Room's Pinned list.
+      responses:
+        '204':
+          description: The Message is not pinned in this Room; repeating the request changes nothing.
+        '401':
+          $ref: '../components/common.yaml#/components/responses/Unauthenticated'
+        '404':
+          $ref: '../components/common.yaml#/components/responses/NotFound'
+  /v0/rooms/{roomId}/pins:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [Messages]
+      operationId: listMessagePins
+      summary: List the Room's pinned Messages, newest pin first, capped at 50.
+      responses:
+        '200':
+          description: The Room's pinned Messages.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/message-pins.yaml#/components/schemas/MessagePinList'
+        '401':
+          $ref: '../components/common.yaml#/components/responses/Unauthenticated'
+        '404':
+          $ref: '../components/common.yaml#/components/responses/NotFound'
   /v0/decisions/{decisionId}:
     parameters:
       - $ref: '#/components/parameters/DecisionId'
@@ -2112,6 +2163,42 @@ paths:
           $ref: '../components/common.yaml#/components/responses/Unauthenticated'
         '404':
           $ref: '../components/common.yaml#/components/responses/NotFound'
+  /v0/tenants/{tenantId}/personal-wiki/refresh:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    post:
+      tags: [Personal Wiki]
+      operationId: refreshPersonalWiki
+      summary: Request a refresh of the authenticated Human's Personal Wiki from Memory.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '../components/personal-wiki.yaml#/components/schemas/PersonalWikiRefreshRequest'
+      responses:
+        '202':
+          description: The refresh is accepted or already running.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/personal-wiki.yaml#/components/schemas/PersonalWikiRefresh'
+        '200':
+          description: The Wiki already matches its sources, or has no source yet.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/personal-wiki.yaml#/components/schemas/PersonalWikiRefresh'
+        '400':
+          $ref: '../components/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components/common.yaml#/components/responses/Unauthenticated'
+        '404':
+          $ref: '../components/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../components/common.yaml#/components/responses/Conflict'
+        '503':
+          $ref: '../components/common.yaml#/components/responses/ServiceUnavailable'
   /v0/tenants/{tenantId}/personal-wiki/preview:
     parameters:
       - $ref: '#/components/parameters/TenantId'

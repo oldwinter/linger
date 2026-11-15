@@ -43,6 +43,10 @@ import {
 } from "@/features/teamhub/teamhub-client";
 import type { TeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import {
+  createWorkItemDashboardFilters,
+  currentDashboardActorId,
+} from "@/features/work-items/work-item-dashboard-filters";
+import {
   tenantWorkItemTargetQueryOptions,
   tenantWorkItemsDashboardQueryOptions,
 } from "@/features/work-items/work-item-queries";
@@ -256,6 +260,7 @@ export function createAppRoutes(
           },
           path: "profile",
         },
+        createWorkItemDashboardRoute(queryClient, client, "dashboard"),
         createWorkItemDashboardRoute(
           queryClient,
           client,
@@ -320,7 +325,7 @@ export function createAppRoutes(
 function createWorkItemDashboardRoute(
   queryClient: QueryClient,
   client: TeamHubClient,
-  path: "dashboard/:workItemId",
+  path: "dashboard" | "dashboard/:workItemId",
 ): RouteObject {
   return {
     ErrorBoundary: PanelRouteErrorSurface,
@@ -329,11 +334,24 @@ function createWorkItemDashboardRoute(
         await import("@/features/work-items/work-items-page");
       return { Component: WorkItemsPage };
     },
-    loader: ({ params }) => {
+    loader: async ({ params, request }) => {
       const tenantId = requireRoomRouteParam(params.tenantId, "Tenant");
+      const filters = createWorkItemDashboardFilters(
+        new URL(request.url).searchParams,
+      );
       void queryClient.prefetchQuery(tenantRoomsQueryOptions(client, tenantId));
+      // Mine keys the list by the current Actor, so read the identity the
+      // shell already ensures before starting the Dashboard request.
+      const identity = await queryClient
+        .ensureQueryData(teamHubIdentityQueryOptions(client))
+        .catch(() => undefined);
       void queryClient.prefetchQuery(
-        tenantWorkItemsDashboardQueryOptions(client, tenantId),
+        tenantWorkItemsDashboardQueryOptions(
+          client,
+          tenantId,
+          filters,
+          identity ? currentDashboardActorId(identity, tenantId) : undefined,
+        ),
       );
       if (params.workItemId) {
         void queryClient.prefetchQuery(
@@ -709,6 +727,14 @@ function createSettingsRoute(): RouteObject {
             .MyRulesPage,
         }),
         path: "my-rules",
+      },
+      {
+        lazy: async () => ({
+          Component: (
+            await import("@/features/settings/shortcuts-settings-page")
+          ).ShortcutsSettingsPage,
+        }),
+        path: "shortcuts",
       },
       {
         lazy: async () => ({

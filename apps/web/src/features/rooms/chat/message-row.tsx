@@ -3,16 +3,23 @@ import {
   AlarmClockIcon,
   AtIcon,
   Cancel01Icon,
+  CheckListIcon,
   Copy01Icon,
+  Link01Icon,
   MailReply01Icon,
   Message01Icon,
   MoreHorizontalIcon,
+  NoteEditIcon,
+  PinIcon,
+  PinOffIcon,
   RotateLeft01Icon,
   SentIcon,
   SmilePlusIcon,
+  TextQuoteIcon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { AnimatePresence, motion } from "motion/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
 
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
@@ -20,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { FileTypeIcon } from "@/features/library/workspace-file-icon";
 import { isDocumentCardSegment } from "@/features/teamhub/teamhub-message-content";
+import { useOptionalTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubDocumentPreviewTarget,
   TeamHubMessagePresentation,
@@ -54,12 +62,16 @@ import {
 } from "../files/message-file-item";
 import { ActorAvatar } from "../members/actor-avatar";
 import { AgentStatusAvatar } from "../members/agent-status-avatar";
+import { saveMessageToPocketNote } from "../pocket-notes/save-message-to-pocket-note";
+import { roomMessageUrl } from "../room-routes";
 import { useRoomRenderTiming } from "../room-render-timing";
 import {
   messageBodyBlocks,
   messageBodyRuns,
   type MessageTextBlock,
 } from "./message-body-blocks";
+import { messageQuoteText } from "./message-quote";
+import { messagePlainText } from "./message-plain-text";
 import { MessageCard } from "./message-card";
 import { MessageHtmlFragment } from "./message-html-fragment";
 import { MessageMarkdown } from "./message-markdown";
@@ -78,6 +90,7 @@ import { applySearchTermHighlight } from "./search-term-highlight";
 import { settledCardNotice } from "../cards/card-notice";
 import { CardNoticeRows } from "./card-notice-rows";
 import { ReplyContext } from "./reply-context";
+import { quoteReplyFromMessage, type StagedQuoteReply } from "./quote-reply";
 import { RoomNoticeRow } from "./room-notice-row";
 import { ThreadReplyPreview } from "./thread-reply-preview";
 import { ownSendStartedAt } from "./recent-own-sends";
@@ -130,12 +143,17 @@ interface MessageRowProps {
     options?: { focusComposer?: boolean },
   ) => void;
   onMentionAuthor?: (actor: TeamHubActorRef) => void;
+  onCreateIssueMessage?: (message: TeamHubMessage) => void;
   onForwardMessage?: (message: TeamHubMessage) => void;
   onReply?: (message: TeamHubMessage) => void;
+  /** Stages the Message as a Markdown quote in the composer. */
+  onReplyWithQuote?: (reply: StagedQuoteReply) => void;
   onToggleReaction?: (
     message: TeamHubMessage,
     reactionId: TeamHubMessageReactionId,
   ) => Promise<void>;
+  onTogglePin?: (message: TeamHubMessage, pinned: boolean) => Promise<void>;
+  isPinned?: boolean;
   actorKinds?: Readonly<Record<string, "human" | "agent">>;
   presentation?: TeamHubMessagePresentation;
   tenantId: string;
@@ -229,9 +247,13 @@ function ConversationMessageRow({
   onOpenUrl,
   onOpenThread,
   onMentionAuthor,
+  onCreateIssueMessage,
   onForwardMessage,
   onReply,
+  onReplyWithQuote,
   onToggleReaction,
+  onTogglePin,
+  isPinned = false,
   actorKinds = EMPTY_ACTOR_KINDS,
   presentation,
   tenantId,
@@ -325,15 +347,26 @@ function ConversationMessageRow({
   const reactionsUnderBubble = Boolean(
     reactionBar && message.reactions?.length,
   );
+  const togglePin = onTogglePin
+    ? () => {
+        void onTogglePin(message, isPinned).catch(() => undefined);
+      }
+    : undefined;
   const messageActions = (
     <ConversationMessageActions
+      authorName={authorName}
       currentActorId={currentActorId}
       hasCardPayload={hasCardPayload}
+      isPinned={isPinned}
       message={message}
+      onTogglePin={togglePin}
       onToggleReaction={toggleReaction}
       onOpenThread={onOpenThread}
+      onCreateIssueMessage={onCreateIssueMessage}
       onForwardMessage={onForwardMessage}
       onReply={onReply}
+      onReplyWithQuote={onReplyWithQuote}
+      tenantId={tenantId}
     />
   );
   const presentationAttachments = Array.isArray(presentation?.attachments)
@@ -765,24 +798,130 @@ function MessageAuthorAvatar({
 }
 
 function ConversationMessageActions({
+  authorName,
   currentActorId,
   hasCardPayload,
+  isPinned,
   message,
   onOpenThread,
+  onCreateIssueMessage,
   onForwardMessage,
   onReply,
+  onReplyWithQuote,
   onToggleReaction,
+  onTogglePin,
+  tenantId,
 }: Pick<
   MessageRowProps,
-  "message" | "currentActorId" | "onOpenThread" | "onForwardMessage" | "onReply"
+  | "message"
+  | "currentActorId"
+  | "onOpenThread"
+  | "onCreateIssueMessage"
+  | "onForwardMessage"
+  | "onReply"
+  | "onReplyWithQuote"
+  | "tenantId"
 > & {
+  /** The name the row shows for the author, quoted with the Message text. */
+  authorName: string;
   hasCardPayload: boolean;
+  isPinned: boolean;
   onToggleReaction?: (reactionId: TeamHubMessageReactionId) => void;
+  onTogglePin?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [quoteState, setQuoteState] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
+  const [textCopy, setTextCopy] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  const runtime = useOptionalTeamHubRuntime();
+  const queryClient = useQueryClient();
+  const [pocketSave, setPocketSave] = useState<
+    "idle" | "saving" | "saved" | "failed"
+  >("idle");
+  // Set before the request, so a second click in the same tick joins it.
+  const pocketSaving = useRef(false);
   const actionsRef = useRef<HTMLDivElement>(null);
   const overflowItems: ActionMenuItem[] = [];
+
+  useEffect(() => {
+    if (pocketSave !== "saved" && pocketSave !== "failed") return;
+    const timer = window.setTimeout(
+      () => setPocketSave("idle"),
+      pocketSave === "saved" ? 2000 : 4000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [pocketSave]);
+
+  useEffect(() => {
+    if (textCopy === "idle") return;
+    const timer = window.setTimeout(() => setTextCopy("idle"), 1200);
+    return () => window.clearTimeout(timer);
+  }, [textCopy]);
+
+  function saveToPocketNote() {
+    if (!runtime || pocketSaving.current) return;
+    pocketSaving.current = true;
+    setPocketSave("saving");
+    void saveMessageToPocketNote({
+      authorName,
+      client: runtime.client,
+      createdAt: message.created_at,
+      message,
+      queryClient,
+      tenantId,
+    })
+      .then(
+        () => setPocketSave("saved"),
+        () => setPocketSave("failed"),
+      )
+      .finally(() => {
+        pocketSaving.current = false;
+      });
+  }
+
+  function copyText(text: string) {
+    void import("@/lib/clipboard")
+      .then(({ writeClipboardText }) => writeClipboardText(text))
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      })
+      .catch(() => setCopied(false));
+  }
+
+  function copyMessageText() {
+    void import("@/lib/clipboard")
+      .then(({ writeClipboardText }) =>
+        writeClipboardText(messagePlainText(message.raw_message)),
+      )
+      .then(() => setTextCopy("copied"))
+      .catch(() => setTextCopy("failed"));
+  }
+
+  overflowItems.push({
+    icon: <Icon icon={Link01Icon} size={14} />,
+    label: "Copy link",
+    // Absolute, so the link opens from a document or another app.
+    onSelect: () =>
+      copyText(roomMessageUrl(window.location.origin, tenantId, message)),
+  });
+  overflowItems.push({
+    icon: <Icon icon={Copy01Icon} size={14} />,
+    label: "Copy text",
+    onSelect: copyMessageText,
+  });
+  if (runtime) {
+    overflowItems.push({
+      disabled: pocketSave === "saving",
+      icon: <Icon icon={NoteEditIcon} size={14} />,
+      label: "Save to Pocket Note",
+      onSelect: saveToPocketNote,
+    });
+  }
 
   if (onForwardMessage) {
     overflowItems.push({
@@ -791,11 +930,32 @@ function ConversationMessageActions({
       onSelect: () => onForwardMessage(message),
     });
   }
+  if (onCreateIssueMessage) {
+    overflowItems.push({
+      icon: <Icon icon={CheckListIcon} size={14} />,
+      label: "Create issue",
+      onSelect: () => onCreateIssueMessage(message),
+    });
+  }
   if (onReply) {
     overflowItems.push({
       icon: <Icon icon={MailReply01Icon} size={14} />,
       label: "Reply to message",
       onSelect: () => onReply(message),
+    });
+  }
+  if (onReplyWithQuote) {
+    overflowItems.push({
+      icon: <Icon icon={TextQuoteIcon} size={14} />,
+      label: "Reply with quote",
+      onSelect: () =>
+        onReplyWithQuote(
+          quoteReplyFromMessage({
+            authorName,
+            createdAt: message.created_at,
+            message: message.raw_message,
+          }),
+        ),
     });
   }
   if (onOpenThread && !hasCardPayload) {
@@ -811,11 +971,24 @@ function ConversationMessageActions({
       },
     });
   }
+  if (onTogglePin) {
+    overflowItems.push({
+      icon: <Icon icon={isPinned ? PinOffIcon : PinIcon} size={14} />,
+      label: isPinned ? "Unpin message" : "Pin message",
+      onSelect: onTogglePin,
+    });
+  }
 
   return (
     <div
       ref={actionsRef}
       className="message-row-actions message-row-actions-beside z-10 flex shrink-0 items-center gap-0.5"
+      data-pocket-note-status={
+        pocketSave === "saved" || pocketSave === "failed"
+          ? pocketSave
+          : undefined
+      }
+      data-text-copy-status={textCopy === "idle" ? undefined : textCopy}
       data-reaction-picker-open={reactionPickerOpen || undefined}
     >
       {onToggleReaction ? (
@@ -845,23 +1018,48 @@ function ConversationMessageActions({
       ) : null}
       <MessageActionButton
         aria-label="Copy message"
-        onClick={() => {
-          void import("@/lib/clipboard")
-            .then(({ writeClipboardText }) =>
-              writeClipboardText(message.raw_message),
-            )
-            .then(() => {
-              setCopied(true);
-              window.setTimeout(() => setCopied(false), 1200);
-            })
-            .catch(() => setCopied(false));
-        }}
+        onClick={() => copyText(message.raw_message)}
         tooltip={copied ? "Copied" : "Copy message"}
       >
         {copied ? (
           <Icon icon={Tick02Icon} size={16} />
         ) : (
           <Icon icon={Copy01Icon} size={16} />
+        )}
+      </MessageActionButton>
+      <MessageActionButton
+        aria-label="Copy as quote"
+        onClick={() => {
+          void import("@/lib/clipboard")
+            .then(({ writeClipboardText }) =>
+              writeClipboardText(
+                messageQuoteText({
+                  authorName,
+                  createdAt: message.created_at,
+                  message: message.raw_message,
+                }),
+              ),
+            )
+            .then(() => setQuoteState("copied"))
+            .catch(() => setQuoteState("failed"))
+            .finally(() => {
+              window.setTimeout(() => setQuoteState("idle"), 1200);
+            });
+        }}
+        tooltip={
+          quoteState === "copied"
+            ? "Copied"
+            : quoteState === "failed"
+              ? "Copy failed"
+              : "Copy as quote"
+        }
+      >
+        {quoteState === "copied" ? (
+          <Icon icon={Tick02Icon} size={16} />
+        ) : quoteState === "failed" ? (
+          <Icon icon={Cancel01Icon} size={16} />
+        ) : (
+          <Icon icon={TextQuoteIcon} size={16} />
         )}
       </MessageActionButton>
       {overflowItems.length ? (
@@ -874,6 +1072,34 @@ function ConversationMessageActions({
           menuClassName="fixed z-[100] w-48 rounded-md bg-popover p-1 font-(family-name:--app-room-font) text-sm shadow-md"
           trigger={<Icon icon={MoreHorizontalIcon} size={16} />}
         />
+      ) : null}
+      {textCopy === "copied" || textCopy === "failed" ? (
+        <span
+          className={cn(
+            "ml-1 whitespace-nowrap rounded-md px-2 py-1 text-xs leading-[18px]",
+            textCopy === "copied"
+              ? "bg-primary text-primary-foreground"
+              : "border border-[var(--app-status-danger-border)] bg-[var(--app-status-danger-surface)] text-destructive",
+          )}
+          role="status"
+        >
+          {textCopy === "copied" ? "Copied" : "Copy failed"}
+        </span>
+      ) : null}
+      {pocketSave === "saved" || pocketSave === "failed" ? (
+        <span
+          className={cn(
+            "ml-1 whitespace-nowrap rounded-md px-2 py-1 text-xs leading-[18px]",
+            pocketSave === "saved"
+              ? "bg-primary text-primary-foreground"
+              : "border border-[var(--app-status-danger-border)] bg-[var(--app-status-danger-surface)] text-destructive",
+          )}
+          role="status"
+        >
+          {pocketSave === "saved"
+            ? "Saved to Pocket Note"
+            : "Couldn’t save to Pocket Note"}
+        </span>
       ) : null}
     </div>
   );

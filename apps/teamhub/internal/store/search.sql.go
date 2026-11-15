@@ -49,6 +49,7 @@ WITH page AS (
   WHERE r.tenant_id=$2::text
     AND r.deleted_at IS NULL
     AND r.deletion_started_at IS NULL
+    AND ($3::text='' OR r.id=$3::text)
     AND m.message_kind='conversation'
     AND m.card_context_message_id IS NULL
     AND (departure.room_id IS NULL OR EXISTS (
@@ -60,14 +61,14 @@ WITH page AS (
       SELECT 1 FROM work_item_room_links work_room
       WHERE work_room.tenant_id=r.tenant_id AND work_room.room_id=r.id AND work_room.link_type='work'
     )
-    AND strpos(lower(m.body),lower($3::text))>0
-    AND ($4::text='' OR (m.created_at,m.id) < (
-      SELECT created_at,id FROM messages WHERE id=$4::text
+    AND strpos(lower(m.body),lower($4::text))>0
+    AND ($5::text='' OR (m.created_at,m.id) < (
+      SELECT created_at,id FROM messages WHERE id=$5::text
     ))
   ORDER BY m.created_at DESC, m.id DESC
-  LIMIT $5::int
+  LIMIT $6::int
 )
-SELECT m.id, m.tenant_id, m.room_id, m.author_actor_id, m.body, m.segments, m.message_kind,
+SELECT m.id, m.tenant_id, m.room_id, m.room_seq, m.author_actor_id, m.body, m.segments, m.message_kind,
        m.card_context_message_id, m.card_title, m.card_kind, m.created_at,
        m.reply_to_message_id,
        author.kind AS author_kind, author.display_name AS author_display_name,
@@ -91,6 +92,7 @@ ORDER BY page.created_at DESC, page.id DESC
 type SearchTenantMessagesForAccountParams struct {
 	AccountID string `json:"account_id"`
 	TenantID  string `json:"tenant_id"`
+	RoomID    string `json:"room_id"`
 	Query     string `json:"query"`
 	Cursor    string `json:"cursor"`
 	PageLimit int32  `json:"page_limit"`
@@ -100,6 +102,7 @@ type SearchTenantMessagesForAccountRow struct {
 	ID                    string             `json:"id"`
 	TenantID              string             `json:"tenant_id"`
 	RoomID                string             `json:"room_id"`
+	RoomSeq               pgtype.Int8        `json:"room_seq"`
 	AuthorActorID         string             `json:"author_actor_id"`
 	Body                  string             `json:"body"`
 	Segments              []byte             `json:"segments"`
@@ -123,17 +126,20 @@ type SearchTenantMessagesForAccountRow struct {
 }
 
 // Keyword search over conversation Messages the caller can read across one
-// Tenant. Visibility is the Message list's: membership through the parent Room
-// for threads, and after leaving, only Messages up to each Room's own frozen
-// left_room_seq. The Room list exclusions also apply, so every hit opens
-// through an existing route. The query is one substring; both sides are
-// lower-cased here. The page is chosen from narrow rows first and only its
-// hits are joined to authors and Rooms, so a word found in every Message sorts
-// ids instead of whole rows.
+// Tenant, optionally narrowed to one Room. Visibility is the Message list's:
+// membership through the parent Room for threads, and after leaving, only
+// Messages up to each Room's own frozen left_room_seq. The Room list
+// exclusions also apply, so every hit opens through an existing route. An
+// empty room_id searches every Room, and a Room the caller cannot read matches
+// nothing, so a scoped search never reveals whether that Room exists. The query
+// is one substring; both sides are lower-cased here. The page is chosen from
+// narrow rows first and only its hits are joined to authors and Rooms, so a
+// word found in every Message sorts ids instead of whole rows.
 func (q *Queries) SearchTenantMessagesForAccount(ctx context.Context, arg SearchTenantMessagesForAccountParams) ([]SearchTenantMessagesForAccountRow, error) {
 	rows, err := q.db.Query(ctx, searchTenantMessagesForAccount,
 		arg.AccountID,
 		arg.TenantID,
+		arg.RoomID,
 		arg.Query,
 		arg.Cursor,
 		arg.PageLimit,
@@ -149,6 +155,7 @@ func (q *Queries) SearchTenantMessagesForAccount(ctx context.Context, arg Search
 			&i.ID,
 			&i.TenantID,
 			&i.RoomID,
+			&i.RoomSeq,
 			&i.AuthorActorID,
 			&i.Body,
 			&i.Segments,

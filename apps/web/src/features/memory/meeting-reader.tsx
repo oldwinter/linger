@@ -1,6 +1,14 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowDown01Icon,
+  ArrowUp01Icon,
+  Cancel01Icon,
+  Search01Icon,
+} from "@hugeicons/core-free-icons";
 import { ReadOnlyBlockNoteDocumentLoader } from "@/components/read-only-blocknote-document-loader";
 import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
+import { useQuery } from "@tanstack/react-query";
 import { ArtifactContentRendererLoader } from "@/features/rooms/files/artifact-content-renderer-loader";
 import {
   downloadArtifactPreview,
@@ -8,6 +16,7 @@ import {
   triggerArtifactDownload,
   type LoadedArtifactPreview,
 } from "@/features/rooms/files/artifact-preview-loader";
+import { teamHubIdentityQueryOptions } from "@/features/rooms/room-queries";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 import { MeetingAudioPlayer } from "./meeting-audio-player";
@@ -18,7 +27,27 @@ import {
   MeetingOverviewCard,
 } from "./meeting-overview-card";
 import { HideMeetingDialog } from "./hide-meeting-dialog";
-import { formatMeetingWhen, meetingWhen } from "./meetings-calendar";
+import {
+  formatMeetingWhen,
+  meetingTitle,
+  meetingWhen,
+} from "./meetings-calendar";
+import { meetingPath } from "./meeting-routes";
+import { MeetingShareAction } from "./meeting-share-action";
+import {
+  applyMeetingTranscriptMarks,
+  scrollMeetingTranscriptTurn,
+} from "./meeting-transcript-highlight";
+import {
+  nextMatchPosition,
+  previousMatchPosition,
+  searchMeetingTranscript,
+} from "./meeting-transcript-search";
+import {
+  meetingTranscriptText,
+  meetingTranscriptTurns,
+} from "./meeting-transcript-text";
+import { useMeetingActionTrack } from "./use-meeting-action-track";
 
 const meetingSummaryHiddenSectionTitles = [
   "CRM Evidence Cache",
@@ -26,6 +55,9 @@ const meetingSummaryHiddenSectionTitles = [
   "Runtime Evidence",
   "Subject Relation Note",
 ] as const;
+
+/** Long enough to read, matching the message menu's Copied tick. */
+const LINK_COPIED_MS = 1200;
 
 export type MeetingTab = "summary" | "transcript";
 
@@ -51,7 +83,12 @@ export function MeetingReader({
   resolveLink?: (reference: string) => string | null | undefined;
   tenantId: string;
 }) {
+  const { client } = useTeamHubRuntime();
   const meeting = entry.meeting!;
+  // The shell already cached this identity, so the reader adds no request; the
+  // listening position belongs to the signed-in Account.
+  const identity = useQuery(teamHubIdentityQueryOptions(client));
+  const accountId = identity.data?.account.id;
   const [deleting, setDeleting] = useState(false);
   const tab: MeetingTab =
     file === "summary" || file === "transcript"
@@ -60,11 +97,92 @@ export function MeetingReader({
         ? "summary"
         : "transcript";
   const when = meetingWhen(entry.path);
-  // The Session page's H1 is a generated recording ID, not a reader title.
+  const title = meetingTitle(entry);
+  const trackAction = useMeetingActionTrack({
+    meetingId: entry.id,
+    meetingTitle: title,
+    tenantId,
+  });
+  // Link feedback follows the meeting showing now; switching meetings drops it
+  // with the old entry.
+  const [linkCopy, setLinkCopy] = useState<{
+    entryId: string;
+    state: "copied" | "failed";
+  }>();
+  const linkCopyTimer = useRef<number | undefined>(undefined);
+  const summaryCopyTimer = useRef<number | undefined>(undefined);
+  useEffect(
+    () => () => {
+      window.clearTimeout(linkCopyTimer.current);
+      window.clearTimeout(summaryCopyTimer.current);
+    },
+    [],
+  );
+  function copyLink() {
+    window.clearTimeout(linkCopyTimer.current);
+    setLinkCopy(undefined);
+    void import("@/lib/clipboard")
+      .then(({ writeClipboardText }) =>
+        writeClipboardText(
+          new URL(
+            meetingPath(tenantId, entry.id),
+            window.location.origin,
+          ).toString(),
+        ),
+      )
+      .then(() => {
+        setLinkCopy({ entryId: entry.id, state: "copied" });
+        linkCopyTimer.current = window.setTimeout(
+          () => setLinkCopy(undefined),
+          LINK_COPIED_MS,
+        );
+      })
+      .catch(() => setLinkCopy({ entryId: entry.id, state: "failed" }));
+  }
+  const linkCopyState =
+    linkCopy?.entryId === entry.id ? linkCopy.state : undefined;
+  // Copy feedback belongs to the section that raised it and to the meeting
+  // showing now; switching meetings drops it with the old entry.
+  const [actionsCopy, setActionsCopy] = useState<{
+    entryId: string;
+    index: number;
+    state: "copied" | "failed";
+  }>();
+  // The summary's feedback follows the meeting showing now, as the link's does.
+  const [summaryCopy, setSummaryCopy] = useState<{
+    entryId: string;
+    state: "copied" | "failed";
+  }>();
+  async function copyActions(index: number, checklist: string) {
+    try {
+      await navigator.clipboard.writeText(checklist);
+      setActionsCopy({ entryId: entry.id, index, state: "copied" });
+    } catch {
+      setActionsCopy({ entryId: entry.id, index, state: "failed" });
+    }
+  }
   const summaryMarkdown = useMemo(
     () => entry.content.replace(/^#[ \t]+[^\n]*\n?/mu, ""),
     [entry.content],
   );
+  const summaryCopyState =
+    summaryCopy?.entryId === entry.id ? summaryCopy.state : undefined;
+  // Copies the Markdown the summary is rendered from, never a second reading
+  // of `entry.content`, so the clipboard says what the view shows.
+  function copySummary() {
+    window.clearTimeout(summaryCopyTimer.current);
+    setSummaryCopy(undefined);
+    void import("@/lib/clipboard")
+      .then(({ writeClipboardText }) => writeClipboardText(summaryMarkdown))
+      .then(() => {
+        setSummaryCopy({ entryId: entry.id, state: "copied" });
+        summaryCopyTimer.current = window.setTimeout(
+          () => setSummaryCopy(undefined),
+          LINK_COPIED_MS,
+        );
+      })
+      .catch(() => setSummaryCopy({ entryId: entry.id, state: "failed" }));
+  }
   // Keywords, Meeting Summary topics and the outcome lists are shown in
   // place; the rest stays the knowledge document around them.
   const blocks = useMemo(
@@ -86,21 +204,40 @@ export function MeetingReader({
   ];
   return (
     <article
-      className="meeting-document mx-auto w-full max-w-4xl px-5 py-7 md:px-10"
       aria-label="Meeting"
+      className="meeting-document mx-auto w-full max-w-4xl px-5 py-7 md:px-10"
+      data-meeting-surface
     >
       <header className="mb-4 flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <h2 className="break-words text-xl text-app-ink">
-            {when
-              ? `Meeting · ${formatMeetingWhen(when.date, when.time)}`
-              : entry.title}
-          </h2>
+          <h2 className="break-words text-xl text-app-ink">{title}</h2>
           <p className="mt-1 text-xs text-app-muted">Read only</p>
         </div>
-        <Button onClick={() => setDeleting(true)} size="compact" tone="ghost">
-          Delete
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {linkCopyState === "copied" ? (
+            <span className="text-xs leading-4 text-app-muted" role="status">
+              Copied
+            </span>
+          ) : null}
+          {linkCopyState === "failed" ? (
+            <span className="text-xs leading-4 text-app-danger" role="alert">
+              Copy failed
+            </span>
+          ) : null}
+          <Button onClick={copyLink} size="compact" tone="ghost">
+            Copy link
+          </Button>
+          {meeting.summary_ready ? (
+            <MeetingShareAction
+              entry={entry}
+              key={entry.id}
+              tenantId={tenantId}
+            />
+          ) : null}
+          <Button onClick={() => setDeleting(true)} size="compact" tone="ghost">
+            Delete
+          </Button>
+        </div>
       </header>
       {deleting ? (
         <HideMeetingDialog
@@ -149,7 +286,32 @@ export function MeetingReader({
           <>
             {meeting.summary_ready ? (
               <>
-                <div className="mb-3 flex justify-end">
+                <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+                  {summaryCopyState === "copied" ? (
+                    <span
+                      className="text-xs leading-4 text-app-muted"
+                      role="status"
+                    >
+                      Copied
+                    </span>
+                  ) : null}
+                  {summaryCopyState === "failed" ? (
+                    <span
+                      className="text-xs leading-4 text-app-danger"
+                      role="alert"
+                    >
+                      Copy failed
+                    </span>
+                  ) : null}
+                  {summaryMarkdown.trim() ? (
+                    <Button
+                      onClick={copySummary}
+                      size="compact"
+                      tone="secondary"
+                    >
+                      Copy summary
+                    </Button>
+                  ) : null}
                   <Button
                     size="compact"
                     tone="secondary"
@@ -188,7 +350,17 @@ export function MeetingReader({
                       <MeetingOverviewCard key={index} topics={block.topics} />
                     ) : (
                       <MeetingOutcomes
+                        copyStatus={
+                          actionsCopy?.entryId === entry.id &&
+                          actionsCopy.index === index
+                            ? actionsCopy.state
+                            : undefined
+                        }
                         key={index}
+                        onCopyActions={(checklist) =>
+                          void copyActions(index, checklist)
+                        }
+                        onTrack={trackAction}
                         outcomes={block.outcomes}
                         title={block.title}
                       />
@@ -205,10 +377,12 @@ export function MeetingReader({
             <div className="mt-8">
               <MeetingVersionReader
                 key={meeting.recording_version_id}
+                accountId={accountId}
                 documentId={meeting.recording_document_id}
-                versionId={meeting.recording_version_id}
                 filename={meeting.recording_filename}
+                meetingId={entry.id}
                 variant="player"
+                versionId={meeting.recording_version_id}
               />
             </div>
           </>
@@ -231,14 +405,20 @@ export function MeetingReader({
  * the transcript as the tab's document, each with its own download.
  */
 function MeetingVersionReader({
+  accountId,
   documentId,
   versionId,
   filename,
+  meetingId,
   variant,
 }: {
+  /** Whose listening positions the player remembers. */
+  accountId?: string;
   documentId: string;
   versionId: string;
   filename: string;
+  /** Tells the player which meeting it is playing, so its speed starts over. */
+  meetingId?: string;
   variant: "player" | "document";
 }) {
   const { client } = useTeamHubRuntime();
@@ -246,6 +426,83 @@ function MeetingVersionReader({
   const [error, setError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   const [downloading, setDownloading] = useState(false);
+  // Copying needs the transcript's text, not just its Version metadata; the
+  // Download control takes the raw body instead.
+  const transcriptText =
+    variant === "document" ? preview?.textContent : undefined;
+  const transcriptRoot = useRef<HTMLDivElement>(null);
+  const [query, setQuery] = useState("");
+  const [position, setPosition] = useState(0);
+  const turns = useMemo(
+    () => (transcriptText ? meetingTranscriptTurns(transcriptText) : []),
+    [transcriptText],
+  );
+  const match = useMemo(
+    () => searchMeetingTranscript(turns, query),
+    [query, turns],
+  );
+  const searching = query.trim() !== "";
+  // A new query starts at its first match; a shorter result list clamps a
+  // position left over from the previous query.
+  const current = match.count ? Math.min(position, match.count - 1) : 0;
+  useEffect(() => setPosition(0), [query]);
+  useEffect(() => {
+    if (!searching || !match.count) return;
+    const root = transcriptRoot.current;
+    if (!root) return;
+    let cleanup = () => {};
+    const apply = () => {
+      cleanup();
+      cleanup = applyMeetingTranscriptMarks({
+        current,
+        match,
+        root,
+        turns,
+      });
+    };
+    apply();
+    // The document renders lazily, so the marks follow its blocks appearing.
+    const observer = new MutationObserver(apply);
+    observer.observe(root, {
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+    return () => {
+      observer.disconnect();
+      cleanup();
+    };
+  }, [current, match, searching, turns]);
+  const currentTurn = match.count ? match.indices[current] : undefined;
+  useEffect(() => {
+    if (!searching || currentTurn === undefined) return;
+    const root = transcriptRoot.current;
+    if (!root) return;
+    const frame = requestAnimationFrame(() =>
+      scrollMeetingTranscriptTurn(root, currentTurn, turns.length),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [currentTurn, searching, turns.length]);
+  const [copyState, setCopyState] = useState<"copied" | "failed">();
+  const copyTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(copyTimer.current), []);
+  function copyTranscript() {
+    if (!transcriptText) return;
+    window.clearTimeout(copyTimer.current);
+    setCopyState(undefined);
+    void import("@/lib/clipboard")
+      .then(({ writeClipboardText }) =>
+        writeClipboardText(meetingTranscriptText(transcriptText)),
+      )
+      .then(() => {
+        setCopyState("copied");
+        copyTimer.current = window.setTimeout(
+          () => setCopyState(undefined),
+          LINK_COPIED_MS,
+        );
+      })
+      .catch(() => setCopyState("failed"));
+  }
   const transfer = useRef<AbortController | null>(null);
   const siblingRetries = useRef(0);
   useEffect(() => {
@@ -253,6 +510,7 @@ function MeetingVersionReader({
     transfer.current = controller;
     let dispose: (() => void) | undefined;
     setPreview(undefined);
+    setCopyState(undefined);
     setError(undefined);
     void loadArtifactPreview({
       client,
@@ -314,7 +572,29 @@ function MeetingVersionReader({
     }
   }
   const header = (
-    <div className="mb-3 flex justify-end">
+    <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+      {variant === "document" ? (
+        <>
+          {copyState === "copied" ? (
+            <span className="text-xs leading-4 text-app-muted" role="status">
+              Copied
+            </span>
+          ) : null}
+          {copyState === "failed" ? (
+            <span className="text-xs leading-4 text-app-danger" role="alert">
+              Copy failed
+            </span>
+          ) : null}
+          <Button
+            disabled={!transcriptText}
+            onClick={copyTranscript}
+            size="compact"
+            tone="secondary"
+          >
+            Copy transcript
+          </Button>
+        </>
+      ) : null}
       <Button
         aria-label={`Download ${filename}`}
         size="compact"
@@ -358,6 +638,66 @@ function MeetingVersionReader({
       presentation="knowledge"
     />
   );
+  const searchBar =
+    variant === "document" ? (
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <label className="flex h-8 min-w-0 flex-1 basis-56 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground transition-colors hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring/40">
+          <Icon icon={Search01Icon} size={14} />
+          <input
+            aria-label="Search transcript"
+            className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-60"
+            disabled={!transcriptText}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search transcript"
+            role="searchbox"
+            type="text"
+            value={query}
+          />
+          {query ? (
+            <button
+              aria-label="Clear transcript search"
+              className="flex size-5 shrink-0 items-center justify-center rounded-full hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+              onClick={() => setQuery("")}
+              type="button"
+            >
+              <Icon icon={Cancel01Icon} size={12} />
+            </button>
+          ) : null}
+        </label>
+        {searching ? (
+          <span className="text-xs tabular-nums text-app-muted" role="status">
+            {match.count
+              ? `${match.count} ${match.count === 1 ? "match" : "matches"}`
+              : "No matches"}
+          </span>
+        ) : null}
+        {searching && match.count ? (
+          <span className="text-xs tabular-nums text-app-muted">
+            {current + 1} of {match.count}
+          </span>
+        ) : null}
+        <Button
+          aria-label="Previous match"
+          disabled={!match.count}
+          onClick={() =>
+            setPosition(previousMatchPosition(current, match.count))
+          }
+          size="compactIcon"
+          tone="ghost"
+        >
+          <Icon icon={ArrowUp01Icon} size={14} />
+        </Button>
+        <Button
+          aria-label="Next match"
+          disabled={!match.count}
+          onClick={() => setPosition(nextMatchPosition(current, match.count))}
+          size="compactIcon"
+          tone="ghost"
+        >
+          <Icon icon={ArrowDown01Icon} size={14} />
+        </Button>
+      </div>
+    ) : null;
   if (variant === "player") {
     if (error)
       return (
@@ -383,9 +723,11 @@ function MeetingVersionReader({
       preview.version.media_type.toLowerCase().startsWith("audio/");
     return (
       <MeetingAudioPlayer
+        accountId={accountId}
         downloadDisabled={!preview || downloading}
         filename={filename}
         mediaType={preview?.version.media_type}
+        meetingId={meetingId}
         onDownload={() => void download()}
         src={playable ? preview.objectUrl : undefined}
         status={
@@ -400,8 +742,9 @@ function MeetingVersionReader({
   }
   return (
     <>
+      {searchBar}
       {header}
-      {body}
+      <div ref={transcriptRoot}>{body}</div>
     </>
   );
 }

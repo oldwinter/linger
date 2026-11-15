@@ -2,13 +2,16 @@ import {
   ArrowRight01Icon,
   ArrowTurnBackwardIcon,
   Cancel01Icon,
+  HashtagIcon,
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
 
 import { Icon } from "@/components/ui/icon";
 import { Spinner } from "@/components/ui/spinner";
+import { cn } from "@/lib/cn";
 
+import type { ResultKindOption } from "./global-search-kind-filter";
 import {
   emptyDetail,
   SCOPES,
@@ -25,6 +28,7 @@ import {
   ShortcutKey,
   SkeletonRows,
 } from "./global-search-rows";
+import type { SearchRoomScope } from "./room-search-scope";
 
 type Scope = (typeof SCOPES)[GroupTab];
 
@@ -33,11 +37,13 @@ export function GlobalSearchField({
   activeIndex,
   enterScope,
   inputRef,
+  onClearRoomScope,
   onClose,
   onInputKeyDown,
   onQueryChange,
   pending,
   query,
+  roomScope,
   rowCount,
   scope,
   tab,
@@ -45,11 +51,13 @@ export function GlobalSearchField({
   activeIndex: number;
   enterScope: (next: GlobalSearchTab) => void;
   inputRef: RefObject<HTMLInputElement | null>;
+  onClearRoomScope: () => void;
   onClose: () => void;
   onInputKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
   onQueryChange: (value: string) => void;
   pending: boolean;
   query: string;
+  roomScope: SearchRoomScope | undefined;
   rowCount: number;
   scope: Scope | undefined;
   tab: GlobalSearchTab;
@@ -72,7 +80,22 @@ export function GlobalSearchField({
           />
           <Spinner className="global-search-lead-busy" size={14} />
         </span>
-        {scope && tab !== "all" ? (
+        {roomScope ? (
+          <span className="ml-1 inline-flex h-8 shrink-0 items-center gap-2 rounded-full bg-(--app-field-surface) pl-2.5 pr-1 text-xs font-medium text-foreground shadow-outline">
+            <Icon className="text-app-subtle" icon={HashtagIcon} size={16} />
+            <span className="max-w-40 truncate" title={roomScope.name}>
+              {roomScope.label ?? "This Room"}
+            </span>
+            <button
+              aria-label={`Remove ${roomScope.label ?? "This Room"} scope`}
+              className="grid size-6 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
+              onClick={onClearRoomScope}
+              type="button"
+            >
+              <Icon icon={Cancel01Icon} size={12} />
+            </button>
+          </span>
+        ) : scope && tab !== "all" ? (
           <span className="ml-1 inline-flex h-8 shrink-0 items-center gap-2 rounded-full bg-(--app-field-surface) pl-2.5 pr-1 text-xs font-medium text-foreground shadow-outline">
             <Icon className="text-app-subtle" icon={scope.icon} size={16} />
             {scope.label}
@@ -118,6 +141,51 @@ export function GlobalSearchField({
   );
 }
 
+/** The kind chips above the results, with the rows already loaded per kind. */
+export function GlobalSearchKindFilter({
+  kind,
+  onSelect,
+  options,
+}: {
+  kind: GlobalSearchTab;
+  onSelect: (kind: GlobalSearchTab) => void;
+  options: readonly ResultKindOption[];
+}) {
+  return (
+    <div
+      aria-label="Filter search results by kind"
+      className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/60 px-3 py-1.5"
+      role="group"
+    >
+      {options.map((option) => {
+        const label = option.tab === "all" ? "All" : SCOPES[option.tab].label;
+        const pressed = option.tab === kind;
+        const empty = option.count === 0;
+        return (
+          <button
+            aria-label={`${label} ${option.count}`}
+            aria-pressed={pressed}
+            className={cn(
+              "inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-transparent px-2.5 text-xs font-medium transition-colors duration-150",
+              pressed
+                ? "bg-(--app-field-surface) text-foreground shadow-outline"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              !pressed && empty && "opacity-45 disabled:pointer-events-none",
+            )}
+            disabled={!pressed && empty}
+            key={option.tab}
+            onClick={() => onSelect(option.tab)}
+            type="button"
+          >
+            <span>{label}</span>
+            <span className="tabular-nums text-app-subtle">{option.count}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /** The listbox: an error, an empty state, or the result sections. */
 export function GlobalSearchResultList({
   activeIndex,
@@ -132,7 +200,9 @@ export function GlobalSearchResultList({
   listRef,
   onListLeave,
   onListScroll,
+  onRemoveRecent,
   openResult,
+  roomScoped,
   scope,
   sections,
   tab,
@@ -150,7 +220,9 @@ export function GlobalSearchResultList({
   listRef: RefObject<HTMLDivElement | null>;
   onListLeave: () => void;
   onListScroll: () => void;
+  onRemoveRecent: (text: string) => void;
   openResult: (result: SearchResult) => Promise<void>;
+  roomScoped: boolean;
   scope: Scope | undefined;
   sections: ResultSection[];
   tab: GlobalSearchTab;
@@ -183,14 +255,20 @@ export function GlobalSearchResultList({
         ) : sections.length === 0 ? (
           <EmptyState
             action={
-              tab !== "all" && debouncedQuery !== ""
+              tab !== "all" && !roomScoped && debouncedQuery !== ""
                 ? {
                     label: "Search everywhere",
                     onSelect: () => enterScope("all"),
                   }
                 : undefined
             }
-            detail={emptyDetail(tab, debouncedQuery)}
+            detail={
+              roomScoped
+                ? debouncedQuery === ""
+                  ? "Type a word from the message you are looking for."
+                  : "Check the spelling or try a shorter word."
+                : emptyDetail(tab, debouncedQuery)
+            }
             title={
               debouncedQuery === ""
                 ? `Search ${scope?.label.toLocaleLowerCase() ?? ""}`.trim()
@@ -237,6 +315,7 @@ export function GlobalSearchResultList({
                       key={result.id}
                       onActivate={() => hoverRow(index)}
                       onOpen={() => void openResult(result)}
+                      onRemoveRecent={onRemoveRecent}
                       query={debouncedQuery}
                       result={result}
                     />
@@ -293,8 +372,11 @@ function SectionHeader({
 /** The open error, when a hit failed to open, and the keyboard legend. */
 export function GlobalSearchFooter({
   openError,
+  recentSelected,
 }: {
   openError: string | null;
+  /** The active row is a recent search, so Delete can forget it. */
+  recentSelected: boolean;
 }) {
   return (
     <>
@@ -324,6 +406,12 @@ export function GlobalSearchFooter({
           <ShortcutKey>Tab</ShortcutKey>
           Search in type
         </span>
+        {recentSelected ? (
+          <span className="flex items-center gap-2">
+            <ShortcutKey>Delete</ShortcutKey>
+            Remove recent
+          </span>
+        ) : null}
       </div>
     </>
   );

@@ -15,9 +15,10 @@ import (
 )
 
 type fakeStatusSource struct {
-	mu     sync.Mutex
-	state  string
-	active int
+	mu              sync.Mutex
+	state           string
+	active          int
+	connectionError string
 }
 
 func (f *fakeStatusSource) GatewayState() string {
@@ -32,10 +33,22 @@ func (f *fakeStatusSource) ActiveOperationCount() int {
 	return f.active
 }
 
+func (f *fakeStatusSource) GatewayConnectionError() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.connectionError
+}
+
 func (f *fakeStatusSource) set(state string, active int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.state, f.active = state, active
+}
+
+func (f *fakeStatusSource) setConnectionError(value string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.connectionError = value
 }
 
 func TestDesktopChannelShutsDownOnStdinEOF(t *testing.T) {
@@ -99,6 +112,38 @@ func TestReportDesktopStatusWritesChangesOnly(t *testing.T) {
 	if lines.Scan() {
 		t.Fatalf("unchanged state was repeated: %q", lines.Text())
 	}
+}
+
+func TestReportDesktopStatusReportsDaemonIdentityConflict(t *testing.T) {
+	source := &fakeStatusSource{state: "connecting"}
+	reader, writer := io.Pipe()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	channel := newDesktopChannel(writer)
+	go func() {
+		reportDesktopStatus(ctx, channel.encode, source, 5*time.Millisecond)
+		_ = writer.Close()
+	}()
+	lines := bufio.NewScanner(reader)
+	next := func() string {
+		t.Helper()
+		if !lines.Scan() {
+			t.Fatal("status stream ended")
+		}
+		return lines.Text()
+	}
+	if line := next(); strings.Contains(line, "connection_error") {
+		t.Fatalf("a healthy status named a connection error: %s", line)
+	}
+	source.setConnectionError("daemon_identity_conflict")
+	if line := next(); !strings.Contains(line, `"connection_error":"daemon_identity_conflict"`) {
+		t.Fatalf("conflict status = %s", line)
+	}
+	source.setConnectionError("")
+	if line := next(); strings.Contains(line, "connection_error") {
+		t.Fatalf("cleared status kept a connection error: %s", line)
+	}
+	cancel()
 }
 
 // fakeDesktop plays the Desktop app on the other end of the stdio pipes.

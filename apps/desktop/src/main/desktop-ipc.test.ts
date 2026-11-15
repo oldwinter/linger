@@ -26,6 +26,8 @@ const fixture = async (
     servesWindow?: () => Promise<boolean>;
     signInWithAccount?: () => Promise<void>;
   } = {},
+  badge?: { setBadgeCount: (count: number) => boolean },
+  tray?: { setUnreadCount: (count: number) => void },
 ) => {
   const local = {
     ...stubModule("LocalServer"),
@@ -39,14 +41,19 @@ const fixture = async (
       stubModule("ComputerDaemon"),
       stubModule("WindowManager"),
       stubModule("WorkspaceGrants"),
+      stubModule("Tray"),
       local as never,
-      new DesktopIpcModule({ defaultDisplayName: "Desk" }),
+      new DesktopIpcModule({
+        defaultDisplayName: "Desk",
+        ...(badge ? { badge } : {}),
+        ...(tray ? { tray } : {}),
+      }),
     ],
     { serverUrl: SERVER },
   );
   await host.start();
-  const invoke = (channel: string, origin = SERVER) =>
-    handlers.get(channel)!({ senderFrame: { origin } });
+  const invoke = (channel: string, origin = SERVER, ...args: unknown[]) =>
+    handlers.get(channel)!({ senderFrame: { origin } }, ...args);
   return { host, local, invoke };
 };
 
@@ -95,6 +102,65 @@ describe("DesktopIpcModule local account", () => {
         "The local account file must be private and owned by the current user (chmod 600).",
     });
     expect(JSON.stringify(result)).not.toContain(PASSWORD);
+    await f.host.stop("quit");
+  });
+});
+
+describe("DesktopIpcModule unread badge", () => {
+  it("sets and clears the app badge through the fake app", async () => {
+    const app = { setBadgeCount: vi.fn(() => true) };
+    const f = await fixture({}, app);
+
+    await f.invoke(IPC.notificationsBadge, SERVER, 7);
+    expect(app.setBadgeCount).toHaveBeenLastCalledWith(7);
+
+    await f.invoke(IPC.notificationsBadge, SERVER, 0);
+    expect(app.setBadgeCount).toHaveBeenLastCalledWith(0);
+    expect(app.setBadgeCount).toHaveBeenCalledTimes(2);
+    await f.host.stop("quit");
+  });
+
+  it("names the same count in the app badge and the tray tooltip", async () => {
+    const app = { setBadgeCount: vi.fn(() => true) };
+    const tray = { setUnreadCount: vi.fn() };
+    const f = await fixture({}, app, tray);
+
+    await f.invoke(IPC.notificationsBadge, SERVER, 5);
+
+    expect(app.setBadgeCount).toHaveBeenLastCalledWith(5);
+    expect(tray.setUnreadCount).toHaveBeenLastCalledWith(5);
+    await f.host.stop("quit");
+  });
+
+  it("names the count in the tray where the platform has no count badge", async () => {
+    const tray = { setUnreadCount: vi.fn() };
+    const f = await fixture({}, undefined, tray);
+
+    await f.invoke(IPC.notificationsBadge, SERVER, 4);
+
+    expect(tray.setUnreadCount).toHaveBeenLastCalledWith(4);
+    await f.host.stop("quit");
+  });
+
+  it("rejects another origin and counts that are not badge counts", async () => {
+    const app = { setBadgeCount: vi.fn(() => true) };
+    const tray = { setUnreadCount: vi.fn() };
+    const f = await fixture({}, app, tray);
+
+    expect(() =>
+      f.invoke(IPC.notificationsBadge, "https://evil.example.com", 3),
+    ).toThrow("Not allowed");
+    for (const count of [-1, 1.5, "3", null]) {
+      expect(() => f.invoke(IPC.notificationsBadge, SERVER, count)).toThrow();
+    }
+    expect(app.setBadgeCount).not.toHaveBeenCalled();
+    expect(tray.setUnreadCount).not.toHaveBeenCalled();
+    await f.host.stop("quit");
+  });
+
+  it("does nothing where the platform has no count badge", async () => {
+    const f = await fixture();
+    expect(await f.invoke(IPC.notificationsBadge, SERVER, 3)).toBeUndefined();
     await f.host.stop("quit");
   });
 });

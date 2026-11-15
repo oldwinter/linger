@@ -864,6 +864,7 @@ function installSeedRoutes(server: TeamHubTestServer, seed: TeamHubTestSeed) {
     }))
     .on("GET", "/v0/rooms/{roomId}/background-tasks", () => ({ items: [] }))
     .on("GET", "/v0/rooms/{roomId}/routines", () => page([]))
+    .on("GET", "/v0/rooms/{roomId}/pins", () => ({ items: [] }))
     .on("GET", "/v0/rooms/{roomId}/messages/{messageId}/activities", () => ({
       has_native_turn: false,
       provider_kind: "codex",
@@ -1159,9 +1160,29 @@ function installSeedRoutes(server: TeamHubTestServer, seed: TeamHubTestSeed) {
     }))
     .on("GET", "/v0/tenants/{tenantId}/work-items", ({ query }) =>
       page(
-        seed.workItems.filter(
-          (item) => query.get("archived") === "true" || !item.archived_at,
-        ),
+        seed.workItems.filter((item) => {
+          if (query.get("archived") !== "true" && item.archived_at)
+            return false;
+          const priority = query.get("priority");
+          if (priority && item.priority !== priority) return false;
+          const executionStatus = query.get("execution_status");
+          if (
+            executionStatus &&
+            item.task_execution?.status !== executionStatus
+          ) {
+            return false;
+          }
+          const assigneeActorId = query.get("assignee_actor_id");
+          if (
+            assigneeActorId &&
+            !item.assignees.some(
+              (assignment) => assignment.actor.id === assigneeActorId,
+            )
+          ) {
+            return false;
+          }
+          return true;
+        }),
       ),
     )
     .on(
@@ -1171,6 +1192,14 @@ function installSeedRoutes(server: TeamHubTestServer, seed: TeamHubTestSeed) {
         seed.workItems.find((item) => item.id === params.workItemId) ??
         notFound("WORK_ITEM_NOT_FOUND"),
     )
+    .on("GET", "/v0/work-items/{workItemId}/comments", () => ({
+      items: [],
+      page: { has_more: false },
+    }))
+    .on("GET", "/v0/work-items/{workItemId}/timeline", () => ({
+      items: [],
+      page: { has_more: false },
+    }))
     .on("GET", "/v0/rooms/{roomId}/team-md", ({ params }) =>
       params.roomId === "room-all" ? seedTeamMd : notFound("NOT_FOUND"),
     )

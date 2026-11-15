@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it } from "vitest";
 
@@ -203,6 +209,12 @@ describe("My Rules", () => {
         { name: "Delete rule" },
       ),
     );
+    fireEvent.click(
+      within(await row("Client replies → remind directly")).getByRole(
+        "button",
+        { name: "Confirm delete rule" },
+      ),
+    );
     expect(
       await screen.findByRole("listitem", {
         name: "Vendor invoices over 1000 → track for follow-up",
@@ -215,6 +227,92 @@ describe("My Rules", () => {
         }),
       )
       .toBeNull();
+  });
+
+  it("asks before deleting a rule and sends nothing until confirmed", async () => {
+    const runtime = renderPage();
+    const deletedRuleIds: string[] = [];
+    runtime.server.on("DELETE", rulePath, ({ params }) => {
+      deletedRuleIds.push(params.ruleId!);
+      return { ...book, rules: [book.rules[1]!] };
+    });
+
+    const active = await row("Client replies → remind directly");
+    fireEvent.click(
+      within(active).getByRole("button", { name: "Delete rule" }),
+    );
+
+    expect(within(active).getByText("Delete rule?")).toBeTruthy();
+    expect(
+      within(active).getByText("Client replies → remind directly"),
+    ).toBeTruthy();
+    expect(
+      within(active).getByRole("button", { name: "Confirm delete rule" }),
+    ).toBeTruthy();
+    expect(deletedRuleIds).toEqual([]);
+
+    fireEvent.click(within(active).getByRole("button", { name: "Cancel" }));
+
+    expect(
+      within(active).queryByRole("button", { name: "Confirm delete rule" }),
+    ).toBeNull();
+    expect(deletedRuleIds).toEqual([]);
+
+    fireEvent.click(
+      within(active).getByRole("button", { name: "Delete rule" }),
+    );
+    fireEvent.click(
+      within(active).getByRole("button", { name: "Confirm delete rule" }),
+    );
+
+    await waitFor(() => expect(deletedRuleIds).toEqual([activeId]));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("listitem", {
+          name: "Client replies → remind directly",
+        }),
+      ).toBeNull(),
+    );
+  });
+
+  it("disarms the first row when another rule is armed", async () => {
+    const runtime = renderPage();
+    const deletedRuleIds: string[] = [];
+    runtime.server.on("DELETE", rulePath, ({ params }) => {
+      deletedRuleIds.push(params.ruleId!);
+      return book;
+    });
+
+    const active = await row("Client replies → remind directly");
+    const shadow = await row("Vendor invoices → track for follow-up");
+
+    fireEvent.click(
+      within(active).getByRole("button", { name: "Delete rule" }),
+    );
+    expect(
+      within(active).getByRole("button", { name: "Confirm delete rule" }),
+    ).toBeTruthy();
+
+    fireEvent.click(
+      within(shadow).getByRole("button", { name: "Delete rule" }),
+    );
+    expect(
+      within(shadow).getByRole("button", { name: "Confirm delete rule" }),
+    ).toBeTruthy();
+    expect(
+      within(active).queryByRole("button", { name: "Confirm delete rule" }),
+    ).toBeNull();
+
+    fireEvent.click(
+      within(active).getByRole("button", { name: "Delete rule" }),
+    );
+    expect(
+      within(active).getByRole("button", { name: "Confirm delete rule" }),
+    ).toBeTruthy();
+    expect(
+      within(shadow).queryByRole("button", { name: "Confirm delete rule" }),
+    ).toBeNull();
+    expect(deletedRuleIds).toEqual([]);
   });
 
   it("lets the Human grant a mandate on an active rule and lists what Another Me did under it", async () => {

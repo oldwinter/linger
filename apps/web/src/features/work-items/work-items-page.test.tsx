@@ -1,8 +1,21 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { Suspense } from "react";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import { Suspense, type ReactNode } from "react";
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createTestTeamHubRuntime,
@@ -20,6 +33,22 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 import { tenantWorkItemTargetQueryKey } from "./work-item-queries";
 import { WorkItemsPage } from "./work-items-page";
+
+const download = vi.hoisted(() => ({ triggerArtifactDownload: vi.fn() }));
+
+vi.mock(
+  "@/features/rooms/files/artifact-preview-loader",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@/features/rooms/files/artifact-preview-loader")
+    >()),
+    triggerArtifactDownload: download.triggerArtifactDownload,
+  }),
+);
+
+beforeEach(() => {
+  download.triggerArtifactDownload.mockReset();
+});
 
 describe("Dashboard page", () => {
   it("renders the authoritative lifecycle as a five-column read-only board", async () => {
@@ -99,7 +128,7 @@ describe("Dashboard page", () => {
     expect(screen.queryByText("Delivery result")).not.toBeInTheDocument();
   });
 
-  it("does not expose Work Item mutation controls", async () => {
+  it("creates an issue without exposing other Work Item mutation controls", async () => {
     const runtime = await testRuntime();
     const identity = runtime.seed.identity;
     const human = identity.actors[0]!;
@@ -108,11 +137,18 @@ describe("Dashboard page", () => {
     renderPage(runtime);
     await screen.findByText("Fix login failure");
 
+    expect(screen.getByRole("button", { name: "New issue" })).toBeVisible();
+    const filters = screen.getByRole("group", { name: "Work Item filters" });
     expect(
-      screen.queryByRole("button", {
-        name: /create|edit|archive|assign(?:ment)?|comment|start (?:agent )?run|cancel (?:agent )?run/i,
-      }),
-    ).not.toBeInTheDocument();
+      within(filters).getByRole("button", { name: "Archived" }),
+    ).toBeVisible();
+    expect(
+      screen
+        .queryAllByRole("button", {
+          name: /create|edit|archive|assign(?:ment)?|comment|start (?:agent )?run|cancel (?:agent )?run/i,
+        })
+        .filter((button) => !filters.contains(button)),
+    ).toEqual([]);
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
@@ -244,12 +280,415 @@ describe("Dashboard page", () => {
       "/t/tenant-northstar/dashboard?room=room-gtm-launch",
     );
 
-    fireEvent.click(screen.getByRole("link", { name: /Agent-owned work/ }));
-
-    expect(screen.getByTestId("location")).toHaveTextContent(
+    expect(
+      screen.getByRole("link", { name: /Agent-owned work/ }),
+    ).toHaveAttribute(
+      "href",
       "/t/tenant-northstar/dashboard/workitem-agent?room=room-gtm-launch",
     );
-    expect(await screen.findByLabelText("Room")).toHaveValue("room-gtm-launch");
+    expect(screen.getByLabelText("Room")).toHaveValue("room-gtm-launch");
+  });
+
+  it("filters the board by priority and execution state", async () => {
+    const runtime = await testRuntime();
+    const identity = runtime.seed.identity;
+    const human = identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        id: "workitem-high",
+        priority: "high",
+        title: "High priority work",
+      }),
+      workItem(human, {
+        id: "workitem-low",
+        priority: "low",
+        title: "Low priority work",
+      }),
+      workItem(human, {
+        id: "workitem-running",
+        priority: "high",
+        task_execution: taskExecution("running"),
+        title: "Running work",
+      }),
+    ]);
+
+    renderPage(runtime);
+    await screen.findByText("High priority work");
+
+    fireEvent.click(screen.getByLabelText("Priority"));
+    fireEvent.click(await screen.findByRole("option", { name: "High" }));
+
+    await waitFor(() =>
+      expect(screen.queryByText("Low priority work")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("High priority work")).toBeVisible();
+    expect(screen.getByText("Running work")).toBeVisible();
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/t/tenant-northstar/dashboard?priority=high",
+    );
+
+    fireEvent.click(screen.getByLabelText("Execution"));
+    fireEvent.click(
+      await screen.findByRole("option", { name: "Agent running" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByText("High priority work")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("Running work")).toBeVisible();
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "?priority=high&execution=running",
+    );
+  });
+
+  it("filters by assignment and includes archived Work Items on request", async () => {
+    const runtime = await testRuntime();
+    const identity = runtime.seed.identity;
+    const human = identity.actors[0]!;
+    const agent = runtime.seed.actors.find(
+      (actor) => actor.id === "actor-codex",
+    )!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        assignees: [assignment(human)],
+        id: "workitem-mine",
+        title: "My work",
+      }),
+      workItem(human, { id: "workitem-unassigned", title: "Unassigned work" }),
+      workItem(human, {
+        assignees: [assignment(agent)],
+        id: "workitem-agent",
+        title: "Agent work",
+      }),
+      workItem(human, {
+        archived_at: "2026-07-30T09:00:00Z",
+        id: "workitem-archived",
+        title: "Archived work",
+      }),
+    ]);
+
+    renderPage(runtime);
+    await screen.findByText("My work");
+    expect(screen.queryByText("Archived work")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Assignment"));
+    fireEvent.click(await screen.findByRole("option", { name: "Mine" }));
+
+    await waitFor(() =>
+      expect(screen.queryByText("Agent work")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("My work")).toBeVisible();
+    expect(screen.queryByText("Unassigned work")).not.toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "?assignment=mine",
+    );
+
+    fireEvent.click(screen.getByLabelText("Assignment"));
+    fireEvent.click(await screen.findByRole("option", { name: "Unassigned" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Unassigned work")).toBeVisible(),
+    );
+    expect(screen.queryByText("My work")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Assignment"));
+    fireEvent.click(await screen.findByRole("option", { name: "All" }));
+    await waitFor(() => expect(screen.getByText("Agent work")).toBeVisible());
+
+    fireEvent.click(screen.getByRole("button", { name: "Archived" }));
+
+    expect(await screen.findByText("Archived work")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Archived" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent("archived=true");
+  });
+
+  it("narrows the board by title words and restores it with Clear", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, { id: "workitem-plan", title: "Plan the release" }),
+      workItem(human, { id: "workitem-budget", title: "Review the budget" }),
+    ]);
+
+    renderPage(runtime);
+    await screen.findByText("Plan the release");
+    const input = screen.getByRole("searchbox", { name: "Filter by title" });
+
+    fireEvent.change(input, { target: { value: "release PLAN" } });
+
+    await waitFor(() =>
+      expect(screen.queryByText("Review the budget")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("Plan the release")).toBeVisible();
+    expect(screen.getByText("1 of 2 items")).toBeVisible();
+    expect(input).toHaveValue("release PLAN");
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/t/tenant-northstar/dashboard?q=release+PLAN",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear title filter" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Review the budget")).toBeVisible(),
+    );
+    expect(screen.getByText("2 items")).toBeVisible();
+    expect(screen.getByTestId("location")).not.toHaveTextContent("q=");
+  });
+
+  it("says when a title query matches nothing and offers one clear step", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, { id: "workitem-plan", title: "Plan the release" }),
+    ]);
+
+    renderPage(runtime);
+    await screen.findByText("Plan the release");
+
+    fireEvent.change(
+      screen.getByRole("searchbox", { name: "Filter by title" }),
+      {
+        target: { value: "nothing" },
+      },
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "No Work Items match" }),
+    ).toBeVisible();
+    expect(
+      screen.getByText("Only Work Item titles are searched."),
+    ).toBeVisible();
+    expect(screen.queryByRole("region", { name: "Todo" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear filter" }));
+
+    expect(await screen.findByText("Plan the release")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Todo" })).toBeVisible();
+    expect(
+      screen.getByRole("searchbox", { name: "Filter by title" }),
+    ).toHaveValue("");
+  });
+
+  it("restores the title query from the URL and ignores descriptions", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, { id: "workitem-plan", title: "Plan the release" }),
+      workItem(human, {
+        description: "The release is blocked.",
+        id: "workitem-login",
+        title: "Fix login failure",
+      }),
+    ]);
+
+    renderPage(runtime, "/t/tenant-northstar/dashboard?q=release");
+
+    expect(await screen.findByText("Plan the release")).toBeVisible();
+    expect(screen.queryByText("Fix login failure")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("searchbox", { name: "Filter by title" }),
+    ).toHaveValue("release");
+    expect(screen.getByTestId("location")).toHaveTextContent("?q=release");
+  });
+
+  it("replaces history per keystroke so back stays one step at a time", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, { id: "workitem-plan", title: "Plan release" }),
+    ]);
+    renderPage(runtime, "/t/tenant-northstar/dashboard", <BackProbe />);
+    await screen.findByText("Plan release");
+
+    const input = screen.getByRole("searchbox", { name: "Filter by title" });
+    for (const value of ["p", "pl", "pla", "plan"]) {
+      fireEvent.change(input, { target: { value } });
+    }
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent("q=plan"),
+    );
+
+    fireEvent.click(screen.getByLabelText("Sort"));
+    fireEvent.click(
+      await screen.findByRole("option", { name: "Newest first" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Sort")).toHaveValue("newest"),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Sort")).toHaveValue("updated"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+
+    expect(
+      screen.getByRole("searchbox", { name: "Filter by title" }),
+    ).toHaveValue("plan");
+    expect(screen.getByTestId("location")).toHaveTextContent("q=plan");
+  });
+
+  it("offers Clear filters only when a filter departs from its default", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, { id: "workitem-plan", title: "Plan release" }),
+    ]);
+    renderPage(runtime);
+    await screen.findByText("Plan release");
+
+    expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
+
+    fireEvent.click(screen.getByLabelText("Priority"));
+    fireEvent.click(await screen.findByRole("option", { name: "High" }));
+    expect(
+      await screen.findByRole("button", { name: "Clear filters" }),
+    ).toBeVisible();
+
+    fireEvent.change(
+      screen.getByRole("searchbox", { name: "Filter by title" }),
+      { target: { value: "plan" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Archived" }));
+
+    expect(screen.getByRole("button", { name: "Clear filters" })).toBeVisible();
+  });
+
+  it("clears every filter back to the default board", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, { id: "workitem-plan", title: "Plan release" }),
+      workItem(human, {
+        id: "workitem-build",
+        priority: "low",
+        title: "Build the release",
+      }),
+    ]);
+    renderPage(
+      runtime,
+      "/t/tenant-northstar/dashboard?q=release&priority=high&archived=true",
+    );
+    await screen.findByRole("button", { name: "Clear filters" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/t/tenant-northstar/dashboard",
+      ),
+    );
+    expect(
+      screen.getByRole("searchbox", { name: "Filter by title" }),
+    ).toHaveValue("");
+    expect(screen.getByLabelText("Priority")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Archived" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
+  });
+
+  it("keeps the Room scope while clearing filters", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        id: "workitem-plan",
+        origin_room_id: "room-gtm-launch",
+        title: "Plan release",
+      }),
+    ]);
+    renderPage(
+      runtime,
+      "/t/tenant-northstar/dashboard?room=room-gtm-launch&priority=high",
+    );
+    await screen.findByRole("button", { name: "Clear filters" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/t/tenant-northstar/dashboard?room=room-gtm-launch",
+      ),
+    );
+    expect(screen.getByLabelText("Room")).toHaveValue("room-gtm-launch");
+  });
+
+  it("replaces history so Back steps past the cleared filters", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, { id: "workitem-plan", title: "Plan release" }),
+    ]);
+    renderPage(runtime, "/t/tenant-northstar/dashboard", <BackProbe />);
+    await screen.findByText("Plan release");
+
+    const input = screen.getByRole("searchbox", { name: "Filter by title" });
+    fireEvent.change(input, { target: { value: "release" } });
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent("q=release"),
+    );
+    fireEvent.click(screen.getByLabelText("Sort"));
+    fireEvent.click(
+      await screen.findByRole("option", { name: "Newest first" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Sort")).toHaveValue("newest"),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+
+    // The sort is not a filter, so clearing leaves it and its pushed entry.
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/t/tenant-northstar/dashboard?sort=newest",
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/t/tenant-northstar/dashboard?q=release",
+      ),
+    );
+  });
+
+  it("keeps Dashboard filters in Work Item deep links", async () => {
+    const runtime = await testRuntime();
+    const identity = runtime.seed.identity;
+    const human = identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        id: "workitem-high",
+        priority: "high",
+        title: "High priority work",
+      }),
+      workItem(human, {
+        id: "workitem-low",
+        priority: "low",
+        title: "Low priority work",
+      }),
+    ]);
+
+    renderPage(runtime);
+    await screen.findByText("High priority work");
+    fireEvent.click(screen.getByLabelText("Priority"));
+    fireEvent.click(await screen.findByRole("option", { name: "High" }));
+    await waitFor(() =>
+      expect(screen.queryByText("Low priority work")).not.toBeInTheDocument(),
+    );
+
+    expect(
+      screen.getByRole("link", { name: /High priority work/ }),
+    ).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/dashboard/workitem-high?priority=high",
+    );
+    expect(screen.getByLabelText("Priority")).toHaveValue("high");
   });
 
   it("ignores legacy actor filters and drops them from Work Item deep links", async () => {
@@ -298,9 +737,10 @@ describe("Dashboard page", () => {
     expect(screen.getByText("Human-created work")).toBeVisible();
     expect(screen.queryByText("Agent-created work")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("link", { name: /Human-created work/ }));
-
-    expect(screen.getByTestId("location")).toHaveTextContent(
+    expect(
+      screen.getByRole("link", { name: /Human-created work/ }),
+    ).toHaveAttribute(
+      "href",
       "/t/tenant-northstar/dashboard/workitem-human?room=room-all",
     );
   });
@@ -558,6 +998,152 @@ describe("Dashboard page", () => {
       screen.getByText("This Tenant Dashboard is not available to you."),
     ).toBeVisible();
   });
+
+  it("keeps the chosen order in the URL", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, { id: "workitem-todo", title: "Plan release" }),
+    ]);
+    renderPage(runtime);
+    await screen.findByText("Plan release");
+
+    expect(screen.getByLabelText("Sort")).toHaveValue("updated");
+    fireEvent.click(screen.getByLabelText("Sort"));
+    fireEvent.click(await screen.findByRole("option", { name: "Most urgent" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/t/tenant-northstar/dashboard?sort=priority",
+      ),
+    );
+    expect(screen.getByLabelText("Sort")).toHaveValue("priority");
+  });
+
+  it("restores the previous order on back", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, { id: "workitem-todo", title: "Plan release" }),
+    ]);
+    renderPage(runtime, "/t/tenant-northstar/dashboard", <BackProbe />);
+    await screen.findByText("Plan release");
+
+    fireEvent.click(screen.getByLabelText("Sort"));
+    fireEvent.click(
+      await screen.findByRole("option", { name: "Newest first" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Sort")).toHaveValue("newest"),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).not.toHaveTextContent("sort="),
+    );
+    expect(screen.getByLabelText("Sort")).toHaveValue("updated");
+  });
+
+  it("renders cards in the chosen order inside each column", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        id: "workitem-low",
+        priority: "low",
+        title: "Low priority work",
+      }),
+      workItem(human, {
+        id: "workitem-urgent",
+        priority: "urgent",
+        title: "Urgent work",
+      }),
+      workItem(human, {
+        id: "workitem-high",
+        priority: "high",
+        title: "High priority work",
+      }),
+    ]);
+    renderPage(runtime, "/t/tenant-northstar/dashboard?sort=priority");
+
+    const todo = await screen.findByRole("region", { name: "Todo" });
+    await waitFor(() =>
+      expect(
+        within(todo)
+          .getAllByRole("link")
+          .map((card) => card.getAttribute("data-work-item-id")),
+      ).toEqual(["workitem-urgent", "workitem-high", "workitem-low"]),
+    );
+  });
+
+  it("exports the filtered and sorted board as CSV", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        assignees: [assignment(human)],
+        id: "workitem-plan",
+        priority: "low",
+        title: "Release plan",
+      }),
+      workItem(human, {
+        id: "workitem-build",
+        origin_room_id: "room-all",
+        priority: "urgent",
+        title: "Release build",
+      }),
+      workItem(human, {
+        id: "workitem-ship",
+        state: "in_progress",
+        title: "Release ship",
+      }),
+      workItem(human, { id: "workitem-noise", title: "Unrelated work" }),
+    ]);
+    renderPage(runtime);
+    await screen.findByText("Release plan");
+
+    fireEvent.change(
+      screen.getByRole("searchbox", { name: "Filter by title" }),
+      { target: { value: "release" } },
+    );
+    fireEvent.click(screen.getByLabelText("Sort"));
+    fireEvent.click(await screen.findByRole("option", { name: "Most urgent" }));
+    await waitFor(() =>
+      expect(screen.queryByText("Unrelated work")).not.toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+
+    expect(download.triggerArtifactDownload).toHaveBeenCalledOnce();
+    const [blob] = download.triggerArtifactDownload.mock.calls[0] as [
+      Blob,
+      string,
+    ];
+    const origin = window.location.origin;
+    expect(await blob.text()).toBe(
+      [
+        "Title,Status,Priority,Assignees,Source Room,Updated,URL",
+        `Release build,Todo,Urgent,,#all,2026-07-30T00:00:00Z,${origin}/t/tenant-northstar/dashboard/workitem-build`,
+        `Release plan,Todo,Low,${human.display_name},No source room,2026-07-30T00:00:00Z,${origin}/t/tenant-northstar/dashboard/workitem-plan`,
+        `Release ship,In progress,High,,No source room,2026-07-30T00:00:00Z,${origin}/t/tenant-northstar/dashboard/workitem-ship`,
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("offers no CSV export for a board with no cards", async () => {
+    const runtime = await testRuntime();
+    seedWorkItems(runtime, []);
+
+    renderPage(runtime);
+
+    expect(await screen.findByText("No Work Items yet")).toBeVisible();
+    const exportButton = screen.getByRole("button", { name: "Export CSV" });
+    expect(exportButton).toBeDisabled();
+    fireEvent.click(exportButton);
+    expect(download.triggerArtifactDownload).not.toHaveBeenCalled();
+  });
 });
 
 async function testRuntime() {
@@ -569,6 +1155,7 @@ async function testRuntime() {
 function renderPage(
   runtime: ReturnType<typeof createTestTeamHubRuntime>,
   initialEntry = "/t/tenant-northstar/dashboard",
+  extra?: ReactNode,
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -589,12 +1176,23 @@ function renderPage(
               />
             </Routes>
             <LocationProbe />
+            {extra}
           </Suspense>
         </MemoryRouter>
       </TeamHubRuntimeProvider>
     </QueryClientProvider>,
   );
   return queryClient;
+}
+
+/** A stand-in for the browser's back button inside MemoryRouter. */
+function BackProbe() {
+  const navigate = useNavigate();
+  return (
+    <button onClick={() => void navigate(-1)} type="button">
+      Back
+    </button>
+  );
 }
 
 function LocationProbe() {
@@ -642,6 +1240,31 @@ function workItem(
 
 const WORK_ITEMS_PATH = "/v0/tenants/{tenantId}/work-items";
 const WORK_ITEM_PATH = "/v0/work-items/{workItemId}";
+
+function assignment(
+  actor: TeamHubWorkItem["created_by"],
+): TeamHubWorkItem["assignees"][number] {
+  return {
+    actor,
+    assigned_at: "2026-07-30T00:00:00Z",
+    assigned_by: actor,
+  };
+}
+
+function taskExecution(
+  status: NonNullable<TeamHubWorkItem["task_execution"]>["status"],
+): NonNullable<TeamHubWorkItem["task_execution"]> {
+  return {
+    control_revision: 0,
+    control_settled_revision: 0,
+    desired_control: "run",
+    execution_revision: 1,
+    execution_updated_at: "2026-07-30T00:00:00Z",
+    generation: 1,
+    pending_control: false,
+    status,
+  };
+}
 
 /** Serves these Work Items from the test server. */
 function seedWorkItems(runtime: TestTeamHubRuntime, items: TeamHubWorkItem[]) {

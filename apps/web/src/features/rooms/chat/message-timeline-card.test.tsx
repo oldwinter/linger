@@ -36,9 +36,35 @@ import * as previewLoader from "../files/artifact-preview-loader";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 
+const originalClipboardDescriptor = Object.getOwnPropertyDescriptor(
+  navigator,
+  "clipboard",
+);
+const originalExecCommand = document.execCommand;
+
+/** Replaces the browser clipboard for one copy action. */
+function setClipboard(clipboard: {
+  writeText: (value: string) => Promise<void>;
+}) {
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: clipboard,
+  });
+}
+
 describe("Room Message timeline cards", () => {
   afterEach(() => {
     vi.useRealTimers();
+    if (originalClipboardDescriptor) {
+      Object.defineProperty(
+        navigator,
+        "clipboard",
+        originalClipboardDescriptor,
+      );
+    } else {
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
+    document.execCommand = originalExecCommand;
   });
 
   it("keeps a bubble for a Human's text and for an Agent's reply", () => {
@@ -86,6 +112,51 @@ describe("Room Message timeline cards", () => {
     );
     expect(
       screen.queryByRole("heading", { name: "Start the conversation" }),
+    ).toBeNull();
+  });
+
+  it("places the New messages divider above the first unread Message without another date line", () => {
+    const read = {
+      ...ordinaryAgentMessage(),
+      id: "read",
+      created_at: "2026-10-22T10:00:00Z",
+    };
+    const firstUnread = {
+      ...ordinaryAgentMessage(),
+      id: "first-unread",
+      created_at: "2026-10-22T10:01:00Z",
+    };
+    const lastUnread = {
+      ...ordinaryAgentMessage(),
+      id: "last-unread",
+      created_at: "2026-10-22T10:02:00Z",
+    };
+    const { container } = renderTimeline([read, firstUnread, lastUnread], {
+      unreadDividerIndex: 1,
+    });
+    const divider = screen.getByRole("separator", { name: "New messages" });
+    const readRow = container.querySelector('[data-message-id="read"]')!;
+    const firstUnreadRow = container.querySelector(
+      '[data-message-id="first-unread"]',
+    )!;
+    expect(
+      divider.compareDocumentPosition(readRow) &
+        Node.DOCUMENT_POSITION_PRECEDING,
+    ).toBeTruthy();
+    expect(
+      divider.compareDocumentPosition(firstUnreadRow) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // The divider is its own line, so the conversation keeps one date line.
+    expect(container.querySelectorAll(".room-conversation-time")).toHaveLength(
+      1,
+    );
+  });
+
+  it("renders no New messages divider without a placement", () => {
+    renderTimeline([ordinaryAgentMessage()]);
+    expect(
+      screen.queryByRole("separator", { name: "New messages" }),
     ).toBeNull();
   });
 
@@ -681,7 +752,7 @@ describe("Room Message timeline cards", () => {
     expect(authorButton.firstElementChild?.tagName).toBe("svg");
     expect(
       screen.getAllByRole("tooltip").map((tooltip) => tooltip.textContent),
-    ).toEqual(["Copy message"]);
+    ).toEqual(["Copy message", "Copy as quote"]);
     fireEvent.click(
       screen.getByRole("button", { name: "More message actions" }),
     );
@@ -690,6 +761,52 @@ describe("Room Message timeline cards", () => {
     ).toBeVisible();
     fireEvent.click(screen.getByRole("menuitem", { name: "Forward message" }));
     expect(onForwardMessage).toHaveBeenCalledWith(message);
+  });
+
+  it("stages a quoted reply beside the structured reply option", () => {
+    const message = ordinaryAgentMessage();
+    const onReply = vi.fn();
+    const onReplyWithQuote = vi.fn();
+
+    renderTimeline(message, { onReply, onReplyWithQuote });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "More message actions" }),
+    );
+    const labels = screen
+      .getAllByRole("menuitem")
+      .map((item) => item.textContent);
+    expect(labels.slice(labels.indexOf("Reply to message"))).toEqual([
+      "Reply to message",
+      "Reply with quote",
+      "Reply to thread",
+    ]);
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "Reply with quote" }));
+
+    expect(onReply).not.toHaveBeenCalled();
+    expect(onReplyWithQuote).toHaveBeenCalledWith({
+      authorName: "Codex",
+      preview: "An ordinary Agent answer",
+      quote: expect.stringMatching(
+        /^> Codex, \d{4}-\d\d-\d\d \d\d:\d\d\n>\n> An ordinary Agent answer$/u,
+      ),
+    });
+  });
+
+  it("offers no quoted reply without a composer to stage it in", () => {
+    renderTimeline(ordinaryAgentMessage(), { onReply: vi.fn() });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "More message actions" }),
+    );
+
+    expect(
+      screen.queryByRole("menuitem", { name: "Reply with quote" }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("menuitem", { name: "Reply to message" }),
+    ).toBeVisible();
   });
 
   it.each(["timeline", "linked source"] as const)(
@@ -779,6 +896,48 @@ describe("Room Message timeline cards", () => {
       screen.queryByRole("button", { name: "Reply to thread" }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy message" })).toBeVisible();
+  });
+
+  it("copies a Message as a quoted block with its author and time", async () => {
+    const writeText = vi.fn(async () => undefined);
+    setClipboard({ writeText });
+    renderTimeline({
+      ...ordinaryAgentMessage(),
+      created_at: "2026-11-14T09:12:00",
+    });
+    const button = screen.getByRole("button", { name: "Copy as quote" });
+    fireEvent.click(button);
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        ["> Codex, 2026-11-14 09:12", ">", "> An ordinary Agent answer"].join(
+          "\n",
+        ),
+      ),
+    );
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(
+      within(button.parentElement as HTMLElement).getByRole("tooltip"),
+    ).toHaveTextContent("Copied");
+  });
+
+  it("says a quote copy failed instead of claiming it was copied", async () => {
+    setClipboard({
+      writeText: vi.fn(async () => {
+        throw new Error("Clipboard denied");
+      }),
+    });
+    document.execCommand = vi.fn(() => false);
+    renderTimeline(ordinaryAgentMessage());
+    const button = screen.getByRole("button", { name: "Copy as quote" });
+    fireEvent.click(button);
+
+    await waitFor(() =>
+      expect(
+        within(button.parentElement as HTMLElement).getByRole("tooltip"),
+      ).toHaveTextContent("Copy failed"),
+    );
+    expect(screen.getByRole("button", { name: "Copy as quote" })).toBeVisible();
   });
 
   it("shows a parent reply record after Thread replies exist", () => {
@@ -2389,7 +2548,7 @@ describe("Room Message timeline cards", () => {
     expect(screen.queryByText("Live activities")).toBeNull();
   });
 
-  it("keeps Reply to thread, Forward, and Reply in the More message menu", () => {
+  it("keeps Copy text, Copy link, Forward, Reply, and Reply to thread in the More message menu", () => {
     const message = ordinaryAgentMessage();
     renderTimeline(message, {
       onForwardMessage: vi.fn(),
@@ -2404,7 +2563,13 @@ describe("Room Message timeline cards", () => {
     );
     expect(
       screen.getAllByRole("menuitem").map((item) => item.textContent),
-    ).toEqual(["Forward message", "Reply to message", "Reply to thread"]);
+    ).toEqual([
+      "Copy link",
+      "Copy text",
+      "Forward message",
+      "Reply to message",
+      "Reply to thread",
+    ]);
   });
 
   it("keeps nested multi-Agent Runtime outputs in canonical Room order", () => {
@@ -2846,7 +3011,16 @@ function renderTimeline(
     onOpenThread?: (message: TeamHubMessage) => void;
     onRecallMessage?: (message: TeamHubMessage) => Promise<void>;
     onReply?: (message: TeamHubMessage) => void;
+    onReplyWithQuote?: ComponentProps<
+      typeof MessageTimeline
+    >["onReplyWithQuote"];
     presentations?: ComponentProps<typeof MessageTimeline>["presentations"];
+    unreadDividerIndex?: ComponentProps<
+      typeof MessageTimeline
+    >["unreadDividerIndex"];
+    unreadDividerRef?: ComponentProps<
+      typeof MessageTimeline
+    >["unreadDividerRef"];
     workspaceAgentIds?: ComponentProps<
       typeof MessageTimeline
     >["workspaceAgentIds"];

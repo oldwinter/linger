@@ -3,6 +3,11 @@ import { useEffect, useRef } from "react";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
 
+import {
+  isDesktopNotificationPaused,
+  useDesktopNotificationPause,
+} from "./desktop-notification-pause";
+
 const BODY_LIMIT = 160;
 
 export interface AnotherMeNotice {
@@ -38,14 +43,18 @@ export function anotherMeNotice(
  * Shows a system notification when the Another Me posts in its Chat while this
  * window is not in front, such as a proactive reminder. Clicking it brings the
  * window back on that Chat. Nothing is shown until the Human allowed
- * notifications; the desktop app allows them for its own server.
+ * notifications; the desktop app allows them for its own server. A pause holds
+ * the notice back without losing it: the first reading still records where to
+ * start, and the Message shows once the pause ends.
  */
 export function useAnotherMeNotifications({
+  accountId,
   rooms,
   roomId,
   agentActorId,
   open,
 }: {
+  accountId?: string;
   rooms: readonly TeamHubRoomListItem[] | undefined;
   roomId: string | undefined;
   agentActorId: string | undefined;
@@ -53,12 +62,18 @@ export function useAnotherMeNotifications({
 }) {
   // undefined until the first reading; null when the Chat had no Message yet.
   const seen = useRef<string | null | undefined>(undefined);
+  const paused = isDesktopNotificationPaused(
+    useDesktopNotificationPause(accountId),
+    new Date(),
+  );
   const room = roomId ? rooms?.find((item) => item.id === roomId) : undefined;
 
   useEffect(() => {
     if (!rooms || !roomId) return;
+    if (paused && seen.current !== undefined) return;
     const notice = anotherMeNotice(room, agentActorId, seen.current);
     seen.current = room?.latest_message?.id ?? null;
+    if (paused) return;
     if (
       !notice ||
       typeof Notification === "undefined" ||
@@ -75,5 +90,5 @@ export function useAnotherMeNotifications({
       open(roomId);
       notification.close();
     };
-  }, [agentActorId, open, room, roomId, rooms]);
+  }, [agentActorId, open, paused, room, roomId, rooms]);
 }

@@ -20,15 +20,14 @@ import {
   readGlobalSearchStore,
   type GlobalSearchStore,
 } from "./global-search-recent";
+import { resultKindSections } from "./global-search-kind-filter";
 import {
-  ALL_TAB_GROUP_LIMIT,
   BACKEND_PAGE_LIMIT,
   byName,
   GROUP_ORDER,
   matchRank,
   MIN_BACKEND_QUERY_LENGTH,
   SCOPE_ORDER,
-  SCOPES,
   type GlobalSearchTab,
   type GroupTab,
   type ResultGroup,
@@ -91,18 +90,22 @@ export function useGlobalSearchState(initialQuery: string, tenantId: string) {
 export function useSearchGroups({
   client,
   debouncedQuery,
+  roomId,
   tab,
   tenantId,
 }: {
   client: TeamHubClient;
   debouncedQuery: string;
+  /** A Room scope narrows Message search to that Room and hides every other type. */
+  roomId?: string;
   tab: GlobalSearchTab;
   tenantId: string;
 }) {
   const backendQuery =
     debouncedQuery.length >= MIN_BACKEND_QUERY_LENGTH ? debouncedQuery : "";
-  const wantsMessages = tab === "all" || tab === "messages";
-  const wantsDocs = tab === "all" || tab === "docs";
+  const roomScoped = roomId !== undefined;
+  const wantsMessages = roomScoped || tab === "all" || tab === "messages";
+  const wantsDocs = !roomScoped && (tab === "all" || tab === "docs");
 
   const agents = useQuery(tenantAgentsQueryOptions(client, tenantId));
   const rooms = useQuery(tenantRoomsQueryOptions(client, tenantId));
@@ -116,12 +119,22 @@ export function useSearchGroups({
         client.api.GET("/v0/tenants/{tenantId}/messages/search", {
           params: {
             path: { tenantId },
-            query: { limit: BACKEND_PAGE_LIMIT, q: backendQuery },
+            query: {
+              limit: BACKEND_PAGE_LIMIT,
+              q: backendQuery,
+              ...(roomId ? { room_id: roomId } : {}),
+            },
           },
           signal,
         }),
       ),
-    queryKey: ["teamhub", tenantId, "message-search", backendQuery],
+    queryKey: [
+      "teamhub",
+      tenantId,
+      "message-search",
+      backendQuery,
+      roomId ?? "",
+    ],
   });
   const documentSearch = useQuery({
     enabled: backendQuery !== "" && wantsDocs,
@@ -264,11 +277,13 @@ export function useSearchGroups({
   };
 }
 
-/** The sections drawn for the current scope and the flat row order keys walk. */
+/** The sections drawn for the current scope and kind, and the flat row order
+ * keys walk. */
 export function useResultSections({
   debouncedQuery,
   docsLoading,
   groups,
+  kind,
   messagesLoading,
   setStore,
   store,
@@ -278,6 +293,7 @@ export function useResultSections({
   debouncedQuery: string;
   docsLoading: boolean;
   groups: ResultGroup[];
+  kind: GlobalSearchTab;
   messagesLoading: boolean;
   setStore: Dispatch<SetStateAction<GlobalSearchStore>>;
   store: GlobalSearchStore;
@@ -321,37 +337,17 @@ export function useResultSections({
       }
       return startSections;
     }
-    const visible =
-      tab === "all" ? groups : groups.filter((g) => g.tab === tab);
-    return visible.flatMap((group): ResultSection[] => {
-      const label = SCOPES[group.tab].label;
-      const loading =
-        (group.tab === "messages" && messagesLoading) ||
-        (group.tab === "docs" && docsLoading);
-      if (loading) {
-        return [
-          { items: [], key: group.tab, label, layout: "rows", loading: true },
-        ];
-      }
-      if (group.items.length === 0) return [];
-      if (tab !== "all") {
-        return [{ items: group.items, key: group.tab, label, layout: "rows" }];
-      }
-      return [
-        {
-          items: group.items.slice(0, ALL_TAB_GROUP_LIMIT),
-          key: group.tab,
-          label,
-          layout: "rows",
-          ...(group.items.length > ALL_TAB_GROUP_LIMIT || group.hasMore
-            ? { seeAll: group.tab }
-            : {}),
-        },
-      ];
+    return resultKindSections({
+      docsLoading,
+      groups,
+      kind,
+      messagesLoading,
+      tab,
     });
   }, [
     docsLoading,
     groups,
+    kind,
     messagesLoading,
     setStore,
     showingStart,

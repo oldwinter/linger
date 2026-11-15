@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import type { TeamHubMessage } from "@/features/teamhub/teamhub-types";
 
-import { isRoomNotice, isTimelineMessage } from "./message-grouping";
+import { isRoomNotice, timelineMessages } from "./message-grouping";
 
 /** The timeline's Messages and where the current Actor's next rows group. */
 export function useTimelineMessageGroups(
@@ -19,7 +19,7 @@ export function useTimelineMessageGroups(
       "",
     ),
   );
-  const candidateMessages = messages.filter(isTimelineMessage);
+  const candidateMessages = timelineMessages(messages);
   const lastMessage = candidateMessages.at(-1);
   // The current Actor's next rows start a group unless their own Message ends
   // the timeline; a Room notice ends any group.

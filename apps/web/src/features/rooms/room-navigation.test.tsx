@@ -89,7 +89,7 @@ describe("Room navigation", () => {
       within(primary)
         .getAllByRole("link")
         .map((link) => link.getAttribute("aria-label")),
-    ).toEqual(["Messages", "Library", "Wiki", "Connectors"]);
+    ).toEqual(["Messages", "Dashboard", "Library", "Wiki", "Connectors"]);
     expect(
       within(navigation).getByRole("button", { name: "Pocket Notes" }),
     ).toBeVisible();
@@ -155,7 +155,7 @@ describe("Room navigation", () => {
         links.map((link) =>
           link.querySelector(".primary-navigation-label")?.textContent?.trim(),
         ),
-      ).toEqual(["Messages", "Library", "Wiki", "Connectors"]);
+      ).toEqual(["Messages", "Dashboard", "Library", "Wiki", "Connectors"]);
       const toolbar = await screen.findByRole("toolbar", {
         name: "Message actions",
       });
@@ -197,10 +197,16 @@ describe("Room navigation", () => {
 
     renderNavigation(fixture, new QueryClient());
 
-    fireEvent.click(screen.getByRole("link", { name: /gtm-launch/ }));
+    // The away recap repeats these Room names above the list; both its rows and
+    // the Room rows navigate, so scope these clicks to the Room list itself.
+    const messages = () =>
+      screen.getByRole("heading", { name: "Messages" }).closest("section")!;
+    fireEvent.click(
+      within(messages()).getByRole("link", { name: /gtm-launch/ }),
+    );
     expect(screen.getByLabelText("1 unread mention")).toBeVisible();
     expect(screen.getAllByLabelText("1 unread message")).toHaveLength(1);
-    fireEvent.click(screen.getByRole("link", { name: /^all$/ }));
+    fireEvent.click(within(messages()).getByRole("link", { name: /^all$/ }));
     expect(screen.getByLabelText("1 unread mention")).toBeVisible();
     expect(screen.getAllByLabelText("1 unread message")).toHaveLength(1);
   });
@@ -211,7 +217,10 @@ describe("Room navigation", () => {
     renderNavigation(fixture, new QueryClient());
 
     expect(screen.getByRole("heading", { name: "Messages" })).toBeVisible();
-    expect(screen.getByRole("link", { name: /Codex/ })).toBeVisible();
+    const messages = screen
+      .getByRole("heading", { name: "Messages" })
+      .closest("section")!;
+    expect(within(messages).getByRole("link", { name: /Codex/ })).toBeVisible();
   });
 
   it("pins Another Me as its own card above the Chats list", async () => {
@@ -296,8 +305,14 @@ describe("Room navigation", () => {
       within(
         screen.getByRole("navigation", { name: "Primary navigation" }),
       ).getAllByRole("link"),
-    ).toHaveLength(4);
-    for (const label of ["Messages", "Library", "Wiki", "Connectors"]) {
+    ).toHaveLength(5);
+    for (const label of [
+      "Messages",
+      "Dashboard",
+      "Library",
+      "Wiki",
+      "Connectors",
+    ]) {
       expect(
         screen
           .getByRole("link", { name: label })

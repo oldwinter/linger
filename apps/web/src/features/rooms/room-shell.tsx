@@ -4,6 +4,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -11,6 +12,7 @@ import {
 import {
   Outlet,
   useLocation,
+  useMatch,
   useNavigate,
   useNavigation,
   useParams,
@@ -22,6 +24,10 @@ import { AccountMenu } from "@/features/auth/account-menu";
 import { LOGOUT_ERROR_MESSAGE, useLogout } from "@/features/auth/use-logout";
 
 import { Button } from "@/components/ui/button";
+import type {
+  RoomShellOutletContext,
+  SearchRoomScope,
+} from "@/features/search/room-search-scope";
 import { useGlobalSearchShortcut } from "@/features/search/search-shortcut";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
@@ -50,6 +56,8 @@ import {
 } from "./route-loading-surface";
 import { TeamHubEventSync } from "./event-sync";
 import { useAnotherMeNotifications } from "./another-me-notifications";
+import { useRoomMentionNotifications } from "./room-mention-notifications";
+import { useRoomWindowTitle } from "./room-unread-title";
 import { requireRoomRouteParam } from "./room-route-params";
 import { useScrollPaneActivity } from "./use-scroll-pane-activity";
 import {
@@ -122,22 +130,39 @@ function RoomShellReady({
   }, [anotherMeRoomId, gated, navigate, tenantId]);
 
   const openRoom = useCallback(
-    (roomId: string) =>
+    (roomId: string, messageId?: string) => {
+      const path = `/t/${encodeURIComponent(tenantId)}/rooms/${encodeURIComponent(roomId)}/chat`;
+      // The chat reads the `message` parameter the pinned-message jump sets, so
+      // a notice lands on its Message without a second focusing path. Opening
+      // the Room already on screen still navigates, which makes the jump work
+      // there too.
       void navigate(
-        `/t/${encodeURIComponent(tenantId)}/rooms/${encodeURIComponent(roomId)}/chat`,
-      ),
+        messageId
+          ? `${path}?${new URLSearchParams({ message: messageId })}`
+          : path,
+      );
+    },
     [navigate, tenantId],
   );
   useAnotherMeNotifications({
+    accountId: identity.account.id,
     rooms: roomsQuery.data?.items,
     roomId: anotherMeRoomId,
     agentActorId: anotherMe?.agent_actor_id,
     open: openRoom,
   });
-
-  useEffect(() => {
-    document.title = `${spaceOwnerName}'s space`;
-  }, [spaceOwnerName]);
+  // The shell is above the Room route, so it reads the open Room from the URL.
+  const activeRoomId = useMatch("/t/:tenantId/rooms/:roomId/*")?.params.roomId;
+  useRoomMentionNotifications({
+    accountId: identity.account.id,
+    rooms: roomsQuery.data?.items,
+    roomId: activeRoomId,
+    open: openRoom,
+  });
+  useRoomWindowTitle({
+    baseTitle: `${spaceOwnerName}'s space`,
+    rooms: roomsQuery.data?.items,
+  });
 
   const rooms = roomsQuery.data;
   return (
@@ -289,7 +314,24 @@ function RoomShellContent({
   const [searchOpen, setSearchOpen] = useState(false);
   // What a spoken search asked for; the shortcut opens an empty search.
   const [searchQuery, setSearchQuery] = useState("");
-  useGlobalSearchShortcut(() => setSearchOpen(true));
+  // The Room header opens the same dialog narrowed to its Room. The shortcut
+  // and voice stay Tenant-wide.
+  const [searchRoom, setSearchRoom] = useState<SearchRoomScope>();
+  const openGlobalSearch = useCallback(() => {
+    setSearchQuery("");
+    setSearchRoom(undefined);
+    setSearchOpen(true);
+  }, []);
+  const openRoomSearch = useCallback((room: SearchRoomScope) => {
+    setSearchQuery("");
+    setSearchRoom(room);
+    setSearchOpen(true);
+  }, []);
+  const shellOutletContext: RoomShellOutletContext = useMemo(
+    () => ({ openRoomSearch }),
+    [openRoomSearch],
+  );
+  useGlobalSearchShortcut(openGlobalSearch);
   // Voice page actions wait while a route is loading: lazy routes commit
   // their URL only once their code has arrived.
   const navigating = useRef(false);
@@ -304,6 +346,7 @@ function RoomShellContent({
         navigate: (path) => void navigate(path),
         navigating: () => navigating.current,
         openSearch: (query) => {
+          setSearchRoom(undefined);
           setSearchQuery(query);
           setSearchOpen(true);
         },
@@ -334,6 +377,7 @@ function RoomShellContent({
           inert={inert}
         >
           <RoomNavigation
+            accountId={identity.account.id}
             username={spaceOwnerNameFor(identity, tenantId)}
             accountMenu={
               <AccountMenu
@@ -408,7 +452,7 @@ function RoomShellContent({
                     }
                     key={routeLayoutKey(location.pathname)}
                   >
-                    <Outlet />
+                    <Outlet context={shellOutletContext} />
                   </Suspense>
                 )}
               </DesktopBarSlot>
@@ -442,11 +486,14 @@ function RoomShellContent({
           {searchOpen ? (
             <Suspense fallback={null}>
               <GlobalSearchDialog
+                key={searchRoom?.id ?? "global"}
                 initialQuery={searchQuery}
                 onClose={() => {
                   setSearchOpen(false);
                   setSearchQuery("");
+                  setSearchRoom(undefined);
                 }}
+                room={searchRoom}
                 tenantId={tenantId}
               />
             </Suspense>

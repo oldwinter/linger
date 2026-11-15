@@ -124,6 +124,12 @@ await Promise.all([
     outfile: "dist/preload/setup.cjs",
     format: "cjs",
   }),
+  build({
+    ...common,
+    entryPoints: ["src/preload/quick-note.ts"],
+    outfile: "dist/preload/quick-note.cjs",
+    format: "cjs",
+  }),
 ]);
 
 const run = (script, args, failure) =>

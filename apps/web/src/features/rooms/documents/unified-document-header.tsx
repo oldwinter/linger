@@ -35,12 +35,16 @@ import type {
   TeamHubDocument,
   TeamHubDocumentPlacementNode,
 } from "@/features/teamhub/teamhub-types";
+import { WikiCopyLink } from "@/features/wiki/wiki-copy-link";
+import { WikiPageActionsMenu } from "@/features/wiki/wiki-page-actions-menu";
+import { WikiSendToRoom } from "@/features/wiki/wiki-send-to-room";
 import { roomMembersQueryOptions } from "../room-queries";
 
 import type { RoomDocumentCollaborationSession } from "./room-document-collaboration";
 import { RoomDocumentPresence } from "./room-document-presence";
 import { collaborationColor } from "./room-document-presence-model";
 import { DocumentActionsMenu } from "./room-document-actions-menu";
+import { RoomDocumentShareAction } from "./room-document-share-action";
 import type { UnifiedDocumentPageModel } from "./use-unified-document-page-model";
 
 interface UnifiedDocumentPageHeaderProps {
@@ -237,6 +241,10 @@ function UnifiedDocumentHeader({
         }}
       />
     ) : null;
+  const shareAction =
+    document && !isWikiPage && document.capabilities.read ? (
+      <RoomDocumentShareAction document={document} tenantId={tenantId} />
+    ) : null;
   return (
     <header className="room-document-header border-b border-app-border/60">
       <div className="room-document-header-identity">
@@ -320,6 +328,28 @@ function UnifiedDocumentHeader({
             <Icon icon={TableOfContentsIcon} />
           </Button>
         ) : null}
+        {/* A Wiki page stays read-only: Copy link and Send to Room stand
+            alone, and Copy as Markdown and Download share one menu so the
+            action row keeps its size. */}
+        {isWikiPage && document ? (
+          <WikiCopyLink documentId={document.id} tenantId={tenantId} />
+        ) : null}
+        {isWikiPage && document?.capabilities.export ? (
+          <WikiSendToRoom
+            documentId={document.id}
+            tenantId={tenantId}
+            title={documentLogicalTitle(document)}
+            updatedAt={document.updated_at}
+          />
+        ) : null}
+        {isWikiPage && document?.capabilities.export ? (
+          <WikiPageActionsMenu
+            documentId={document.id}
+            exportPending={exportPending}
+            onExport={onExport}
+          />
+        ) : null}
+        {shareAction}
         {!sidebar ? actionsMenu : null}
         {!isWikiPage &&
         session &&

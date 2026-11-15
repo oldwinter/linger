@@ -289,12 +289,22 @@ func (s *Service) CancelMessageAttachmentUpload(ctx context.Context, accountID, 
 	return nil
 }
 
+// searchTenantMessagesParams builds the sqlc arguments for one search page.
+// SearchMessages asks for one row beyond the limit to tell whether more follow.
+func searchTenantMessagesParams(accountID, tenantID, query, roomID, cursor string, limit int32) store.SearchTenantMessagesForAccountParams {
+	return store.SearchTenantMessagesForAccountParams{
+		AccountID: accountID, TenantID: tenantID, RoomID: roomID,
+		Query: query, Cursor: cursor, PageLimit: limit,
+	}
+}
+
 // SearchMessages finds conversation Messages whose body contains query,
-// newest first, in Rooms the Account can read today. Hits carry the plain
-// Message model without card, attachment or thread hydration. A search
-// stopped at its statement timeout returns the database error, which
-// keywordsearch.TimedOut recognizes.
-func (s *Service) SearchMessages(ctx context.Context, accountID, tenantID, query string, page Page) (httpapi.MessageSearchPage, error) {
+// newest first, in Rooms the Account can read today. An empty roomID searches
+// every readable Room; a Room the Account cannot read matches nothing, so the
+// result never reveals that Room. Hits carry the plain Message model without
+// card, attachment or thread hydration. A search stopped at its statement
+// timeout returns the database error, which keywordsearch.TimedOut recognizes.
+func (s *Service) SearchMessages(ctx context.Context, accountID, tenantID, query, roomID string, page Page) (httpapi.MessageSearchPage, error) {
 	var items []store.SearchTenantMessagesForAccountRow
 	err := pgx.BeginTxFunc(ctx, s.pool, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
 		queries := store.New(tx)
@@ -302,9 +312,7 @@ func (s *Service) SearchMessages(ctx context.Context, accountID, tenantID, query
 			return err
 		}
 		var err error
-		items, err = queries.SearchTenantMessagesForAccount(ctx, store.SearchTenantMessagesForAccountParams{
-			TenantID: tenantID, AccountID: accountID, Query: query, Cursor: page.Cursor, PageLimit: page.Limit + 1,
-		})
+		items, err = queries.SearchTenantMessagesForAccount(ctx, searchTenantMessagesParams(accountID, tenantID, query, roomID, page.Cursor, page.Limit+1))
 		return err
 	})
 	if err != nil {
@@ -321,7 +329,7 @@ func (s *Service) SearchMessages(ctx context.Context, accountID, tenantID, query
 			DisplayName: item.AuthorDisplayName, AccountID: item.AuthorAccountID,
 			Handle: item.AuthorHandle, CreatedAt: item.AuthorCreatedAt,
 		}
-		model, err := messageModel(item.ID, item.TenantID, item.RoomID, item.Body, item.Segments, item.MessageKind, item.CardContextMessageID, item.ReplyToMessageID, item.CardTitle, item.CardKind, item.CreatedAt, author)
+		model, err := messageModel(item.ID, item.TenantID, item.RoomID, item.RoomSeq, item.Body, item.Segments, item.MessageKind, item.CardContextMessageID, item.ReplyToMessageID, item.CardTitle, item.CardKind, item.CreatedAt, author)
 		if err != nil {
 			return httpapi.MessageSearchPage{}, internal("decode message content", err)
 		}

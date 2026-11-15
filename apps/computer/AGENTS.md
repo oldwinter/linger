@@ -66,6 +66,10 @@
 - A wire request never supplies a local path, executable, environment, or
   credential. Resolve canonical workspace grants before invoking an
   installed Runtime provider.
+- A Gateway refusal the Desktop app can explain is reported on its status line
+  as `connection_error`: `daemon_identity_conflict` when TeamHub holds this
+  Daemon Identity on another Local Computer, and the field is omitted
+  otherwise.
 - Do not commit runtime state, PID files, sockets, logs, credentials, or build
   output.
 

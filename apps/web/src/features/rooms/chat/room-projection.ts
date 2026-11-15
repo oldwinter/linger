@@ -16,7 +16,7 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
-import { tenantWorkItemsDashboardQueryKey } from "@/features/work-items/work-item-queries";
+import { tenantWorkItemsDashboardQueryPrefix } from "@/features/work-items/work-item-queries";
 
 import {
   roomDocumentsQueryKey,
@@ -262,7 +262,7 @@ async function projectEvent(
       await Promise.all([
         refreshActiveQuery(
           queryClient,
-          tenantWorkItemsDashboardQueryKey(tenantId),
+          tenantWorkItemsDashboardQueryPrefix(tenantId),
         ),
         refreshActiveQuery(
           queryClient,

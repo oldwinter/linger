@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import { WikiHomePage } from "./wiki-home-page";
@@ -16,6 +16,10 @@ vi.mock("@/components/read-only-blocknote-document-loader", () => ({
     <article>{markdown}</article>
   ),
 }));
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 it("shows real collection pages on the Wiki tab and returns to Profile", async () => {
   const runtime = createTestTeamHubRuntime();
@@ -119,3 +123,78 @@ it("shows the pages a refresh has written as ordinary cards that open as pages",
   );
   expect(screen.queryByText("No topics yet.")).toBeNull();
 });
+
+it("opens a random Wiki page from Surprise me", async () => {
+  const runtime = createTestTeamHubRuntime();
+  const launch = wikiDocument("project-one", "Launch.md", "wiki_page");
+  launch.from[0]!.page_key = "projects/launch.md";
+  const pricing = wikiDocument("topic-pricing", "Pricing.md", "wiki_page");
+  pricing.from[0]!.page_key = "topics/pricing.md";
+  serveWikiDocuments(runtime).mockResolvedValue({
+    items: [launch, pricing],
+    page: { has_more: false },
+  });
+  const router = renderWikiHome(runtime);
+  // Both pages are listed before the action can choose between them.
+  await screen.findByRole("link", { name: /Pricing/ });
+  vi.spyOn(Math, "random").mockReturnValue(0);
+
+  fireEvent.click(screen.getByRole("button", { name: "Surprise me" }));
+
+  expect(router.state.location.pathname).toBe(
+    "/t/tenant-northstar/documents/project-one",
+  );
+  expect(await screen.findByText("Document")).toBeVisible();
+});
+
+it("offers no Surprise me before the Wiki has pages", async () => {
+  const runtime = createTestTeamHubRuntime();
+  serveWikiDocuments(runtime).mockResolvedValue({
+    items: [],
+    page: { has_more: false },
+  });
+  renderWikiHome(runtime);
+  // The listing settles before the action's absence means anything.
+  expect(await screen.findByText("No projects yet.")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Surprise me" })).toBeNull();
+});
+
+it("never renders a Human Publish command", async () => {
+  const runtime = createTestTeamHubRuntime();
+  serveWikiDocuments(runtime).mockResolvedValue({
+    items: [wikiDocument("page-one", "Page one", "wiki_page")],
+    page: { has_more: false },
+  });
+  renderWikiHome(runtime);
+
+  expect(
+    await screen.findByRole("heading", { name: "Wiki", level: 1 }),
+  ).toBeVisible();
+  expect(screen.queryByRole("button", { name: /publish/i })).toBeNull();
+});
+
+/** The Wiki home beside the page route a card opens. */
+function renderWikiHome(runtime: ReturnType<typeof createTestTeamHubRuntime>) {
+  const router = createMemoryRouter(
+    [
+      { path: "/t/:tenantId/library/wiki", element: <WikiHomePage /> },
+      {
+        path: "/t/:tenantId/documents/:documentId",
+        element: <div>Document</div>,
+      },
+    ],
+    { initialEntries: ["/t/tenant-northstar/library/wiki?tab=wiki"] },
+  );
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <TeamHubRuntimeProvider runtime={runtime}>
+        <RouterProvider router={router} />
+      </TeamHubRuntimeProvider>
+    </QueryClientProvider>,
+  );
+  return router;
+}

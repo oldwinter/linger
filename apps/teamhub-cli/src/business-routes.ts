@@ -32,6 +32,7 @@ export const routesByToolName: Readonly<Record<string, TeamHubApiPostPath>> = {
   pause_routine: "/api/agent/v1/routines/pause",
   enable_routine: "/api/agent/v1/routines/enable",
   run_routine: "/api/agent/v1/routines/run",
+  update_routine: "/api/agent/v1/routines/updates",
   delete_routine: "/api/agent/v1/routines/deletion",
   get_personal_profile: "/api/agent/v1/personal-profile/query",
   start_personal_profile_build: "/api/agent/v1/personal-profile/builds",

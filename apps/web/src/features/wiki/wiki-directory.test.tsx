@@ -20,17 +20,25 @@ import { WikiGraphPage } from "@/features/memory/wiki-graph-page";
 import { filterWikiGraph, wikiPageKey } from "./wiki-display-state";
 import type { WikiGraphData } from "@/features/memory/wiki-graph-model";
 import type { TeamHubPersonalProfileDocument } from "@/features/teamhub/teamhub-types";
+import { teamHubIdentityQueryKey } from "@/features/rooms/room-queries";
+import { readRecentWikiPages, writeRecentWikiPages } from "./recent-wiki-pages";
 
 // Exercise Profile navigation and content with the real renderer, independently
 // of the test server's first transform of the lazy Profile module.
 beforeAll(async () => {
   await import("./wiki-profile-page");
-});
+}, 120_000);
 
 afterEach(() => {
   window.localStorage.clear();
+  Reflect.deleteProperty(navigator, "clipboard");
+  Reflect.deleteProperty(document, "execCommand");
   vi.restoreAllMocks();
 });
+const bodies: Record<string, string> = {
+  "projects/alpha": "# Alpha notes\n\nA calm overview of the migration.",
+  "projects/beta": "## Beta notes\n\nNorthwind delivery plan.",
+};
 const graph: WikiGraphData = {
   types: ["Project"],
   nodes: ["projects/alpha", "projects/beta"].map((id) => ({
@@ -39,7 +47,7 @@ const graph: WikiGraphData = {
     category: "Project",
     description: "",
     tags: [],
-    body: "",
+    body: bodies[id] ?? "",
     size: 1,
     links: ["projects/alpha"],
     backlinks: ["projects/beta"],
@@ -71,11 +79,18 @@ const moduleHeadings = [
   "Preferences",
   "Writing style",
 ];
+function stubClipboard(write: () => Promise<void>) {
+  const writeText = vi.fn(write);
+  Object.assign(navigator, { clipboard: { writeText } });
+  return writeText;
+}
+
 async function setup(
   initial = "/t/tenant-northstar/library/wiki",
   profile = profileDocument(),
   pageKeys: Record<string, string> = {},
   profileResponse?: object,
+  documentsPending = false,
 ) {
   const runtime = await loggedInWikiRuntime();
   const pages = ["alpha", "beta"].map((id) => {
@@ -83,10 +98,12 @@ async function setup(
     page.from[0]!.page_key = pageKeys[id] ?? `projects/${id}.md`;
     return page;
   });
-  serveWikiDocuments(runtime).mockResolvedValue({
-    items: pages,
-    page: { has_more: false },
-  });
+  const documents = serveWikiDocuments(runtime);
+  if (documentsPending) {
+    documents.mockReturnValue(new Promise<never>(() => {}));
+  } else {
+    documents.mockResolvedValue({ items: pages, page: { has_more: false } });
+  }
   runtime.server.on(
     "GET",
     "/v0/documents/{documentId}",
@@ -126,6 +143,8 @@ async function setup(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  // The shell's route loader caches the identity before any page renders.
+  queryClient.setQueryData(teamHubIdentityQueryKey, runtime.seed.identity);
   const view = render(
     <QueryClientProvider client={queryClient}>
       <TeamHubRuntimeProvider runtime={runtime}>
@@ -326,6 +345,143 @@ describe("Wiki directory", () => {
     fireEvent.change(search, { target: { value: "gamma" } });
     expect(screen.getByText("No projects match “gamma”.")).toBeVisible();
   });
+  it("filters a collection page by body text", async () => {
+    await setup("/t/tenant-northstar/library/wiki/projects");
+    const search = await screen.findByRole("searchbox", {
+      name: "Search Projects",
+    });
+    expect(await screen.findByRole("link", { name: /alpha/ })).toBeVisible();
+    fireEvent.change(search, { target: { value: "NORTHWIND" } });
+    expect(screen.queryByRole("link", { name: /alpha/ })).toBeNull();
+    expect(screen.getByRole("link", { name: /beta/ })).toBeVisible();
+    expect(screen.getByText(/Northwind delivery plan\./)).toBeVisible();
+  });
+  it("copies the collection as a Markdown list of absolute links", async () => {
+    const writeText = stubClipboard(() => Promise.resolve());
+    const { router } = await setup("/t/tenant-northstar/library/wiki/projects");
+    expect(await screen.findByRole("link", { name: /alpha/ })).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy list" }));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        [
+          "# Projects",
+          `- [alpha](${window.location.origin}/t/tenant-northstar/documents/alpha)`,
+          `- [beta](${window.location.origin}/t/tenant-northstar/documents/beta)`,
+        ].join("\n"),
+      ),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent("Copied");
+    expect(router.state.location.pathname).toBe(
+      "/t/tenant-northstar/library/wiki/projects",
+    );
+  });
+  it("copies only the pages the filter leaves", async () => {
+    const writeText = stubClipboard(() => Promise.resolve());
+    await setup("/t/tenant-northstar/library/wiki/projects");
+    const search = await screen.findByRole("searchbox", {
+      name: "Search Projects",
+    });
+    fireEvent.change(search, { target: { value: "BET" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy list" }));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        [
+          "# Projects",
+          `- [beta](${window.location.origin}/t/tenant-northstar/documents/beta)`,
+        ].join("\n"),
+      ),
+    );
+  });
+  it("disables Copy list while the collection is loading", async () => {
+    await setup(
+      "/t/tenant-northstar/library/wiki/projects",
+      undefined,
+      {},
+      undefined,
+      true,
+    );
+
+    expect(await screen.findByText("Loading Wiki Documents…")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Copy list" })).toBeDisabled();
+  });
+  it("disables Copy list when the collection has no pages", async () => {
+    await setup("/t/tenant-northstar/library/wiki/projects", undefined, {
+      alpha: "topics/alpha.md",
+      beta: "topics/beta.md",
+    });
+
+    expect(await screen.findByText("No generated projects yet.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Copy list" })).toBeDisabled();
+  });
+  it("reports a refused clipboard write", async () => {
+    stubClipboard(() => Promise.reject(new Error("Clipboard is denied")));
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: vi.fn(() => false),
+    });
+    await setup("/t/tenant-northstar/library/wiki/projects");
+    expect(await screen.findByRole("link", { name: /alpha/ })).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy list" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+  it("records an opened Wiki page without another request", async () => {
+    const { runtime } = await setup("/t/tenant-northstar/documents/alpha");
+    expect(await screen.findByRole("link", { name: "beta" })).toBeVisible();
+
+    await waitFor(() =>
+      expect(readRecentWikiPages("account-jenny")).toEqual([
+        {
+          id: "alpha",
+          name: "alpha",
+          openedAt: expect.any(String),
+          path: "/t/tenant-northstar/documents/alpha",
+        },
+      ]),
+    );
+    expect(
+      runtime.server.requestsTo("GET", "/v0/documents/{documentId}"),
+    ).toHaveLength(1);
+  });
+  it("moves a page opened from the directory to the front of the list", async () => {
+    await setup("/t/tenant-northstar/documents/alpha");
+    fireEvent.click(await screen.findByRole("link", { name: "beta" }));
+
+    await waitFor(() =>
+      expect(readRecentWikiPages("account-jenny").map((row) => row.id)).toEqual(
+        ["beta", "alpha"],
+      ),
+    );
+  });
+  it("shows recently opened pages above the daily cards", async () => {
+    writeRecentWikiPages("account-jenny", [
+      {
+        id: "alpha",
+        name: "Alpha notes",
+        openedAt: "2026-08-23T00:00:00.000Z",
+        path: "/t/tenant-northstar/documents/alpha",
+      },
+    ]);
+    await setup("/t/tenant-northstar/library/wiki?tab=wiki");
+
+    const strip = await screen.findByRole("region", {
+      name: "Recently opened Wiki pages",
+    });
+    expect(screen.getByRole("link", { name: "Alpha notes" })).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/documents/alpha",
+    );
+    const daily = screen.getByRole("heading", { name: /Daily report/ });
+    expect(
+      strip.compareDocumentPosition(daily) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
   it.each(["projects", "topics", "contacts", "clients"])(
     "shows %s with Back and no directory",
     async (collection) => {
@@ -429,6 +585,263 @@ describe("Wiki directory", () => {
         screen.getByRole("navigation", { name: "Projects files" }),
       ).queryByRole("link", { name: "beta" }),
     ).toBeNull();
+  });
+  it("filters the open collection's files and highlights the match", async () => {
+    const { runtime } = await setup("/t/tenant-northstar/documents/alpha");
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    expect(
+      await within(files).findByRole("link", { name: "alpha" }),
+    ).toBeVisible();
+
+    fireEvent.change(
+      within(files).getByRole("searchbox", { name: "Filter Projects" }),
+      { target: { value: "BET" } },
+    );
+
+    expect(within(files).queryByRole("link", { name: "alpha" })).toBeNull();
+    const beta = within(files).getByRole("link", { name: "beta" });
+    expect(within(beta).getByText("bet").tagName).toBe("MARK");
+    expect(
+      runtime.server.requestsTo(
+        "GET",
+        "/v0/tenants/{tenantId}/personal-wiki/documents",
+      ),
+    ).toHaveLength(1);
+  });
+  it("needs every word in the title and says when nothing matches", async () => {
+    await setup("/t/tenant-northstar/documents/alpha");
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    const filter = await within(files).findByRole("searchbox", {
+      name: "Filter Projects",
+    });
+
+    fireEvent.change(filter, { target: { value: "alpha beta" } });
+
+    expect(within(files).queryAllByRole("link")).toHaveLength(0);
+    expect(
+      within(files).getByText("No projects match “alpha beta”."),
+    ).toBeVisible();
+  });
+  it("keeps the open page selected and restores the files when cleared", async () => {
+    const { router } = await setup("/t/tenant-northstar/documents/alpha");
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    const filter = await within(files).findByRole("searchbox", {
+      name: "Filter Projects",
+    });
+
+    fireEvent.change(filter, { target: { value: "alpha" } });
+    expect(within(files).getByRole("link", { name: "alpha" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(within(files).queryByRole("link", { name: "beta" })).toBeNull();
+    expect(router.state.location.pathname).toBe(
+      "/t/tenant-northstar/documents/alpha",
+    );
+
+    fireEvent.change(filter, { target: { value: "beta" } });
+    fireEvent.click(within(files).getByRole("link", { name: "beta" }));
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(
+        "/t/tenant-northstar/documents/beta",
+      ),
+    );
+    expect(within(files).getByRole("link", { name: "beta" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+
+    fireEvent.click(
+      within(files).getByRole("button", { name: "Clear Projects filter" }),
+    );
+    expect(filter).toHaveValue("");
+    expect(
+      await within(files).findByRole("link", { name: "alpha" }),
+    ).toBeVisible();
+  });
+  it("starts another collection from its full list", async () => {
+    const { router } = await setup(
+      "/t/tenant-northstar/documents/alpha",
+      undefined,
+      { beta: "topics/beta.md" },
+    );
+    const projects = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    expect(
+      await within(projects).findByRole("link", { name: "alpha" }),
+    ).toBeVisible();
+    fireEvent.change(
+      within(projects).getByRole("searchbox", { name: "Filter Projects" }),
+      { target: { value: "alpha" } },
+    );
+
+    await router.navigate("/t/tenant-northstar/documents/beta");
+
+    const topics = await screen.findByRole("navigation", {
+      name: "Topics files",
+    });
+    expect(
+      await within(topics).findByRole("link", { name: "beta" }),
+    ).toBeVisible();
+    expect(
+      within(topics).getByRole("searchbox", { name: "Filter Topics" }),
+    ).toHaveValue("");
+  });
+  it("keeps the filter out of browser storage", async () => {
+    await setup("/t/tenant-northstar/documents/alpha");
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    expect(
+      await within(files).findByRole("link", { name: "alpha" }),
+    ).toBeVisible();
+    const before = Object.entries(window.localStorage).sort();
+    fireEvent.change(
+      within(files).getByRole("searchbox", { name: "Filter Projects" }),
+      { target: { value: "beta" } },
+    );
+
+    expect(within(files).getByRole("link", { name: "beta" })).toBeVisible();
+    expect(Object.entries(window.localStorage).sort()).toEqual(before);
+  });
+  it("opens and focuses the filter with /", async () => {
+    const { router, runtime } = await setup(
+      "/t/tenant-northstar/documents/alpha",
+    );
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    const filter = await within(files).findByRole("searchbox", {
+      name: "Filter Projects",
+    });
+    expect(filter).not.toHaveFocus();
+
+    expect(fireEvent.keyDown(document.body, { key: "/" })).toBe(false);
+
+    expect(filter).toHaveFocus();
+    fireEvent.change(filter, { target: { value: "BET" } });
+    expect(within(files).queryByRole("link", { name: "alpha" })).toBeNull();
+    expect(within(files).getByRole("link", { name: "beta" })).toBeVisible();
+    expect(router.state.location.pathname).toBe(
+      "/t/tenant-northstar/documents/alpha",
+    );
+    expect(
+      runtime.server.requestsTo(
+        "GET",
+        "/v0/tenants/{tenantId}/personal-wiki/documents",
+      ),
+    ).toHaveLength(1);
+  });
+  it("leaves / to the filter once it has focus", async () => {
+    await setup("/t/tenant-northstar/documents/alpha");
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    const filter = await within(files).findByRole("searchbox", {
+      name: "Filter Projects",
+    });
+    filter.focus();
+
+    expect(fireEvent.keyDown(filter, { key: "/" })).toBe(true);
+
+    expect(filter).toHaveFocus();
+  });
+  it("ignores / typed into another field", async () => {
+    await setup("/t/tenant-northstar/documents/alpha");
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    const filter = await within(files).findByRole("searchbox", {
+      name: "Filter Projects",
+    });
+    const elsewhere = document.createElement("input");
+    document.body.append(elsewhere);
+    elsewhere.focus();
+
+    expect(fireEvent.keyDown(elsewhere, { key: "/" })).toBe(true);
+
+    elsewhere.remove();
+    expect(filter).not.toHaveFocus();
+  });
+  it("ignores / during an IME composition", async () => {
+    await setup("/t/tenant-northstar/documents/alpha");
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    const filter = await within(files).findByRole("searchbox", {
+      name: "Filter Projects",
+    });
+    const composing = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "/",
+    });
+    Object.defineProperty(composing, "isComposing", { value: true });
+
+    window.dispatchEvent(composing);
+
+    expect(composing.defaultPrevented).toBe(false);
+    expect(filter).not.toHaveFocus();
+  });
+  it("ignores / with a modifier held", async () => {
+    await setup("/t/tenant-northstar/documents/alpha");
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    const filter = await within(files).findByRole("searchbox", {
+      name: "Filter Projects",
+    });
+
+    expect(fireEvent.keyDown(document.body, { key: "/", metaKey: true })).toBe(
+      true,
+    );
+
+    expect(filter).not.toHaveFocus();
+  });
+  it("ignores / while a dialog is open", async () => {
+    await setup("/t/tenant-northstar/documents/alpha");
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    const filter = await within(files).findByRole("searchbox", {
+      name: "Filter Projects",
+    });
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    const inside = document.createElement("button");
+    dialog.append(inside);
+    document.body.append(dialog);
+
+    expect(fireEvent.keyDown(inside, { key: "/" })).toBe(true);
+
+    dialog.remove();
+    expect(filter).not.toHaveFocus();
+  });
+  it("clears the filter and leaves the field on Escape", async () => {
+    await setup("/t/tenant-northstar/documents/alpha");
+    const files = await screen.findByRole("navigation", {
+      name: "Projects files",
+    });
+    const filter = await within(files).findByRole("searchbox", {
+      name: "Filter Projects",
+    });
+    fireEvent.change(filter, { target: { value: "BET" } });
+    expect(within(files).queryByRole("link", { name: "alpha" })).toBeNull();
+
+    expect(fireEvent.keyDown(filter, { key: "Escape" })).toBe(false);
+
+    expect(filter).toHaveValue("");
+    expect(filter).not.toHaveFocus();
+    expect(
+      await within(files).findByRole("link", { name: "alpha" }),
+    ).toBeVisible();
   });
   it("filters hidden graph nodes and all their links without mutating the graph", () => {
     const result = filterWikiGraph(graph, {

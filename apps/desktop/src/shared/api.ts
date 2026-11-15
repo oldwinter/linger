@@ -8,12 +8,20 @@ export type RuntimeState =
   | "draining"
   | "crashed";
 
+// Why the Gateway refused this computer besides its connection state. The
+// Daemon Identity was enrolled for another Computer.
+export type ComputerConnectionError = "daemon_identity_conflict";
+export const DAEMON_IDENTITY_CONFLICT: ComputerConnectionError =
+  "daemon_identity_conflict";
+
 export interface ComputerStatus {
   readonly bridge: string;
   readonly runtime: RuntimeState;
   readonly computerId?: string;
   readonly activeOperations: number;
   readonly preventSleep: boolean;
+  // The daemon's last reported connection error; absent when it has none.
+  readonly connectionError?: ComputerConnectionError;
 }
 
 export interface WorkspaceGrantView {
@@ -71,6 +79,10 @@ export interface LingerDesktopApi {
     get(): Promise<DesktopSettings>;
     set(patch: { displayName?: string }): Promise<DesktopSettings>;
   };
+  // The app icon's unread mention count; zero clears the badge.
+  readonly notifications: {
+    setBadgeCount(count: number): Promise<void>;
+  };
   // The owner account of the Linger installed on this computer.
   readonly localAccount: {
     // Whether the window shows that Linger; false for any other server.
@@ -93,6 +105,7 @@ export const IPC = {
   workspaceRevoke: "workspace.revoke",
   settingsGet: "settings.get",
   settingsSet: "settings.set",
+  notificationsBadge: "notifications.badge",
   permissionAct: "permission.act",
   localAccountAvailable: "local-account.available",
   localAccountSignIn: "local-account.sign-in",

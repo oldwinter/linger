@@ -41,7 +41,8 @@ Gateway and runs Agents. The daemon exits with the app.
 - `src/main/modules.ts`: `Module` interface, typed bus and the host that starts
   modules in dependency layers and stops them in reverse.
 - `src/main/*.ts`: one file per module (Enrollment, WorkspaceGrants,
-  ComputerDaemon, Status, PowerGuard, WindowManager, Tray, DesktopIpc). `status.ts`, `tray-menu.ts` and `tray-icon.ts` hold the pure
+  ComputerDaemon, Status, PowerGuard, WindowManager, Tray, GlobalShortcut,
+  DesktopIpc). `status.ts`, `tray-menu.ts` and `tray-icon.ts` hold the pure
   status summary, tray menu and tray icons, drawn from the logo PNGs in
   `resources/tray/` with a status badge.
 - `src/main/local-server.ts`: LocalServer, the setup page's Quick Install
@@ -137,8 +138,22 @@ Gateway and runs Agents. The daemon exits with the app.
   before the computer enrolled is not resumed: setup shows again and Install
   finishes it, reusing a finished job only while its origin answers (a stopped
   server gets a new job, which starts the services again). The start failure
-  page's Set Up Again forgets the record, unenrolls the computer, clears the
-  server address and shows setup; the instance and its data stay. Before installing or resuming it moves the
+  page's Set Up Again forgets the record, clears the
+  server address and shows setup; the instance and its data stay. It keeps the
+  Computer id and the server origin as a renewal reference (never the
+  credential), so the next enrollment against that origin renews the same
+  Computer; choosing another server forgets the reference. If TeamHub answers
+  a renewal with `404 INVALID_ENROLLMENT` the desktop enrolls a new Computer
+  once instead of looping. The Daemon Identity in
+  `computer/state/daemon-identity.json` stays with the Computer that first
+  presented it, since TeamHub binds it there for good: an enrollment that does
+  not renew that Computer discards it once that enrollment is stored
+  (`daemon-identity.ts`), so the daemon makes one for the Computer now
+  enrolled. A Gateway report that the identity is another Computer's survives
+  daemon restarts within the app session, until this Computer connects with it
+  or the identity is discarded; Set Up Again discards it, and Reconnect This
+  Computer refuses with that reason instead of renewing into the same conflict.
+  Before installing or resuming it moves the
   `COMPOSIO_API_KEY`, `SONIOX_API_KEY`, `XAI_API_KEY` and `TZ` of an unpacked
   source package's `.env` into `<home>/instances/desktop/user.env` once and
   deletes that `.env` (never a `LINGER_CHECKOUT`'s), logging only the names
@@ -178,9 +193,22 @@ Gateway and runs Agents. The daemon exits with the app.
   Dock, the tray) shows setup until the computer is enrolled
   (`app-window.ts`), the main window after. The main window's server form
   without a server says Back to Setup instead of Cancel.
-- `src/shell/*.html`: app-owned pages (title bar, offline/setup page). They
-  have no network access and talk to the main process via `src/preload/shell.ts`.
-- `src/preload/index.ts`: the only SPA API, `window.lingerDesktop`.
+- `src/main/quick-note.ts`: QuickNote, the tray's "New Note" capture window.
+  It serves `app://quick-note` from its own session, appends the typed text
+  under today's Pocket Note through TeamHub with the web session cookie, then
+  confirms and closes. A missing enrollment or session shows a plain message
+  in the window. Its IPC channels are checked against that window instead of
+  the server origin, so the SPA API stays server-origin only.
+  `src/main/global-shortcut.ts` opens the same window from any application
+  with CommandOrControl+Shift+N; a refused registration is logged once and
+  is not fatal.
+- `src/shell/*.html`: app-owned pages (title bar, offline/setup page, quick
+  note). They have no network access and talk to the main process through
+  their own preload (`src/preload/shell.ts`, `src/preload/setup.ts`,
+  `src/preload/quick-note.ts`).
+- `src/preload/index.ts`: the only SPA API, `window.lingerDesktop`. Its
+  `notifications.setBadgeCount` sets the app icon's unread mention badge through
+  `app.setBadgeCount`, which macOS and Linux have and Windows does not.
 - `src/shared/api.ts`, `src/shared/shell.ts`: preload contract types and IPC
   channel names.
 - `src/main/computer-daemon.ts`: ComputerDaemon. While the computer is
@@ -190,7 +218,11 @@ Gateway and runs Agents. The daemon exits with the app.
   credential in `LINGER_COMPUTER_TOKEN` (`gateway.token_env`). The config's
   `desktop` section puts the daemon in Desktop mode: no self-update, it exits
   when its stdin closes, and it reports `{"type":"status",...}` lines on
-  stdout, which drive the tray and the SPA status. Its log goes to
+  stdout, which drive the tray and the SPA status. Its optional
+  `connection_error: "daemon_identity_conflict"` means the Gateway refused the
+  Daemon Identity as another Computer's: the status shows the conflict, the
+  SPA receives it, and setup stops waiting with a message to reset the local
+  server and set it up again. Its log goes to
   `<userData>/logs/computer-daemon.log`. Crashes restart with backoff; new
   folders or a new name restart it once tasks finish.
   On macOS it writes `{"type":"hello","features":["permissions.v1"]}` to
@@ -206,11 +238,15 @@ Gateway and runs Agents. The daemon exits with the app.
 - `src/main/computer-credential.ts`: the Gateway credential in
   `<userData>/computer/credential.json` (0600).
 - Installs from before the product was renamed Linger move once on start.
-  `index.ts` renames the packaged app's data folder from `<appData>/Simplex`
-  to `<appData>/Linger` before `app.setPath("userData")`. A `Linger` folder
-  that already holds `computer/credential.json` wins and the old folder stays
-  (logged as `desktop.legacy_user_data_kept`); one without a credential is set
-  aside as `Linger.before-move-<time>`, so the Computer keeps its identity.
+  `legacy-user-data.ts` renames the packaged app's data folder from
+  `<appData>/Simplex` to `<appData>/Linger` before `app.setPath("userData")`.
+  A rename Windows refuses because a program holds a file in the folder open
+  is retried a few times, then fails with a message naming the folder and
+  asking the person to close the programs using it; neither folder is deleted.
+  A `Linger` folder that already holds `computer/credential.json` wins and
+  the old folder stays (logged as `desktop.legacy_user_data_kept`); one
+  without a credential is set aside as `Linger.before-move-<time>`, so the
+  Computer keeps its identity.
   LocalServer runs `installer.js --migrate` when an instance record still
   carries a `simplex-` project name, before it reads
   `desktop/local-server.json`
@@ -315,4 +351,5 @@ building a package.
   `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `PI_CODING_AGENT_DIR`) replaces them,
   names compared case-insensitively for Windows.
 - Without a display, run with `--ozone-platform=headless --disable-gpu`. The
-  tray and native menus are skipped in that mode; use Xvfb to check them.
+  tray, native menus, and the quick note's global shortcut are skipped in
+  that mode; use Xvfb to check them.

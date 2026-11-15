@@ -321,4 +321,63 @@ describe("Room Document Comment controls", () => {
       "Reply could not be saved.",
     );
   });
+
+  it("resolves an open thread and reopens a resolved one", async () => {
+    vi.mocked(threadStore.resolveThread).mockClear();
+    vi.mocked(threadStore.unresolveThread).mockClear();
+    const queryClient = new QueryClient();
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <RoomDocumentCommentThread
+          actorDirectory={[alice]}
+          mentionOptions={[]}
+          onFocus={vi.fn()}
+          orphaned={false}
+          referenceText="selected text"
+          selected
+          thread={thread}
+          threadStore={threadStore}
+        />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
+    await waitFor(() =>
+      expect(threadStore.resolveThread).toHaveBeenCalledWith({
+        threadId: thread.id,
+      }),
+    );
+
+    view.rerender(
+      <QueryClientProvider client={queryClient}>
+        <RoomDocumentCommentThread
+          actorDirectory={[alice]}
+          mentionOptions={[]}
+          onFocus={vi.fn()}
+          orphaned={false}
+          referenceText="selected text"
+          selected
+          thread={{
+            ...thread,
+            metadata: { resolvedByName: alice.display_name },
+            resolved: true,
+            resolvedBy: alice.id,
+            resolvedUpdatedAt: new Date("2026-08-04T00:00:00Z"),
+          }}
+          threadStore={threadStore}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText(/Resolved by Alice/)).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Resolve" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Reopen" }));
+    await waitFor(() =>
+      expect(threadStore.unresolveThread).toHaveBeenCalledWith({
+        threadId: thread.id,
+      }),
+    );
+  });
 });

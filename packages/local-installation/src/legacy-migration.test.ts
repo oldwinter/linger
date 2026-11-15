@@ -32,6 +32,7 @@ async function legacyInstance(
   mode: Instance["mode"] = "source-native",
 ): Promise<Instance> {
   const root = path.join(home, "instances", name);
+  const releaseDir = path.join(home, "releases", "1");
   const instance: Instance = {
     schemaVersion: 1,
     name,
@@ -40,14 +41,13 @@ async function legacyInstance(
     project: `simplex-${name}-${createHash("sha256").update(root).digest("hex").slice(0, 12)}`,
     origin: "http://localhost:3999",
     port: 3999,
-    releaseDir: path.join(home, "releases", "1"),
+    releaseDir,
     computerConfig: path.join(root, "computer", "config.json"),
-    computerExecutable: "linger-computer",
+    computerExecutable: path.join(releaseDir, "computer", "linger-computer"),
     ...(mode === "source-native"
       ? {
-          releaseDir: "/checkout",
           source: {
-            repo: "/checkout",
+            repo: releaseDir,
             ports: {
               web: 3999,
               teamhub: 4001,
@@ -98,6 +98,39 @@ describe("migrateLegacyInstallation", () => {
 
     await migrateLegacyInstallation(options);
     expect(stopped).toEqual(["desktop"]);
+  });
+
+  it("converts an instance whose release folder and Computer are gone", async () => {
+    const home = await temporary();
+    await legacyInstance(home, "desktop");
+
+    await migrateLegacyInstallation({ home });
+
+    const instance = (await loadInstance({ name: "desktop", home }))!;
+    expect(instance.project).toMatch(/^linger-desktop-[a-f0-9]{12}$/);
+    // The folder stays: it can hold the person's data.
+    expect(
+      await readFile(path.join(instance.root, "services.env"), "utf8"),
+    ).toContain("LINGER_");
+    expect(await legacyMigrationPending(home)).toBe(false);
+  });
+
+  it("still names an instance whose live Computer refuses to stop", async () => {
+    const home = await temporary();
+    const instance = await legacyInstance(home, "stuck");
+    await mkdir(path.dirname(instance.computerExecutable), {
+      recursive: true,
+    });
+    await writeFile(
+      instance.computerExecutable,
+      `#!${process.execPath}\nprocess.stdout.write('{"daemon":{"state":"running","active_operations":1},"runtimes":[]}\\n');\n`,
+      { mode: 0o700 },
+    );
+
+    await expect(migrateLegacyInstallation({ home })).rejects.toThrow(
+      /stuck: Instance busy/,
+    );
+    expect(await legacyMigrationPending(home)).toBe(true);
   });
 
   it("skips a damaged record and converts the other instances", async () => {

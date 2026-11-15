@@ -392,6 +392,179 @@ describe("WikiGraphPage", () => {
   });
 });
 
+describe("WikiGraphPage report search", () => {
+  it("narrows the cards, restores them on clear, and says when nothing matches", async () => {
+    const runtime = await loggedInRuntime();
+    serveWikiStatus(runtime).mockResolvedValue(wikiStatus());
+    vi.spyOn(
+      runtime.client,
+      "getPersonalKnowledgeGraphVisualization",
+    ).mockResolvedValue(embeddedGraph());
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/memory", () => ({
+      items: [
+        dailyEntry(
+          "2026-09-01",
+          "# Daily 2026-09-01\n\n## Work\n\nShipped the timeline.\n",
+        ),
+        dailyEntry(
+          "2026-09-02",
+          "# Daily 2026-09-02\n\n## Work\n\nReviewed the flashback.\n",
+        ),
+      ],
+    }));
+
+    renderPage(runtime);
+
+    const search = await screen.findByRole("searchbox", {
+      name: "Search reports",
+    });
+    expect(
+      await screen.findByRole("button", { name: "Open Daily for 2026-09-01" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Open Daily for 2026-09-02" }),
+    ).toBeVisible();
+
+    fireEvent.change(search, { target: { value: "flashback" } });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Open Daily for 2026-09-01" }),
+      ).toBeNull(),
+    );
+    expect(
+      screen.getByRole("button", { name: "Open Daily for 2026-09-02" }),
+    ).toBeVisible();
+
+    fireEvent.change(search, { target: { value: "nothing like this" } });
+    expect(await screen.findByText("No reports match.")).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Open Daily for 2026-09-02" }),
+    ).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Clear report search" }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Open Daily for 2026-09-01" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Open Daily for 2026-09-02" }),
+    ).toBeVisible();
+    expect(screen.queryByText("No reports match.")).toBeNull();
+  });
+});
+
+describe("WikiGraphPage flashback", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("shows the Daily report from one month earlier and opens it", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 10, 15, 12));
+    const runtime = await loggedInRuntime();
+    serveWikiStatus(runtime).mockResolvedValue(wikiStatus());
+    vi.spyOn(
+      runtime.client,
+      "getPersonalKnowledgeGraphVisualization",
+    ).mockResolvedValue(embeddedGraph());
+    const flashback = dailyEntry(
+      "2026-10-15",
+      "---\nformatter: internal-only\ndate: 2026-10-15\n---\n# Daily 2026-10-15\n\n## Work\n\nShipped the flashback.\n\nReviewed the graph.\n\n## Sources\n\nPrivate source scaffolding.",
+    );
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/memory", () => ({
+      items: [flashback],
+    }));
+    runtime.server.on(
+      "GET",
+      "/v0/tenants/{tenantId}/memory/{entryId}",
+      () => flashback,
+    );
+
+    renderPage(runtime);
+
+    const card = await screen.findByRole("button", {
+      name: /Daily report from one month ago/,
+    });
+    expect(card).toHaveTextContent("One month ago");
+    expect(card).toHaveTextContent("Oct 15");
+    expect(card).toHaveTextContent("Shipped the flashback.");
+    expect(card).toHaveTextContent("Reviewed the graph.");
+    expect(card).not.toHaveTextContent("Private source scaffolding");
+
+    fireEvent.click(card);
+    expect(
+      await screen.findByRole("article", {
+        name: "2026-10-15 Daily content",
+      }),
+    ).toHaveTextContent("Shipped the flashback.");
+  });
+
+  it("leaves the flashback out when neither earlier day has a Daily report", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 10, 15, 12));
+    const runtime = await loggedInRuntime();
+    serveWikiStatus(runtime).mockResolvedValue(wikiStatus());
+    vi.spyOn(
+      runtime.client,
+      "getPersonalKnowledgeGraphVisualization",
+    ).mockResolvedValue(embeddedGraph());
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/memory", () => ({
+      items: [
+        dailyEntry(
+          "2026-11-01",
+          "# Daily 2026-11-01\n\n## Work\n\nToday's report.",
+        ),
+      ],
+    }));
+
+    renderPage(runtime);
+
+    await screen.findByRole("region", { name: "Daily timeline" });
+    expect(
+      screen.queryByRole("button", { name: /One month ago|One year ago/ }),
+    ).toBeNull();
+  });
+});
+
+function embeddedGraph(): string {
+  return (
+    "const graph=" +
+    JSON.stringify({
+      types: ["Session"],
+      nodes: [
+        {
+          id: "sessions/2026-09-01/kickoff",
+          title: "Kickoff",
+          category: "Session",
+          body: "Related date: 2026-09-03",
+          size: 1,
+          links: [],
+          backlinks: [],
+          tags: [],
+          description: "",
+        },
+      ],
+      edges: [],
+      timelineEvents: [
+        { id: "event-1", day: "2026-09-03", title: "A dated event" },
+      ],
+    }) +
+    ";\n"
+  );
+}
+
+function dailyEntry(day: string, content: string): TeamHubMemoryEntry {
+  return {
+    id: day,
+    kind: "daily",
+    path: `timeline/daily/${day}.md`,
+    date: day,
+    title: `Daily ${day}`,
+    summary: "",
+    updated_at: `${day}T00:00:00Z`,
+    content,
+  };
+}
+
 async function loggedInRuntime() {
   const runtime = createTestTeamHubRuntime();
 

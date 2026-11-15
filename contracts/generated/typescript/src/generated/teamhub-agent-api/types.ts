@@ -624,6 +624,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/agent/v1/routines/updates": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Update a Routine in the current room
+     * @description Changes only the fields the request carries. expected_revision rejects a Routine that changed since it was read.
+     */
+    post: operations["updateAgentRoutine"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/agent/v1/routines/query": {
     parameters: {
       query?: never;
@@ -2476,9 +2496,29 @@ export interface components {
       next_run_at?: components["schemas"]["Timestamp"];
       /** @description Tracking Item this Routine serves, when it serves one. */
       tracking_item_id?: string;
+      /**
+       * Format: int64
+       * @description Monotonic revision, sent back as expected_revision to update.
+       */
+      revision: number;
     };
     AgentRoutineResponse: {
       routine: components["schemas"]["AgentRoutine"];
+    };
+    AgentUpdateRoutineRequest: {
+      invocation_id: components["schemas"]["AgentInvocationId"];
+      routine_id: components["schemas"]["Id"];
+      /**
+       * Format: int64
+       * @description Revision from list_routines; a stale value is a conflict.
+       */
+      expected_revision: number;
+      name?: string;
+      instruction?: string;
+      /** @description Omit to keep the mention. self wakes the calling Agent, any other value must be an Agent actor still in this room, and null clears it. */
+      mention_actor_id?: string | null;
+      schedule?: components["schemas"]["AgentRoutineSchedule"];
+      enabled?: boolean;
     };
     AgentRoutineCommandRequest: Record<string, never>;
     AgentListRoutinesResponse: {
@@ -3959,6 +3999,37 @@ export interface operations {
     };
     responses: {
       /** @description The created Routine and active Manifest attestation. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentRoutineResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      503: components["responses"]["ServiceUnavailable"];
+      default: components["responses"]["InternalError"];
+    };
+  };
+  updateAgentRoutine: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AgentUpdateRoutineRequest"];
+      };
+    };
+    responses: {
+      /** @description The updated Routine. */
       200: {
         headers: {
           [name: string]: unknown;

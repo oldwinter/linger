@@ -2183,6 +2183,25 @@ a[href][aria-disabled="true"],
   width: min(560px, calc(100vw - 32px));
 }
 
+/* The Work Item peek is a right-hand drawer over the board; the native
+   <dialog> still supplies the scrim, focus trap, and Escape. */
+.app-dialog.work-item-peek {
+  inset: 0 0 0 auto;
+  width: min(440px, 100vw);
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  border-radius: 0;
+  animation: work-item-peek-enter 0.18s ease both;
+}
+
+@keyframes work-item-peek-enter {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
 .global-search-progress {
   position: relative;
   height: 1px;
@@ -3882,6 +3901,13 @@ button.question-choice:focus-visible {
     0 0 0 2px hsl(var(--town-border-hover));
 }
 
+/* The ring j/k moves; an outline rather than a ring so the card's own
+   unlayered box-shadow cannot swallow it. */
+.work-item-card[data-keyboard-focus="true"] {
+  outline: 2px solid var(--app-focus);
+  outline-offset: 1px;
+}
+
 .work-item-priority[data-priority="high"],
 .work-item-priority[data-priority="urgent"] {
   border-color: var(--app-accent-border);
@@ -3950,6 +3976,16 @@ button.question-choice:focus-visible {
   background-color: hsl(var(--town-comment-amber) / 0.35);
 }
 
+/* Transcript search marks share the keyword search tint; the turn Previous and
+   Next land on reads stronger so the current match stands out from the rest. */
+::highlight(meeting-transcript-match) {
+  background-color: hsl(var(--town-comment-amber) / 0.35);
+}
+
+::highlight(meeting-transcript-current) {
+  background-color: hsl(var(--town-comment-amber) / 0.7);
+}
+
 .message-row-actions {
   pointer-events: none;
   border-radius: 8px;
@@ -3993,6 +4029,14 @@ button.question-choice:focus-visible {
 .message-row:hover .message-row-actions,
 .message-row:focus-within .message-row-actions,
 .message-row[data-selected-context="true"] .message-row-actions {
+  pointer-events: auto;
+  opacity: 1;
+}
+
+/* A copy or Pocket Note confirmation stays visible after the pointer leaves
+   the Message's tools. */
+.message-row-actions[data-pocket-note-status],
+.message-row-actions[data-text-copy-status] {
   pointer-events: auto;
   opacity: 1;
 }
@@ -5165,6 +5209,13 @@ button.question-choice:focus-visible {
 
 .pocket-note-paper {
   line-height: 1.6;
+}
+
+/* Today's page after the All-notes jump: a ring around the card, held by state
+   rather than a keyframe so it also reads with reduced motion. */
+.pocket-note-today-marked {
+  border-radius: 0.75rem;
+  box-shadow: 0 0 0 2px hsl(var(--town-comment-amber) / 0.85);
 }
 
 /* Five thin bars beside the dictation control. They follow the voice level,

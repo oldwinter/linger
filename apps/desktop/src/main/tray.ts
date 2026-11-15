@@ -1,7 +1,6 @@
 import {
   Menu,
   Tray,
-  app,
   dialog,
   nativeImage,
   type MenuItemConstructorOptions,
@@ -14,8 +13,10 @@ import tile16 from "../../resources/tray/tile-16.png";
 import tile32 from "../../resources/tray/tile-32.png";
 import type { DiagnosticsModule } from "./diagnostics.js";
 import { EnrollmentError, type EnrollmentModule } from "./enrollment.js";
+import { headlessDisplay } from "./headless.js";
 import type { Module, ModuleContext } from "./modules.js";
 import type { PowerGuardModule } from "./power-guard.js";
+import type { QuickNoteModule } from "./quick-note.js";
 import type { SetupWindowModule } from "./setup-window.js";
 import type { StatusModule, StatusTone } from "./status.js";
 import { renderTrayIcon, type TrayArtwork } from "./tray-icon.js";
@@ -27,6 +28,16 @@ export interface TrayOptions {
   // Owned by the app lifecycle.
   readonly quit: () => void;
 }
+
+// The unread count the SPA already sends for the badge, named in the tooltip.
+export interface DesktopTrayHost {
+  setUnreadCount(count: number): void;
+}
+
+const toolTip = (label: string, unread: number): string =>
+  unread > 0
+    ? `Linger · ${label} · ${unread} unread ${unread === 1 ? "mention" : "mentions"}`
+    : `Linger · ${label}`;
 
 const BUSY_FRAME_MS = 400;
 
@@ -54,12 +65,8 @@ const icon = (tone: StatusTone, frame: number): NativeImage => {
   return image;
 };
 
-// GTK aborts the process when a tray or menu is created without a display.
-const headless = (): boolean =>
-  app.commandLine.getSwitchValue("ozone-platform") === "headless";
-
 // The system tray. The same menu opens from the title bar status.
-export class TrayModule implements Module {
+export class TrayModule implements Module, DesktopTrayHost {
   readonly name = "Tray";
   readonly dependsOn = [
     "Status",
@@ -67,12 +74,14 @@ export class TrayModule implements Module {
     "WindowManager",
     "Enrollment",
     "SetupWindow",
+    "QuickNote",
     "Updater",
     "Diagnostics",
   ];
   readonly #options: TrayOptions;
   #ctx: ModuleContext | undefined;
   #tray: Tray | undefined;
+  #unreadCount = 0;
   #frame = 0;
   #animation: NodeJS.Timeout | undefined;
   readonly #icons = new Map<string, NativeImage>();
@@ -86,7 +95,7 @@ export class TrayModule implements Module {
     this.#ctx = ctx;
     const setup = ctx.get<SetupWindowModule>("SetupWindow");
     try {
-      if (headless()) throw new Error("No display");
+      if (headlessDisplay()) throw new Error("No display");
       this.#tray = new Tray(this.#icon());
       this.#tray.setToolTip("Linger");
       // Windows and Linux open the window on click; macOS shows the menu.
@@ -110,8 +119,19 @@ export class TrayModule implements Module {
     this.#tray = undefined;
   }
 
+  setUnreadCount(count: number): void {
+    this.#unreadCount = count;
+    this.#applyToolTip();
+  }
+
   #status() {
     return this.#ctx!.get<StatusModule>("Status").current();
+  }
+
+  // The status stays in the tooltip; the count is appended while there is one.
+  #applyToolTip(): void {
+    if (!this.#tray) return;
+    this.#tray.setToolTip(toolTip(this.#status().label, this.#unreadCount));
   }
 
   #refresh(): void {
@@ -128,7 +148,7 @@ export class TrayModule implements Module {
     }
     if (!this.#tray) return;
     this.#tray.setImage(this.#icon());
-    this.#tray.setToolTip(`Linger · ${this.#status().label}`);
+    this.#applyToolTip();
     this.#tray.setContextMenu(this.#menu());
   }
 
@@ -178,6 +198,9 @@ export class TrayModule implements Module {
         break;
       case "open":
         ctx.get<SetupWindowModule>("SetupWindow").showApp();
+        break;
+      case "quick-note":
+        ctx.get<QuickNoteModule>("QuickNote").show();
         break;
       case "toggle-prevent-sleep": {
         const power = ctx.get<PowerGuardModule>("PowerGuard");

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import type { TeamHubWorkItem } from "@/features/teamhub/teamhub-types";
+import { EMPTY_WORK_ITEM_DASHBOARD_FILTERS } from "./work-item-dashboard-filters";
 import {
   tenantAgentWorkItemsQueryKey,
   tenantAgentWorkItemsQueryOptions,
@@ -72,7 +73,11 @@ describe("Work Item Dashboard query", () => {
 
     await expect(
       queryClient.fetchQuery(
-        tenantWorkItemsDashboardQueryOptions(runtime.client, "tenant-a"),
+        tenantWorkItemsDashboardQueryOptions(
+          runtime.client,
+          "tenant-a",
+          EMPTY_WORK_ITEM_DASHBOARD_FILTERS,
+        ),
       ),
     ).resolves.toEqual({
       items: [first, second],
@@ -102,6 +107,7 @@ describe("Work Item Dashboard query", () => {
       tenantWorkItemsDashboardQueryOptions(
         workItemClient([active, archived]),
         "tenant-a",
+        EMPTY_WORK_ITEM_DASHBOARD_FILTERS,
       ),
     );
 
@@ -117,7 +123,11 @@ describe("Work Item Dashboard query", () => {
 
     await expect(
       new QueryClient().fetchQuery(
-        tenantWorkItemsDashboardQueryOptions(runtime.client, "tenant-a"),
+        tenantWorkItemsDashboardQueryOptions(
+          runtime.client,
+          "tenant-a",
+          EMPTY_WORK_ITEM_DASHBOARD_FILTERS,
+        ),
       ),
     ).rejects.toThrow("does not match the active Tenant");
   });
@@ -126,14 +136,84 @@ describe("Work Item Dashboard query", () => {
     const options = tenantWorkItemsDashboardQueryOptions(
       createTestTeamHubRuntime().client,
       "tenant-a",
+      EMPTY_WORK_ITEM_DASHBOARD_FILTERS,
     );
 
     expect(options.queryKey).toEqual(
-      tenantWorkItemsDashboardQueryKey("tenant-a"),
+      tenantWorkItemsDashboardQueryKey(
+        "tenant-a",
+        EMPTY_WORK_ITEM_DASHBOARD_FILTERS,
+      ),
     );
     expect(options.refetchInterval).toBeUndefined();
     expect(options.refetchOnWindowFocus).toBe(true);
     expect(options.staleTime).toBe(0);
+  });
+
+  it("requests and keys the Dashboard by its server filters", async () => {
+    const runtime = createTestTeamHubRuntime();
+    runtime.server.on("GET", WORK_ITEMS_PATH, () => ({
+      items: [],
+      page: { has_more: false },
+    }));
+    const queryClient = new QueryClient();
+    const filters = {
+      archived: true,
+      assignment: "mine" as const,
+      execution: "running" as const,
+      priority: "high" as const,
+      room: "room-launch",
+      text: "",
+    };
+
+    await queryClient.fetchQuery(
+      tenantWorkItemsDashboardQueryOptions(
+        runtime.client,
+        "tenant-a",
+        filters,
+        "actor-jenny",
+      ),
+    );
+
+    expect(workItemListRequests(runtime)).toEqual([
+      {
+        path: "/v0/tenants/tenant-a/work-items",
+        query: {
+          archived: "true",
+          assignee_actor_id: "actor-jenny",
+          execution_status: "running",
+          limit: "200",
+          priority: "high",
+          scope: "personal",
+        },
+      },
+    ]);
+    expect(
+      tenantWorkItemsDashboardQueryOptions(runtime.client, "tenant-a", filters)
+        .queryKey,
+    ).not.toEqual(
+      tenantWorkItemsDashboardQueryOptions(
+        runtime.client,
+        "tenant-a",
+        EMPTY_WORK_ITEM_DASHBOARD_FILTERS,
+      ).queryKey,
+    );
+    // Room narrows the loaded board, so it adds no request and no cache entry.
+    expect(
+      tenantWorkItemsDashboardQueryOptions(
+        runtime.client,
+        "tenant-a",
+        { ...filters, room: "room-other" },
+        "actor-jenny",
+      ).queryKey,
+    ).toEqual(
+      tenantWorkItemsDashboardQueryOptions(
+        runtime.client,
+        "tenant-a",
+        filters,
+        "actor-jenny",
+      ).queryKey,
+    );
   });
 
   it("loads and Tenant-validates a deep-linked Work Item", async () => {

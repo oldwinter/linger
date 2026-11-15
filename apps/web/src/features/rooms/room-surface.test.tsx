@@ -28,6 +28,8 @@ import {
   TeamHubRuntimeProvider,
 } from "@/features/teamhub/teamhub-runtime";
 
+import type { SearchRoomScope } from "@/features/search/room-search-scope";
+
 import { RoomChat } from "./chat/room-chat";
 import { RoomSurface } from "./room-surface";
 import {
@@ -87,6 +89,141 @@ describe("RoomSurface command availability", () => {
         },
       } satisfies Storage,
     });
+  });
+
+  it("opens Room-scoped search from the header", async () => {
+    const openRoomSearch = vi.fn();
+    await renderRoomSurface(
+      "room-all",
+      "",
+      surfaceRuntime(),
+      <div />,
+      openRoomSearch,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Search this Room" }),
+    );
+    expect(openRoomSearch).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "room-all" }),
+    );
+  });
+
+  it("opens Room-scoped search from the keyboard and keeps the browser find bar closed", async () => {
+    const openRoomSearch = vi.fn();
+    await renderRoomSurface(
+      "room-all",
+      "",
+      surfaceRuntime(),
+      <div />,
+      openRoomSearch,
+    );
+
+    await screen.findByRole("region", { name: "Room all" });
+
+    // fireEvent reports whether the event was left default-prevented.
+    expect(fireEvent.keyDown(window, { key: "f", ctrlKey: true })).toBe(false);
+    expect(openRoomSearch).toHaveBeenCalledExactlyOnceWith({
+      id: "room-all",
+      name: "all",
+    });
+
+    openRoomSearch.mockClear();
+    expect(fireEvent.keyDown(window, { key: "f", metaKey: true })).toBe(false);
+    expect(openRoomSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves Cmd/Ctrl+F to the field the person is typing in", async () => {
+    const openRoomSearch = vi.fn();
+    await renderRoomSurface(
+      "room-all",
+      "",
+      surfaceRuntime(),
+      <div />,
+      openRoomSearch,
+    );
+    const field = document.createElement("input");
+    document.body.append(field);
+    await screen.findByRole("region", { name: "Room all" });
+    try {
+      expect(fireEvent.keyDown(field, { key: "f", ctrlKey: true })).toBe(true);
+      expect(openRoomSearch).not.toHaveBeenCalled();
+    } finally {
+      field.remove();
+    }
+  });
+
+  it("keeps Cmd/Ctrl+F during an IME composition", async () => {
+    const openRoomSearch = vi.fn();
+    await renderRoomSurface(
+      "room-all",
+      "",
+      surfaceRuntime(),
+      <div />,
+      openRoomSearch,
+    );
+
+    await screen.findByRole("region", { name: "Room all" });
+
+    expect(
+      fireEvent.keyDown(window, { key: "f", ctrlKey: true, isComposing: true }),
+    ).toBe(true);
+    expect(openRoomSearch).not.toHaveBeenCalled();
+  });
+
+  it("leaves Cmd/Ctrl+F to a handler that already took it", async () => {
+    const openRoomSearch = vi.fn();
+    await renderRoomSurface(
+      "room-all",
+      "",
+      surfaceRuntime(),
+      <div />,
+      openRoomSearch,
+    );
+    const takeKey = (event: KeyboardEvent) => event.preventDefault();
+    document.body.addEventListener("keydown", takeKey);
+    await screen.findByRole("region", { name: "Room all" });
+    try {
+      fireEvent.keyDown(document.body, { key: "f", ctrlKey: true });
+      expect(openRoomSearch).not.toHaveBeenCalled();
+    } finally {
+      document.body.removeEventListener("keydown", takeKey);
+    }
+  });
+
+  it("opens Thread-scoped search without leaving the Room or its Thread", async () => {
+    const openRoomSearch = vi.fn();
+    seedPanelTabs({
+      activeMessageId: "message-2",
+      openMessageIds: ["message-2"],
+    });
+    const router = await renderRoomSurface(
+      "room-all",
+      "",
+      surfaceRuntime(),
+      <div />,
+      openRoomSearch,
+    );
+
+    const sidebar = await openPanelLauncher();
+    fireEvent.click(
+      await within(sidebar).findByRole("button", { name: "Search thread" }),
+    );
+
+    expect(openRoomSearch).toHaveBeenCalledWith({
+      id: expect.stringMatching(/^room-thread-/u),
+      label: expect.stringMatching(/^Thread · /u),
+      name: expect.any(String),
+    });
+    // Search is an overlay: the Room route and the open Thread stay as they
+    // were, so closing search returns to this Thread.
+    expect(router.state.location.pathname).toBe(
+      "/t/tenant-northstar/rooms/room-all/chat",
+    );
+    expect(router.state.location.search).toBe("");
+    expect(
+      within(sidebar).getByRole("heading", { name: "Thread" }),
+    ).toBeVisible();
+    expect(sidebar).toHaveTextContent("Reviewed the checklist");
   });
 
   it("shows a closable loading panel and keeps the composer usable while panel data waits", async () => {
@@ -1063,11 +1200,12 @@ async function renderRoomSurface(
   search = "",
   runtime: TeamHubRuntime = surfaceRuntime(),
   roomElement = <div />,
+  openRoomSearch: (room: SearchRoomScope) => void = () => {},
 ) {
   const router = createMemoryRouter(
     [
       {
-        element: <Outlet />,
+        element: <Outlet context={{ openRoomSearch }} />,
         path: "/t/:tenantId",
         children: [
           // Deleting a Room navigates here. Without the destination the

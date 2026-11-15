@@ -1,17 +1,33 @@
 import { dateTimeFormat } from "@/lib/date-format";
+import { isShortcutKeyEvent } from "@/lib/keyboard-shortcut";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDown01Icon,
   ArrowRight01Icon,
+  Cancel01Icon,
   CheckListIcon,
+  Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
-import { useCallback, useState, type RefCallback } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefCallback,
+} from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Select, SelectItem } from "@/components/ui/select";
-import { tenantRoomsQueryOptions } from "@/features/rooms/room-queries";
+import { cn } from "@/lib/cn";
+import {
+  teamHubIdentityQueryOptions,
+  tenantRoomsQueryOptions,
+} from "@/features/rooms/room-queries";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { AuthenticatedRouteLoading } from "@/features/rooms/route-loading-surface";
 import { ActorAvatar } from "@/features/rooms/members/actor-avatar";
@@ -20,11 +36,53 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubWorkItem } from "@/features/teamhub/teamhub-types";
 
 import {
+  clearWorkItemDashboardFilters,
+  createWorkItemDashboardFilters,
+  currentDashboardActorId,
+  hasWorkItemDashboardFilters,
+  hasWorkItemDashboardNarrowingFilters,
+  matchesWorkItemText,
+  WORK_ITEM_DASHBOARD_ASSIGNMENTS,
+  WORK_ITEM_DASHBOARD_EXECUTION_STATUSES,
+  WORK_ITEM_DASHBOARD_PRIORITIES,
+  WORK_ITEM_DASHBOARD_PRIORITY_LABELS,
+  workItemDashboardFiltersSearch,
+  type WorkItemDashboardAssignment,
+  type WorkItemDashboardExecutionStatus,
+  type WorkItemDashboardFilters,
+  type WorkItemDashboardPriority,
+} from "./work-item-dashboard-filters";
+import { WorkItemBoardCopyAction } from "./work-item-board-copy-action";
+import { workItemBoardCsv } from "./work-item-board-csv";
+import { WorkItemBoardCsvAction } from "./work-item-board-csv-action";
+import {
+  nextWorkItemCardId,
+  workItemBoardMoveForKey,
+} from "./work-item-board-keyboard";
+import { workItemBoardMarkdown } from "./work-item-board-markdown";
+import { WorkItemBoardViewLinkAction } from "./work-item-board-view-link-action";
+import { WorkItemCardMenu } from "./work-item-card-menu";
+import {
+  WorkItemCreateAction,
+  WorkItemCreateDialog,
+} from "./work-item-create-dialog";
+import { workItemDuplicateDraft } from "./work-item-duplicate";
+import { WorkItemPeek } from "./work-item-peek";
+import {
   tenantWorkItemTargetQueryOptions,
   tenantWorkItemsDashboardQueryOptions,
 } from "./work-item-queries";
 import { dashboardWorkItemPath } from "./work-item-routes";
 import { createWorkItemRoomFilterModel } from "./work-item-room-filter";
+import { WorkItemSelectionCopyLinks } from "./work-item-selection-copy";
+import {
+  createWorkItemDashboardSort,
+  sortWorkItems,
+  WORK_ITEM_DASHBOARD_SORTS,
+  workItemDashboardSortSearch,
+  type WorkItemDashboardSort,
+} from "./work-item-sort";
+import { useWorkItemSelection } from "./use-work-item-selection";
 
 interface DashboardColumn {
   id: "todo" | "in-progress" | "done" | "closed";
@@ -38,12 +96,38 @@ const dashboardColumns: readonly DashboardColumn[] = [
   { id: "closed", label: "Closed" },
 ];
 
+/** One column's cards in the order the board shows them. */
+interface BoardSection {
+  column: DashboardColumn;
+  items: TeamHubWorkItem[];
+}
+
 const dashboardDateFormatter = dateTimeFormat({
   day: "numeric",
   month: "short",
   timeZone: "UTC",
   year: "numeric",
 });
+
+const executionLabels: Record<WorkItemDashboardExecutionStatus, string> = {
+  canceled: "Agent canceled",
+  failed: "Agent failed",
+  idle: "Agent idle",
+  running: "Agent running",
+  waiting_for_approval: "Waiting for approval",
+};
+
+const assignmentLabels = {
+  all: "All",
+  mine: "Mine",
+  unassigned: "Unassigned",
+} as const;
+
+const sortLabels: Record<WorkItemDashboardSort, string> = {
+  newest: "Newest first",
+  priority: "Most urgent",
+  updated: "Recently updated",
+};
 
 export function WorkItemsPage() {
   const { client } = useTeamHubRuntime();
@@ -56,10 +140,43 @@ export function WorkItemsPage() {
     },
     [focusedWorkItemId],
   );
+  const [peekWorkItem, setPeekWorkItem] = useState<TeamHubWorkItem>();
+  // The card menu's Duplicate opens the create dialog on a copy of that Item.
+  const [duplicateItem, setDuplicateItem] = useState<TeamHubWorkItem>();
+  const peekTrigger = useRef<HTMLAnchorElement | null>(null);
+  useEffect(() => {
+    if (!peekWorkItem) return;
+    // Leaving the peek, however it closes, puts the reader back on its card. A
+    // transition can move the card to another column, replacing its element, so
+    // fall back to the card that now carries the Item.
+    return () => {
+      const trigger = peekTrigger.current?.isConnected
+        ? peekTrigger.current
+        : cardForWorkItem(peekWorkItem.id);
+      trigger?.focus();
+    };
+  }, [peekWorkItem]);
+  function openPeek(item: TeamHubWorkItem, card: HTMLAnchorElement) {
+    peekTrigger.current = card;
+    setPeekWorkItem(item);
+  }
   const [searchParams, setSearchParams] = useSearchParams();
-  const workItemsQuery = useQuery(
-    tenantWorkItemsDashboardQueryOptions(client, tenantId),
-  );
+  const filters = createWorkItemDashboardFilters(searchParams);
+  const sort = createWorkItemDashboardSort(searchParams.get("sort"));
+  const identityQuery = useQuery(teamHubIdentityQueryOptions(client));
+  const currentActorId = identityQuery.data
+    ? currentDashboardActorId(identityQuery.data, tenantId)
+    : undefined;
+  const workItemsQuery = useQuery({
+    ...tenantWorkItemsDashboardQueryOptions(
+      client,
+      tenantId,
+      filters,
+      currentActorId,
+    ),
+    // Mine cannot be requested before the identity names the current Actor.
+    enabled: filters.assignment !== "mine" || identityQuery.isSuccess,
+  });
   const focusedWorkItemQuery = useQuery({
     ...tenantWorkItemTargetQueryOptions(
       client,
@@ -72,24 +189,30 @@ export function WorkItemsPage() {
 
   if (
     workItemsQuery.isPending ||
+    identityQuery.isPending ||
     roomsQuery.isPending ||
     (focusedWorkItemId && focusedWorkItemQuery.isPending)
   ) {
     return <WorkItemsLoading />;
   }
   const queryError =
-    workItemsQuery.error ?? focusedWorkItemQuery.error ?? roomsQuery.error;
+    workItemsQuery.error ??
+    identityQuery.error ??
+    focusedWorkItemQuery.error ??
+    roomsQuery.error;
   if (queryError) {
     return (
       <WorkItemsError
         error={queryError}
         isRetrying={
           workItemsQuery.isFetching ||
+          identityQuery.isFetching ||
           focusedWorkItemQuery.isFetching ||
           roomsQuery.isFetching
         }
         onRetry={() => {
           if (workItemsQuery.isError) void workItemsQuery.refetch();
+          if (identityQuery.isError) void identityQuery.refetch();
           if (focusedWorkItemQuery.isError) void focusedWorkItemQuery.refetch();
           if (roomsQuery.isError) void roomsQuery.refetch();
         }}
@@ -102,25 +225,72 @@ export function WorkItemsPage() {
   if (!data || !rooms) return <WorkItemsLoading />;
   const items = mergeFocusedWorkItem(data.items, focusedWorkItemQuery.data);
   const roomFilter = createWorkItemRoomFilterModel(rooms.items, items);
-  const roomId = searchParams.get("room")?.trim() ?? "";
-  const dashboardSearch = roomId
-    ? new URLSearchParams({ room: roomId }).toString()
-    : "";
-  const filteredItems = items.filter((item) =>
-    roomFilter.matches(item, roomId),
+  const filteredItems = items.filter(
+    (item) =>
+      matchesWorkItemText(item, filters.text) &&
+      roomFilter.matches(item, filters.room) &&
+      (filters.assignment !== "unassigned" || item.assignees.length === 0),
   );
+  const orderedItems = sortWorkItems(filteredItems, sort);
+  const dashboardSearch = workItemDashboardSortSearch(
+    workItemDashboardFiltersSearch(filters),
+    sort,
+  );
+  const showFilterBar =
+    items.length > 0 || hasWorkItemDashboardFilters(filters);
+  const showClearFilters = hasWorkItemDashboardNarrowingFilters(filters);
+  // Empty columns would look like missing data, so a query that hides every
+  // card says why and offers its own way back.
+  const textHidesBoard =
+    Boolean(filters.text.trim()) && filteredItems.length === 0;
+  // The columns render these exact lists, so the copied Markdown matches them.
+  const boardSections: BoardSection[] = dashboardColumns.map((column) => ({
+    column,
+    items: orderedItems.filter(
+      (item) => dashboardColumnFor(item) === column.id,
+    ),
+  }));
+  const exportSections = boardSections.map(
+    ({ column, items: columnItems }) => ({
+      items: columnItems,
+      label: column.label,
+    }),
+  );
+  const boardMarkdown = workItemBoardMarkdown({
+    filters: activeFilterLabels(filters, roomFilter.options),
+    origin: window.location.origin,
+    sections: exportSections,
+    sortLabel: sortLabels[sort],
+    tenantId,
+  });
+  const boardCsv = workItemBoardCsv({
+    origin: window.location.origin,
+    roomLabel: roomFilter.originLabel,
+    sections: exportSections,
+    tenantId,
+  });
 
-  function setRoomFilter(value: string) {
+  function updateFilters(next: WorkItemDashboardFilters) {
     setSearchParams(
-      value ? new URLSearchParams({ room: value }) : new URLSearchParams(),
+      workItemDashboardSortSearch(workItemDashboardFiltersSearch(next), sort),
       { replace: true },
+    );
+  }
+
+  // A new order is a step the reader can undo, so it pushes a history entry.
+  function updateSort(next: WorkItemDashboardSort) {
+    setSearchParams(
+      workItemDashboardSortSearch(
+        workItemDashboardFiltersSearch(filters),
+        next,
+      ),
     );
   }
 
   return (
     <main className="work-items-surface flex min-h-0 flex-1 flex-col overflow-hidden bg-app-surface">
       <header className="work-items-header shrink-0 border-b border-app-border px-5 py-3 sm:px-8">
-        <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl text-foreground">Dashboard</h1>
             <p className="mt-0.5 text-sm text-muted-foreground">
@@ -129,41 +299,188 @@ export function WorkItemsPage() {
                 : `${filteredItems.length} of ${items.length} items`}
             </p>
           </div>
-          {items.length ? (
-            <div
-              aria-label="Work Item filters"
-              className="w-[240px] max-w-full"
-              role="group"
-            >
-              <RoomFilter
-                onChange={setRoomFilter}
-                options={roomFilter.options}
-                value={roomId}
-              />
-            </div>
-          ) : null}
-        </div>
-      </header>
-
-      {items.length ? (
-        <div className="work-items-board workspace-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-hidden p-4 sm:p-5">
-          <div className="grid h-full min-w-[1180px] grid-cols-5 gap-3">
-            {dashboardColumns.map((column) => (
-              <WorkItemColumn
-                column={column}
-                focusedCardRef={focusedCardRef}
-                focusedWorkItemId={focusedWorkItemId}
-                items={filteredItems.filter(
-                  (item) => dashboardColumnFor(item) === column.id,
-                )}
-                key={column.id}
-                originRoomLabel={roomFilter.originLabel}
-                search={dashboardSearch}
-                tenantId={tenantId}
-              />
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <WorkItemBoardCsvAction
+              csv={boardCsv}
+              disabled={!filteredItems.length}
+            />
+            <WorkItemBoardCopyAction markdown={boardMarkdown} />
+            <WorkItemBoardViewLinkAction
+              filters={filters}
+              sort={sort}
+              tenantId={tenantId}
+            />
+            <WorkItemCreateAction rooms={rooms.items} tenantId={tenantId} />
           </div>
         </div>
+        {showFilterBar ? (
+          <div
+            aria-label="Work Item filters"
+            className="mt-3 flex flex-wrap items-center gap-2"
+            role="group"
+          >
+            <label className="select-pill w-52 cursor-text pr-1.5 focus-within:ring-2 focus-within:ring-app-focus">
+              <Icon icon={Search01Icon} size={14} />
+              <input
+                aria-label="Filter by title"
+                className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+                onChange={(event) =>
+                  updateFilters({ ...filters, text: event.target.value })
+                }
+                placeholder="Filter by title"
+                role="searchbox"
+                type="text"
+                value={filters.text}
+              />
+              {filters.text ? (
+                <button
+                  aria-label="Clear title filter"
+                  className="flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                  onClick={() => updateFilters({ ...filters, text: "" })}
+                  type="button"
+                >
+                  <Icon icon={Cancel01Icon} size={12} />
+                </button>
+              ) : null}
+            </label>
+            <Select
+              aria-label="Room"
+              onValueChange={(room) => updateFilters({ ...filters, room })}
+              value={filters.room}
+              variant="pill"
+            >
+              <SelectItem value="">All rooms</SelectItem>
+              {roomFilter.options.map((option) => (
+                <SelectItem key={option.id} value={option.id}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </Select>
+            <Select
+              aria-label="Priority"
+              onValueChange={(priority) =>
+                updateFilters({
+                  ...filters,
+                  priority: priority as WorkItemDashboardPriority | "",
+                })
+              }
+              value={filters.priority}
+              variant="pill"
+            >
+              <SelectItem value="">All priorities</SelectItem>
+              {WORK_ITEM_DASHBOARD_PRIORITIES.map((priority) => (
+                <SelectItem key={priority} value={priority}>
+                  {WORK_ITEM_DASHBOARD_PRIORITY_LABELS[priority]}
+                </SelectItem>
+              ))}
+            </Select>
+            <Select
+              aria-label="Assignment"
+              onValueChange={(assignment) =>
+                updateFilters({
+                  ...filters,
+                  assignment: assignment as WorkItemDashboardAssignment,
+                })
+              }
+              value={filters.assignment}
+              variant="pill"
+            >
+              {WORK_ITEM_DASHBOARD_ASSIGNMENTS.map((assignment) => (
+                <SelectItem key={assignment} value={assignment}>
+                  {assignmentLabels[assignment]}
+                </SelectItem>
+              ))}
+            </Select>
+            <Select
+              aria-label="Execution"
+              onValueChange={(execution) =>
+                updateFilters({
+                  ...filters,
+                  execution: execution as WorkItemDashboardExecutionStatus | "",
+                })
+              }
+              value={filters.execution}
+              variant="pill"
+            >
+              <SelectItem value="">All execution states</SelectItem>
+              {WORK_ITEM_DASHBOARD_EXECUTION_STATUSES.map((execution) => (
+                <SelectItem key={execution} value={execution}>
+                  {executionLabels[execution]}
+                </SelectItem>
+              ))}
+            </Select>
+            <button
+              aria-pressed={filters.archived}
+              className="select-pill"
+              onClick={() =>
+                updateFilters({ ...filters, archived: !filters.archived })
+              }
+              type="button"
+            >
+              Archived
+            </button>
+            {showClearFilters ? (
+              <button
+                className="select-pill"
+                onClick={() =>
+                  updateFilters(clearWorkItemDashboardFilters(filters))
+                }
+                type="button"
+              >
+                Clear filters
+              </button>
+            ) : null}
+            <Select
+              aria-label="Sort"
+              onValueChange={(value) =>
+                updateSort(createWorkItemDashboardSort(value))
+              }
+              value={sort}
+              variant="pill"
+            >
+              {WORK_ITEM_DASHBOARD_SORTS.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {sortLabels[option]}
+                </SelectItem>
+              ))}
+            </Select>
+          </div>
+        ) : null}
+      </header>
+
+      {textHidesBoard ? (
+        <section
+          aria-label="No matching Work Items"
+          className="flex min-h-0 flex-1 items-center justify-center px-6 py-12 text-center"
+        >
+          <div>
+            <h2 className="text-sm font-semibold text-app-ink">
+              No Work Items match
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Only Work Item titles are searched.
+            </p>
+            <Button
+              className="mt-4"
+              onClick={() => updateFilters({ ...filters, text: "" })}
+              size="compact"
+              tone="secondary"
+            >
+              Clear filter
+            </Button>
+          </div>
+        </section>
+      ) : items.length || showFilterBar ? (
+        <WorkItemBoard
+          focusedCardRef={focusedCardRef}
+          focusedWorkItemId={focusedWorkItemId}
+          onDuplicate={setDuplicateItem}
+          onPeek={openPeek}
+          originRoomLabel={roomFilter.originLabel}
+          search={dashboardSearch}
+          sections={boardSections}
+          tenantId={tenantId}
+        />
       ) : (
         <section className="flex min-h-0 flex-1 items-center justify-center px-6 py-12 text-center">
           <div>
@@ -176,7 +493,234 @@ export function WorkItemsPage() {
           </div>
         </section>
       )}
+
+      {peekWorkItem ? (
+        <WorkItemPeek
+          key={peekWorkItem.id}
+          onClose={() => setPeekWorkItem(undefined)}
+          search={dashboardSearch}
+          tenantId={tenantId}
+          workItem={peekWorkItem}
+        />
+      ) : null}
+      {duplicateItem ? (
+        <WorkItemCreateDialog
+          initial={workItemDuplicateDraft(duplicateItem)}
+          key={duplicateItem.id}
+          onClose={() => setDuplicateItem(undefined)}
+          rooms={rooms.items}
+          tenantId={tenantId}
+        />
+      ) : null}
     </main>
+  );
+}
+
+/** The rendered card for a Work Item, wherever its column currently is. */
+function cardForWorkItem(workItemId: string) {
+  for (const card of document.querySelectorAll<HTMLAnchorElement>(
+    "[data-work-item-id]",
+  )) {
+    if (card.dataset.workItemId === workItemId) return card;
+  }
+  return null;
+}
+
+/**
+ * The board's columns plus the keyboard focus ring. The ring is board state
+ * rather than DOM focus, so it survives re-renders, Escape can drop it without
+ * moving the page, and typing elsewhere never inherits it.
+ */
+function WorkItemBoard({
+  focusedCardRef,
+  focusedWorkItemId,
+  onDuplicate,
+  onPeek,
+  originRoomLabel,
+  search,
+  sections,
+  tenantId,
+}: {
+  focusedCardRef: RefCallback<HTMLAnchorElement>;
+  focusedWorkItemId?: string;
+  onDuplicate: (item: TeamHubWorkItem) => void;
+  onPeek: (item: TeamHubWorkItem, card: HTMLAnchorElement) => void;
+  originRoomLabel: (item: TeamHubWorkItem) => string;
+  search: string;
+  sections: BoardSection[];
+  tenantId: string;
+}) {
+  const [closedExpanded, setClosedExpanded] = useState(true);
+  const [keyboardFocusId, setKeyboardFocusId] = useState<string>();
+  // A collapsed column shows no cards, so its Items leave the move order too.
+  const shownItems = sections.flatMap(({ column, items }) =>
+    column.id === "closed" && !closedExpanded ? [] : items,
+  );
+  const selection = useWorkItemSelection({ items: shownItems, tenantId });
+  const hasSelection = selection.count > 0;
+  // Display order and the visible set both come from the cards the board drew.
+  const selectedItems = shownItems.filter((item) =>
+    selection.isSelected(item.id),
+  );
+  const orderedIdsKey = shownItems.map((item) => item.id).join("\n");
+  const orderedIds = useMemo(
+    () => (orderedIdsKey ? orderedIdsKey.split("\n") : []),
+    [orderedIdsKey],
+  );
+  // A filter that hides the marked card leaves no stale ring on another one.
+  useEffect(() => {
+    setKeyboardFocusId((current) =>
+      current !== undefined && !orderedIds.includes(current)
+        ? undefined
+        : current,
+    );
+  }, [orderedIds]);
+  // The nearest card position, so a move scrolls the column and never the page.
+  useLayoutEffect(() => {
+    if (keyboardFocusId === undefined) return;
+    cardForWorkItem(keyboardFocusId)?.scrollIntoView?.({
+      block: "nearest",
+      inline: "nearest",
+    });
+  }, [keyboardFocusId]);
+
+  const handleBoardKey = useEffectEvent((event: KeyboardEvent) => {
+    const move = workItemBoardMoveForKey(event.key);
+    if (move) {
+      event.preventDefault();
+      const nextId = nextWorkItemCardId(orderedIds, keyboardFocusId, move);
+      if (nextId !== undefined) setKeyboardFocusId(nextId);
+      return;
+    }
+    if (event.key === "Escape" && keyboardFocusId !== undefined) {
+      event.preventDefault();
+      setKeyboardFocusId(undefined);
+      return;
+    }
+    if (event.key !== "Enter" || keyboardFocusId === undefined) return;
+    // A link or button keeps its own Enter, so the ring never steals the key
+    // from the control the person actually focused.
+    if (
+      event.target instanceof Element &&
+      event.target.closest(
+        "a, button, summary, [role='button'], [role='menuitem']",
+      )
+    ) {
+      return;
+    }
+    const item = shownItems.find(
+      (candidate) => candidate.id === keyboardFocusId,
+    );
+    const card = cardForWorkItem(keyboardFocusId);
+    if (!item || !card) return;
+    // The marked card, not whichever card happens to hold DOM focus.
+    event.preventDefault();
+    onPeek(item, card);
+  });
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (!isShortcutKeyEvent(event)) return;
+      handleBoardKey(event);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  return (
+    <>
+      {shownItems.length > 0 || selection.outcome ? (
+        <div
+          aria-label="Work Item selection"
+          className="flex shrink-0 flex-wrap items-center gap-2 border-b border-app-border px-4 py-2 text-sm sm:px-5"
+          role="group"
+        >
+          {hasSelection ? (
+            <span className="text-app-body">{selection.count} selected</span>
+          ) : null}
+          {shownItems.length > 0 ? (
+            <Button
+              disabled={selection.pending}
+              onClick={
+                selection.allSelected
+                  ? selection.deselectAll
+                  : selection.selectAll
+              }
+              size="compact"
+              title={
+                selection.allSelected
+                  ? "Clear the selection"
+                  : "Select every card the board shows"
+              }
+              tone="secondary"
+            >
+              {selection.allSelected ? "Deselect all" : "Select all"}
+            </Button>
+          ) : null}
+          {shownItems.length > 0 ? (
+            <WorkItemSelectionCopyLinks
+              disabled={!hasSelection || selection.pending}
+              items={selectedItems}
+              tenantId={tenantId}
+            />
+          ) : null}
+          {hasSelection ? (
+            <Button
+              loading={selection.pending}
+              onClick={() => void selection.archive()}
+              size="compact"
+              tone="secondary"
+            >
+              Archive
+            </Button>
+          ) : null}
+          {hasSelection ? (
+            <Button
+              disabled={selection.pending}
+              onClick={selection.clear}
+              size="compact"
+              tone="ghost"
+            >
+              Clear
+            </Button>
+          ) : null}
+          {selection.outcome ? (
+            <p
+              className={
+                selection.outcome.failed ? "text-app-danger" : "text-app-muted"
+              }
+              role={selection.outcome.failed ? "alert" : "status"}
+            >
+              {selection.outcome.message}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      <div className="work-items-board workspace-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-hidden p-4 sm:p-5">
+        <div className="grid h-full min-w-[1180px] grid-cols-5 gap-3">
+          {sections.map(({ column, items }) => (
+            <WorkItemColumn
+              closedExpanded={closedExpanded}
+              column={column}
+              focusedCardRef={focusedCardRef}
+              focusedWorkItemId={focusedWorkItemId}
+              isSelected={selection.isSelected}
+              items={items}
+              key={column.id}
+              keyboardFocusId={keyboardFocusId}
+              onDuplicate={onDuplicate}
+              onPeek={onPeek}
+              onToggleClosed={() => setClosedExpanded((expanded) => !expanded)}
+              onToggleSelected={selection.toggle}
+              originRoomLabel={originRoomLabel}
+              search={search}
+              selectionActive={hasSelection}
+              tenantId={tenantId}
+            />
+          ))}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -191,6 +735,33 @@ function mergeFocusedWorkItem(
   return items.map((item, index) =>
     index === focusedIndex ? focusedItem : item,
   );
+}
+
+/** The filters in force, named the way the header names them. */
+function activeFilterLabels(
+  filters: WorkItemDashboardFilters,
+  roomOptions: readonly { id: string; label: string }[],
+) {
+  const labels: string[] = [];
+  if (filters.room) {
+    labels.push(
+      `Room ${roomOptions.find((option) => option.id === filters.room)?.label ?? filters.room}`,
+    );
+  }
+  if (filters.priority) {
+    labels.push(
+      `Priority ${WORK_ITEM_DASHBOARD_PRIORITY_LABELS[filters.priority]}`,
+    );
+  }
+  if (filters.assignment !== "all") {
+    labels.push(`Assignment ${assignmentLabels[filters.assignment]}`);
+  }
+  if (filters.execution) {
+    labels.push(`Execution ${executionLabels[filters.execution]}`);
+  }
+  if (filters.text.trim()) labels.push(`Title “${filters.text.trim()}”`);
+  if (filters.archived) labels.push("Archived");
+  return labels;
 }
 
 function itemCount(count: number) {
@@ -232,53 +803,41 @@ function WorkItemsError({
   );
 }
 
-function RoomFilter({
-  onChange,
-  options,
-  value,
-}: {
-  onChange: (value: string) => void;
-  options: Array<{ id: string; label: string }>;
-  value: string;
-}) {
-  return (
-    <label className="grid min-w-0 gap-1 text-xs font-medium text-muted-foreground">
-      Room
-      <Select
-        aria-label="Room"
-        className="h-8 w-full min-w-0 rounded-md border border-border bg-card px-2 text-sm text-foreground outline-none transition-colors hover:border-border-hover focus-visible:border-foreground focus-visible:ring-2 focus-visible:ring-ring"
-        onValueChange={onChange}
-        value={value}
-      >
-        <SelectItem value="">All rooms</SelectItem>
-        {options.map((option) => (
-          <SelectItem key={option.id} value={option.id}>
-            {option.label}
-          </SelectItem>
-        ))}
-      </Select>
-    </label>
-  );
-}
-
 function WorkItemColumn({
+  closedExpanded,
   column,
   focusedCardRef,
   focusedWorkItemId,
+  isSelected,
   items,
+  keyboardFocusId,
+  onDuplicate,
+  onPeek,
+  onToggleClosed,
+  onToggleSelected,
   originRoomLabel,
   search,
+  selectionActive,
   tenantId,
 }: {
+  closedExpanded: boolean;
   column: DashboardColumn;
   focusedCardRef: RefCallback<HTMLAnchorElement>;
   focusedWorkItemId?: string;
+  isSelected: (workItemId: string) => boolean;
   items: TeamHubWorkItem[];
+  /** The card the board's keys marked, which scrolls and Enter opens. */
+  keyboardFocusId?: string;
+  onDuplicate: (item: TeamHubWorkItem) => void;
+  onPeek: (item: TeamHubWorkItem, card: HTMLAnchorElement) => void;
+  onToggleClosed: () => void;
+  onToggleSelected: (workItemId: string) => void;
   originRoomLabel: (item: TeamHubWorkItem) => string;
   search: string;
+  /** Whether any card is selected, which keeps every checkbox in view. */
+  selectionActive: boolean;
   tenantId: string;
 }) {
-  const [closedExpanded, setClosedExpanded] = useState(true);
   const isClosed = column.id === "closed";
 
   return (
@@ -300,7 +859,7 @@ function WorkItemColumn({
             aria-controls="work-item-column-closed-items"
             aria-expanded={closedExpanded}
             aria-label={closedExpanded ? "Collapse closed" : "Expand closed"}
-            onClick={() => setClosedExpanded((expanded) => !expanded)}
+            onClick={onToggleClosed}
             size="compactIcon"
             title={closedExpanded ? "Collapse closed" : "Expand closed"}
             tone="ghost"
@@ -319,12 +878,30 @@ function WorkItemColumn({
           id={isClosed ? "work-item-column-closed-items" : undefined}
         >
           {items.map((item) => (
-            <li key={item.id}>
+            <li className="group/card relative" key={item.id}>
               <Link
                 aria-current={
                   item.id === focusedWorkItemId ? "location" : undefined
                 }
-                className="work-item-card block px-3 py-2.5 text-app-ink outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                className="work-item-card block py-2.5 pl-3 pr-9 text-app-ink outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                data-keyboard-focus={
+                  item.id === keyboardFocusId ? "true" : undefined
+                }
+                data-work-item-id={item.id}
+                onClick={(event) => {
+                  // A plain click peeks at the Item; keyboard activation does
+                  // the same. Modified clicks keep the full page for a new tab.
+                  if (
+                    event.button !== 0 ||
+                    event.metaKey ||
+                    event.ctrlKey ||
+                    event.shiftKey ||
+                    event.altKey
+                  )
+                    return;
+                  event.preventDefault();
+                  onPeek(item, event.currentTarget);
+                }}
                 ref={item.id === focusedWorkItemId ? focusedCardRef : undefined}
                 to={{
                   pathname: dashboardWorkItemPath(tenantId, item.id),
@@ -397,6 +974,29 @@ function WorkItemColumn({
                   </span>
                 </span>
               </Link>
+              <span
+                className={cn(
+                  "absolute right-2.5 top-9",
+                  selectionActive
+                    ? "opacity-100"
+                    : "pointer-events-none opacity-0 transition-opacity group-focus-within/card:pointer-events-auto group-focus-within/card:opacity-100 group-hover/card:pointer-events-auto group-hover/card:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100",
+                )}
+              >
+                <input
+                  aria-label={`Select ${item.title}`}
+                  checked={isSelected(item.id)}
+                  className="size-4 cursor-pointer accent-primary"
+                  onChange={() => onToggleSelected(item.id)}
+                  type="checkbox"
+                />
+              </span>
+              <span className="pointer-events-none absolute right-1.5 top-1.5 opacity-0 transition-opacity group-focus-within/card:pointer-events-auto group-focus-within/card:opacity-100 group-hover/card:pointer-events-auto group-hover/card:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
+                <WorkItemCardMenu
+                  item={item}
+                  onDuplicate={onDuplicate}
+                  tenantId={tenantId}
+                />
+              </span>
             </li>
           ))}
         </ul>

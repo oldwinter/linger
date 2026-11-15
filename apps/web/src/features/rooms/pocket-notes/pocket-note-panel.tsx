@@ -1,14 +1,20 @@
 import {
   ArrowLeft01Icon,
+  ArrowUp01Icon,
   Cancel01Icon,
+  Copy01Icon,
   Delete02Icon,
+  Download01Icon,
   GridViewIcon,
   Mic01Icon,
+  Search01Icon,
   StopIcon,
 } from "@hugeicons/core-free-icons";
 import { MessageMarkdown } from "../chat/message-markdown";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
+import { HighlightedText } from "@/features/search/search-highlight";
 import { spokenSeparator } from "../chat/voice-mode/spoken-text";
+import { triggerArtifactDownload } from "../files/artifact-preview-loader";
 import { Icon } from "@/components/ui/icon";
 import {
   useInfiniteQuery,
@@ -32,23 +38,42 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubPocketNote } from "@/features/teamhub/teamhub-types";
 
 import { Button } from "@/components/ui/button";
+import { writeClipboardText } from "@/lib/clipboard";
+import { cn } from "@/lib/cn";
 
 import {
   pocketNotesQueryOptions,
   removePocketNote,
   storeTodayPocketNote,
 } from "./pocket-note-queries";
+import {
+  POCKET_NOTES_FILENAME,
+  pocketNoteFilename,
+  pocketNoteMarkdown,
+  pocketNotesMarkdown,
+} from "./pocket-notes-export";
 import { LazyVoiceKeyDialog } from "@/features/rooms/voice-control/lazy-voice-key-dialog";
+import { appendToPocketNote } from "./pocket-note-append";
+import { pocketNoteCopyText } from "./pocket-note-copy";
+import { groupPocketNotesByMonth } from "./pocket-note-months";
+import { todayNoteOutOfView } from "./pocket-note-today-jump";
 import { usePocketDictation } from "./use-pocket-dictation";
 import {
   PocketNoteEditor,
   type PocketNoteEditorHandle,
 } from "./pocket-note-editor";
+import { searchPocketNotes } from "./pocket-note-search";
 
 const autosaveDelayMs = 800;
+/** Long enough to read, matching the other copy actions. */
+const copiedFeedbackMs = 1200;
+/** Long enough for the eye to find today's card, short enough to forget. */
+const todayMarkMs = 1200;
 const maximumNoteLength = 20000;
 const panelWidth = 360;
 const panelGap = 12;
+const noteActionClass =
+  "flex size-6 items-center justify-center rounded-md text-app-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus disabled:pointer-events-none disabled:opacity-40";
 
 type PocketNoteView =
   | { kind: "today" }
@@ -136,6 +161,54 @@ export default function PocketNotePanel({
   const items = notes.data?.pages.flatMap((page) => page.items) ?? [];
   const today = firstPage?.today;
   const todayNote = items.find((item) => item.date === today);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadFailed, setDownloadFailed] = useState(false);
+
+  /**
+   * Loads every page still on the server before writing the file, so the
+   * download holds all of the person's notes. A page that fails to load saves
+   * nothing.
+   */
+  async function downloadAll() {
+    setDownloadFailed(false);
+    setDownloading(true);
+    try {
+      let result = await notes.fetchNextPage();
+      while (!result.isError && result.hasNextPage) {
+        result = await notes.fetchNextPage();
+      }
+      if (result.isError) throw result.error;
+      const pages = result.data?.pages.flatMap((page) => page.items) ?? [];
+      triggerArtifactDownload(
+        new Blob([pocketNotesMarkdown(pages)], {
+          type: "text/markdown;charset=utf-8",
+        }),
+        POCKET_NOTES_FILENAME,
+      );
+    } catch {
+      setDownloadFailed(true);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  /**
+   * Saves one page on its own, formatted exactly as the all-notes file writes
+   * it. The page is already loaded, so this reads no more of the list.
+   */
+  function downloadNote(note: TeamHubPocketNote) {
+    setDownloadFailed(false);
+    try {
+      triggerArtifactDownload(
+        new Blob([pocketNoteMarkdown(note)], {
+          type: "text/markdown;charset=utf-8",
+        }),
+        pocketNoteFilename(note.date),
+      );
+    } catch {
+      setDownloadFailed(true);
+    }
+  }
 
   return createPortal(
     <div
@@ -151,10 +224,14 @@ export default function PocketNotePanel({
         </p>
       ) : view.kind === "all" ? (
         <AllPocketNotes
+          downloadFailed={downloadFailed}
+          downloading={downloading}
           hasMore={notes.hasNextPage}
           items={items}
           loadingMore={notes.isFetchingNextPage}
           onClose={onClose}
+          onDownloadAll={() => void downloadAll()}
+          onDownloadNote={downloadNote}
           onLoadMore={() => void notes.fetchNextPage()}
           onOpen={(note) =>
             setView(
@@ -168,10 +245,10 @@ export default function PocketNotePanel({
         <TodayPocketNote
           anotherMeRoomId={anotherMeRoomId}
           closeGuard={closeGuard}
-          initialText={todayNote?.text ?? ""}
           key={today}
           onClose={close}
           onShowAll={() => setView({ kind: "all" })}
+          storedText={todayNote?.text ?? ""}
           tenantId={tenantId}
           today={today}
         />
@@ -190,15 +267,16 @@ export default function PocketNotePanel({
 function TodayPocketNote({
   anotherMeRoomId,
   closeGuard,
-  initialText,
   onClose,
   onShowAll,
+  storedText,
   tenantId,
   today,
 }: {
   anotherMeRoomId?: string;
   closeGuard: RefObject<CloseGuard | undefined>;
-  initialText: string;
+  /** Today's saved text, which a save from elsewhere can change underneath. */
+  storedText: string;
   onClose: () => void;
   onShowAll: () => void;
   tenantId: string;
@@ -206,10 +284,11 @@ function TodayPocketNote({
 }) {
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
-  const [text, setText] = useState(initialText);
-  const textRef = useRef(initialText);
-  const savedText = useRef(initialText);
-  const pendingText = useRef(initialText);
+  const [text, setText] = useState(storedText);
+  const textRef = useRef(storedText);
+  const savedText = useRef(storedText);
+  const pendingText = useRef(storedText);
+  const storedRef = useRef(storedText);
   const editorRef = useRef<PocketNoteEditorHandle>(null);
   const liveRef = useRef<HTMLSpanElement>(null);
   const anchor = useRef(0);
@@ -226,6 +305,7 @@ function TodayPocketNote({
       ),
     onSuccess: (note) => {
       savedText.current = note.text;
+      storedRef.current = note.text;
       storeTodayPocketNote(queryClient, tenantId, note);
     },
   });
@@ -293,6 +373,30 @@ function TodayPocketNote({
       closeGuard.current = undefined;
     };
   });
+
+  // A save from the Message menu writes the same page. With nothing unsaved
+  // the editor takes the new text; with a draft it keeps the person's words and
+  // gains only the appended block, so the next autosave carries both.
+  useEffect(() => {
+    if (storedText === storedRef.current) return;
+    const previous = storedRef.current;
+    storedRef.current = storedText;
+    if (textRef.current === savedText.current) {
+      savedText.current = storedText;
+      pendingText.current = storedText;
+      textRef.current = storedText;
+      setText(storedText);
+      return;
+    }
+    if (!storedText.startsWith(previous)) return;
+    const merged = appendToPocketNote(
+      textRef.current,
+      storedText.slice(previous.length),
+    );
+    textRef.current = merged;
+    pendingText.current = merged;
+    setText(merged);
+  }, [storedText]);
 
   useEffect(() => {
     pendingText.current = text;
@@ -370,6 +474,7 @@ function TodayPocketNote({
   return (
     <>
       <PocketNoteHeader
+        action={<PocketNoteCopyAction text={text} />}
         leading={
           <HeaderButton label="All notes" onClick={onShowAll}>
             <Icon icon={GridViewIcon} size={16} />
@@ -506,19 +611,27 @@ function PastPocketNote({
 }
 
 function AllPocketNotes({
+  downloadFailed,
+  downloading,
   hasMore,
   items,
   loadingMore,
   onClose,
+  onDownloadAll,
+  onDownloadNote,
   onLoadMore,
   onOpen,
   tenantId,
   today,
 }: {
+  downloadFailed: boolean;
+  downloading: boolean;
   hasMore: boolean;
   items: TeamHubPocketNote[];
   loadingMore: boolean;
   onClose: () => void;
+  onDownloadAll: () => void;
+  onDownloadNote: (note: TeamHubPocketNote) => void;
   onLoadMore: () => void;
   onOpen: (note: TeamHubPocketNote) => void;
   tenantId: string;
@@ -541,87 +654,255 @@ function AllPocketNotes({
       setConfirming(undefined);
     },
   });
+  const [query, setQuery] = useState("");
   const cards = items.some((item) => item.date === today)
     ? items
     : [{ date: today, text: "", updated_at: "" }, ...items];
+  const search = searchPocketNotes(cards, query);
+
+  const listRef = useRef<HTMLDivElement>(null);
+  const todayCardRef = useRef<HTMLLIElement>(null);
+  const [jumpOffered, setJumpOffered] = useState(false);
+  const [todayMarked, setTodayMarked] = useState(false);
+  const markTimer = useRef<number | undefined>(undefined);
+  // Today's page is only worth jumping to once it has been written; the list
+  // still shows an empty Today card before that.
+  const hasTodayNote = items.some((item) => item.date === today);
+
+  const measureJump = useEffectEvent(() => {
+    setJumpOffered(
+      hasTodayNote &&
+        todayNoteOutOfView(
+          listRef.current?.getBoundingClientRect(),
+          todayCardRef.current?.getBoundingClientRect(),
+        ),
+    );
+  });
+
+  // The card moves as pages load and as the search filters, not only on
+  // scroll, so the offer follows each render of the list.
+  useLayoutEffect(() => {
+    measureJump();
+  }, [hasTodayNote, items, query]);
+
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const onScroll = () => measureJump();
+    list.addEventListener("scroll", onScroll, { passive: true });
+    return () => list.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => () => window.clearTimeout(markTimer.current), []);
+
+  /**
+   * Brings today's page back into the list's view without touching the search,
+   * the open page, or the stored notes; the card is marked just long enough to
+   * be found.
+   */
+  function jumpToToday() {
+    const card = todayCardRef.current;
+    if (!card) return;
+    card.scrollIntoView({ block: "nearest" });
+    setJumpOffered(false);
+    setTodayMarked(true);
+    window.clearTimeout(markTimer.current);
+    markTimer.current = window.setTimeout(
+      () => setTodayMarked(false),
+      todayMarkMs,
+    );
+  }
+
   return (
     <>
       <PocketNoteHeader
+        action={
+          <>
+            {jumpOffered ? (
+              <HeaderButton label="Jump to today" onClick={jumpToToday}>
+                <Icon icon={ArrowUp01Icon} size={16} />
+              </HeaderButton>
+            ) : null}
+            {items.length > 0 ? (
+              <HeaderButton
+                disabled={downloading || loadingMore}
+                label="Download all"
+                onClick={onDownloadAll}
+              >
+                <Icon icon={Download01Icon} size={16} />
+              </HeaderButton>
+            ) : null}
+          </>
+        }
         onClose={onClose}
         subtitle={`${items.length}${hasMore ? "+" : ""} ${items.length === 1 && !hasMore ? "page" : "pages"}`}
         title="All notes"
       />
-      <div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-        <ul className="grid grid-cols-2 gap-2.5">
-          {cards.map((note) => {
-            const label =
-              note.date === today ? "Today" : formatPocketNoteDate(note.date);
-            return (
-              <li className="group relative" key={note.date}>
-                <button
-                  className="flex h-[118px] w-full flex-col rounded-xl border border-border bg-card p-3 text-left transition-colors hover:border-border-hover hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
-                  onClick={() => onOpen(note)}
-                  type="button"
-                >
-                  <span className="pr-6 text-xs font-medium text-app-ink">
-                    {label}
-                  </span>
-                  <span className="mt-1.5 line-clamp-4 whitespace-pre-wrap break-words text-xs leading-[18px] text-app-muted">
-                    {markdownPlainText(note.text) || "Nothing written yet"}
-                  </span>
-                </button>
-                {note.date === today ? null : confirming === note.date ? (
-                  <div
-                    aria-label={`Delete ${label}?`}
-                    className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-card/95 p-3"
-                    role="alertdialog"
-                  >
-                    <p
-                      className={`text-center text-xs ${remove.isError ? "text-app-danger" : "text-app-ink"}`}
-                    >
-                      {remove.isError
-                        ? "Couldn’t delete. Try again."
-                        : "Delete this note?"}
-                    </p>
-                    <div className="flex gap-1.5">
-                      <Button
-                        onClick={() => {
-                          remove.reset();
-                          setConfirming(undefined);
-                        }}
-                        size="compact"
-                        tone="ghost"
+      {downloadFailed ? (
+        <p className="shrink-0 px-4 pb-2 text-xs text-app-danger" role="alert">
+          Couldn’t download notes. Try again.
+        </p>
+      ) : null}
+      <label className="mx-4 mb-2 flex h-8 shrink-0 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground transition-colors hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring/40">
+        <Icon icon={Search01Icon} size={14} />
+        <input
+          aria-label="Search notes"
+          className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search by date or text"
+          role="searchbox"
+          type="text"
+          value={query}
+        />
+        {query ? (
+          <button
+            aria-label="Clear note search"
+            className="flex size-5 shrink-0 items-center justify-center rounded-full hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+            onClick={() => setQuery("")}
+            type="button"
+          >
+            <Icon icon={Cancel01Icon} size={12} />
+          </button>
+        ) : null}
+      </label>
+      <div
+        className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-4"
+        data-pocket-notes-scroll=""
+        ref={listRef}
+      >
+        {search.matched ? (
+          <div className="flex flex-col gap-3">
+            {groupPocketNotesByMonth(search.items).map((group, index) => (
+              <section aria-label={group.label} key={`${group.key}-${index}`}>
+                {/* In flow above its own cards, so a stuck heading never covers them. */}
+                <h2 className="sticky top-0 z-10 bg-popover py-1.5 text-xs font-medium text-app-muted">
+                  {group.label}
+                </h2>
+                <ul className="grid grid-cols-2 gap-2.5">
+                  {group.notes.map((note) => {
+                    const label =
+                      note.date === today
+                        ? "Today"
+                        : formatPocketNoteDate(note.date);
+                    const preview = markdownPlainText(note.text);
+                    return (
+                      <li
+                        className={cn(
+                          "group relative",
+                          note.date === today &&
+                            todayMarked &&
+                            "pocket-note-today-marked",
+                        )}
+                        data-pocket-note-today={
+                          note.date === today ? "" : undefined
+                        }
+                        key={note.date}
+                        ref={note.date === today ? todayCardRef : undefined}
                       >
-                        Cancel
-                      </Button>
-                      <Button
-                        loading={remove.isPending}
-                        onClick={() => remove.mutate(note.date)}
-                        size="compact"
-                        tone="danger"
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    aria-label={`Delete ${label}`}
-                    className="absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded-md text-app-muted opacity-0 transition-opacity hover:bg-accent hover:text-app-danger focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus group-hover:opacity-100 [@media(hover:none)]:opacity-100"
-                    onClick={() => {
-                      remove.reset();
-                      setConfirming(note.date);
-                    }}
-                    title="Delete note"
-                    type="button"
-                  >
-                    <Icon icon={Delete02Icon} size={14} />
-                  </button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+                        <button
+                          className="flex h-[118px] w-full flex-col rounded-xl border border-border bg-card p-3 text-left transition-colors hover:border-border-hover hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                          onClick={() => onOpen(note)}
+                          type="button"
+                        >
+                          <span className="pr-12 text-xs font-medium text-app-ink">
+                            {label}
+                          </span>
+                          <span className="mt-1.5 line-clamp-4 whitespace-pre-wrap break-words text-xs leading-[18px] text-app-muted">
+                            {preview ? (
+                              <HighlightedText query={query} text={preview} />
+                            ) : (
+                              "Nothing written yet"
+                            )}
+                          </span>
+                        </button>
+                        {note.date === today ? null : confirming ===
+                          note.date ? (
+                          <div
+                            aria-label={`Delete ${label}?`}
+                            className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-card/95 p-3"
+                            role="alertdialog"
+                          >
+                            <p
+                              className={`text-center text-xs ${remove.isError ? "text-app-danger" : "text-app-ink"}`}
+                            >
+                              {remove.isError
+                                ? "Couldn’t delete. Try again."
+                                : "Delete this note?"}
+                            </p>
+                            <div className="flex gap-1.5">
+                              <Button
+                                onClick={() => {
+                                  remove.reset();
+                                  setConfirming(undefined);
+                                }}
+                                size="compact"
+                                tone="ghost"
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                loading={remove.isPending}
+                                onClick={() => remove.mutate(note.date)}
+                                size="compact"
+                                tone="danger"
+                              >
+                                Delete
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
+                            <button
+                              aria-label={`Download ${label}`}
+                              className={cn(
+                                noteActionClass,
+                                "hover:bg-accent hover:text-app-ink",
+                              )}
+                              disabled={downloading}
+                              onClick={() => onDownloadNote(note)}
+                              title="Download note"
+                              type="button"
+                            >
+                              <Icon icon={Download01Icon} size={14} />
+                            </button>
+                            <button
+                              aria-label={`Delete ${label}`}
+                              className={cn(
+                                noteActionClass,
+                                "hover:bg-accent hover:text-app-danger",
+                              )}
+                              onClick={() => {
+                                remove.reset();
+                                setConfirming(note.date);
+                              }}
+                              title="Delete note"
+                              type="button"
+                            >
+                              <Icon icon={Delete02Icon} size={14} />
+                            </button>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-2 px-2 py-8 text-center">
+            <p className="text-xs text-app-muted">
+              No notes match “{query.trim()}”.
+            </p>
+            <Button
+              onClick={() => setQuery("")}
+              size="compact"
+              tone="secondary"
+            >
+              Clear search
+            </Button>
+          </div>
+        )}
         {hasMore ? (
           <button
             className="mt-3 w-full rounded-full py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
@@ -638,11 +919,13 @@ function AllPocketNotes({
 }
 
 function PocketNoteHeader({
+  action,
   leading,
   onClose,
   subtitle,
   title,
 }: {
+  action?: ReactNode;
   leading?: ReactNode;
   onClose: () => void;
   subtitle: string;
@@ -657,6 +940,7 @@ function PocketNoteHeader({
         </p>
         <p className="truncate text-xs leading-4 text-app-muted">{subtitle}</p>
       </div>
+      {action}
       <HeaderButton label="Close notes" onClick={onClose}>
         <Icon icon={Cancel01Icon} size={16} />
       </HeaderButton>
@@ -666,23 +950,72 @@ function PocketNoteHeader({
 
 function HeaderButton({
   children,
+  disabled,
   label,
   onClick,
 }: {
   children: ReactNode;
+  disabled?: boolean;
   label: string;
   onClick: () => void;
 }) {
   return (
     <button
       aria-label={label}
-      className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+      className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus disabled:pointer-events-none disabled:opacity-40"
+      disabled={disabled}
       onClick={onClick}
       title={label}
       type="button"
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * Copies today's page as the person sees it and reports the clipboard's answer,
+ * so a refused write never reads as success. Nothing is saved or requested.
+ */
+function PocketNoteCopyAction({ text }: { text: string }) {
+  const value = pocketNoteCopyText(text);
+  const [failed, setFailed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const resetTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => () => window.clearTimeout(resetTimer.current), []);
+
+  function copy() {
+    window.clearTimeout(resetTimer.current);
+    setFailed(false);
+    setCopied(false);
+    void writeClipboardText(value)
+      .then(() => {
+        setCopied(true);
+        resetTimer.current = window.setTimeout(
+          () => setCopied(false),
+          copiedFeedbackMs,
+        );
+      })
+      .catch(() => setFailed(true));
+  }
+
+  return (
+    <>
+      {copied ? (
+        <span className="text-xs leading-4 text-app-muted" role="status">
+          Copied
+        </span>
+      ) : null}
+      {failed ? (
+        <span className="text-xs leading-4 text-app-danger" role="alert">
+          Copy failed
+        </span>
+      ) : null}
+      <HeaderButton disabled={!value} label="Copy note" onClick={copy}>
+        <Icon icon={Copy01Icon} size={16} />
+      </HeaderButton>
+    </>
   );
 }
 

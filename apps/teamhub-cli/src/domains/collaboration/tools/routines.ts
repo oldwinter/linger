@@ -144,6 +144,11 @@ export const routineSchema = z
       .string()
       .optional()
       .describe("Tracking Item this Routine serves, when it serves one."),
+    revision: z
+      .number()
+      .int()
+      .min(1)
+      .describe("Current revision, sent as expected_revision to update."),
   })
   .strict()
   .describe("One Routine in the current room.");
@@ -188,6 +193,57 @@ export const createRoutineInputSchema = z
 
 export const createRoutineOutputSchema = routineSchema;
 
+export const updateRoutineInputSchema = z
+  .object({
+    routine_id: teamHubIdSchema.describe(
+      "Id of the Routine to change, from list_routines.",
+    ),
+    expected_revision: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe(
+        "Revision from list_routines. Resolved automatically when omitted; a stale value is a conflict.",
+      ),
+    name: z.string().min(1).max(120).optional().describe("New Routine name."),
+    instruction: z
+      .string()
+      .min(1)
+      .max(50_000)
+      .optional()
+      .describe("New message posted in this room when the Routine fires."),
+    mention_actor_id: z
+      .union([
+        teamHubIdSchema,
+        z.null().describe("Clear the mention so the Routine posts plain text."),
+      ])
+      .optional()
+      .describe(
+        'Omit to keep the mention, null to clear it, "self" to wake yourself, or the actor id of an Agent still in this room.',
+      ),
+    schedule: routineScheduleSchema
+      .optional()
+      .describe("New schedule. Omit to keep the current one."),
+    enabled: z
+      .boolean()
+      .optional()
+      .describe("Whether the Routine will post on schedule."),
+  })
+  .strict()
+  .refine(
+    (input) =>
+      [
+        input.name,
+        input.instruction,
+        input.mention_actor_id,
+        input.schedule,
+        input.enabled,
+      ].some((value) => value !== undefined),
+    "Provide at least one field to change.",
+  )
+  .describe("Fields to change on an existing Routine; omitted fields stay.");
+
 const routineIdInputSchema = z
   .object({
     routine_id: teamHubIdSchema.describe(
@@ -227,6 +283,11 @@ export const deleteRoutineOutputSchema = z
 export const createRoutineSchema = {
   input: createRoutineInputSchema,
   output: createRoutineOutputSchema,
+};
+
+export const updateRoutineSchema = {
+  input: updateRoutineInputSchema,
+  output: routineSchema,
 };
 
 export const listRoutinesSchema = {

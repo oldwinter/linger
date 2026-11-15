@@ -45,7 +45,24 @@ import {
 } from "./chat/voice-mode/voice-ui-bridge";
 import { useOptionalVoiceControl } from "./voice-control/voice-control-context";
 
-afterEach(() => vi.restoreAllMocks());
+const mentionNotification = vi.hoisted(() => ({
+  open: undefined as ((roomId: string, messageId?: string) => void) | undefined,
+}));
+
+vi.mock("./room-mention-notifications", () => ({
+  useRoomMentionNotifications: ({
+    open,
+  }: {
+    open: (roomId: string, messageId?: string) => void;
+  }) => {
+    mentionNotification.open = open;
+  },
+}));
+
+afterEach(() => {
+  mentionNotification.open = undefined;
+  vi.restoreAllMocks();
+});
 
 describe("Room shell Account menu", () => {
   it.each(["listRooms", "getAnotherMe"] as const)(
@@ -163,6 +180,10 @@ describe("Room shell Account menu", () => {
       name: "Search messages, docs, people, agents and rooms",
     });
     expect(input).toBeVisible();
+    // The shortcut stays Tenant-wide: no Room or Thread chip narrows it.
+    expect(
+      within(dialog).queryByRole("button", { name: /Remove .* scope/ }),
+    ).toBeNull();
     fireEvent.keyDown(input, { key: "Escape" });
     await waitFor(() =>
       expect(
@@ -172,6 +193,18 @@ describe("Room shell Account menu", () => {
     fireEvent.click(await shellControl("Search"));
     expect(await screen.findByRole("dialog", { name: "Search" })).toBeVisible();
     expect(screen.getByText("Shell content")).toBeVisible();
+  });
+
+  it("leaves Cmd/Ctrl+F to the browser outside a Room", async () => {
+    await renderAccountShell({ initialEntry: "/t/tenant-northstar/apps" });
+    await act(async () => {
+      await import("@/features/search/global-search-dialog");
+    });
+
+    // No Room is open, so nothing takes the key and the find bar stays the
+    // browser's.
+    expect(fireEvent.keyDown(window, { key: "f", ctrlKey: true })).toBe(true);
+    expect(screen.queryByRole("dialog", { name: "Search" })).toBeNull();
   });
 
   it("lets Live voice switch pages and open a search already filled in", async () => {
@@ -285,12 +318,44 @@ describe("Room shell Account menu", () => {
   });
 });
 
+describe("Room shell mention notifications", () => {
+  it("opens the announced Message in the Room that is already showing", async () => {
+    const { router } = await renderAccountShell({
+      initialEntry: "/t/tenant-northstar/rooms/room-all/chat",
+    });
+
+    await act(async () => mentionNotification.open?.("room-all", "message-9"));
+
+    await waitFor(() =>
+      expect(router.state.location.search).toBe("?message=message-9"),
+    );
+    expect(router.state.location.pathname).toBe(
+      "/t/tenant-northstar/rooms/room-all/chat",
+    );
+  });
+
+  it("opens only the Room for a Room-level notice", async () => {
+    const { router } = await renderAccountShell({
+      initialEntry: "/t/tenant-northstar/rooms/room-all/chat",
+    });
+
+    await act(async () => mentionNotification.open?.("room-other"));
+
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(
+        "/t/tenant-northstar/rooms/room-other/chat",
+      ),
+    );
+    expect(router.state.location.search).toBe("");
+  });
+});
+
 describe("Room shell document title", () => {
-  it("names the tab after the Space owner's Tenant actor", async () => {
+  it("names the tab after the Space owner and its unread activity", async () => {
     document.title = "Linger";
     await renderAccountShell();
 
-    await waitFor(() => expect(document.title).toBe("Jenny Bin's space"));
+    await waitFor(() => expect(document.title).toBe("(2) Jenny Bin's space"));
   });
 });
 

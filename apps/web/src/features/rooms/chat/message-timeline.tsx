@@ -18,7 +18,14 @@ import {
 } from "../members/agent-avatar-status-context";
 import { runtimeFailureMessage } from "../runtime-status/runtime-failure-message";
 import type { RuntimeExecutionFailure } from "../runtime-status/runtime-presentation-events";
-import { Fragment, type ReactNode, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  type ReactNode,
+  type RefObject,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { cn } from "@/lib/cn";
 
 import { Button } from "@/components/ui/button";
@@ -67,6 +74,7 @@ import {
   PendingMessageRow,
   type PendingRoomMessage,
 } from "./message-row";
+import type { StagedQuoteReply } from "./quote-reply";
 import {
   LoadingOlderMessages,
   MessageTimelineEmptyState,
@@ -126,12 +134,16 @@ interface MessageTimelineProps {
   onOpenDirectChat?: (actorId: string) => void;
   onOpenUrl?: (url: string) => void;
   onMentionAuthor?: (actor: TeamHubActorRef) => void;
+  onCreateIssueMessage?: (message: TeamHubMessage) => void;
   onForwardMessage?: (message: TeamHubMessage) => void;
   onReply?: (message: TeamHubMessage) => void;
+  onReplyWithQuote?: (reply: StagedQuoteReply) => void;
   onToggleReaction?: (
     message: TeamHubMessage,
     reactionId: TeamHubMessageReactionId,
   ) => Promise<void>;
+  onTogglePin?: (message: TeamHubMessage, pinned: boolean) => Promise<void>;
+  pinnedMessageIds?: ReadonlySet<string>;
   actorKinds?: Readonly<Record<string, "human" | "agent">>;
   onRetry: (clientId: string) => void;
   pendingMessages: PendingRoomMessage[];
@@ -143,6 +155,9 @@ interface MessageTimelineProps {
   tenantId: string;
   focusedMessageId?: string | null;
   focusedMessageHighlight?: string | null;
+  /** Index of the first unread Message; the divider renders above it. */
+  unreadDividerIndex?: number;
+  unreadDividerRef?: RefObject<HTMLDivElement | null>;
   workspaceAgentIds?: ReadonlySet<string>;
 }
 
@@ -172,9 +187,13 @@ export function MessageTimeline({
   onOpenDirectChat,
   onOpenUrl,
   onMentionAuthor,
+  onCreateIssueMessage,
   onForwardMessage,
   onReply,
+  onReplyWithQuote,
   onToggleReaction,
+  onTogglePin,
+  pinnedMessageIds = EMPTY_STATIC_AGENT_ACTOR_IDS,
   actorKinds = EMPTY_ACTOR_KINDS,
   onRetry,
   pendingMessages,
@@ -184,6 +203,8 @@ export function MessageTimeline({
   tenantId,
   focusedMessageId,
   focusedMessageHighlight,
+  unreadDividerIndex,
+  unreadDividerRef,
   workspaceAgentIds = EMPTY_STATIC_AGENT_ACTOR_IDS,
 }: MessageTimelineProps) {
   const { filePreviewError, previewMessageFile } =
@@ -239,6 +260,26 @@ export function MessageTimeline({
             </time>
           </div>
         ) : null}
+        {index === unreadDividerIndex ? (
+          <div
+            aria-label="New messages"
+            className="flex items-center gap-2.5 py-1.5"
+            ref={unreadDividerRef}
+            role="separator"
+          >
+            <span
+              aria-hidden="true"
+              className="h-px flex-1 bg-(--app-unread)/40"
+            />
+            <span className="shrink-0 text-2xs font-medium text-(--app-unread)">
+              New messages
+            </span>
+            <span
+              aria-hidden="true"
+              className="h-px flex-1 bg-(--app-unread)/40"
+            />
+          </div>
+        ) : null}
         <MessageRow
           entering={message.created_at > openedAtNewest}
           showAuthor={
@@ -263,9 +304,13 @@ export function MessageTimeline({
           onOpenUrl={onOpenUrl}
           onOpenThread={onOpenThread}
           onMentionAuthor={onMentionAuthor}
+          onCreateIssueMessage={onCreateIssueMessage}
           onForwardMessage={onForwardMessage}
           onReply={onReply}
+          onReplyWithQuote={onReplyWithQuote}
           onToggleReaction={onToggleReaction}
+          onTogglePin={onTogglePin}
+          isPinned={pinnedMessageIds.has(message.id)}
           actorKinds={actorKinds}
           selectedAsContext={selectedContextMessageIds.has(message.id)}
           tenantId={tenantId}
@@ -302,6 +347,7 @@ export function MessageTimeline({
           onOpenThread={onOpenThread}
           onMentionAuthor={onMentionAuthor}
           onReply={onReply}
+          onReplyWithQuote={onReplyWithQuote}
           presentations={presentations}
           selectedContextMessageIds={selectedContextMessageIds}
           tenantId={tenantId}
@@ -1214,6 +1260,7 @@ function LinkedSourceMessagePanel({
   onOpenThread,
   onMentionAuthor,
   onReply,
+  onReplyWithQuote,
   presentations,
   selectedContextMessageIds,
   tenantId,
@@ -1242,6 +1289,7 @@ function LinkedSourceMessagePanel({
   onMentionAuthor?: (actor: TeamHubActorRef) => void;
   onForwardMessage?: (message: TeamHubMessage) => void;
   onReply?: (message: TeamHubMessage) => void;
+  onReplyWithQuote?: (reply: StagedQuoteReply) => void;
   presentations: Record<string, TeamHubMessagePresentation>;
   selectedContextMessageIds: ReadonlySet<string>;
   tenantId: string;
@@ -1312,6 +1360,7 @@ function LinkedSourceMessagePanel({
             onOpenThread={onOpenThread}
             onMentionAuthor={onMentionAuthor}
             onReply={onReply}
+            onReplyWithQuote={onReplyWithQuote}
             presentation={presentations[linkedSource.message.id]}
             selectedAsContext={selectedContextMessageIds.has(
               linkedSource.message.id,

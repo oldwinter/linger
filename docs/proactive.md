@@ -108,5 +108,10 @@ never sent again. A question that came in during quiet hours or past the
 daily limit gets no card while that still holds, whatever Another Me tries;
 it is followed up once that limit lifts.
 
+Another Me has to post that card instead of replying in chat, so choose a model
+that follows the flow: Claude Sonnet 5.5 or a stronger model. In an end-to-end
+run Claude Haiku 5.5 sent plain text instead of the card and then offered to
+resend, which leaves the pane waiting.
+
 Each pane state is its own event, so under a mandate a later block or
 completion of the same pane may lead to a Work Item of its own.

@@ -277,6 +277,7 @@ async function respond(request: Request): Promise<Response> {
       instruction: "Review the report",
       schedule: { kind: "daily", time: "09:00", timezone: "Asia/Shanghai" },
       enabled: !endpoint.endsWith("/pause"),
+      revision: 1,
     };
     return Response.json(
       endpoint.endsWith("/query") ? { routines: [routine] } : { routine },
@@ -469,6 +470,15 @@ async function respond(request: Request): Promise<Response> {
         "x-document-filename": Buffer.from("card.png").toString("base64url"),
       },
     });
+  if (endpoint.endsWith("/assets/asset_file/content"))
+    return new Response(downloadBytes, {
+      headers: {
+        "content-type": "application/octet-stream",
+        "x-content-sha256": digest(downloadBytes),
+        "x-document-filename":
+          Buffer.from("proposal.pdf").toString("base64url"),
+      },
+    });
   if (url.searchParams.get("format") === "blocks")
     return new Response(
       JSON.stringify({
@@ -477,6 +487,11 @@ async function respond(request: Request): Promise<Response> {
             id: "block_card",
             type: "image",
             props: { url: "document-asset:asset_one" },
+          },
+          {
+            id: "block_file",
+            type: "file",
+            props: { url: "document-asset:asset_file", name: "proposal.pdf" },
           },
         ],
       }),

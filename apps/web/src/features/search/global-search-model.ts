@@ -12,6 +12,7 @@ import {
 } from "@/features/library/document-display-name";
 import { documentFormatLabel } from "@/features/library/document-format-label";
 import { documentDetailPath } from "@/features/rooms/files/document-detail-routes";
+import { roomChatPath } from "@/features/rooms/room-routes";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import type {
   TeamHubDocument,
@@ -185,10 +186,6 @@ function documentLocationLabel(document: TeamHubDocument) {
         binding.label ?? `${binding.binding_kind}:${binding.context_id}`,
     )
     .join(", ");
-}
-
-export function roomChatPath(tenantId: string, roomId: string) {
-  return `/t/${encodeURIComponent(tenantId)}/rooms/${encodeURIComponent(roomId)}/chat`;
 }
 
 function threadPath(

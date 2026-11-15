@@ -19,14 +19,24 @@ import {
 } from "vitest";
 
 import { LibraryLayout } from "@/features/library/library-layout";
+import {
+  readRoomComposerDraft,
+  writeRoomComposerDraft,
+} from "@/features/rooms/room-drafts";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import {
   teamHubErrorResponse,
   type TestRouteHandler,
 } from "@/test/teamhub-test-server";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
-import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
+import type {
+  TeamHubMemoryEntry,
+  TeamHubMessage,
+  TeamHubMessageCreateInput,
+  TeamHubRoomListItem,
+} from "@/features/teamhub/teamhub-types";
 
+import { meetingPath } from "./meeting-routes";
 import { MeetingPage } from "./meeting-page";
 
 beforeAll(async () => {
@@ -84,9 +94,58 @@ function serveMemoryEntry<Handler extends TestRouteHandler>(
   return handler;
 }
 
+/** A summary with one trackable Action and two outcomes that are not Actions. */
+const actionSummary = [
+  "## Decisions And Outcomes",
+  "",
+  "- Decision: Ship the beta.",
+  "- Completed: Cut the release branch.",
+  "",
+  "## Action Items",
+  "",
+  "- Action: Send the deck to Dana.",
+].join("\n");
+
+/** The seeded Another Me Chat and the Drafts key it owns. */
+const anotherMeScope = {
+  accountId: "account-jenny",
+  roomId: "room-another-me",
+  tenantId: "tenant-northstar",
+};
+
+/** The composer block a Track click stages for one Action. */
+function actionDraft(entry: TeamHubMemoryEntry, action: string) {
+  const link = new URL(
+    meetingPath("tenant-northstar", entry.id),
+    window.location.origin,
+  ).toString();
+  return `Track this action: ${action}\nFrom the meeting "Meeting · Sep 23, 14:30": ${link}`;
+}
+
+/** A summary with two Actions, the second carrying a sub-point. */
+const checklistSummary = [
+  "## Action Items",
+  "",
+  "- Action: Send the revised budget to Finance",
+  "- Action: Book the follow-up review",
+  "  - Confirm the room",
+].join("\n");
+
+/** Gives the page a Clipboard API and returns its writeText double. */
+function stubClipboard(writeText: (value: string) => Promise<void>) {
+  const writeTextDouble = vi.fn(writeText);
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: writeTextDouble },
+  });
+  return writeTextDouble;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
+  Reflect.deleteProperty(navigator, "clipboard");
   window.sessionStorage.clear();
+  window.localStorage.clear();
 });
 
 describe("MeetingPage", () => {
@@ -196,6 +255,8 @@ describe("MeetingPage", () => {
     );
     expect(router.state.location.search).toBe(`?entry=${entry.id}`);
     const reader = await screen.findByRole("article", { name: "Meeting" });
+    // The recording player reads its keys from this surface.
+    expect(reader).toHaveAttribute("data-meeting-surface");
     expect(
       within(reader).getByRole("heading", {
         name: "Meeting · Sep 23, 14:30",
@@ -233,6 +294,12 @@ describe("MeetingPage", () => {
     const summaryPanel = within(reader).getByRole("tabpanel");
     expect(
       within(summaryPanel).getByRole("region", { name: "Meeting recording" }),
+    ).toBeInTheDocument();
+    // The recording carries its own playback speed, named as a speed.
+    expect(
+      within(summaryPanel).getByRole("combobox", {
+        name: /Playback speed/,
+      }),
     ).toBeInTheDocument();
     expect(
       within(reader)
@@ -474,6 +541,429 @@ describe("MeetingPage", () => {
     ).toBeNull();
   });
 
+  it("stages an Action as an unsent Another Me draft and opens its Chat", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry({ content: actionSummary }, true);
+    serveMeetings(runtime, [entry]);
+    const router = renderPage(runtime, `?entry=${entry.id}&file=summary`);
+    const track = await screen.findByRole("button", {
+      name: "Track action: Send the deck to Dana.",
+    });
+    // Only Action items are trackable; the drawn-out decision stays plain.
+    expect(
+      screen.queryByRole("button", { name: "Track action: Ship the beta." }),
+    ).toBeNull();
+    fireEvent.click(track);
+    expect(readRoomComposerDraft(anotherMeScope).body).toBe(
+      actionDraft(entry, "Send the deck to Dana."),
+    );
+    expect(await screen.findByText("Another Me chat")).toBeVisible();
+    expect(router.state.location.state).toEqual({ focusComposer: true });
+    expect(router.state.location.pathname).toBe(
+      "/t/tenant-northstar/rooms/room-another-me/chat",
+    );
+  });
+
+  it("keeps an existing Another Me draft and appends the action to it", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry({ content: actionSummary }, true);
+    serveMeetings(runtime, [entry]);
+    writeRoomComposerDraft(anotherMeScope, {
+      body: "Ask about the venue.",
+      documentContexts: [],
+      documentReferences: [],
+      mentions: [],
+      skillReferences: [],
+    });
+    renderPage(runtime, `?entry=${entry.id}&file=summary`);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Track action: Send the deck to Dana.",
+      }),
+    );
+    expect(readRoomComposerDraft(anotherMeScope).body).toBe(
+      `Ask about the venue.\n\n${actionDraft(entry, "Send the deck to Dana.")}`,
+    );
+  });
+
+  it("hides Track when the Another Me has no actor", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry({ content: actionSummary }, true);
+    serveMeetings(runtime, [entry]);
+    const anotherMe = vi.fn<TestRouteHandler>(() => ({
+      room_id: "room-another-me",
+    }));
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/another-me", anotherMe);
+    renderPage(runtime, `?entry=${entry.id}&file=summary`);
+    await waitFor(() => expect(anotherMe).toHaveBeenCalled());
+    await act(async () => {});
+    expect(
+      screen.queryByRole("button", { name: /^Track action:/u }),
+    ).toBeNull();
+  });
+
+  it("copies the meeting's Actions as a Markdown checklist", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry({ content: checklistSummary }, true);
+    serveMeetings(runtime, [entry]);
+    const writeText = stubClipboard(() => Promise.resolve());
+    renderPage(runtime, `?entry=${entry.id}&file=summary`);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Copy actions" }),
+    );
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        [
+          "- [ ] Send the revised budget to Finance",
+          "- [ ] Book the follow-up review",
+          "  - [ ] Confirm the room",
+        ].join("\n"),
+      ),
+    );
+    expect(await screen.findByText("Copied")).toBeVisible();
+  });
+
+  it("says when copying the actions fails instead of claiming success", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry({ content: checklistSummary }, true);
+    serveMeetings(runtime, [entry]);
+    stubClipboard(() => Promise.reject(new Error("Not allowed")));
+    renderPage(runtime, `?entry=${entry.id}&file=summary`);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Copy actions" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Copy failed. Select the actions and copy them yourself.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText("Copied")).toBeNull();
+  });
+
+  it("copies the meeting's link with the app's origin", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry();
+    serveMeetings(runtime, [entry]);
+    const writeText = stubClipboard(() => Promise.resolve());
+    renderPage(runtime, `?entry=${entry.id}`);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Copy link" }));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        new URL(
+          meetingPath("tenant-northstar", entry.id),
+          window.location.origin,
+        ).toString(),
+      ),
+    );
+    expect(await screen.findByText("Copied")).toBeVisible();
+  });
+
+  it("says when copying the link fails instead of claiming success", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry();
+    serveMeetings(runtime, [entry]);
+    stubClipboard(() => Promise.reject(new Error("Not allowed")));
+    renderPage(runtime, `?entry=${entry.id}`);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Copy link" }));
+
+    expect(await screen.findByText("Copy failed")).toBeVisible();
+    expect(screen.queryByText("Copied")).toBeNull();
+  });
+
+  it("copies the transcript as one plain-text line per turn", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry();
+    serveMeetings(runtime, [entry]);
+    const writeText = stubClipboard(() => Promise.resolve());
+    renderPage(runtime, `?entry=${entry.id}&file=transcript`);
+
+    const copy = await screen.findByRole("button", { name: "Copy transcript" });
+    await waitFor(() => expect(copy).toBeEnabled());
+    fireEvent.click(copy);
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        [
+          "Sure, sure, then you you you just follow this, this format here and that works. Fine, fine, so I. And then look, this part needs some breathing room, you know? Bao said.",
+          "Look, it blinks, but it does not tell you it is recording. And what you have now is not the same thing either.",
+          "Right, so, I feel like, because our earlier one, version A looked like this, you know? Ours really looks like this, but this may need a change.",
+          "Like we should build it ourselves. Okay okay, you you send me a screenshot, I am online.",
+          "Sure, I will send it to you, send it over.",
+          "What can you do?",
+          "Just leave it running locally. Mm.",
+          "Mm",
+          "Mm",
+        ].join("\n"),
+      ),
+    );
+    expect(await screen.findByText("Copied")).toBeVisible();
+  });
+
+  it("offers Copy transcript only once the transcript text has loaded", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry();
+    serveMeetings(runtime, [entry]);
+    let releaseContent = () => {};
+    const contentHeld = new Promise<void>((resolve) => {
+      releaseContent = resolve;
+    });
+    const version = runtime.seed.documentVersions.get(
+      entry.meeting!.transcript_version_id,
+    )!;
+    const content = runtime.seed.documentVersionContents.get(
+      entry.meeting!.transcript_version_id,
+    )!;
+    runtime.server.on(
+      "GET",
+      "/v0/document-versions/{documentVersionId}/content",
+      async () => {
+        await contentHeld;
+        return new Response(await content.arrayBuffer(), {
+          headers: {
+            "content-type": version.media_type,
+            "x-content-sha256": version.sha256,
+          },
+        });
+      },
+    );
+    renderPage(runtime, `?entry=${entry.id}&file=transcript`);
+
+    const copy = await screen.findByRole("button", { name: "Copy transcript" });
+    expect(copy).toBeDisabled();
+
+    releaseContent();
+
+    await waitFor(() => expect(copy).toBeEnabled());
+  });
+
+  it("says when copying the transcript fails instead of claiming success", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry();
+    serveMeetings(runtime, [entry]);
+    stubClipboard(() => Promise.reject(new Error("Not allowed")));
+    renderPage(runtime, `?entry=${entry.id}&file=transcript`);
+
+    const copy = await screen.findByRole("button", { name: "Copy transcript" });
+    await waitFor(() => expect(copy).toBeEnabled());
+    fireEvent.click(copy);
+
+    expect(await screen.findByText("Copy failed")).toBeVisible();
+    expect(screen.queryByText("Copied")).toBeNull();
+  });
+
+  it("shows the search match count and the honest no-match state", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry();
+    serveMeetings(runtime, [entry]);
+    renderPage(runtime, `?entry=${entry.id}&file=transcript`);
+
+    const reader = await screen.findByRole("article", { name: "Meeting" });
+    const search = within(reader).getByRole("searchbox", {
+      name: "Search transcript",
+    });
+    await waitFor(() => expect(search).toBeEnabled());
+
+    fireEvent.change(search, { target: { value: "like" } });
+    expect(within(reader).getByRole("status")).toHaveTextContent("2 matches");
+    expect(within(reader).getByText("1 of 2")).toBeVisible();
+
+    fireEvent.change(search, { target: { value: "BLINKS" } });
+    expect(within(reader).getByRole("status")).toHaveTextContent("1 match");
+
+    fireEvent.change(search, {
+      target: { value: "blinks screenshot" },
+    });
+    expect(within(reader).getByRole("status")).toHaveTextContent("No matches");
+    expect(
+      within(reader).getByRole("button", { name: "Next match" }),
+    ).toBeDisabled();
+    expect(
+      within(reader).getByRole("button", { name: "Previous match" }),
+    ).toBeDisabled();
+  });
+
+  it("moves between matches with Previous and Next, wrapping at both ends", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry();
+    serveMeetings(runtime, [entry]);
+    renderPage(runtime, `?entry=${entry.id}&file=transcript`);
+
+    const reader = await screen.findByRole("article", { name: "Meeting" });
+    const search = within(reader).getByRole("searchbox", {
+      name: "Search transcript",
+    });
+    await waitFor(() => expect(search).toBeEnabled());
+    fireEvent.change(search, { target: { value: "like" } });
+
+    const next = within(reader).getByRole("button", { name: "Next match" });
+    const previous = within(reader).getByRole("button", {
+      name: "Previous match",
+    });
+    expect(within(reader).getByText("1 of 2")).toBeVisible();
+    fireEvent.click(next);
+    expect(within(reader).getByText("2 of 2")).toBeVisible();
+    fireEvent.click(next);
+    expect(within(reader).getByText("1 of 2")).toBeVisible();
+    fireEvent.click(previous);
+    expect(within(reader).getByText("2 of 2")).toBeVisible();
+  });
+
+  it("paints the marks inside the rendered transcript turns", async () => {
+    const registry = new Map<string, unknown>();
+    const scope = globalThis as {
+      CSS?: unknown;
+      Highlight?: unknown;
+    };
+    const previousCss = scope.CSS;
+    const previousHighlight = scope.Highlight;
+    scope.CSS = { highlights: registry };
+    scope.Highlight = FakeHighlight;
+    onTestFinished(() => {
+      scope.CSS = previousCss;
+      scope.Highlight = previousHighlight;
+    });
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry();
+    serveMeetings(runtime, [entry]);
+    renderPage(runtime, `?entry=${entry.id}&file=transcript`);
+
+    const reader = await screen.findByRole("article", { name: "Meeting" });
+    const search = within(reader).getByRole("searchbox", {
+      name: "Search transcript",
+    });
+    await waitFor(() => expect(search).toBeEnabled());
+    fireEvent.change(search, { target: { value: "recording" } });
+
+    await waitFor(() =>
+      expect(
+        (
+          registry.get("meeting-transcript-current") as FakeHighlight
+        ).ranges.map((range) => range.toString()),
+      ).toEqual(["recording"]),
+    );
+  });
+
+  it("clears the search without touching the transcript or the tab", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry();
+    serveMeetings(runtime, [entry]);
+    const writeText = stubClipboard(() => Promise.resolve());
+    renderPage(runtime, `?entry=${entry.id}&file=transcript`);
+
+    const reader = await screen.findByRole("article", { name: "Meeting" });
+    const transcript = await within(reader).findByRole("article", {
+      name: "Read-only Markdown document",
+    });
+    const transcriptText = transcript.textContent;
+    const search = within(reader).getByRole("searchbox", {
+      name: "Search transcript",
+    });
+    await waitFor(() => expect(search).toBeEnabled());
+    fireEvent.change(search, { target: { value: "like" } });
+    expect(within(reader).getByRole("status")).toHaveTextContent("2 matches");
+
+    fireEvent.click(
+      within(reader).getByRole("button", { name: "Clear transcript search" }),
+    );
+
+    expect(search).toHaveValue("");
+    expect(within(reader).queryByRole("status")).toBeNull();
+    expect(
+      within(reader).getByRole("tab", { name: "Transcript" }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(
+      within(reader).getByRole("article", {
+        name: "Read-only Markdown document",
+      }).textContent,
+    ).toBe(transcriptText);
+
+    fireEvent.click(
+      within(reader).getByRole("button", { name: "Copy transcript" }),
+    );
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        expect.stringContaining("Look, it blinks, but it does not tell you"),
+      ),
+    );
+  });
+
+  it("copies the summary's Markdown as the reader derived it", async () => {
+    const runtime = await loggedInRuntime();
+    const summary = [
+      "## Decisions And Outcomes",
+      "",
+      "- Decision: Ship the beta.",
+      "- Completed: Cut the release branch.",
+      "",
+      "## Action Items",
+      "",
+      "- Action: Send the deck to Dana.",
+    ].join("\n");
+    const entry = meetingEntry({ content: summary }, true);
+    serveMeetings(runtime, [entry]);
+    const writeText = stubClipboard(() => Promise.resolve());
+    renderPage(runtime, `?entry=${entry.id}&file=summary`);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Copy summary" }),
+    );
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(summary));
+    expect(await screen.findByText("Copied")).toBeVisible();
+  });
+
+  it("offers Copy summary only when the summary has content", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry({ content: "" }, true);
+    serveMeetings(runtime, [entry]);
+    renderPage(runtime, `?entry=${entry.id}&file=summary`);
+
+    expect(
+      await screen.findByRole("button", { name: "Download summary" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Copy summary" })).toBeNull();
+  });
+
+  it("says when copying the summary fails instead of claiming success", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry({ content: actionSummary }, true);
+    serveMeetings(runtime, [entry]);
+    stubClipboard(() => Promise.reject(new Error("Not allowed")));
+    renderPage(runtime, `?entry=${entry.id}&file=summary`);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Copy summary" }),
+    );
+
+    expect(await screen.findByText("Copy failed")).toBeVisible();
+    expect(screen.queryByText("Copied")).toBeNull();
+  });
+
+  it("offers Copy actions only when the meeting has Actions", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry(
+      {
+        content:
+          "## Decisions And Outcomes\n\n- Decision: Ship the beta.\n- Completed: Cut the release branch.",
+      },
+      true,
+    );
+    serveMeetings(runtime, [entry]);
+    renderPage(runtime, `?entry=${entry.id}&file=summary`);
+
+    expect(
+      await screen.findByRole("region", { name: "Decisions And Outcomes" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Copy actions" })).toBeNull();
+  });
+
   it("shows a retryable meeting failure", async () => {
     const runtime = await loggedInRuntime();
     const entry = meetingEntry();
@@ -502,7 +992,254 @@ describe("MeetingPage", () => {
       await screen.findByRole("article", { name: "Meeting" }),
     ).toBeVisible();
   });
+
+  it("lists Rooms and sends the meeting's summary to the chosen Room", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry({ content: sharedSummary }, true);
+    serveMeetings(runtime, [entry]);
+    mockRoomList(runtime);
+    const posts = capturePosts(runtime);
+    renderPage(runtime, `?entry=${entry.id}`);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Send to Room" }),
+    );
+    expect(
+      await screen.findByRole("menuitem", { name: "product-v0" }),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("menuitem", { name: "product-v0" }));
+
+    expect(await screen.findByText("Sent to product-v0.")).toBeVisible();
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(posts).toHaveLength(1);
+    expect(posts[0]!.body.raw_message).toBe(sharedMessage(entry));
+    expect(posts[0]!.idempotencyKey).toBe(
+      `meeting-share:${entry.id}:${entry.updated_at}:room-product-v0`,
+    );
+  });
+
+  it("keeps the picker open on a refusal and reuses the key when retried", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry({ content: sharedSummary }, true);
+    serveMeetings(runtime, [entry]);
+    mockRoomList(runtime);
+    const keys: (string | null)[] = [];
+    runtime.server.on(
+      "POST",
+      "/v0/rooms/{roomId}/messages",
+      ({ params, request }) => {
+        keys.push(request.headers.get("Idempotency-Key"));
+        return keys.length === 1
+          ? teamHubErrorResponse(
+              403,
+              "FORBIDDEN",
+              "You are not allowed to post in this Room.",
+            )
+          : Response.json(sentMessage(params.roomId!, keys.length), {
+              status: 201,
+            });
+      },
+    );
+    renderPage(runtime, `?entry=${entry.id}`);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Send to Room" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "product-v0" }),
+    );
+
+    expect(
+      await screen.findByText("You are not allowed to post in this Room."),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("menuitem", { name: "product-v0" }));
+
+    expect(await screen.findByText("Sent to product-v0.")).toBeVisible();
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBe(keys[1]);
+  });
+
+  it("gives each Room its own idempotency key", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry({ content: sharedSummary }, true);
+    serveMeetings(runtime, [entry]);
+    mockRoomList(runtime);
+    const keys: (string | null)[] = [];
+    runtime.server.on(
+      "POST",
+      "/v0/rooms/{roomId}/messages",
+      ({ params, request }) => {
+        keys.push(request.headers.get("Idempotency-Key"));
+        return keys.length === 1
+          ? teamHubErrorResponse(
+              403,
+              "FORBIDDEN",
+              "You are not allowed to post in this Room.",
+            )
+          : Response.json(sentMessage(params.roomId!, keys.length), {
+              status: 201,
+            });
+      },
+    );
+    renderPage(runtime, `?entry=${entry.id}`);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Send to Room" }),
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "all" }));
+    expect(
+      await screen.findByText("You are not allowed to post in this Room."),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("menuitem", { name: "product-v0" }));
+
+    expect(await screen.findByText("Sent to product-v0.")).toBeVisible();
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
+    expect(keys[1]).toBe(
+      `meeting-share:${entry.id}:${entry.updated_at}:room-product-v0`,
+    );
+  });
+
+  it("offers Send to Room only once the summary is ready", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry({ content: sharedSummary });
+    serveMeetings(runtime, [entry]);
+    renderPage(runtime, `?entry=${entry.id}`);
+
+    expect(
+      await screen.findByRole("article", { name: "Meeting" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Send to Room" })).toBeNull();
+  });
+
+  it("disables the Rooms while the summary is being sent", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry({ content: sharedSummary }, true);
+    serveMeetings(runtime, [entry]);
+    mockRoomList(runtime);
+    let answer: ((response: Response) => void) | undefined;
+    runtime.server.on(
+      "POST",
+      "/v0/rooms/{roomId}/messages",
+      () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    renderPage(runtime, `?entry=${entry.id}`);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Send to Room" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "product-v0" }),
+    );
+
+    await vi.waitFor(() =>
+      expect(
+        screen.getByRole("menuitem", { name: "product-v0" }),
+      ).toBeDisabled(),
+    );
+    act(() =>
+      answer!(
+        Response.json(sentMessage("room-product-v0", 1), { status: 201 }),
+      ),
+    );
+    expect(await screen.findByText("Sent to product-v0.")).toBeVisible();
+  });
 });
+
+/** The summary the reader shows for the seeded meeting, with its own title. */
+const sharedSummary = [
+  "# Meeting 14-30-05",
+  "",
+  "## Decisions And Outcomes",
+  "",
+  "- Decision: Ship the beta.",
+].join("\n");
+
+/** The Message sent for the seeded meeting: title, summary, then its link. */
+function sharedMessage(entry: TeamHubMemoryEntry) {
+  return [
+    "# Meeting · Sep 23, 14:30",
+    "## Decisions And Outcomes\n\n- Decision: Ship the beta.",
+    new URL(
+      meetingPath("tenant-northstar", entry.id),
+      window.location.origin,
+    ).toString(),
+  ].join("\n\n");
+}
+
+function capturePosts(runtime: ReturnType<typeof createTestTeamHubRuntime>) {
+  const posts: {
+    body: TeamHubMessageCreateInput;
+    idempotencyKey: string | null;
+  }[] = [];
+  runtime.server.on(
+    "POST",
+    "/v0/rooms/{roomId}/messages",
+    ({ body, params, request }) => {
+      posts.push({
+        body: body as TeamHubMessageCreateInput,
+        idempotencyKey: request.headers.get("Idempotency-Key"),
+      });
+      return Response.json(sentMessage(params.roomId!, posts.length), {
+        status: 201,
+      });
+    },
+  );
+  return posts;
+}
+
+function mockRoomList(runtime: ReturnType<typeof createTestTeamHubRuntime>) {
+  const handler = vi.fn(() => ({
+    items: [room("room-all", "all"), room("room-product-v0", "product-v0")],
+    page: { has_more: false },
+  }));
+  runtime.server.on("GET", "/v0/tenants/{tenantId}/rooms", handler);
+  return handler;
+}
+
+function room(id: string, name: string): TeamHubRoomListItem {
+  return {
+    created_at: "2026-07-23T08:00:00Z",
+    created_by: {
+      display_name: "Jenny Bin",
+      id: "actor-jenny",
+      kind: "human",
+      tenant_id: "tenant-northstar",
+    },
+    description: "",
+    id,
+    kind: "room",
+    latest_room_seq: 0,
+    name,
+    read_through_room_seq: 0,
+    tenant_id: "tenant-northstar",
+    unread_mention_count: 0,
+    unread_message_count: 0,
+    updated_at: "2026-07-23T08:00:00Z",
+  };
+}
+
+function sentMessage(roomId: string, index: number): TeamHubMessage {
+  return {
+    attachments: [],
+    author: {
+      display_name: "Jenny Bin",
+      id: "actor-jenny",
+      kind: "human",
+      tenant_id: "tenant-northstar",
+    },
+    created_at: "2026-09-23T07:00:00Z",
+    id: `message-meeting-${index}`,
+    message_kind: "conversation",
+    raw_message: "",
+    room_id: roomId,
+    segments: [],
+    tenant_id: "tenant-northstar",
+  };
+}
 
 async function loggedInRuntime() {
   const runtime = createTestTeamHubRuntime();
@@ -525,6 +1262,10 @@ function renderPage(
           },
         ],
       },
+      {
+        element: <p>Another Me chat</p>,
+        path: "/t/:tenantId/rooms/:roomId/chat",
+      },
     ],
     {
       initialEntries: [`/t/tenant-northstar/library/meetings${search}`],
@@ -542,4 +1283,11 @@ function renderPage(
     </QueryClientProvider>,
   );
   return router;
+}
+
+class FakeHighlight {
+  readonly ranges: Range[];
+  constructor(...ranges: Range[]) {
+    this.ranges = ranges;
+  }
 }

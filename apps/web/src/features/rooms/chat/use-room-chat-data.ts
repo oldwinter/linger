@@ -48,6 +48,8 @@ export function useRoomChatData() {
   const [forwardMessage, setForwardMessage] = useState<TeamHubMessage | null>(
     null,
   );
+  const [createIssueMessage, setCreateIssueMessage] =
+    useState<TeamHubMessage | null>(null);
   const navigation = useRoomChatNavigation(client, tenantId, roomId);
   const {
     lastAppliedRoomSeq,
@@ -144,6 +146,7 @@ export function useRoomChatData() {
     client,
     composerDocuments,
     composition,
+    createIssueMessage,
     documentsPending,
     forwardMessage,
     identity,
@@ -165,6 +168,7 @@ export function useRoomChatData() {
     roomDocuments,
     roomId,
     roomMessagePresentations,
+    setCreateIssueMessage,
     setForwardMessage,
     shareableDocuments,
     skillManifests,

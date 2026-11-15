@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { MemoryScheduleConfig } from "../../src/memory/config.js";
+import { startHttpHost, type HttpHost } from "../../src/http-host.js";
 import { MemoryScheduler } from "../../src/memory/scheduler.js";
 import { startMemoryServer } from "../../src/memory/server.js";
 
@@ -26,11 +27,15 @@ afterEach(async () => {
   );
 });
 
-async function start(): Promise<string> {
+async function startDataRoot(): Promise<string> {
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), "memory-http-"));
   roots.push(dataRoot);
+  return dataRoot;
+}
+
+async function start(): Promise<string> {
   const server = await startMemoryServer({
-    dataRoot,
+    dataRoot: await startDataRoot(),
     host: "127.0.0.1",
     port: 0,
     scheduler: new MemoryScheduler(schedule, async () => {}),
@@ -38,6 +43,17 @@ async function start(): Promise<string> {
   });
   closers.push(() => server.close());
   return server.url;
+}
+
+async function startOn(host: HttpHost) {
+  const server = await startMemoryServer({
+    dataRoot: await startDataRoot(),
+    http: host,
+    scheduler: new MemoryScheduler(schedule, async () => {}),
+    serviceToken: token,
+  });
+  closers.push(() => server.close());
+  return server;
 }
 
 const protectedRoutes: Array<[method: string, path: string]> = [
@@ -166,5 +182,37 @@ describe("Memory HTTP surface", () => {
     });
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("application/json");
+  });
+});
+
+describe("Memory HTTP surface on a shared host", () => {
+  it("unmounts its routes on close and leaves the host running", async () => {
+    const host = await startHttpHost({ host: "127.0.0.1", port: 0 });
+    closers.push(() => host.close());
+    host.mount({
+      prefixes: ["/v1/"],
+      fetch: () => new Response("agent"),
+    });
+    host.finishStartup();
+    const headers = { authorization: `Bearer ${token}` };
+    const memoryRoute = `${host.url}/internal/v1/health/failures`;
+    const server = await startOn(host);
+
+    const ready = await fetch(`${host.url}/readyz`);
+    expect(ready.status).toBe(200);
+    expect((await fetch(memoryRoute, { headers })).status).toBe(200);
+
+    await server.close();
+
+    const gone = await fetch(memoryRoute, { headers });
+    expect(gone.status).toBe(404);
+    await expect(gone.text()).resolves.toBe("");
+    expect((await fetch(`${host.url}/v1/models`)).status).toBe(200);
+    expect((await fetch(`${host.url}/healthz`)).status).toBe(200);
+    await expect(server.close()).resolves.toBeUndefined();
+
+    const replacement = await startOn(host);
+    expect(replacement.url).toBe(host.url);
+    expect((await fetch(memoryRoute, { headers })).status).toBe(200);
   });
 });
