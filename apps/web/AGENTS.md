@@ -18,7 +18,7 @@ build:assets` to check the initial JS budget.
 
 - `src/app`: routes, providers, route error boundaries, and global CSS.
 - `src/features/teamhub`: Human API, Session, error, and realtime adapters.
-- `src/features/rooms`: Room routes, Chat, Timeline, the right sidebar (Agent Info, Activity, Thread, Document) and membership UI. Catch up freezes the chats that had new messages or mentions and walks them one at a time; opening a chat leaves the rest of the walk in place. Today's Pocket note can be sent into Another Me's chat; the note is saved first, and Open chat shows the message that was sent. While agents are working, the room list gathers those rooms and says whether each is still on your message or already replying.
+- `src/features/rooms`: Room routes, Chat, Timeline, the right sidebar (Agent Info, Activity, Thread, Document) and membership UI. Catch up freezes the chats that had new messages or mentions and walks them one at a time; opening a chat leaves the rest of the walk in place. Today's Pocket note can be sent into Another Me's chat; the note is saved first, and Open chat shows the message that was sent. While agents are working, the room list gathers those rooms and says whether each is still on your message or already replying. A one-time reminder that can still run today can be held three hours later; Another Me then runs it at that time.
 - `src/features/settings`: Settings. My Rules can review newly learned shadow rules one at a time. Promote makes a rule active; Leave keeps it in shadow.
 - `src/test`: unit-test support, including the in-process TeamHub test server.
 - `e2e`: Playwright product workflows; every spec runs on the real TeamHub and

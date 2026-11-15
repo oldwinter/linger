@@ -37,6 +37,7 @@ import {
   formatWhen,
   isScheduled,
 } from "./routine-cadence";
+import { laterTodayRunAt } from "./later-today";
 import { RoutineDialog } from "./routine-dialog";
 import { PanelLoading } from "./panel-loading";
 
@@ -264,6 +265,14 @@ function RoutineAgenda({
                   {...rowProps}
                   detail={[day, time, distance].filter(Boolean).join(" · ")}
                   key={routine.id}
+                  laterAt={
+                    routine.cadence.kind === "once"
+                      ? laterTodayRunAt(
+                          new Date(),
+                          routine.next_run_at ?? routine.cadence.run_at ?? "",
+                        )
+                      : undefined
+                  }
                   routine={routine}
                   onOpen={() => onOpen(routine.id)}
                 />
@@ -397,12 +406,14 @@ interface ToggleProps {
 function RoutineRow({
   agentActorId,
   detail,
+  laterAt,
   onOpen,
   routine,
   ...toggle
 }: ToggleProps & {
   agentActorId?: string;
   detail: string;
+  laterAt?: Date;
   onOpen: () => void;
   routine: TeamHubScheduledRoutine;
 }) {
@@ -436,9 +447,65 @@ function RoutineRow({
             title={routine.name}
           />
         </button>
+        {laterAt ? (
+          <LaterTodayButton laterAt={laterAt} routine={routine} {...toggle} />
+        ) : null}
         <RoutineSwitch routine={routine} {...toggle} />
       </SettingsRow>
     </li>
+  );
+}
+
+function LaterTodayButton({
+  client,
+  laterAt,
+  routine,
+  tenantId,
+}: Omit<ToggleProps, "onToggled"> & {
+  laterAt: Date;
+  routine: TeamHubScheduledRoutine;
+}) {
+  const queryClient = useQueryClient();
+  const [failed, setFailed] = useState(false);
+  const hold = useMutation({
+    mutationFn: () =>
+      teamHubData(
+        client.api.PATCH("/v0/routines/{routineId}", {
+          params: { path: { routineId: routine.id } },
+          body: {
+            expected_revision: routine.revision,
+            cadence: {
+              kind: "once",
+              timezone: routine.cadence.timezone,
+              run_at: laterAt.toISOString(),
+            },
+          },
+        }),
+      ),
+    onSuccess: async () => {
+      setFailed(false);
+      await queryClient.invalidateQueries({
+        queryKey: roomRoutinesQueryKey(tenantId, routine.room_id),
+      });
+    },
+    onError: () => setFailed(true),
+  });
+  return (
+    <span className="flex shrink-0 flex-col items-end gap-1">
+      <button
+        className="rounded-md px-2 py-1 text-xs font-medium text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+        disabled={hold.isPending}
+        onClick={() => hold.mutate()}
+        type="button"
+      >
+        {hold.isPending ? "Holding" : "Later today"}
+      </button>
+      {failed ? (
+        <span className="text-xs text-destructive" role="alert">
+          Could not hold it.
+        </span>
+      ) : null}
+    </span>
   );
 }
 

@@ -16,6 +16,7 @@ import type {
   TestRouteRequest,
 } from "@/test/teamhub-test-server";
 
+import { formatTimeOfDay } from "./routine-cadence";
 import { RemindersPanel } from "./reminders-panel";
 
 const AGENT = "agent-1";
@@ -222,6 +223,44 @@ describe("RemindersPanel", () => {
     expect(screen.queryByText("Old check")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Done/ }));
     expect(screen.getByText("Old check")).toBeVisible();
+  });
+
+  it("holds a one-time reminder until later today", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 10, 14, 10, 0, 0));
+    const runAt = new Date(2026, 10, 14, 11, 0, 0).toISOString();
+    const held = new Date(2026, 10, 14, 14, 0, 0).toISOString();
+    let current: TeamHubRoutine = {
+      ...reminder,
+      name: "Call Mom",
+      instruction: "Call Mom",
+      cadence: { kind: "once", timezone: "UTC", run_at: runAt },
+      next_run_at: runAt,
+    };
+    const updateRoutine = vi.fn<TestRouteHandler>(({ body }) => {
+      const cadence = (body as { cadence: { run_at: string } }).cadence;
+      expect(cadence.run_at).toBe(held);
+      current = {
+        ...current,
+        cadence: { kind: "once", timezone: "UTC", run_at: cadence.run_at },
+        next_run_at: cadence.run_at,
+        revision: 2,
+      };
+      return current;
+    });
+    renderPanel({
+      listRoomRoutines: vi.fn<TestRouteHandler>(() => ({
+        items: [current],
+        page: { has_more: false },
+      })),
+      updateRoutine,
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Later today" }));
+    await waitFor(() => expect(updateRoutine).toHaveBeenCalledOnce());
+    expect(
+      await screen.findByText(formatTimeOfDay(held), { exact: false }),
+    ).toBeVisible();
+    vi.useRealTimers();
   });
 
   it("opens a routine in a dialog to edit, run or delete it", async () => {
