@@ -1,4 +1,4 @@
-import { lazy, Suspense, type ComponentProps } from "react";
+import { lazy, Suspense, useMemo, type ComponentProps } from "react";
 
 import { isRunWorking } from "@/features/teamhub/run-status";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
@@ -39,6 +39,7 @@ export function RoomChatComposerSection({
   const {
     client,
     documentsPending,
+    members,
     navigation,
     onDocumentQueryChange,
     room,
@@ -70,6 +71,10 @@ export function RoomChatComposerSection({
     openActorProfile,
     sendMessage,
   } = actions;
+  const roomMemberIds = useMemo(
+    () => new Set(members.items.map((member) => member.actor.id)),
+    [members.items],
+  );
   return room.participation === "left" ? (
     <RoomRejoinBanner room={room} />
   ) : (
@@ -127,6 +132,7 @@ export function RoomChatComposerSection({
         initialValue={initialDraft.body}
         mentionOptions={mentionOptions}
         onDocumentQueryChange={onDocumentQueryChange}
+        roomMemberIds={roomMemberIds}
         onDraftStateChange={(draft) =>
           writeRoomComposerDraft(draftScope, {
             ...draft,

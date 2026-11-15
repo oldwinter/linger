@@ -2034,6 +2034,42 @@ describe("Message Composer reference tokens", () => {
       ).toContain(staged.quote);
     });
   });
+
+  it("lifts a mention when that person leaves the room", () => {
+    const sam = {
+      display_name: "Sam",
+      id: "actor-sam",
+      kind: "human" as const,
+      tenant_id: "tenant-1",
+    };
+    const ada = {
+      display_name: "Ada",
+      id: "actor-ada",
+      kind: "human" as const,
+      tenant_id: "tenant-1",
+    };
+    const view = render(
+      <MessageComposer
+        initialMentions={[sam]}
+        initialValue="Ask @Sam to look"
+        mentionOptions={[sam, ada]}
+        onSend={vi.fn()}
+        roomMemberIds={new Set([sam.id, ada.id])}
+      />,
+    );
+    const input = screen.getByRole("textbox", { name: "Message Room" });
+    expect(input).toHaveValue("Ask @Sam to look");
+    view.rerender(
+      <MessageComposer
+        initialMentions={[sam]}
+        initialValue="Ask @Sam to look"
+        mentionOptions={[sam, ada]}
+        onSend={vi.fn()}
+        roomMemberIds={new Set([ada.id])}
+      />,
+    );
+    expect(input).toHaveValue("Ask to look");
+  });
 });
 
 function stagedReply(

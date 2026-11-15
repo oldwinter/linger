@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import type { TeamHubMessageSkillReference } from "@/features/teamhub/teamhub-message-content";
 import type { TeamHubActorRef } from "@/features/teamhub/teamhub-types";
@@ -13,7 +13,11 @@ import {
   type MessageDocumentOption,
   type MessageSkillOption,
 } from "./message-composer-references";
-import { activeMessageMentions, formatMentionToken } from "./message-mentions";
+import {
+  activeMessageMentions,
+  formatMentionToken,
+  omitDepartedMentions,
+} from "./message-mentions";
 import type { ComposerVoiceState } from "./use-composer-voice";
 
 export const TEAMHUB_MESSAGE_MAX_LENGTH = 50_000;
@@ -29,6 +33,8 @@ export interface ComposerDraftInput {
   initialValue: string;
   mentionOptions: TeamHubActorRef[];
   onDraftStateChange?: (draft: MessageComposerDraft) => void;
+  /** Members of the room. When one of them leaves, their mention leaves the draft. */
+  roomMemberIds?: ReadonlySet<string>;
   skillOptions: MessageSkillOption[];
   voice: ComposerVoiceState;
 }
@@ -48,6 +54,7 @@ export function useComposerDraft({
   initialValue,
   mentionOptions,
   onDraftStateChange,
+  roomMemberIds,
   skillOptions,
   voice: { voiceMaterials, voiceMode, voicePrefixRef },
 }: ComposerDraftInput) {
@@ -92,6 +99,25 @@ export function useComposerDraft({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pendingCaretRef = useRef<number | null>(null);
   const currentReferences = resolveReferences(body);
+  const memberKey = roomMemberIds
+    ? [...roomMemberIds].sort().join("\0")
+    : undefined;
+  useEffect(() => {
+    if (!roomMemberIds || voiceMode.entered || submitting) return;
+    const current = bodyRef.current;
+    const caret = textareaRef.current?.selectionStart ?? current.length;
+    const next = omitDepartedMentions(
+      current,
+      selectedMentionsRef.current,
+      roomMemberIds,
+      caret,
+    );
+    if (next.body === current) return;
+    pendingCaretRef.current = next.caret;
+    updateBody(next.body);
+    // memberKey is the membership. updateBody reads the latest draft refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- membership is the trigger
+  }, [memberKey]);
 
   function updateBody(
     nextBody: string,
