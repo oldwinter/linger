@@ -17,6 +17,8 @@ const excluded: Readonly<Record<string, string>> = {
     "Desktop shell Chats list collapsed state, per-Tenant layout state.",
   "components/ui/use-sidebar-width.ts":
     "Resized sidebar widths, per-Tenant layout state.",
+  "features/memory/meeting-told-part.ts":
+    "The line you chose to tell from a meeting; clearing it would forget which part you picked.",
   "features/memory/meeting-follow-ups.ts":
     "Checked to-dos for one meeting on this computer; clearing them would mark that list undone.",
   "features/rooms/another-me-quiet.ts":

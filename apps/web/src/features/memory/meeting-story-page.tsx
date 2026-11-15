@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { useMeetings } from "./memory-queries";
 import { meetingPath } from "./meeting-routes";
 import { formatMeetingWhen, meetingWhen } from "./meetings-calendar";
 import { meetingStoryBeats, storySentence } from "./meeting-story";
+import { useMeetingToldPart } from "./meeting-told-part";
 
 /** One meeting retold as the lines you would actually say to someone. */
 export function MeetingStoryPage() {
@@ -29,6 +30,7 @@ export function MeetingStoryPage() {
       ),
     queryKey: ["teamhub", tenantId, "personal-memory", listed?.id, "story"],
   });
+  const toldPart = useMeetingToldPart(entryId, entryId.length > 0);
   const [told, setTold] = useState<number | null>(null);
   const when = listed ? meetingWhen(listed.path) : undefined;
   const title = when
@@ -39,6 +41,10 @@ export function MeetingStoryPage() {
     [selected.data],
   );
   const sentences = beats.map(storySentence);
+  const matched = toldPart.sentence ? sentences.indexOf(toldPart.sentence) : -1;
+  useEffect(() => {
+    if (matched >= 0) setTold(matched);
+  }, [matched]);
   const featured = told === null ? undefined : sentences[told];
 
   return (
@@ -83,7 +89,10 @@ export function MeetingStoryPage() {
                   <Button
                     aria-pressed={told === index}
                     className="mt-3"
-                    onClick={() => setTold(index)}
+                    onClick={() => {
+                      setTold(index);
+                      toldPart.choose(sentence);
+                    }}
                     size="compact"
                     tone={told === index ? "primary" : "secondary"}
                     type="button"
