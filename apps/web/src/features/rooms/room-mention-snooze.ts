@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 
 import {
+  notifyPreferenceChange,
   removePreferenceKeys,
   storedPreferenceKeys,
+  subscribePreferenceChange,
 } from "@/lib/local-preference-keys";
 
 const SNOOZE_PREFIX = "room-mention-snooze.v1:";
@@ -170,7 +172,7 @@ export function writeRoomMentionSnooze(
     return;
   }
   // Same-tab readers refresh; other tabs hear the storage event instead.
-  window.dispatchEvent(new Event(PREFERENCES_CHANGED));
+  notifyPreferenceChange(PREFERENCES_CHANGED);
 }
 
 export function setRoomMentionSnooze(
@@ -236,7 +238,7 @@ export function writeRoomMentionMute(
     // Blocked storage leaves the Room list working without the choice.
     return;
   }
-  window.dispatchEvent(new Event(PREFERENCES_CHANGED));
+  notifyPreferenceChange(PREFERENCES_CHANGED);
 }
 
 /** Mutes a Room until the person unmutes it, ending any snooze it held. */
@@ -277,18 +279,13 @@ export function hasRoomMentionPreferences(): boolean {
 /** Ends every mention snooze and mute in this browser, for every Account. */
 export function clearRoomMentionPreferences(): void {
   removePreferenceKeys([SNOOZE_PREFIX, MUTE_PREFIX]);
-  window.dispatchEvent(new Event(PREFERENCES_CHANGED));
+  notifyPreferenceChange(PREFERENCES_CHANGED);
 }
 
 export function subscribeRoomMentionPreferences(
   listener: () => void,
 ): () => void {
-  window.addEventListener(PREFERENCES_CHANGED, listener);
-  window.addEventListener("storage", listener);
-  return () => {
-    window.removeEventListener(PREFERENCES_CHANGED, listener);
-    window.removeEventListener("storage", listener);
-  };
+  return subscribePreferenceChange(PREFERENCES_CHANGED, listener);
 }
 
 /**

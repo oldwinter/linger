@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 
 import {
+  notifyPreferenceChange,
   removePreferenceKeys,
   storedPreferenceKeys,
+  subscribePreferenceChange,
 } from "@/lib/local-preference-keys";
 
 import { nextLocalMorning } from "./room-mention-snooze";
@@ -115,7 +117,7 @@ export function writeRoomSnooze(
     return;
   }
   // Same-tab readers refresh; other tabs hear the storage event instead.
-  window.dispatchEvent(new Event(SNOOZE_CHANGED));
+  notifyPreferenceChange(SNOOZE_CHANGED);
 }
 
 export function setRoomSnooze(
@@ -149,16 +151,11 @@ export function hasRoomSnoozes(): boolean {
 /** Brings every snoozed Room back in this browser, for every Account. */
 export function clearRoomSnoozes(): void {
   removePreferenceKeys([SNOOZE_PREFIX]);
-  window.dispatchEvent(new Event(SNOOZE_CHANGED));
+  notifyPreferenceChange(SNOOZE_CHANGED);
 }
 
 export function subscribeRoomSnooze(listener: () => void): () => void {
-  window.addEventListener(SNOOZE_CHANGED, listener);
-  window.addEventListener("storage", listener);
-  return () => {
-    window.removeEventListener(SNOOZE_CHANGED, listener);
-    window.removeEventListener("storage", listener);
-  };
+  return subscribePreferenceChange(SNOOZE_CHANGED, listener);
 }
 
 /**

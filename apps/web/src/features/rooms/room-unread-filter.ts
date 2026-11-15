@@ -1,7 +1,9 @@
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
 import {
+  notifyPreferenceChange,
   removePreferenceKeys,
   storedPreferenceKeys,
+  subscribePreferenceChange,
 } from "@/lib/local-preference-keys";
 
 const PREFERENCE_PREFIX = "room-unread-filter.v1:";
@@ -88,7 +90,7 @@ export function writeRoomFilterMode(
     // Blocked storage keeps the choice for this tab only.
     return;
   }
-  window.dispatchEvent(new Event(FILTER_CHANGED));
+  notifyPreferenceChange(FILTER_CHANGED);
 }
 
 /** Whether this browser stores the filter for any Account. */
@@ -99,17 +101,12 @@ export function hasRoomUnreadFilter(): boolean {
 /** Turns the filter off for every Account in this browser. */
 export function clearRoomUnreadFilter(): void {
   removePreferenceKeys([PREFERENCE_PREFIX]);
-  window.dispatchEvent(new Event(FILTER_CHANGED));
+  notifyPreferenceChange(FILTER_CHANGED);
 }
 
 /** A filter write or clear in this tab or another one re-reads the choice. */
 export function subscribeRoomUnreadFilter(listener: () => void): () => void {
-  window.addEventListener(FILTER_CHANGED, listener);
-  window.addEventListener("storage", listener);
-  return () => {
-    window.removeEventListener(FILTER_CHANGED, listener);
-    window.removeEventListener("storage", listener);
-  };
+  return subscribePreferenceChange(FILTER_CHANGED, listener);
 }
 
 function preferenceKey(accountId: string) {

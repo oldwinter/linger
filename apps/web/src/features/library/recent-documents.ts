@@ -1,6 +1,8 @@
 import {
+  notifyPreferenceChange,
   removePreferenceKeys,
   storedPreferenceKeys,
+  subscribePreferenceChange,
 } from "@/lib/local-preference-keys";
 
 const RECENT_LIMIT = 5;
@@ -69,7 +71,7 @@ export function writeRecentDocuments(
     // Blocked storage keeps the list for this tab only.
     return;
   }
-  window.dispatchEvent(new Event(RECENT_DOCUMENTS_CHANGED));
+  notifyPreferenceChange(RECENT_DOCUMENTS_CHANGED);
 }
 
 export function clearRecentDocuments(
@@ -83,7 +85,7 @@ export function clearRecentDocuments(
     // Blocked storage has nothing to clear.
     return;
   }
-  window.dispatchEvent(new Event(RECENT_DOCUMENTS_CHANGED));
+  notifyPreferenceChange(RECENT_DOCUMENTS_CHANGED);
 }
 
 /** Whether this browser lists a recently opened Document for any Account. */
@@ -94,16 +96,11 @@ export function hasRecentDocuments(): boolean {
 /** Clears the list for every Account in this browser. */
 export function clearAllRecentDocuments(): void {
   removePreferenceKeys([STORAGE_PREFIX]);
-  window.dispatchEvent(new Event(RECENT_DOCUMENTS_CHANGED));
+  notifyPreferenceChange(RECENT_DOCUMENTS_CHANGED);
 }
 
 export function subscribeRecentDocuments(listener: () => void): () => void {
-  window.addEventListener(RECENT_DOCUMENTS_CHANGED, listener);
-  window.addEventListener("storage", listener);
-  return () => {
-    window.removeEventListener(RECENT_DOCUMENTS_CHANGED, listener);
-    window.removeEventListener("storage", listener);
-  };
+  return subscribePreferenceChange(RECENT_DOCUMENTS_CHANGED, listener);
 }
 
 /** Records one open for the Account and Tenant that opened it. */

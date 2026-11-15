@@ -6,8 +6,10 @@
  */
 
 import {
+  notifyPreferenceChange,
   removePreferenceKeys,
   storedPreferenceKeys,
+  subscribePreferenceChange,
 } from "@/lib/local-preference-keys";
 
 export interface SearchTargetActor {
@@ -76,7 +78,7 @@ const emptyStore = (): GlobalSearchStore => ({ queries: [] });
 
 export function clearGlobalSearchHistory() {
   removePreferenceKeys([storagePrefix]);
-  window.dispatchEvent(new Event(SEARCH_HISTORY_CHANGED));
+  notifyPreferenceChange(SEARCH_HISTORY_CHANGED);
 }
 
 /** Whether this browser remembers a query for any Tenant. */
@@ -85,12 +87,7 @@ export function hasGlobalSearchHistory(): boolean {
 }
 
 export function subscribeGlobalSearchHistory(listener: () => void): () => void {
-  window.addEventListener(SEARCH_HISTORY_CHANGED, listener);
-  window.addEventListener("storage", listener);
-  return () => {
-    window.removeEventListener(SEARCH_HISTORY_CHANGED, listener);
-    window.removeEventListener("storage", listener);
-  };
+  return subscribePreferenceChange(SEARCH_HISTORY_CHANGED, listener);
 }
 
 export function readGlobalSearchStore(tenantId: string): GlobalSearchStore {
@@ -113,7 +110,7 @@ function writeGlobalSearchStore(tenantId: string, store: GlobalSearchStore) {
   } catch {
     // A blocked or full storage only loses the convenience lists.
   }
-  window.dispatchEvent(new Event(SEARCH_HISTORY_CHANGED));
+  notifyPreferenceChange(SEARCH_HISTORY_CHANGED);
   return store;
 }
 

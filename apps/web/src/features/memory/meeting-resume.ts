@@ -1,6 +1,8 @@
 import {
+  notifyPreferenceChange,
   removePreferenceKeys,
   storedPreferenceKeys,
+  subscribePreferenceChange,
 } from "@/lib/local-preference-keys";
 
 const RESUME_PREFIX = "meeting-resume.v1:";
@@ -88,7 +90,7 @@ export function writeMeetingResume(
     return;
   }
   // Same-tab readers refresh; other tabs hear the storage event instead.
-  window.dispatchEvent(new Event(RESUME_CHANGED));
+  notifyPreferenceChange(RESUME_CHANGED);
 }
 
 /** Remembers where one meeting stopped, dropping the oldest save if full. */
@@ -122,7 +124,7 @@ export function forgetMeetingPosition(
     } catch {
       // Blocked storage has nothing to forget.
     }
-    window.dispatchEvent(new Event(RESUME_CHANGED));
+    notifyPreferenceChange(RESUME_CHANGED);
     return;
   }
   writeMeetingResume(accountId, next);
@@ -136,16 +138,11 @@ export function hasMeetingResume(): boolean {
 /** Forgets every remembered position in this browser, for every Account. */
 export function clearMeetingResume(): void {
   removePreferenceKeys([RESUME_PREFIX]);
-  window.dispatchEvent(new Event(RESUME_CHANGED));
+  notifyPreferenceChange(RESUME_CHANGED);
 }
 
 export function subscribeMeetingResume(listener: () => void): () => void {
-  window.addEventListener(RESUME_CHANGED, listener);
-  window.addEventListener("storage", listener);
-  return () => {
-    window.removeEventListener(RESUME_CHANGED, listener);
-    window.removeEventListener("storage", listener);
-  };
+  return subscribePreferenceChange(RESUME_CHANGED, listener);
 }
 
 /** Keeps the newest saves and drops the oldest first. */

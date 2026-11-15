@@ -1,5 +1,5 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { QueryClientContext } from "@tanstack/react-query";
+import { useContext, useEffect } from "react";
 
 import { teamHubIdentityQueryKey } from "@/features/rooms/room-queries";
 import type {
@@ -17,8 +17,8 @@ import { recordRecentDocument } from "./recent-documents";
  * free of requests.
  */
 export function useRecentDocumentsAccountId(): string | undefined {
-  const queryClient = useQueryClient();
-  return queryClient.getQueryData<TeamHubCurrentIdentity>(
+  const queryClient = useContext(QueryClientContext);
+  return queryClient?.getQueryData<TeamHubCurrentIdentity>(
     teamHubIdentityQueryKey,
   )?.account.id;
 }

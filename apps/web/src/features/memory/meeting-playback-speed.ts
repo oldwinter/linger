@@ -1,6 +1,8 @@
 import {
+  notifyPreferenceChange,
   removePreferenceKeys,
   storedPreferenceKeys,
+  subscribePreferenceChange,
 } from "@/lib/local-preference-keys";
 
 const SPEED_PREFIX = "meeting-playback-speed.v1:";
@@ -42,12 +44,7 @@ const SPEED_CHANGED = "meeting-playback-speed-changed";
 export function subscribeMeetingPlaybackSpeed(
   listener: () => void,
 ): () => void {
-  window.addEventListener(SPEED_CHANGED, listener);
-  window.addEventListener("storage", listener);
-  return () => {
-    window.removeEventListener(SPEED_CHANGED, listener);
-    window.removeEventListener("storage", listener);
-  };
+  return subscribePreferenceChange(SPEED_CHANGED, listener);
 }
 
 export function writeMeetingPlaybackSpeed(
@@ -65,7 +62,7 @@ export function writeMeetingPlaybackSpeed(
     // Blocked storage keeps this meeting's choice for this playback only.
     return;
   }
-  window.dispatchEvent(new Event(SPEED_CHANGED));
+  notifyPreferenceChange(SPEED_CHANGED);
 }
 
 /** Whether this browser remembers a speed for any Account. */
@@ -76,7 +73,7 @@ export function hasMeetingPlaybackSpeed(): boolean {
 /** Forgets every remembered speed in this browser, for every Account. */
 export function clearMeetingPlaybackSpeed(): void {
   removePreferenceKeys([SPEED_PREFIX]);
-  window.dispatchEvent(new Event(SPEED_CHANGED));
+  notifyPreferenceChange(SPEED_CHANGED);
 }
 
 function speedKey(accountId: string) {

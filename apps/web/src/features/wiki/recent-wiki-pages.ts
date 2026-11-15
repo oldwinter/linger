@@ -1,6 +1,8 @@
 import {
+  notifyPreferenceChange,
   removePreferenceKeys,
   storedPreferenceKeys,
+  subscribePreferenceChange,
 } from "@/lib/local-preference-keys";
 
 const RECENT_LIMIT = 5;
@@ -71,7 +73,7 @@ export function writeRecentWikiPages(
     // Blocked storage keeps the list for this tab only.
     return;
   }
-  window.dispatchEvent(new Event(RECENT_WIKI_PAGES_CHANGED));
+  notifyPreferenceChange(RECENT_WIKI_PAGES_CHANGED);
 }
 
 /**
@@ -106,7 +108,7 @@ export function clearRecentWikiPages(
     // Blocked storage has nothing to clear.
     return;
   }
-  window.dispatchEvent(new Event(RECENT_WIKI_PAGES_CHANGED));
+  notifyPreferenceChange(RECENT_WIKI_PAGES_CHANGED);
 }
 
 /** Whether this browser lists a recently opened Wiki page for any Account. */
@@ -117,16 +119,11 @@ export function hasRecentWikiPages(): boolean {
 /** Clears the list for every Account in this browser. */
 export function clearAllRecentWikiPages(): void {
   removePreferenceKeys([STORAGE_PREFIX]);
-  window.dispatchEvent(new Event(RECENT_WIKI_PAGES_CHANGED));
+  notifyPreferenceChange(RECENT_WIKI_PAGES_CHANGED);
 }
 
 export function subscribeRecentWikiPages(listener: () => void): () => void {
-  window.addEventListener(RECENT_WIKI_PAGES_CHANGED, listener);
-  window.addEventListener("storage", listener);
-  return () => {
-    window.removeEventListener(RECENT_WIKI_PAGES_CHANGED, listener);
-    window.removeEventListener("storage", listener);
-  };
+  return subscribePreferenceChange(RECENT_WIKI_PAGES_CHANGED, listener);
 }
 
 /** Records one open for the Account and Tenant that opened it. */
