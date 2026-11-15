@@ -536,8 +536,10 @@ function MeetingVersionReader({
   const [preview, setPreview] = useState<LoadedArtifactPreview>();
   const previewRef = useRef(preview);
   const carryRef = useRef(carry);
-  previewRef.current = preview;
-  carryRef.current = carry;
+  useEffect(() => {
+    previewRef.current = preview;
+    carryRef.current = carry;
+  });
   const [error, setError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   const [downloading, setDownloading] = useState(false);

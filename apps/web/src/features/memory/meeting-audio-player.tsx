@@ -114,12 +114,6 @@ export function MeetingAudioPlayer({
   // Separate from the element: detaching it pauses, and that pause is not a stop.
   const wasPlayingRef = useRef(false);
   const onLeaveRef = useRef(onLeavePlayback);
-  leaveRef.current = {
-    playing: wasPlayingRef.current,
-    rate,
-    seconds: current,
-  };
-  onLeaveRef.current = onLeavePlayback;
   const ready = Boolean(src) && !failed;
   const progress = duration ? Math.min(100, (current / duration) * 100) : 0;
 
@@ -161,6 +155,14 @@ export function MeetingAudioPlayer({
   }, [accountId, meetingId]);
 
   useEffect(() => () => window.clearTimeout(rateNoticeTimer.current), []);
+  useEffect(() => {
+    onLeaveRef.current = onLeavePlayback;
+    leaveRef.current = {
+      playing: wasPlayingRef.current,
+      rate,
+      seconds: current,
+    };
+  });
   // Unmount is the moment the recording either stops or leaves with the listener.
   useEffect(() => () => onLeaveRef.current?.(leaveRef.current), []);
 
