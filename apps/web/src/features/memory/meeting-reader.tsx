@@ -77,14 +77,18 @@ export type MeetingTab = "summary" | "transcript";
  * once it exists; until then the transcript is shown.
  */
 export function MeetingReader({
+  continueRecording,
   entry,
   file,
   onAskAnotherMe,
   onHidden,
+  onRecordingEnded,
   onSelectTab,
   resolveLink,
   tenantId,
 }: {
+  /** This recording is the next one from the day, so it starts playing. */
+  continueRecording?: boolean;
   entry: TeamHubMemoryEntry;
   /** The `file` URL parameter; "recording" and none choose the default tab. */
   file: string | null;
@@ -92,6 +96,8 @@ export function MeetingReader({
   onAskAnotherMe?: () => void;
   /** Leaves the page once the meeting is deleted from the reader's Meetings. */
   onHidden: () => void;
+  /** The recording reached its end, so the day can continue. */
+  onRecordingEnded?: () => void;
   onSelectTab: (tab: MeetingTab) => void;
   resolveLink?: (reference: string) => string | null | undefined;
   tenantId: string;
@@ -472,9 +478,11 @@ export function MeetingReader({
               <MeetingVersionReader
                 key={meeting.recording_version_id}
                 accountId={accountId}
+                continueRecording={continueRecording}
                 documentId={meeting.recording_document_id}
                 filename={meeting.recording_filename}
                 meetingId={entry.id}
+                onRecordingEnded={onRecordingEnded}
                 variant="player"
                 versionId={meeting.recording_version_id}
               />
@@ -500,19 +508,25 @@ export function MeetingReader({
  */
 function MeetingVersionReader({
   accountId,
+  continueRecording,
   documentId,
   versionId,
   filename,
   meetingId,
+  onRecordingEnded,
   variant,
 }: {
   /** Whose listening positions the player remembers. */
   accountId?: string;
+  /** This recording is the next one from the day, so it starts playing. */
+  continueRecording?: boolean;
   documentId: string;
   versionId: string;
   filename: string;
   /** Tells the player which meeting it is playing, so its speed starts over. */
   meetingId?: string;
+  /** The recording reached its end, so the day can continue. */
+  onRecordingEnded?: () => void;
   variant: "player" | "document";
 }) {
   const { client } = useTeamHubRuntime();
@@ -823,7 +837,9 @@ function MeetingVersionReader({
         mediaType={preview?.version.media_type}
         meetingId={meetingId}
         onDownload={() => void download()}
+        onRecordingEnded={onRecordingEnded}
         src={playable ? preview.objectUrl : undefined}
+        startAtBeginning={continueRecording}
         status={
           !preview
             ? "Loading…"

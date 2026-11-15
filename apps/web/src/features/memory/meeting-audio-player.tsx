@@ -73,7 +73,9 @@ export function MeetingAudioPlayer({
   mediaType,
   meetingId,
   onDownload,
+  onRecordingEnded,
   src,
+  startAtBeginning,
   status,
 }: {
   /** Whose listening positions and speed this browser remembers. */
@@ -84,7 +86,14 @@ export function MeetingAudioPlayer({
   /** Changes with the meeting, so the next one carries its Account's speed. */
   meetingId?: string;
   onDownload: () => void;
+  /** The recording reached its end on its own. */
+  onRecordingEnded?: () => void;
   src?: string;
+  /**
+   * The day is continuing into this recording, so it starts from the beginning
+   * and plays, even when this browser once stopped in the middle.
+   */
+  startAtBeginning?: boolean;
   /** Replaces the time line, e.g. while the recording is still loading. */
   status?: string;
 }) {
@@ -155,7 +164,14 @@ export function MeetingAudioPlayer({
 
   /** Applies a remembered place once its metadata supplies the duration. */
   function restorePosition(audio: HTMLAudioElement) {
-    if (restoredRef.current || !accountId || !meetingId) return;
+    if (restoredRef.current) return;
+    if (startAtBeginning) {
+      restoredRef.current = true;
+      audio.currentTime = 0;
+      void audio.play().catch(() => setPlaying(false));
+      return;
+    }
+    if (!accountId || !meetingId) return;
     restoredRef.current = true;
     const entry = readMeetingResume(accountId)[meetingId];
     const position = entry
@@ -295,7 +311,10 @@ export function MeetingAudioPlayer({
           onDurationChange={(event) =>
             setDuration(event.currentTarget.duration)
           }
-          onEnded={() => setPlaying(false)}
+          onEnded={() => {
+            setPlaying(false);
+            onRecordingEnded?.();
+          }}
           onError={() => setFailed(true)}
           onLoadedMetadata={(event) => {
             setDuration(event.currentTarget.duration);

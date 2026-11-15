@@ -61,6 +61,10 @@
   and the left and right arrows move five seconds, stopping at either end. Keys
   pressed in a field, inside a dialog, or on a focused control stay with it, and
   no keypress announces anything.
+- When a recording plays through to its end, the next recording from that same
+  day opens on Summary and starts from the beginning, even if this browser once
+  stopped in the middle of it. A day with no later recording just ends. Pausing
+  does not continue the day.
 - A meeting reader may send its summary to a Room as one Message from the
   header's Room picker. That Message copies derived reading state, writes no
   Memory state, and reuses its idempotency key only when retrying the same

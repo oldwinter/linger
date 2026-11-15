@@ -220,6 +220,45 @@ describe("MeetingAudioPlayer", () => {
 describe("MeetingAudioPlayer resume", () => {
   const ACCOUNT = "account-a";
 
+  it("plays the next recording of the day from the beginning", () => {
+    rememberMeetingPosition(ACCOUNT, "meeting-1", 80, 1_000);
+    const play = vi
+      .spyOn(HTMLMediaElement.prototype, "play")
+      .mockResolvedValue(undefined);
+    const onDownload = vi.fn();
+    const { container } = render(
+      <MeetingAudioPlayer
+        accountId={ACCOUNT}
+        filename="recording.m4a"
+        meetingId="meeting-1"
+        onDownload={onDownload}
+        src="blob:recording"
+        startAtBeginning
+      />,
+    );
+    const audio = container.querySelector("audio")!;
+    loadDuration(audio, 125);
+    expect(audio.currentTime).toBe(0);
+    expect(play).toHaveBeenCalledOnce();
+    expect(screen.queryByText(/Resumed at/)).not.toBeInTheDocument();
+    expect(readMeetingResume(ACCOUNT)["meeting-1"]?.position).toBe(80);
+  });
+
+  it("tells the page when the recording ends", () => {
+    const onRecordingEnded = vi.fn();
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const { container } = render(
+      <MeetingAudioPlayer
+        filename="recording.m4a"
+        onDownload={vi.fn()}
+        onRecordingEnded={onRecordingEnded}
+        src="blob:recording"
+      />,
+    );
+    fireEvent.ended(container.querySelector("audio")!);
+    expect(onRecordingEnded).toHaveBeenCalledOnce();
+  });
+
   it("starts paused at the remembered place inside the recording", () => {
     rememberMeetingPosition(ACCOUNT, "meeting-1", 80, 1_000);
     const { audio } = renderPlayer("meeting-1", ACCOUNT);
