@@ -146,6 +146,9 @@ describe("Meetings panel", () => {
       "href",
       "/t/tenant-northstar/library/day-shape?date=2026-10-01",
     );
+    expect(
+      screen.getByRole("link", { name: "The week in memory" }),
+    ).toHaveAttribute("href", "/t/tenant-northstar/library/week");
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(

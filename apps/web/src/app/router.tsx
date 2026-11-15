@@ -784,6 +784,14 @@ function createLibraryRoute(): RouteObject {
         }),
         path: "meeting-story",
       },
+      {
+        ErrorBoundary: PanelRouteErrorSurface,
+        lazy: async () => ({
+          Component: (await import("@/features/memory/week-memory-page"))
+            .WeekMemoryPage,
+        }),
+        path: "week",
+      },
     ],
     path: "library",
   };

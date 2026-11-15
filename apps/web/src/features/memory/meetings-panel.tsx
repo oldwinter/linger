@@ -21,6 +21,7 @@ import { dayKey } from "@/lib/date-format";
 import { dayShapePath } from "./day-shape";
 import { useMeetings } from "./memory-queries";
 import { meetingPath } from "./meeting-routes";
+import { weekMemoryPath } from "./week-memory";
 import { HideMeetingDialog } from "./hide-meeting-dialog";
 
 const levelClass = [
@@ -210,6 +211,12 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
           to={dayShapePath(tenantId, today)}
         >
           Shape of today
+        </Link>
+        <Link
+          className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          to={weekMemoryPath(tenantId)}
+        >
+          The week in memory
         </Link>
       </div>
       <div>
