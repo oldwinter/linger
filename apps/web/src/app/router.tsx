@@ -284,6 +284,14 @@ export function createAppRoutes(
               }),
               path: "how-work-moves",
             },
+            {
+              ErrorBoundary: PanelRouteErrorSurface,
+              lazy: async () => ({
+                Component: (await import("@/features/rooms/who-manages-page"))
+                  .WhoManagesPage,
+              }),
+              path: "who-manages",
+            },
           ],
         },
         {
