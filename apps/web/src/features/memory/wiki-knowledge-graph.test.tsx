@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { WikiGraphData, WikiGraphNode } from "./wiki-graph-model";
 import { WikiKnowledgeGraph } from "./wiki-knowledge-graph";
+import { REEL_BEAT_MS } from "./year-reel";
 
 function node(
   id: string,
@@ -189,5 +190,25 @@ describe("WikiKnowledgeGraph", () => {
       "AUG 31 – SEP 6, 2026",
     );
     expect(onReadingModeChange).toHaveBeenCalledOnce();
+  });
+
+  it("plays the days something landed and names a quiet stretch", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    vi.setSystemTime(new Date("2026-09-03T12:00:00+08:00"));
+    render(<WikiKnowledgeGraph graph={graph} />);
+    fireEvent.click(screen.getByRole("button", { name: "Play the year" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Kickoff meeting");
+    expect(screen.getByRole("status")).not.toHaveTextContent("quiet");
+    act(() => {
+      vi.advanceTimersByTime(REEL_BEAT_MS);
+    });
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Review meeting, after a quiet stretch",
+    );
+    act(() => {
+      vi.advanceTimersByTime(REEL_BEAT_MS);
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("That's the year.");
+    expect(screen.getByRole("button", { name: "Play the year" })).toBeVisible();
   });
 });
