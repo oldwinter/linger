@@ -47,6 +47,7 @@ export interface VoiceTranscriptItem {
   endOffsetMs?: number;
   id: string;
   startOffsetMs?: number;
+  speakerId?: string;
   speakerLabel?: string;
   text: string;
 }

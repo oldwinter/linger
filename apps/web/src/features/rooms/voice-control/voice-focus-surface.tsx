@@ -10,6 +10,7 @@ import {
   StopIcon,
 } from "@hugeicons/core-free-icons";
 import { useState, type PointerEvent, type ReactNode } from "react";
+import { Link, useInRouterContext, useParams } from "react-router";
 import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,6 +30,11 @@ import {
   useSurfaceAction,
   useVoiceArming,
 } from "./voice-focus-state";
+import {
+  speakerDisplayName,
+  useSpeakerNames,
+  voicesInTranscript,
+} from "./speaker-names";
 
 export type RecordingView = "transcript" | "ask";
 
@@ -433,6 +439,9 @@ export function VoiceFocusSurface({
                 key={capture?.id ?? "idle"}
               >
                 <div className="flex w-full flex-col items-center gap-4 px-5 py-3">
+                  <NameTheVoicesLink
+                    show={!idle && voicesInTranscript(visibleItems).length > 0}
+                  />
                   <div
                     aria-label="Voice focus transcript"
                     aria-live="polite"
@@ -595,21 +604,43 @@ const speakerColors = [
   "text-lichen-700",
 ];
 
-function speakerColor(label: string) {
-  const index = Number(label.match(/(\d+)$/)?.[1] ?? 1);
+function NameTheVoicesLink({ show }: { show: boolean }) {
+  const inside = useInRouterContext();
+  if (!show || !inside) return null;
+  return <NameTheVoicesRouteLink />;
+}
+
+function NameTheVoicesRouteLink() {
+  const tenantId = useParams().tenantId;
+  if (!tenantId) return null;
+  return (
+    <Link
+      className="self-start text-xs text-app-muted underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+      to={`/t/${encodeURIComponent(tenantId)}/voices`}
+    >
+      Name the voices
+    </Link>
+  );
+}
+
+function speakerColor(speakerId: string | undefined, label: string) {
+  const fromId = speakerId?.match(/^spk_([1-9][0-9]*)$/)?.[1];
+  const index = Number(fromId ?? label.match(/(\d+)$/)?.[1] ?? 1);
   return speakerColors[(Math.max(index, 1) - 1) % speakerColors.length]!;
 }
 
 function VoiceFocusTranscriptRow({ item }: { item: VoiceTranscriptItem }) {
+  const names = useSpeakerNames(item.captureId);
+  const label = speakerDisplayName(item.speakerId, item.speakerLabel, names);
   // Town message rows: a 13px name line over 14px body text, starting
   // straight with the speaker.
   return (
     <div className="flex flex-col gap-0.5 rounded-lg px-2.5 py-1.5">
-      {item.speakerLabel ? (
+      {label ? (
         <span
-          className={`text-[14px] leading-[18px] font-medium ${speakerColor(item.speakerLabel)}`}
+          className={`text-[14px] leading-[18px] font-medium ${speakerColor(item.speakerId, label)}`}
         >
-          {item.speakerLabel}
+          {label}
         </span>
       ) : null}
       <p className="m-0 text-sm leading-5 text-app-body">{item.text}</p>
