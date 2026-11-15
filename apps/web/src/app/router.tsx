@@ -689,6 +689,19 @@ function createLibraryRoute(): RouteObject {
         },
         path: "meetings",
       },
+      {
+        ErrorBoundary: PanelRouteErrorSurface,
+        lazy: async () => ({
+          Component: (await import("@/features/memory/meeting-reminders-page"))
+            .MeetingRemindersPage,
+        }),
+        loader: ({ params, request }) => {
+          if (new URL(request.url).searchParams.get("entry")) return null;
+          const tenantId = requireRoomRouteParam(params.tenantId, "Tenant");
+          throw redirect(`/t/${tenantId}/library?tab=meetings`);
+        },
+        path: "meeting-reminders",
+      },
     ],
     path: "library",
   };

@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown01Icon,
@@ -5,10 +6,10 @@ import {
   Cancel01Icon,
   Search01Icon,
 } from "@hugeicons/core-free-icons";
+import { Link } from "react-router";
 import { ReadOnlyBlockNoteDocumentLoader } from "@/components/read-only-blocknote-document-loader";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { useQuery } from "@tanstack/react-query";
 import { ArtifactContentRendererLoader } from "@/features/rooms/files/artifact-content-renderer-loader";
 import {
   downloadArtifactPreview,
@@ -16,7 +17,10 @@ import {
   triggerArtifactDownload,
   type LoadedArtifactPreview,
 } from "@/features/rooms/files/artifact-preview-loader";
-import { teamHubIdentityQueryOptions } from "@/features/rooms/room-queries";
+import {
+  anotherMeQueryOptions,
+  teamHubIdentityQueryOptions,
+} from "@/features/rooms/room-queries";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 import { MeetingAudioPlayer } from "./meeting-audio-player";
@@ -28,6 +32,7 @@ import {
 } from "./meeting-overview-card";
 import { HideMeetingDialog } from "./hide-meeting-dialog";
 import { followUpTexts, useMeetingFollowUps } from "./meeting-follow-ups";
+import { meetingRemindersPath, meetingTodoTexts } from "./meeting-reminders";
 import {
   formatMeetingWhen,
   meetingTitle,
@@ -93,6 +98,7 @@ export function MeetingReader({
   // listening position belongs to the signed-in Account.
   const identity = useQuery(teamHubIdentityQueryOptions(client));
   const accountId = identity.data?.account.id;
+  const anotherMe = useQuery(anotherMeQueryOptions(client, tenantId));
   const [deleting, setDeleting] = useState(false);
   const tab: MeetingTab =
     file === "summary" || file === "transcript"
@@ -206,6 +212,10 @@ export function MeetingReader({
     meeting.capture_id,
     followUps.length > 0,
   );
+  const todos = useMemo(
+    () => meetingTodoTexts(summaryMarkdown),
+    [summaryMarkdown],
+  );
   const summaryDocument = (markdown: string) => (
     <ReadOnlyBlockNoteDocumentLoader
       ariaLabel="Meeting summary document"
@@ -255,6 +265,14 @@ export function MeetingReader({
             <Button onClick={onAskAnotherMe} size="compact" tone="secondary">
               Ask Another Me
             </Button>
+          ) : null}
+          {todos.length > 0 && anotherMe.data?.room_id ? (
+            <Link
+              className="shrink-0 text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              to={meetingRemindersPath(tenantId, entry.id)}
+            >
+              Turn to-dos into reminders
+            </Link>
           ) : null}
           <Button onClick={() => setDeleting(true)} size="compact" tone="ghost">
             Delete

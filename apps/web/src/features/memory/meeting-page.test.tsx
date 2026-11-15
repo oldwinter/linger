@@ -367,6 +367,12 @@ describe("MeetingPage", () => {
       await screen.findByRole("button", { name: "To-do list" }),
     ).toBeVisible();
     expect(screen.queryByRole("button", { name: "Document mode" })).toBeNull();
+    expect(
+      await screen.findByRole("link", { name: "Turn to-dos into reminders" }),
+    ).toHaveAttribute(
+      "href",
+      `/t/tenant-northstar/library/meeting-reminders?entry=${entry.id}`,
+    );
   });
 
   it("keeps checked follow-ups for this meeting on this computer", async () => {
