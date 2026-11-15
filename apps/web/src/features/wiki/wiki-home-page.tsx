@@ -17,6 +17,8 @@ import { useWikiGraphNodes } from "./wiki-graph-queries";
 import { RecentWikiPagesStrip } from "./recent-wiki-pages-strip";
 import { WikiDailyCard } from "./wiki-daily-card";
 import { OnThisDayRecall, recallForToday } from "./on-this-day-recall";
+import { useWikiLiveFocus } from "./wiki-live-focus";
+import { WikiLiveWriting } from "./wiki-live-writing";
 import {
   wikiEntries,
   type WikiEntry,
@@ -239,6 +241,7 @@ function WikiOverview({
   const nodes = useWikiGraphNodes(tenantId);
   const reports = usePeriodReports(tenantId, "daily");
   const previews = useMemo(() => wikiPreviewPages(preview), [preview]);
+  const featured = useWikiLiveFocus(previews);
   const anotherMe = useAnotherMeActorId(tenantId);
   const base = `/t/${encodeURIComponent(tenantId)}/library/wiki`;
   const documentPath = (page: TeamHubDocument) =>
@@ -285,6 +288,13 @@ function WikiOverview({
               {`Read ${previews.length} ${previews.length === 1 ? "page" : "pages"} written so far`}
             </Link>
           </p>
+        ) : null}
+        {refreshing && featured ? (
+          <WikiLiveWriting
+            count={previews.length}
+            page={featured}
+            tenantId={tenantId}
+          />
         ) : null}
       </div>
       <RecentWikiPagesStrip />

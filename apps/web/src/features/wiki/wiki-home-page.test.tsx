@@ -126,6 +126,15 @@ it("shows the pages a refresh has written as ordinary cards that open as pages",
   expect(
     screen.getByRole("link", { name: "Read 2 pages written so far" }),
   ).toHaveAttribute("href", "/t/tenant-northstar/library/wiki/writing");
+  const writing = screen.getByRole("region", { name: "Wiki being written" });
+  expect(writing).toHaveTextContent("Tom Becker");
+  expect(writing).toHaveTextContent("2 pages written so far");
+  expect(
+    within(writing).getByRole("link", { name: "Open page" }),
+  ).toHaveAttribute(
+    "href",
+    "/t/tenant-northstar/wiki-preview?page=contacts%2Ftom.md",
+  );
   expect(screen.queryByText("No topics yet.")).toBeNull();
 });
 

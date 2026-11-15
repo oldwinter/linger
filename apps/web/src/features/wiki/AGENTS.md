@@ -17,6 +17,8 @@
 - Web observes generation state. A Human may ask TeamHub to start a refresh; Web shows its outcome and lets the same polling report progress. Web does not call LLM Wiki directly or orchestrate compilation.
   While a refresh is writing pages, Read pages written so far walks those
   previews one at a time and opens each page before it is published.
+  The Wiki home also features the page just written. A page that appears in a
+  later preview replaces it.
 
 - Wiki navigation owns Profile, Timeline, Projects, Topics, People, and Companies. Timeline, People
   and Companies are the display labels for the existing `graph`, `contacts` and
