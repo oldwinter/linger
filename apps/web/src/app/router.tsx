@@ -259,6 +259,14 @@ export function createAppRoutes(
               ),
               path: "chat",
             },
+            {
+              ErrorBoundary: PanelRouteErrorSurface,
+              lazy: async () => ({
+                Component: (await import("@/features/rooms/room-work-page"))
+                  .RoomWorkPage,
+              }),
+              path: "working",
+            },
           ],
         },
         {
