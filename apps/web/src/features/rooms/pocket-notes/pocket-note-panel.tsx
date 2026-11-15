@@ -52,6 +52,7 @@ import {
   pocketNoteMarkdown,
   pocketNotesMarkdown,
 } from "./pocket-notes-export";
+import { TellAnotherMe } from "./tell-another-me-control";
 import { LazyVoiceKeyDialog } from "@/features/rooms/voice-control/lazy-voice-key-dialog";
 import { appendToPocketNote } from "./pocket-note-append";
 import { pocketNoteCopyText } from "./pocket-note-copy";
@@ -95,6 +96,7 @@ export default function PocketNotePanel({
   anotherMeRoomId,
   closeRef,
   onClose,
+  onOpenChat,
   tenantId,
 }: {
   anchorRef: RefObject<HTMLButtonElement | null>;
@@ -102,6 +104,8 @@ export default function PocketNotePanel({
   /** Receives the guarded close, so the trigger closes the same way. */
   closeRef: RefObject<(() => void) | undefined>;
   onClose: () => void;
+  /** Opens Another Me's chat after today's note has been sent there. */
+  onOpenChat?: () => void;
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
@@ -247,6 +251,7 @@ export default function PocketNotePanel({
           closeGuard={closeGuard}
           key={today}
           onClose={close}
+          onOpenChat={onOpenChat}
           onShowAll={() => setView({ kind: "all" })}
           storedText={todayNote?.text ?? ""}
           tenantId={tenantId}
@@ -268,6 +273,7 @@ function TodayPocketNote({
   anotherMeRoomId,
   closeGuard,
   onClose,
+  onOpenChat,
   onShowAll,
   storedText,
   tenantId,
@@ -278,6 +284,7 @@ function TodayPocketNote({
   /** Today's saved text, which a save from elsewhere can change underneath. */
   storedText: string;
   onClose: () => void;
+  onOpenChat?: () => void;
   onShowAll: () => void;
   tenantId: string;
   today: string;
@@ -443,6 +450,12 @@ function TodayPocketNote({
     }
     startDictation();
   }
+  async function ensureSaved() {
+    const value = textRef.current;
+    if (value === savedText.current) return;
+    await save.mutateAsync(value);
+  }
+
   function startDictation() {
     setTruncated(false);
     anchor.current = editorRef.current?.selectionStart() ?? anchor.current;
@@ -517,6 +530,14 @@ function TodayPocketNote({
             connecting={dictation.connecting}
             level={dictation.level}
             onClick={toggleDictation}
+          />
+        ) : null}
+        {anotherMeRoomId && onOpenChat && !dictating ? (
+          <TellAnotherMe
+            note={text}
+            onEnsureSaved={ensureSaved}
+            onOpenChat={onOpenChat}
+            roomId={anotherMeRoomId}
           />
         ) : null}
         {keyDialogOpen ? (

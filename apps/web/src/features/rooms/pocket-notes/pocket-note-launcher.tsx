@@ -1,4 +1,5 @@
 import { lazy, Suspense, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
 
 // The notepad loads on first open so the sidebar's initial bundle only
@@ -30,6 +31,7 @@ export function PocketNoteLauncher({
   anotherMeRoomId?: string;
   tenantId: string;
 }) {
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<(() => void) | undefined>(undefined);
@@ -56,6 +58,16 @@ export function PocketNoteLauncher({
             anotherMeRoomId={anotherMeRoomId}
             closeRef={closeRef}
             onClose={() => setOpen(false)}
+            onOpenChat={
+              anotherMeRoomId
+                ? () => {
+                    setOpen(false);
+                    void navigate(
+                      `/t/${encodeURIComponent(tenantId)}/rooms/${encodeURIComponent(anotherMeRoomId)}/chat`,
+                    );
+                  }
+                : undefined
+            }
             tenantId={tenantId}
           />
         </Suspense>
