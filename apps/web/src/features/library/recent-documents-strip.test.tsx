@@ -12,7 +12,7 @@ import {
 } from "./recent-documents";
 import { RecentDocumentsStrip } from "./recent-documents-strip";
 
-const STORAGE_KEY = "library-recent-documents.v1:account-a";
+const STORAGE_KEY = "library-recent-documents.v1:account-a.tenant-a";
 
 function entry(id: string, name: string): RecentDocument {
   return { formatLabel: "md", id, name, openedAt: "2026-07-24T10:00:00Z" };
@@ -50,7 +50,7 @@ describe("Recently opened strip", () => {
   });
 
   it("shows stored Documents with their format and a link", () => {
-    writeRecentDocuments("account-a", [
+    writeRecentDocuments("account-a", "tenant-a", [
       entry("document-design", "Design notes"),
       entry("document-plan", "Q3 plan"),
     ]);
@@ -80,7 +80,7 @@ describe("Recently opened strip", () => {
   });
 
   it("clears the strip and the stored list", () => {
-    writeRecentDocuments("account-a", [
+    writeRecentDocuments("account-a", "tenant-a", [
       entry("document-design", "Design notes"),
     ]);
     renderStrip();
@@ -94,7 +94,7 @@ describe("Recently opened strip", () => {
   });
 
   it("forgets one Document and keeps the rest in order", () => {
-    writeRecentDocuments("account-a", [
+    writeRecentDocuments("account-a", "tenant-a", [
       entry("document-design", "Design notes"),
       entry("document-plan", "Q3 plan"),
       entry("document-brief", "Brief"),
@@ -109,14 +109,13 @@ describe("Recently opened strip", () => {
         .getAllByRole("link")
         .map((link) => link.getAttribute("aria-label")),
     ).toEqual(["Design notes, md", "Brief, md"]);
-    expect(readRecentDocuments("account-a").map((row) => row.id)).toEqual([
-      "document-design",
-      "document-brief",
-    ]);
+    expect(
+      readRecentDocuments("account-a", "tenant-a").map((row) => row.id),
+    ).toEqual(["document-design", "document-brief"]);
   });
 
   it("does not open the Document when it is forgotten", () => {
-    writeRecentDocuments("account-a", [
+    writeRecentDocuments("account-a", "tenant-a", [
       entry("document-design", "Design notes"),
       entry("document-plan", "Q3 plan"),
     ]);
@@ -132,7 +131,7 @@ describe("Recently opened strip", () => {
   });
 
   it("moves focus to the next entry when one is forgotten", () => {
-    writeRecentDocuments("account-a", [
+    writeRecentDocuments("account-a", "tenant-a", [
       entry("document-design", "Design notes"),
       entry("document-plan", "Q3 plan"),
       entry("document-brief", "Brief"),
@@ -145,7 +144,7 @@ describe("Recently opened strip", () => {
   });
 
   it("moves focus to the previous entry when the last one is forgotten", () => {
-    writeRecentDocuments("account-a", [
+    writeRecentDocuments("account-a", "tenant-a", [
       entry("document-design", "Design notes"),
       entry("document-plan", "Q3 plan"),
       entry("document-brief", "Brief"),
@@ -160,7 +159,7 @@ describe("Recently opened strip", () => {
   });
 
   it("announces an empty strip after the last Document is forgotten", () => {
-    writeRecentDocuments("account-a", [
+    writeRecentDocuments("account-a", "tenant-a", [
       entry("document-design", "Design notes"),
     ]);
     renderStrip();
@@ -179,7 +178,7 @@ describe("Recently opened strip", () => {
   });
 
   it("navigates when the format label is clicked", () => {
-    writeRecentDocuments("account-a", [
+    writeRecentDocuments("account-a", "tenant-a", [
       entry("document-design", "Design notes"),
     ]);
     renderStrip();
@@ -193,7 +192,7 @@ describe("Recently opened strip", () => {
   });
 
   it("gives the Forget control a comfortable target", () => {
-    writeRecentDocuments("account-a", [
+    writeRecentDocuments("account-a", "tenant-a", [
       entry("document-design", "Design notes"),
     ]);
     renderStrip();

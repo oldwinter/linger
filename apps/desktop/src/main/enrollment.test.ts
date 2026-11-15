@@ -572,4 +572,29 @@ describe("EnrollmentModule", () => {
     );
     expect(creates[0]?.body).not.toHaveProperty("computer_id");
   });
+
+  it("remembers a persisted identity conflict across restarts and clears it on reset", async () => {
+    const server = fakeServer();
+    const f = enrollmentModule(
+      { ...enrolled, identityConflict: true },
+      server.fetch,
+    );
+    f.credentials.write({
+      computerId: "computer_1",
+      gatewayUrl: "wss://linger.example.com/v1/runner",
+      token: TOKEN,
+    });
+    f.writeIdentity();
+    await f.host.start();
+
+    await expect(f.module.enroll()).rejects.toMatchObject({
+      code: "IDENTITY_IN_USE",
+    });
+
+    await f.module.resetLocalServer();
+    expect(existsSync(f.identityFile)).toBe(false);
+    expect(f.host.ctx.config.get().identityConflict).toBeUndefined();
+    await f.module.enroll();
+    expect(f.host.ctx.config.get().computerId).toBe("computer_1");
+  });
 });

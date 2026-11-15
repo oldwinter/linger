@@ -905,6 +905,47 @@ describe("Pinned messages copy", () => {
       "Copy failed",
     );
   });
+
+  it("clears the search query on Escape first and restores trigger focus on close", async () => {
+    renderControl(() => pinList([pinned(alice, "2026-10-09T08:00:00.000Z")]));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Pinned messages",
+    });
+    await within(dialog).findAllByRole("listitem");
+    const search = within(dialog).getByRole("searchbox", {
+      name: "Search pinned messages",
+    });
+    fireEvent.change(search, { target: { value: "hi" } });
+    search.focus();
+
+    const firstEscape = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Escape",
+    });
+    fireEvent(search, firstEscape);
+    expect(firstEscape.defaultPrevented).toBe(true);
+    expect(search).toHaveValue("");
+    expect(
+      screen.getByRole("dialog", { name: "Pinned messages" }),
+    ).toBeVisible();
+
+    const secondEscape = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Escape",
+    });
+    fireEvent(document, secondEscape);
+    expect(secondEscape.defaultPrevented).toBe(true);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Pinned messages" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.getByRole("button", { name: "Pinned messages" }),
+    ).toHaveFocus();
+  });
 });
 
 describe("useMessagePinToggle", () => {

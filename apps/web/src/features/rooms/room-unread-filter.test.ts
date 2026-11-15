@@ -146,6 +146,7 @@ describe("Room filter storage", () => {
 
     writeRoomFilterMode("account-a", "all");
     expect(readRoomFilterMode("account-a")).toBe("all");
+    expect(localStorage.getItem(PREFERENCE_KEY)).toBeNull();
   });
 
   it("reads the old boolean choice as the mode it meant", () => {

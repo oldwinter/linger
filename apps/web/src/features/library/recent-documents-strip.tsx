@@ -11,6 +11,7 @@ import {
   type RecentDocument,
   readRecentDocuments,
   removeRecentDocument,
+  subscribeRecentDocuments,
 } from "./recent-documents";
 import { useRecentDocumentsAccountId } from "./use-recent-documents";
 
@@ -25,7 +26,7 @@ type RemovalFocus = { entryId: string } | "empty";
 export function RecentDocumentsStrip({ tenantId }: { tenantId: string }) {
   const accountId = useRecentDocumentsAccountId();
   const [entries, setEntries] = useState<RecentDocument[]>(() =>
-    readRecentDocuments(accountId),
+    readRecentDocuments(accountId, tenantId),
   );
   // Forgetting the last Document keeps the section with its empty status so the
   // removal is announced instead of focus falling to the page.
@@ -35,6 +36,15 @@ export function RecentDocumentsStrip({ tenantId }: { tenantId: string }) {
     useState<RemovalFocus | null>(null);
   const forgetRefs = useRef(new Map<string, HTMLButtonElement>());
   const emptyRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    const refresh = () => {
+      const next = readRecentDocuments(accountId, tenantId);
+      setEntries(next);
+      if (next.length > 0) setEmptied(false);
+    };
+    refresh();
+    return subscribeRecentDocuments(refresh);
+  }, [accountId, tenantId]);
   useEffect(() => {
     if (focusAfterRemoval === null) return;
     const target =
@@ -46,7 +56,7 @@ export function RecentDocumentsStrip({ tenantId }: { tenantId: string }) {
   }, [focusAfterRemoval]);
   if (entries.length === 0 && !emptied) return null;
   function clear() {
-    clearRecentDocuments(accountId);
+    clearRecentDocuments(accountId, tenantId);
     setEntries([]);
   }
   // Forgetting one Document keeps the rest of the strip as it was, and hands
@@ -54,7 +64,7 @@ export function RecentDocumentsStrip({ tenantId }: { tenantId: string }) {
   function forget(documentId: string) {
     const index = entries.findIndex((entry) => entry.id === documentId);
     const remaining = entries.filter((entry) => entry.id !== documentId);
-    removeRecentDocument(accountId, documentId);
+    removeRecentDocument(accountId, tenantId, documentId);
     setEntries(remaining);
     if (remaining.length === 0) {
       setEmptied(true);

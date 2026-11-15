@@ -417,10 +417,10 @@ describe("Browser preferences", () => {
     "room-unread-filter.v1:account-a",
     "desktop-notification-pause.v1:account-a",
     "global-search-recent.v2:tenant-a",
-    "library-recent-documents.v1:account-a",
+    "library-recent-documents.v1:account-a.tenant-a",
     "meeting-resume.v1:account-a",
     "meeting-playback-speed.v1:account-a",
-    "wiki-recent-pages.v1:account-a",
+    "wiki-recent-pages.v1:account-a.tenant-a",
   ];
 
   it("lists every registered preference and disables Clear when nothing is stored", async () => {

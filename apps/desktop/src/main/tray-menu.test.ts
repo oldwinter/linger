@@ -139,4 +139,18 @@ describe("trayMenu", () => {
       expect(items[1]).toEqual({ kind: "separator" });
     }
   });
+
+  it("offers Set Up Again when an identity conflict is active", () => {
+    const items = trayMenu({
+      status: { tone: "error", label: "Identity Conflict · Set Up Again" },
+      preventSleep: false,
+      enrolled: true,
+      identityConflict: true,
+    });
+    expect(items[1]).toEqual({
+      kind: "action",
+      action: "resolve-identity-conflict",
+      label: "Set Up Again…",
+    });
+  });
 });

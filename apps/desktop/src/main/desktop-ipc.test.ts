@@ -163,4 +163,35 @@ describe("DesktopIpcModule unread badge", () => {
     expect(await f.invoke(IPC.notificationsBadge, SERVER, 3)).toBeUndefined();
     await f.host.stop("quit");
   });
+
+  it("reports a persisted identity conflict in computerStatus before the daemon emits", async () => {
+    const host = testHost(
+      [
+        stubModule("Enrollment"),
+        { ...stubModule("PowerGuard"), active: () => false } as never,
+        {
+          ...stubModule("ComputerDaemon"),
+          connection: () => "disconnected",
+          state: () => "stopped",
+          running: () => 0,
+          connectionError: () => undefined,
+        } as never,
+        stubModule("WindowManager"),
+        stubModule("WorkspaceGrants"),
+        stubModule("Tray"),
+        stubModule("LocalServer"),
+        new DesktopIpcModule({ defaultDisplayName: "Desk" }),
+      ],
+      { serverUrl: SERVER, computerId: "cmp_1", identityConflict: true },
+    );
+    await host.start();
+    const result = await handlers.get(IPC.computerStatus)!({
+      senderFrame: { origin: SERVER },
+    });
+    expect(result).toMatchObject({
+      computerId: "cmp_1",
+      connectionError: "daemon_identity_conflict",
+    });
+    await host.stop("quit");
+  });
 });

@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 
 import {
+  notifyPreferenceChange,
   removePreferenceKeys,
   storedPreferenceKeys,
+  subscribePreferenceChange,
 } from "@/lib/local-preference-keys";
 
 const SNOOZE_PREFIX = "room-mention-snooze.v1:";
@@ -160,13 +162,17 @@ export function writeRoomMentionSnooze(
 ): void {
   if (!accountId) return;
   try {
-    window.localStorage.setItem(snoozeKey(accountId), JSON.stringify(snooze));
+    if (Object.keys(snooze).length === 0) {
+      window.localStorage.removeItem(snoozeKey(accountId));
+    } else {
+      window.localStorage.setItem(snoozeKey(accountId), JSON.stringify(snooze));
+    }
   } catch {
     // Blocked storage leaves the Room list working without the choice.
     return;
   }
   // Same-tab readers refresh; other tabs hear the storage event instead.
-  window.dispatchEvent(new Event(PREFERENCES_CHANGED));
+  notifyPreferenceChange(PREFERENCES_CHANGED);
 }
 
 export function setRoomMentionSnooze(
@@ -220,12 +226,19 @@ export function writeRoomMentionMute(
 ): void {
   if (!accountId) return;
   try {
-    window.localStorage.setItem(muteKey(accountId), JSON.stringify([...mute]));
+    if (mute.size === 0) {
+      window.localStorage.removeItem(muteKey(accountId));
+    } else {
+      window.localStorage.setItem(
+        muteKey(accountId),
+        JSON.stringify([...mute]),
+      );
+    }
   } catch {
     // Blocked storage leaves the Room list working without the choice.
     return;
   }
-  window.dispatchEvent(new Event(PREFERENCES_CHANGED));
+  notifyPreferenceChange(PREFERENCES_CHANGED);
 }
 
 /** Mutes a Room until the person unmutes it, ending any snooze it held. */
@@ -234,10 +247,13 @@ export function muteRoomMention(
   roomId: string,
   now: Date,
 ): void {
-  writeRoomMentionSnooze(
-    accountId,
-    withoutRoomMentionSnooze(readRoomMentionSnooze(accountId, now), roomId),
-  );
+  const currentSnooze = readRoomMentionSnooze(accountId, now);
+  if (roomId in currentSnooze) {
+    writeRoomMentionSnooze(
+      accountId,
+      withoutRoomMentionSnooze(currentSnooze, roomId),
+    );
+  }
   writeRoomMentionMute(
     accountId,
     withRoomMentionMute(readRoomMentionMute(accountId), roomId),
@@ -263,18 +279,13 @@ export function hasRoomMentionPreferences(): boolean {
 /** Ends every mention snooze and mute in this browser, for every Account. */
 export function clearRoomMentionPreferences(): void {
   removePreferenceKeys([SNOOZE_PREFIX, MUTE_PREFIX]);
-  window.dispatchEvent(new Event(PREFERENCES_CHANGED));
+  notifyPreferenceChange(PREFERENCES_CHANGED);
 }
 
 export function subscribeRoomMentionPreferences(
   listener: () => void,
 ): () => void {
-  window.addEventListener(PREFERENCES_CHANGED, listener);
-  window.addEventListener("storage", listener);
-  return () => {
-    window.removeEventListener(PREFERENCES_CHANGED, listener);
-    window.removeEventListener("storage", listener);
-  };
+  return subscribePreferenceChange(PREFERENCES_CHANGED, listener);
 }
 
 /**

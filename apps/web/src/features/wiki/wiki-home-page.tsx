@@ -297,7 +297,7 @@ function WikiOverview({
           />
         ) : null}
       </div>
-      <RecentWikiPagesStrip />
+      <RecentWikiPagesStrip tenantId={tenantId} />
       <div className="landing-grid">
         <div className="landing-col landing-col-left">
           <section className="landing-section landing-daily">

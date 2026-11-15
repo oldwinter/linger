@@ -114,6 +114,25 @@ describe("useLogout", () => {
       "global-search-recent.v2:tenant-northstar",
       JSON.stringify({ queries: ["private customer query"], opened: {} }),
     );
+    window.localStorage.setItem(
+      "library-recent-documents.v1:account-jenny.tenant-northstar",
+      JSON.stringify([{ id: "doc-1", name: "Notes", formatLabel: "md" }]),
+    );
+    window.localStorage.setItem(
+      "wiki-recent-pages.v1:account-jenny.tenant-northstar",
+      JSON.stringify([
+        {
+          id: "alpha",
+          name: "Alpha",
+          openedAt: "2026-07-24T10:00:00Z",
+          path: "/t/tenant-northstar/documents/alpha",
+        },
+      ]),
+    );
+    window.localStorage.setItem(
+      "linger:wiki-display:v1:tenant-northstar:account-jenny",
+      JSON.stringify({ alpha: "delete" }),
+    );
     let finishOutbox!: () => void;
     const clearOutbox = vi
       .spyOn(browserRoomMessageOutbox, "clearAccount")
@@ -163,6 +182,21 @@ describe("useLogout", () => {
     await waitFor(() => expect(broadcast).toHaveBeenCalledOnce());
     expect(
       window.localStorage.getItem("global-search-recent.v2:tenant-northstar"),
+    ).toBeNull();
+    expect(
+      window.localStorage.getItem(
+        "library-recent-documents.v1:account-jenny.tenant-northstar",
+      ),
+    ).toBeNull();
+    expect(
+      window.localStorage.getItem(
+        "wiki-recent-pages.v1:account-jenny.tenant-northstar",
+      ),
+    ).toBeNull();
+    expect(
+      window.localStorage.getItem(
+        "linger:wiki-display:v1:tenant-northstar:account-jenny",
+      ),
     ).toBeNull();
     expect(clearOutbox).toHaveBeenCalledWith(identity.account.id);
   });

@@ -17,10 +17,19 @@ describe("meeting playback speed store", () => {
     expect(readMeetingPlaybackSpeed(undefined)).toBe(1);
   });
 
-  it("reads the Account's stored speed", () => {
+  it("reads the Account's stored speed and removes the key on default 1x", () => {
     writeMeetingPlaybackSpeed("account-a", 1.5);
 
     expect(readMeetingPlaybackSpeed("account-a")).toBe(1.5);
+    expect(hasMeetingPlaybackSpeed()).toBe(true);
+
+    writeMeetingPlaybackSpeed("account-a", 1);
+
+    expect(readMeetingPlaybackSpeed("account-a")).toBe(1);
+    expect(
+      localStorage.getItem("meeting-playback-speed.v1:account-a"),
+    ).toBeNull();
+    expect(hasMeetingPlaybackSpeed()).toBe(false);
   });
 
   it("keeps each Account's speed apart", () => {

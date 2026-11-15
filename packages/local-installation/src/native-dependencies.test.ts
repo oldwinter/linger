@@ -462,6 +462,12 @@ it("prepares real executable launchers and reuses verified warm dependencies ent
   );
   // Native modules install prebuilt, so no C toolchain may be required.
   vi.stubEnv("PATH", path.dirname(process.execPath));
+  vi.stubEnv("GOROOT", "/host/mise/go");
+  vi.stubEnv("GOBIN", "/host/mise/bin");
+  vi.stubEnv("pnpm_config_registry", "");
+  vi.stubEnv("PNPM_CONFIG_REGISTRY", "");
+  vi.stubEnv("npm_config_registry", "");
+  vi.stubEnv("NPM_CONFIG_REGISTRY", "");
   vi.stubEnv(
     "LINGER_NATIVE_DEPENDENCIES_JSON",
     JSON.stringify([
@@ -606,6 +612,11 @@ it("prepares real executable launchers and reuses verified warm dependencies ent
       throw new Error(`${options.url} downloaded`);
     await writeFile(options.output, await readFile(archives.postgres!));
   });
+  vi.stubEnv("PNPM_HOME", "/host/mise/pnpm");
+  vi.stubEnv("pnpm_config_registry", "https://host-pnpm.example/");
+  vi.stubEnv("PNPM_CONFIG_REGISTRY", "https://host-pnpm-upper.example/");
+  vi.stubEnv("npm_config_registry", "https://host-npm.example/");
+  vi.stubEnv("NPM_CONFIG_REGISTRY", "https://host-npm-upper.example/");
   const offline = await prepareNativeDependencies({
     repo,
     home: path.join(root, "home-offline"),
@@ -616,9 +627,11 @@ it("prepares real executable launchers and reuses verified warm dependencies ent
   expect(download).toHaveBeenCalledTimes(1);
   expect(fetcher).not.toHaveBeenCalled();
   expect(offline.registries).toEqual([]);
-  expect(offline.env.PNPM_HOME).not.toBe(
-    path.join(offline.toolchainRoot, "bin"),
-  );
+  expect(offline.env.PNPM_HOME).toBeUndefined();
+  expect(offline.env.npm_config_registry).toBeUndefined();
+  expect(offline.env.NPM_CONFIG_REGISTRY).toBeUndefined();
+  expect(offline.env.pnpm_config_registry).toBeUndefined();
+  expect(offline.env.PNPM_CONFIG_REGISTRY).toBeUndefined();
   expect(existsSync(path.join(offline.toolchainRoot, "bin/pnpm"))).toBe(false);
   expect(existsSync(path.join(offline.toolchainRoot, "bin/npm"))).toBe(false);
 }, 15000);

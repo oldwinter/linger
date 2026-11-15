@@ -12,7 +12,7 @@ import {
 } from "./recent-wiki-pages";
 import { RecentWikiPagesStrip } from "./recent-wiki-pages-strip";
 
-const STORAGE_KEY = "wiki-recent-pages.v1:account-a";
+const STORAGE_KEY = "wiki-recent-pages.v1:account-a.tenant-a";
 
 function entry(id: string, name: string, path: string): RecentWikiPage {
   return { id, name, openedAt: "2026-07-24T10:00:00Z", path };
@@ -46,7 +46,7 @@ function renderStrip() {
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={["/t/tenant-a/wiki"]}>
         <LocationProbe />
-        <RecentWikiPagesStrip />
+        <RecentWikiPagesStrip tenantId="tenant-a" />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -58,7 +58,7 @@ describe("Recently opened Wiki pages strip", () => {
   });
 
   it("links the stored pages in their recorded order", () => {
-    writeRecentWikiPages("account-a", [
+    writeRecentWikiPages("account-a", "tenant-a", [
       entry("document-design", "Design notes", "/t/tenant-a/documents/design"),
       entry(
         "projects/lev8.md",
@@ -94,7 +94,7 @@ describe("Recently opened Wiki pages strip", () => {
   });
 
   it("clears the strip and the stored list", () => {
-    writeRecentWikiPages("account-a", [
+    writeRecentWikiPages("account-a", "tenant-a", [
       entry("document-design", "Design notes", "/t/tenant-a/documents/design"),
     ]);
     renderStrip();
@@ -111,7 +111,7 @@ describe("Recently opened Wiki pages strip", () => {
   });
 
   it("forgets one page and keeps the rest in order", () => {
-    writeRecentWikiPages("account-a", pageEntries());
+    writeRecentWikiPages("account-a", "tenant-a", pageEntries());
     renderStrip();
 
     fireEvent.click(screen.getByRole("button", { name: "Forget Q3 plan" }));
@@ -127,14 +127,13 @@ describe("Recently opened Wiki pages strip", () => {
       ["Design notes", "/t/tenant-a/documents/design"],
       ["Brief", "/t/tenant-a/documents/brief"],
     ]);
-    expect(readRecentWikiPages("account-a").map((row) => row.id)).toEqual([
-      "document-design",
-      "document-brief",
-    ]);
+    expect(
+      readRecentWikiPages("account-a", "tenant-a").map((row) => row.id),
+    ).toEqual(["document-design", "document-brief"]);
   });
 
   it("does not open the page when it is forgotten", () => {
-    writeRecentWikiPages("account-a", pageEntries());
+    writeRecentWikiPages("account-a", "tenant-a", pageEntries());
     renderStrip();
 
     fireEvent.click(
@@ -147,7 +146,7 @@ describe("Recently opened Wiki pages strip", () => {
   });
 
   it("moves focus to the next entry when one is forgotten", () => {
-    writeRecentWikiPages("account-a", pageEntries());
+    writeRecentWikiPages("account-a", "tenant-a", pageEntries());
     renderStrip();
 
     fireEvent.click(screen.getByRole("button", { name: "Forget Q3 plan" }));
@@ -156,7 +155,7 @@ describe("Recently opened Wiki pages strip", () => {
   });
 
   it("moves focus to the previous entry when the last one is forgotten", () => {
-    writeRecentWikiPages("account-a", pageEntries());
+    writeRecentWikiPages("account-a", "tenant-a", pageEntries());
     renderStrip();
 
     fireEvent.click(screen.getByRole("button", { name: "Forget Brief" }));
@@ -167,7 +166,7 @@ describe("Recently opened Wiki pages strip", () => {
   });
 
   it("announces an empty strip after the last page is forgotten", () => {
-    writeRecentWikiPages("account-a", [
+    writeRecentWikiPages("account-a", "tenant-a", [
       entry("document-design", "Design notes", "/t/tenant-a/documents/design"),
     ]);
     renderStrip();
@@ -188,7 +187,7 @@ describe("Recently opened Wiki pages strip", () => {
   });
 
   it("gives the Forget control a comfortable target", () => {
-    writeRecentWikiPages("account-a", pageEntries());
+    writeRecentWikiPages("account-a", "tenant-a", pageEntries());
     renderStrip();
 
     expect(

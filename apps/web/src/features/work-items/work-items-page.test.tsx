@@ -1145,6 +1145,23 @@ describe("Dashboard page", () => {
     fireEvent.click(exportButton);
     expect(download.triggerArtifactDownload).not.toHaveBeenCalled();
   });
+
+  it("uses a 4-column board grid matching the four Work Item columns", async () => {
+    const runtime = await testRuntime();
+    seedWorkItems(runtime, [
+      workItem(runtime.seed.identity.actors[0]!, {
+        id: "workitem-grid-1",
+        title: "Check board grid",
+      }),
+    ]);
+
+    renderPage(runtime);
+
+    expect(await screen.findByText("Check board grid")).toBeVisible();
+    const grid = document.querySelector(".work-items-board > div");
+    expect(grid?.className.split(/\s+/)).toContain("grid-cols-4");
+    expect(grid?.className.split(/\s+/)).not.toContain("grid-cols-5");
+  });
 });
 
 async function testRuntime() {

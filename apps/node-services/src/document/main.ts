@@ -8,6 +8,7 @@ import { workerExecArgv } from "./computation-pool.js";
 
 const firstRestartDelayMs = 1_000;
 const maxRestartDelayMs = 60_000;
+const defaultDrainTimeoutMs = 12_000;
 
 /**
  * Starts the Document Runtime on its own worker thread. The runtime installs
@@ -19,8 +20,10 @@ const maxRestartDelayMs = 60_000;
 export async function startDocumentService(options: {
   logger: JsonLogger;
   createThread?: () => Worker;
+  drainTimeoutMs?: number;
 }): Promise<{ stop(): Promise<void> }> {
   const createThread = options.createThread ?? createDocumentThread;
+  const drainTimeoutMs = options.drainTimeoutMs ?? defaultDrainTimeoutMs;
   let current: Worker | undefined;
   let launching: Promise<void> | undefined;
   let restartTimer: ReturnType<typeof setTimeout> | undefined;
@@ -85,8 +88,12 @@ export async function startDocumentService(options: {
       current = undefined;
       if (thread === undefined) return;
       thread.postMessage("drain");
-      const status = await nextReply(thread, "drain");
-      await thread.terminate();
+      let status: unknown;
+      try {
+        status = await nextReply(thread, "drain", drainTimeoutMs);
+      } finally {
+        await thread.terminate();
+      }
       if (status !== 0) {
         throw new Error("Document Runtime drain failed");
       }
@@ -99,9 +106,15 @@ function createDocumentThread(): Worker {
   return new Worker(workerUrl, { execArgv: workerExecArgv(workerUrl) });
 }
 
-function nextReply(worker: Worker, phase: string): Promise<unknown> {
+function nextReply(
+  worker: Worker,
+  phase: string,
+  timeoutMs?: number,
+): Promise<unknown> {
   return new Promise((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const settle = (finish: () => void): void => {
+      if (timer !== undefined) clearTimeout(timer);
       worker.off("message", onMessage);
       worker.off("error", onError);
       worker.off("exit", onExit);
@@ -121,5 +134,14 @@ function nextReply(worker: Worker, phase: string): Promise<unknown> {
     worker.on("message", onMessage);
     worker.on("error", onError);
     worker.on("exit", onExit);
+    if (timeoutMs !== undefined) {
+      timer = setTimeout(() => {
+        settle(() =>
+          reject(
+            new Error(`Document Runtime thread timed out during ${phase}`),
+          ),
+        );
+      }, timeoutMs);
+    }
   });
 }

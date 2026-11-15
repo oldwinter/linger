@@ -738,8 +738,7 @@ it("provides private Node to every Computer child without relying on the host PA
     `#!${process.execPath}\nprocess.stdout.write(process.version)`,
     { mode: 0o700 },
   );
-  const previousPath = process.env.PATH;
-  process.env.PATH = "/missing-host-node";
+  vi.stubEnv("PATH", "/missing-host-node");
   try {
     const run = vi
       .spyOn(processes, "runProcess")
@@ -804,7 +803,7 @@ it("provides private Node to every Computer child without relying on the host PA
     ).toHaveLength(1);
     expect(process.env.PATH).toBe("/missing-host-node");
   } finally {
-    process.env.PATH = previousPath;
+    vi.unstubAllEnvs();
   }
 });
 

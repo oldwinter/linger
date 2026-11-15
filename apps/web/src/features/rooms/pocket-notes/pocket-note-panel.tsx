@@ -87,6 +87,8 @@ interface CloseGuard {
   dictating: () => boolean;
   /** The microphone is still open; Escape stops it before anything else. */
   listening: () => boolean;
+  /** Handles an inner step (clearing a dialog/filter) before closing the panel. */
+  onEscape?: () => boolean;
   /** Settles the last words into the page; it may be about to close. */
   stop: () => Promise<void>;
 }
@@ -144,12 +146,22 @@ export default function PocketNotePanel({
       latestClose.current();
     }
     function closeOnEscape(event: KeyboardEvent) {
-      if (event.key !== "Escape") return;
+      if (
+        event.key !== "Escape" ||
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.keyCode === 229 ||
+        document.querySelector("dialog[open]")
+      ) {
+        return;
+      }
+      event.preventDefault();
       const guard = closeGuard.current;
       if (guard?.listening()) {
         void guard.stop();
         return;
       }
+      if (guard?.onEscape?.()) return;
       latestClose.current();
       anchorRef.current?.focus();
     }
@@ -228,6 +240,7 @@ export default function PocketNotePanel({
         </p>
       ) : view.kind === "all" ? (
         <AllPocketNotes
+          closeGuard={closeGuard}
           downloadFailed={downloadFailed}
           downloading={downloading}
           hasMore={notes.hasNextPage}
@@ -632,6 +645,7 @@ function PastPocketNote({
 }
 
 function AllPocketNotes({
+  closeGuard,
   downloadFailed,
   downloading,
   hasMore,
@@ -645,6 +659,7 @@ function AllPocketNotes({
   tenantId,
   today,
 }: {
+  closeGuard: RefObject<CloseGuard | undefined>;
   downloadFailed: boolean;
   downloading: boolean;
   hasMore: boolean;
@@ -676,6 +691,31 @@ function AllPocketNotes({
     },
   });
   const [query, setQuery] = useState("");
+  useLayoutEffect(() => {
+    closeGuard.current = {
+      dictating: () => false,
+      listening: () => false,
+      onEscape: () => {
+        if (confirming) {
+          remove.reset();
+          setConfirming(undefined);
+          return true;
+        }
+        if (query.length > 0) {
+          setQuery("");
+          return true;
+        }
+        return false;
+      },
+      stop: async () => {},
+    };
+  });
+  useLayoutEffect(
+    () => () => {
+      closeGuard.current = undefined;
+    },
+    [closeGuard],
+  );
   const cards = items.some((item) => item.date === today)
     ? items
     : [{ date: today, text: "", updated_at: "" }, ...items];

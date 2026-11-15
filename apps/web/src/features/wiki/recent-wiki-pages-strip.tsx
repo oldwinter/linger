@@ -11,20 +11,22 @@ import {
   readRecentWikiPages,
   type RecentWikiPage,
   removeRecentWikiPage,
+  subscribeRecentWikiPages,
 } from "./recent-wiki-pages";
 
 /** Where a removal hands focus: another entry's Forget control, or the status. */
 type RemovalFocus = { entryId: string } | "empty";
 
 /**
- * Wiki pages this Account opened in this browser, newest first, above the
- * daily cards. It reads local storage when the home renders instead of
- * querying, and it stays out of the page when nothing has been opened.
+ * Wiki pages this Account opened in this Tenant in this browser, newest
+ * first, above the daily cards. It reads local storage when the home renders
+ * instead of querying, and it stays out of the page when nothing has been
+ * opened.
  */
-export function RecentWikiPagesStrip() {
+export function RecentWikiPagesStrip({ tenantId }: { tenantId: string }) {
   const accountId = useRecentDocumentsAccountId();
   const [entries, setEntries] = useState<RecentWikiPage[]>(() =>
-    readRecentWikiPages(accountId),
+    readRecentWikiPages(accountId, tenantId),
   );
   // Forgetting the last page keeps the section with its empty status so the
   // removal is announced instead of focus falling to the page.
@@ -34,6 +36,15 @@ export function RecentWikiPagesStrip() {
     useState<RemovalFocus | null>(null);
   const forgetRefs = useRef(new Map<string, HTMLButtonElement>());
   const emptyRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    const refresh = () => {
+      const next = readRecentWikiPages(accountId, tenantId);
+      setEntries(next);
+      if (next.length > 0) setEmptied(false);
+    };
+    refresh();
+    return subscribeRecentWikiPages(refresh);
+  }, [accountId, tenantId]);
   useEffect(() => {
     if (focusAfterRemoval === null) return;
     const target =
@@ -45,7 +56,7 @@ export function RecentWikiPagesStrip() {
   }, [focusAfterRemoval]);
   if (entries.length === 0 && !emptied) return null;
   function clear() {
-    clearRecentWikiPages(accountId);
+    clearRecentWikiPages(accountId, tenantId);
     setEntries([]);
   }
   // Forgetting one page keeps the rest of the strip as it was, and hands focus
@@ -53,7 +64,7 @@ export function RecentWikiPagesStrip() {
   function forget(pageId: string) {
     const index = entries.findIndex((entry) => entry.id === pageId);
     const remaining = entries.filter((entry) => entry.id !== pageId);
-    removeRecentWikiPage(accountId, pageId);
+    removeRecentWikiPage(accountId, tenantId, pageId);
     setEntries(remaining);
     if (remaining.length === 0) {
       setEmptied(true);

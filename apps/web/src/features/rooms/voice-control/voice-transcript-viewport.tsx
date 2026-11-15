@@ -115,19 +115,21 @@ export function VoiceTranscriptViewport({
         <div ref={contentRef}>{children}</div>
       </div>
       {!following ? (
-        <Button
-          className="absolute bottom-2 left-1/2 -translate-x-1/2 shadow-sm"
-          size="compact"
-          onClick={() => {
-            followingRef.current = true;
-            setFollowing(true);
-            const viewport = viewportRef.current;
-            if (viewport) viewport.scrollTop = viewport.scrollHeight;
-          }}
-        >
-          <Icon icon={ArrowDown02Icon} size={14} />
-          Follow latest transcript
-        </Button>
+        <div className="absolute bottom-2 left-1/2 -translate-x-1/2">
+          <Button
+            className="shadow-sm"
+            size="compact"
+            onClick={() => {
+              followingRef.current = true;
+              setFollowing(true);
+              const viewport = viewportRef.current;
+              if (viewport) viewport.scrollTop = viewport.scrollHeight;
+            }}
+          >
+            <Icon icon={ArrowDown02Icon} size={14} />
+            Follow latest transcript
+          </Button>
+        </div>
       ) : null}
     </div>
   );

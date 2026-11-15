@@ -284,6 +284,7 @@ function UnifiedDocumentHeader({
         {!sidebar && document ? (
           <div className="sr-only">
             <UnifiedDocumentBreadcrumb
+              alwaysVisible
               document={document}
               items={treeItems}
               sharedDocument={sharedDocument}
@@ -385,11 +386,13 @@ function UnifiedDocumentHeader({
 }
 
 function UnifiedDocumentBreadcrumb({
+  alwaysVisible = false,
   document,
   items,
   sharedDocument,
   sharedItems,
 }: {
+  alwaysVisible?: boolean;
   document: TeamHubDocument;
   items: TeamHubDocumentPlacementNode[];
   sharedDocument: boolean;
@@ -436,6 +439,7 @@ function UnifiedDocumentBreadcrumb({
           : "Documents");
   return (
     <DocumentBreadcrumb
+      alwaysVisible={alwaysVisible}
       ancestors={ancestors}
       currentName={documentFileName(document)}
       rootLabel={
@@ -452,10 +456,12 @@ function UnifiedDocumentBreadcrumb({
 }
 
 function DocumentBreadcrumb<T extends { id: string; name: string }>({
+  alwaysVisible = false,
   ancestors,
   currentName,
   rootLabel,
 }: {
+  alwaysVisible?: boolean;
   ancestors: T[];
   currentName: string;
   rootLabel: string;
@@ -473,7 +479,11 @@ function DocumentBreadcrumb<T extends { id: string; name: string }>({
   return (
     <nav
       aria-label="Breadcrumb"
-      className="hidden min-w-0 flex-1 items-center gap-1 overflow-hidden text-sm text-app-muted sm:flex"
+      className={
+        alwaysVisible
+          ? "flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-sm text-app-muted"
+          : "hidden min-w-0 flex-1 items-center gap-1 overflow-hidden text-sm text-app-muted sm:flex"
+      }
     >
       {items.map((item, index) => (
         <span className="flex min-w-0 items-center gap-1" key={item.key}>

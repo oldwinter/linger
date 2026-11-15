@@ -2,15 +2,16 @@ import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { inflateRawSync } from "node:zlib";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   collectDiagnostics,
   diagnosticsEntry,
+  DiagnosticsModule,
   excludedFromDiagnostics,
   redactDiagnostics,
 } from "./diagnostics.js";
-import { tempDirectory } from "./test-support.js";
+import { stubModule, tempDirectory, testHost } from "./test-support.js";
 
 // Reads every entry of a zip through its central directory.
 const unzip = (file: string): Map<string, string> => {
@@ -192,5 +193,98 @@ describe("collectDiagnostics", () => {
     expect(
       entries.get("linger-home/instances/desktop/native/logs/voice.log"),
     ).toContain("live session key [REDACTED] rejected\n");
+  });
+
+  it("excludes daemon-identity.json, creates missing output dirs, and includes service-logs and daemon summary", async () => {
+    const root = tempDirectory();
+    const userData = path.join(root, "userData");
+    const home = path.join(root, "home");
+    const output = path.join(root, "missing", "Downloads");
+    write(
+      path.join(userData, "computer", "state", "daemon-identity.json"),
+      JSON.stringify({ private_key: "super-secret-ed25519" }),
+    );
+    write(
+      path.join(userData, "computer", "state", "service-logs", "runner.log"),
+      "daemon started cleanly\n",
+    );
+    write(
+      path.join(
+        home,
+        "instances",
+        "desktop",
+        "computer",
+        "state",
+        "daemon-identity.json",
+      ),
+      JSON.stringify({ private_key: "instance-secret" }),
+    );
+    expect(
+      excludedFromDiagnostics(path.join(userData, "daemon-identity.json")),
+    ).toBe(true);
+
+    const diagnostics = new DiagnosticsModule({
+      userData,
+      logs: path.join(userData, "logs"),
+      home,
+      version: "0.16.27",
+      output: () => output,
+      openFolder: async () => "",
+      showFile: vi.fn(),
+    });
+    const host = testHost(
+      [
+        Object.assign(stubModule("LocalServer"), {
+          status: () => ({
+            phase: "running",
+            step: "ready",
+            message: "Running",
+            location: { path: home },
+            origin: "http://127.0.0.1:4000",
+          }),
+        }),
+        Object.assign(stubModule("ComputerDaemon"), {
+          state: () => "ready",
+          connection: () => "online",
+          running: () => 2,
+          connectionError: () => undefined,
+          failure: () => undefined,
+        }),
+        Object.assign(stubModule("Status"), {
+          current: () => ({ tone: "busy", label: "Running 2 Tasks" }),
+        }),
+        diagnostics,
+      ],
+      {
+        serverUrl: "http://127.0.0.1:4000",
+        computerId: "comp_1",
+      },
+    );
+    await host.start();
+    try {
+      const file = await diagnostics.save();
+      const entries = unzip(file);
+      expect(entries.has("desktop/computer/state/daemon-identity.json")).toBe(
+        false,
+      );
+      expect(
+        entries.has(
+          "linger-home/instances/desktop/computer/state/daemon-identity.json",
+        ),
+      ).toBe(false);
+      expect(
+        entries.get("desktop/computer/state/service-logs/runner.log"),
+      ).toBe("daemon started cleanly\n");
+      expect(JSON.parse(entries.get("summary.json")!)).toMatchObject({
+        status: { tone: "busy", label: "Running 2 Tasks" },
+        daemon: {
+          runtime: "ready",
+          connection: "online",
+          running: 2,
+        },
+      });
+    } finally {
+      await host.stop("quit");
+    }
   });
 });

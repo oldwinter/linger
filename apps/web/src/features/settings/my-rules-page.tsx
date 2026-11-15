@@ -25,6 +25,7 @@ import type {
   TeamHubProactiveRule,
   TeamHubProactiveRuleBook,
 } from "@/features/teamhub/teamhub-types";
+import { dashboardWorkItemPath } from "@/features/work-items/work-item-routes";
 
 import {
   myRulesQueryKey,
@@ -68,6 +69,15 @@ export function MyRulesPage() {
       queryClient.setQueryData(myRulesQueryKey(tenantId), book),
   });
 
+  async function executeCommand(input: MyRulesCommand): Promise<boolean> {
+    try {
+      await command.mutateAsync(input);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-(--app-settings-width) flex-col gap-8 pb-4">
       <SettingsPageHeading
@@ -93,14 +103,23 @@ export function MyRulesPage() {
           <Skeleton className="h-40 w-full" />
         </div>
       ) : rules.isError ? (
-        <p className="text-sm text-destructive" role="alert">
-          Rules could not be loaded.
-        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-sm text-destructive" role="alert">
+            Rules could not be loaded.
+          </p>
+          <Button
+            onClick={() => void rules.refetch()}
+            size="compact"
+            tone="secondary"
+          >
+            Try again
+          </Button>
+        </div>
       ) : (
         <RuleBook
           book={rules.data}
           busy={command.isPending}
-          onCommand={(input) => command.mutateAsync(input)}
+          onCommand={executeCommand}
           reviewPath={`/t/${encodeURIComponent(tenantId)}/settings/my-rules/review`}
           tenantId={tenantId}
         />
@@ -123,7 +142,7 @@ function RuleBook({
 }: {
   book: TeamHubProactiveRuleBook;
   busy: boolean;
-  onCommand: (input: MyRulesCommand) => Promise<unknown>;
+  onCommand: (input: MyRulesCommand) => Promise<boolean>;
   reviewPath: string;
   tenantId: string;
 }) {
@@ -228,7 +247,7 @@ function RuleRow({
   divergences: TeamHubProactiveRuleBook["divergences"];
   mandates: TeamHubProactiveRuleBook["mandates"];
   onArm: () => void;
-  onCommand: (input: MyRulesCommand) => Promise<unknown>;
+  onCommand: (input: MyRulesCommand) => Promise<boolean>;
   onDisarm: () => void;
   rule: TeamHubProactiveRule;
   tenantId: string;
@@ -238,15 +257,13 @@ function RuleRow({
   const save = async () => {
     const text = draft?.trim() ?? "";
     if (!text) return;
-    await onCommand({ kind: "edit", ruleId: rule.id, text });
-    setDraft(null);
+    if (await onCommand({ kind: "edit", ruleId: rule.id, text })) {
+      setDraft(null);
+    }
   };
   // The page reports a failed command, so the confirmation closes either way.
   const confirmDelete = () => {
-    void onCommand({ kind: "delete", ruleId: rule.id }).then(
-      onDisarm,
-      onDisarm,
-    );
+    void onCommand({ kind: "delete", ruleId: rule.id }).finally(onDisarm);
   };
 
   return (
@@ -333,6 +350,25 @@ function RuleRow({
             className="min-h-16 w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             maxLength={200}
             onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing || event.keyCode === 229)
+                return;
+              if (event.key === "Escape") {
+                event.preventDefault();
+                event.stopPropagation();
+                setDraft(null);
+                return;
+              }
+              if (
+                (event.metaKey || event.ctrlKey) &&
+                event.key === "Enter" &&
+                !busy &&
+                draft.trim()
+              ) {
+                event.preventDefault();
+                void save();
+              }
+            }}
             value={draft}
           />
           <div className="flex justify-end gap-2">
@@ -403,7 +439,13 @@ function RuleRow({
         >
           {mandates.map((mandate) => (
             <li key={mandate.work_item_id}>
-              #{mandate.number} {mandate.title}:{" "}
+              <Link
+                className="font-medium text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground"
+                to={dashboardWorkItemPath(tenantId, mandate.work_item_id)}
+              >
+                #{mandate.number} {mandate.title}
+              </Link>
+              :{" "}
               {mandate.strength === "create_and_delegate"
                 ? "created and delegated"
                 : "created"}{" "}

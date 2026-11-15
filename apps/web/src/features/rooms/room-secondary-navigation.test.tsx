@@ -1398,9 +1398,7 @@ describe("Room navigation unread filter", () => {
     expect(
       within(messagesSection()).getByRole("link", { name: "room-read" }),
     ).toBeVisible();
-    expect(localStorage.getItem("room-unread-filter.v1:account-a")).toBe(
-      '"all"',
-    );
+    expect(localStorage.getItem("room-unread-filter.v1:account-a")).toBeNull();
   });
 
   it("keeps only Rooms with unread mentions in Mentions mode", () => {
@@ -1636,9 +1634,7 @@ describe("Room navigation mention snooze", () => {
     );
 
     await waitFor(() => expect(screen.queryByText("Snoozed")).toBeNull());
-    expect(
-      JSON.parse(localStorage.getItem("room-mention-snooze.v1:account-a")!),
-    ).toEqual({});
+    expect(localStorage.getItem("room-mention-snooze.v1:account-a")).toBeNull();
   });
 
   it("replaces a snooze with a mute so only one hint shows", async () => {
@@ -1669,9 +1665,7 @@ describe("Room navigation mention snooze", () => {
 
     expect(await screen.findByText("Muted")).toBeVisible();
     expect(screen.queryByText("Snoozed")).toBeNull();
-    expect(
-      JSON.parse(localStorage.getItem("room-mention-snooze.v1:account-a")!),
-    ).toEqual({});
+    expect(localStorage.getItem("room-mention-snooze.v1:account-a")).toBeNull();
     expect(
       JSON.parse(localStorage.getItem("room-mention-mute.v1:account-a")!),
     ).toEqual(["room-a"]);
@@ -1720,12 +1714,8 @@ describe("Room navigation mention snooze", () => {
     );
 
     await waitFor(() => expect(screen.queryByText("Muted")).toBeNull());
-    expect(
-      JSON.parse(localStorage.getItem("room-mention-mute.v1:account-a")!),
-    ).toEqual([]);
-    expect(
-      JSON.parse(localStorage.getItem("room-mention-snooze.v1:account-a")!),
-    ).toEqual({});
+    expect(localStorage.getItem("room-mention-mute.v1:account-a")).toBeNull();
+    expect(localStorage.getItem("room-mention-snooze.v1:account-a")).toBeNull();
   });
 });
 describe("Room navigation snooze", () => {
@@ -1842,9 +1832,7 @@ describe("Room navigation snooze", () => {
     );
 
     await waitFor(() =>
-      expect(
-        JSON.parse(localStorage.getItem("room-snooze.v1:account-a")!),
-      ).toEqual({}),
+      expect(localStorage.getItem("room-snooze.v1:account-a")).toBeNull(),
     );
     menu = await openMenu("room-b");
     expect(

@@ -4,10 +4,13 @@ import type { NavigateFunction } from "react-router";
 
 import { documentFileName } from "@/features/library/document-display-name";
 import { documentAfterRemoval } from "@/features/library/document-tree-order";
+import { removeRecentDocument } from "@/features/library/recent-documents";
 import { triggerArtifactDownload } from "@/features/rooms/files/artifact-preview-loader";
+import { teamHubIdentityQueryKey } from "@/features/rooms/room-queries";
 import { teamHubData, teamHubDone } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type {
+  TeamHubCurrentIdentity,
   TeamHubDocument,
   TeamHubDocumentPlacementNode,
 } from "@/features/teamhub/teamhub-types";
@@ -53,6 +56,10 @@ export function useUnifiedDocumentActions({
           params: { path: { documentId: document.id } },
         }),
       );
+      const accountId = queryClient.getQueryData<TeamHubCurrentIdentity>(
+        teamHubIdentityQueryKey,
+      )?.account.id;
+      removeRecentDocument(accountId, tenantId, document.id);
       closeSession();
       // Move on to the Document listed next in My pages, as the tree does.
       const nextDocumentId = documentAfterRemoval(

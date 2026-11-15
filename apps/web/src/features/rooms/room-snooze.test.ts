@@ -118,6 +118,10 @@ describe("room snooze storage", () => {
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual({
       "room-b": "2026-11-15T10:30:00.000Z",
     });
+
+    clearRoomSnooze(ACCOUNT, "room-b", now);
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(hasRoomSnoozes()).toBe(false);
   });
 
   it("keeps each Account's snoozes apart", () => {

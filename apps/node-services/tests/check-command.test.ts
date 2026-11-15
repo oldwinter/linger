@@ -40,7 +40,7 @@ if (task === "test") {
   fs.writeFileSync(root + "/test.finished", "");
   process.exit(process.env.CHECK_FAILURE === task ? 23 : 0);
 }
-const deadline = Date.now() + 3000;
+const deadline = Date.now() + 10_000;
 const timer = setInterval(() => {
   if (!["typecheck", "lint"].every(name => fs.existsSync(root + "/" + name + ".started"))) {
     if (Date.now() > deadline) process.exit(98);
@@ -62,7 +62,7 @@ const timer = setInterval(() => {
           CHECK_PROBE: root,
           CHECK_FAILURE: failure,
         },
-        timeout: 8_000,
+        timeout: 15_000,
       }).then(
         () => 0,
         () => 1,

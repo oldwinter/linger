@@ -6,8 +6,10 @@
  */
 
 import {
+  notifyPreferenceChange,
   removePreferenceKeys,
   storedPreferenceKeys,
+  subscribePreferenceChange,
 } from "@/lib/local-preference-keys";
 
 export interface SearchTargetActor {
@@ -68,6 +70,7 @@ export interface GlobalSearchStore {
 const MAX_QUERIES = 8;
 
 const storagePrefix = "global-search-recent.v2:";
+const SEARCH_HISTORY_CHANGED = "global-search-history-changed";
 
 const storageKey = (tenantId: string) => `${storagePrefix}${tenantId}`;
 
@@ -75,11 +78,16 @@ const emptyStore = (): GlobalSearchStore => ({ queries: [] });
 
 export function clearGlobalSearchHistory() {
   removePreferenceKeys([storagePrefix]);
+  notifyPreferenceChange(SEARCH_HISTORY_CHANGED);
 }
 
 /** Whether this browser remembers a query for any Tenant. */
 export function hasGlobalSearchHistory(): boolean {
   return storedPreferenceKeys([storagePrefix]).length > 0;
+}
+
+export function subscribeGlobalSearchHistory(listener: () => void): () => void {
+  return subscribePreferenceChange(SEARCH_HISTORY_CHANGED, listener);
 }
 
 export function readGlobalSearchStore(tenantId: string): GlobalSearchStore {
@@ -94,10 +102,15 @@ export function readGlobalSearchStore(tenantId: string): GlobalSearchStore {
 
 function writeGlobalSearchStore(tenantId: string, store: GlobalSearchStore) {
   try {
-    window.localStorage.setItem(storageKey(tenantId), JSON.stringify(store));
+    if (store.queries.length === 0) {
+      window.localStorage.removeItem(storageKey(tenantId));
+    } else {
+      window.localStorage.setItem(storageKey(tenantId), JSON.stringify(store));
+    }
   } catch {
     // A blocked or full storage only loses the convenience lists.
   }
+  notifyPreferenceChange(SEARCH_HISTORY_CHANGED);
   return store;
 }
 

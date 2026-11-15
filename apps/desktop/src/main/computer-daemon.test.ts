@@ -313,6 +313,75 @@ describe("ComputerDaemonModule", () => {
     expect(conflicts).toEqual([true, false]);
   });
 
+  it("persists the identity conflict across daemon backoff and app restarts until connected", async () => {
+    vi.useFakeTimers();
+    try {
+      const directory = mkdtempSync(path.join(os.tmpdir(), "daemon-conflict-"));
+      const configPath = path.join(directory, "config.json");
+      const credPath = path.join(directory, "credential.json");
+      new CredentialStore(credPath).write({
+        computerId: "computer-1",
+        gatewayUrl: "wss://linger.example/v1/runner-gateway",
+        token: TOKEN,
+      });
+
+      const run = () => {
+        const children: FakeChild[] = [];
+        const config = new ConfigStore(configPath);
+        if (!config.get().computerId)
+          config.update({ computerId: "computer-1", tenantId: "tenant-1" });
+        const daemon = new ComputerDaemonModule({
+          spawn: (file, env) => {
+            const child = new FakeChild(file, env);
+            children.push(child);
+            return child;
+          },
+          credentials: new CredentialStore(credPath),
+          directory: path.join(directory, "daemon"),
+        });
+        const ctx: ModuleContext = {
+          config,
+          bus: new EventBus(),
+          log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+          get: () => {
+            throw new Error("unused");
+          },
+        };
+        return { daemon, config, ctx, children };
+      };
+
+      const first = run();
+      await first.daemon.start(first.ctx);
+      first.children[0]!.send({
+        type: "status",
+        gateway_state: "connecting",
+        connection_error: "daemon_identity_conflict",
+      });
+      expect(first.config.get().identityConflict).toBe(true);
+
+      // A crash and restart during backoff keeps the conflict before connecting.
+      first.children[0]!.exit(1, "boom");
+      expect(first.daemon.connectionError()).toBe("daemon_identity_conflict");
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(first.children).toHaveLength(2);
+      expect(first.daemon.connectionError()).toBe("daemon_identity_conflict");
+      first.children[1]!.send({ type: "status", gateway_state: "connecting" });
+      expect(first.daemon.connectionError()).toBe("daemon_identity_conflict");
+      await first.daemon.stop();
+
+      // A new app session starts with the persisted conflict before status arrives.
+      const second = run();
+      await second.daemon.start(second.ctx);
+      expect(second.daemon.connectionError()).toBe("daemon_identity_conflict");
+      second.children[0]!.send({ type: "status", gateway_state: "connected" });
+      expect(second.daemon.connectionError()).toBeUndefined();
+      expect(second.config.get().identityConflict).toBeUndefined();
+      await second.daemon.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("stays stopped until this computer is connected", async () => {
     const { daemon, ctx, children } = setup({ enrolled: false });
     await daemon.start(ctx);

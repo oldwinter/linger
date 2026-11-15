@@ -32,3 +32,23 @@ export function removePreferenceKeys(prefixes: readonly string[]): void {
     // Blocked storage has nothing this app can remove.
   }
 }
+
+/** Notifies same-tab subscribers when a preference store changes. */
+export function notifyPreferenceChange(eventName: string): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(eventName));
+}
+
+/** Subscribes to same-tab custom preference events and cross-tab storage updates. */
+export function subscribePreferenceChange(
+  eventName: string,
+  listener: () => void,
+): () => void {
+  if (typeof window === "undefined") return () => undefined;
+  window.addEventListener(eventName, listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    window.removeEventListener(eventName, listener);
+    window.removeEventListener("storage", listener);
+  };
+}

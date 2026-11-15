@@ -9,19 +9,22 @@ import { recordRecentWikiPage } from "./recent-wiki-pages";
  * already render, so opening a page never fetches to learn its name.
  */
 export function useRecordRecentWikiPage(
-  page: { id: string; name: string; path: string } | undefined,
+  page:
+    | { id: string; name: string; path: string; tenantId: string }
+    | undefined,
 ) {
   const accountId = useRecentDocumentsAccountId();
   const id = page?.id;
   const name = page?.name;
   const path = page?.path;
+  const tenantId = page?.tenantId;
   useEffect(() => {
-    if (!accountId || !id || !name || !path) return;
-    recordRecentWikiPage(accountId, {
+    if (!accountId || !tenantId || !id || !name || !path) return;
+    recordRecentWikiPage(accountId, tenantId, {
       id,
       name,
       openedAt: new Date().toISOString(),
       path,
     });
-  }, [accountId, id, name, path]);
+  }, [accountId, id, name, path, tenantId]);
 }
