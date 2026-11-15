@@ -12,9 +12,9 @@ import { useReturnToArrivedRoom } from "./use-return-to-arrived-room";
 function room(id: string, seq: number): TeamHubRoomListItem {
   return {
     id,
-    kind: "collaboration",
+    kind: "room",
     latest_room_seq: seq,
-  } as TeamHubRoomListItem;
+  } as unknown as TeamHubRoomListItem;
 }
 
 function Harness({
