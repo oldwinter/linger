@@ -1,9 +1,18 @@
-import type { ReactNode } from "react";
+import { Cancel01Icon, Search01Icon } from "@hugeicons/core-free-icons";
+import { useState, type ReactNode } from "react";
 
-import { keyboardShortcutGroups } from "./keyboard-shortcuts";
+import { Icon } from "@/components/ui/icon";
+
+import {
+  filterKeyboardShortcutGroups,
+  type KeyboardShortcutGroup,
+} from "./keyboard-shortcuts";
 import { SettingsPageHeading } from "./settings-page-heading";
 
 export function ShortcutsSettingsPage() {
+  const [query, setQuery] = useState("");
+  const groups = filterKeyboardShortcutGroups(query);
+
   return (
     <div className="mx-auto flex w-full max-w-(--app-settings-width) flex-col gap-8 pb-4">
       <SettingsPageHeading
@@ -11,44 +20,87 @@ export function ShortcutsSettingsPage() {
         title="Shortcuts"
       />
 
-      {keyboardShortcutGroups.map((group, index) => {
-        const headingId = `shortcuts-group-${index}`;
-        return (
-          <section
-            aria-labelledby={headingId}
-            className="rounded-2xl border border-border bg-background p-6"
-            key={group.title}
+      <label className="flex w-full cursor-text items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 focus-within:ring-2 focus-within:ring-ring">
+        <Icon
+          icon={Search01Icon}
+          className="shrink-0 text-muted-foreground"
+          size={15}
+        />
+        <input
+          aria-label="Filter shortcuts"
+          className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape" || !query) return;
+            event.preventDefault();
+            setQuery("");
+          }}
+          placeholder="Filter by action, section, or key"
+          role="searchbox"
+          type="text"
+          value={query}
+        />
+        {query ? (
+          <button
+            aria-label="Clear shortcuts filter"
+            className="flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => setQuery("")}
+            type="button"
           >
-            <h2 className="text-sm font-medium text-foreground" id={headingId}>
-              {group.title}
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {group.description}
-            </p>
-            <dl className="mt-4 divide-y divide-border">
-              {group.shortcuts.map((shortcut) => (
-                <div
-                  className="flex items-center justify-between gap-4 py-2.5"
-                  key={shortcut.action}
-                >
-                  <dt className="text-sm text-foreground">{shortcut.action}</dt>
-                  <dd className="flex shrink-0 items-center gap-1.5">
-                    <KeyCap>{shortcut.keys.mac}</KeyCap>
-                    {shortcut.keys.other === undefined ? null : (
-                      <>
-                        <span className="text-xs text-muted-foreground">
-                          or
-                        </span>
-                        <KeyCap>{shortcut.keys.other}</KeyCap>
-                      </>
-                    )}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-        );
-      })}
+            <Icon icon={Cancel01Icon} size={13} />
+          </button>
+        ) : null}
+      </label>
+
+      {groups.length === 0 ? (
+        <p className="rounded-2xl border border-border bg-background p-6 text-sm text-muted-foreground">
+          No shortcuts match that filter.
+        </p>
+      ) : (
+        groups.map((group: KeyboardShortcutGroup, index) => {
+          const headingId = `shortcuts-group-${index}`;
+          return (
+            <section
+              aria-labelledby={headingId}
+              className="rounded-2xl border border-border bg-background p-6"
+              key={group.title}
+            >
+              <h2
+                className="text-sm font-medium text-foreground"
+                id={headingId}
+              >
+                {group.title}
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {group.description}
+              </p>
+              <dl className="mt-4 divide-y divide-border">
+                {group.shortcuts.map((shortcut) => (
+                  <div
+                    className="flex items-center justify-between gap-4 py-2.5"
+                    key={shortcut.action}
+                  >
+                    <dt className="text-sm text-foreground">
+                      {shortcut.action}
+                    </dt>
+                    <dd className="flex shrink-0 items-center gap-1.5">
+                      <KeyCap>{shortcut.keys.mac}</KeyCap>
+                      {shortcut.keys.other === undefined ? null : (
+                        <>
+                          <span className="text-xs text-muted-foreground">
+                            or
+                          </span>
+                          <KeyCap>{shortcut.keys.other}</KeyCap>
+                        </>
+                      )}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          );
+        })
+      )}
     </div>
   );
 }
