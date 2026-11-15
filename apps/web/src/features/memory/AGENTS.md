@@ -11,7 +11,8 @@
   The week in memory is the Monday-through-Sunday picture of meetings, dailies,
   and Pocket notes together. Carrying a decision posts that decision into a
   room the reader chooses; the meeting stays unchanged. Up next is the live
-  clock to the closest meeting. Personal Wiki navigation in `features/wiki`
+  clock to the closest meeting. While a recording is still being heard, today's
+  meetings show the line being said. Personal Wiki navigation in `features/wiki`
   links here.
 - Call TeamHub through the generated client (`client.api`) and generated
   Memory types; do not handwrite URLs or wire DTOs in components.
