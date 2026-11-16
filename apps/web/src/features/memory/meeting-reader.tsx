@@ -24,6 +24,7 @@ import {
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 import { MeetingAudioPlayer } from "./meeting-audio-player";
+import { timedTranscriptTurns, wordsInTopic } from "./topic-words";
 import { carryDecisionPath, meetingDecisions } from "./carry-decision";
 import { parseMeetingSummary } from "./meeting-overview";
 import {
@@ -137,6 +138,32 @@ export function MeetingReader({
   }>();
   const linkCopyTimer = useRef<number | undefined>(undefined);
   const summaryCopyTimer = useRef<number | undefined>(undefined);
+  const transcriptText = useRef<Promise<string> | undefined>(undefined);
+  function readSpoken(range: string) {
+    if (!meeting.transcript_document_id || !meeting.transcript_version_id) {
+      return Promise.resolve([]);
+    }
+    if (!transcriptText.current) {
+      transcriptText.current = loadArtifactPreview({
+        client,
+        documentId: meeting.transcript_document_id,
+        signal: new AbortController().signal,
+        versionId: meeting.transcript_version_id,
+      })
+        .then((preview) => {
+          const text = preview.textContent ?? "";
+          preview.dispose();
+          return text;
+        })
+        .catch((error: unknown) => {
+          transcriptText.current = undefined;
+          throw error;
+        });
+    }
+    return transcriptText.current.then((text) =>
+      wordsInTopic(timedTranscriptTurns(text), range),
+    );
+  }
   useEffect(
     () => () => {
       window.clearTimeout(linkCopyTimer.current);
@@ -464,6 +491,9 @@ export function MeetingReader({
                                   request: (current?.request ?? 0) + 1,
                                 }))
                             : undefined
+                        }
+                        onReadSpoken={
+                          meeting.transcript_document_id ? readSpoken : undefined
                         }
                         topics={block.topics}
                       />
