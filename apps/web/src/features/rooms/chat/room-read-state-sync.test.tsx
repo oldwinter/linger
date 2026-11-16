@@ -423,6 +423,72 @@ describe("Room read-state advancement", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(updateRoomReadState).toHaveBeenCalledOnce();
   });
+
+  it("keeps messages unread while the window is hidden until the person acts", async () => {
+    const hidden = { value: true };
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      get: () => hidden.value,
+    });
+    try {
+      const fixture = createTestTeamHubRuntime();
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const queryKey = tenantRoomsQueryKey("tenant-northstar");
+      const initialRooms = await listRooms(fixture.client);
+      queryClient.setQueryData(queryKey, {
+        ...initialRooms,
+        items: initialRooms.items.map((room) =>
+          room.id === "room-gtm-launch"
+            ? {
+                ...room,
+                latest_room_seq: 4,
+                read_through_room_seq: 2,
+                unread_mention_count: 0,
+                unread_message_count: 2,
+              }
+            : room,
+        ),
+      });
+      queryClient.setQueryDefaults(queryKey, {
+        queryFn: async () => queryClient.getQueryData(queryKey),
+      });
+      const updateRoomReadState = vi
+        .fn()
+        .mockImplementation(async (_roomId: string, roomSeq: number) =>
+          readState(roomSeq),
+        );
+      routeReadState(fixture.server, updateRoomReadState);
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <TeamHubRuntimeProvider runtime={fixture}>
+            <RoomReadStateSync
+              roomId="room-gtm-launch"
+              tenantId="tenant-northstar"
+              throughRoomSeq={4}
+            />
+          </TeamHubRuntimeProvider>
+        </QueryClientProvider>,
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(updateRoomReadState).not.toHaveBeenCalled();
+
+      hidden.value = false;
+      document.dispatchEvent(new Event("visibilitychange"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(updateRoomReadState).not.toHaveBeenCalled();
+
+      document.dispatchEvent(new Event("pointerdown"));
+      await vi.waitFor(() =>
+        expect(updateRoomReadState).toHaveBeenCalledWith("room-gtm-launch", 4),
+      );
+    } finally {
+      Reflect.deleteProperty(document, "hidden");
+    }
+  });
 });
 
 function readState(roomSeq: number) {
