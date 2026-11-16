@@ -15,6 +15,7 @@ import { documentFileName } from "@/features/library/document-display-name";
 import { useWikiDocuments } from "./knowledge-sidebar-trees";
 import { useWikiGraphNodes } from "./wiki-graph-queries";
 import { RecentWikiPagesStrip } from "./recent-wiki-pages-strip";
+import { WikiOvernightWait } from "./wiki-overnight-wait";
 import { WikiDailyCard } from "./wiki-daily-card";
 import { OnThisDayRecall, recallForToday } from "./on-this-day-recall";
 import { useWikiLiveFocus } from "./wiki-live-focus";
@@ -145,6 +146,10 @@ export function WikiHomePage() {
       {/* Same column, heading and tabs as the Library page. */}
       <div className="workspace-file-browser">
         <h1 className="sr-only">Wiki</h1>
+        <WikiOvernightWait
+          refreshing={refresh.refreshing}
+          tenantId={tenantId}
+        />
         {/* Profile and Wiki tabs head the page in the Library column. */}
         <header className="wiki-home-header flex items-center gap-3">
           <div

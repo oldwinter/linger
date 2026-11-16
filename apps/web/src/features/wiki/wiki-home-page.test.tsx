@@ -1,11 +1,21 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import { localCalendarDay } from "@/features/memory/on-this-day";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
+import {
+  clearAllRecentWikiPages,
+  recordRecentWikiPage,
+} from "./recent-wiki-pages";
 import { WikiHomePage } from "./wiki-home-page";
 import {
   serveWikiDocuments,
@@ -20,7 +30,47 @@ vi.mock("@/components/read-only-blocknote-document-loader", () => ({
 }));
 
 afterEach(() => {
+  clearAllRecentWikiPages();
   vi.restoreAllMocks();
+});
+
+it("waits with the page Another Me finished yesterday until it is opened", async () => {
+  const runtime = createTestTeamHubRuntime();
+  const page = wikiDocument("project-one", "Launch.md", "wiki_page");
+  page.from[0]!.page_key = "projects/launch.md";
+  page.updated_at = new Date(2026, 10, 15, 23, 10).toISOString();
+  serveWikiDocuments(runtime).mockResolvedValue({
+    items: [page],
+    page: { has_more: false },
+  });
+  const router = createMemoryRouter(
+    [{ path: "/t/:tenantId/library/wiki", element: <WikiHomePage /> }],
+    { initialEntries: ["/t/tenant-northstar/library/wiki"] },
+  );
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <TeamHubRuntimeProvider runtime={runtime}>
+        <RouterProvider router={router} />
+      </TeamHubRuntimeProvider>
+    </QueryClientProvider>,
+  );
+  expect(await screen.findByRole("link", { name: "Launch" })).toHaveAttribute(
+    "href",
+    "/t/tenant-northstar/documents/project-one",
+  );
+  recordRecentWikiPage("account-jenny", "tenant-northstar", {
+    id: "project-one",
+    name: "Launch",
+    openedAt: new Date().toISOString(),
+    path: "/t/tenant-northstar/documents/project-one",
+  });
+  await waitFor(() =>
+    expect(screen.queryByRole("link", { name: "Launch" })).toBeNull(),
+  );
 });
 
 it("shows real collection pages on the Wiki tab and returns to Profile", async () => {
