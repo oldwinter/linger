@@ -31,7 +31,9 @@
   `DELETE /v0/tenants/{tenantId}/me/meetings/{captureSessionId}`. From a
   meeting that has to-dos, Turn to-dos into reminders creates one-time
   reminders in the chat with Another Me; the meeting page itself is unchanged.
-  Ask the recording (`/t/:tenantId/library/meetings/ask?entry=`) saves a
+  Names given to the voices in a recording replace Speaker N on that meeting's
+  transcript; the stored transcript stays unchanged. Ask the recording
+  (`/t/:tenantId/library/meetings/ask?entry=`) saves a
   question on that meeting's capture and shows the answer that stays with it.
   A question the recording treats as a request for Another Me is not sent from
   this page.

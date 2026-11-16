@@ -63,6 +63,8 @@ import {
   meetingTranscriptTurns,
 } from "./meeting-transcript-text";
 import { useMeetingActionTrack } from "./use-meeting-action-track";
+import { nameTranscriptSpeakers } from "./name-transcript";
+import { useSpeakerNames } from "@/features/rooms/voice-control/speaker-names";
 
 const meetingSummaryHiddenSectionTitles = [
   "CRM Evidence Cache",
@@ -516,6 +518,7 @@ export function MeetingReader({
         ) : (
           <MeetingVersionReader
             key={meeting.transcript_version_id}
+            captureId={meeting.capture_id}
             documentId={meeting.transcript_document_id}
             versionId={meeting.transcript_version_id}
             filename="transcript.md"
@@ -533,6 +536,7 @@ export function MeetingReader({
  */
 function MeetingVersionReader({
   accountId,
+  captureId,
   documentId,
   versionId,
   filename,
@@ -542,6 +546,8 @@ function MeetingVersionReader({
 }: {
   /** Whose listening positions the player remembers. */
   accountId?: string;
+  /** The recording whose named voices replace Speaker N in the transcript. */
+  captureId?: string;
   documentId: string;
   versionId: string;
   filename: string;
@@ -552,6 +558,7 @@ function MeetingVersionReader({
   variant: "player" | "document";
 }) {
   const { client } = useTeamHubRuntime();
+  const speakerNames = useSpeakerNames(captureId);
   const [preview, setPreview] = useState<LoadedArtifactPreview>();
   const [error, setError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
@@ -559,7 +566,9 @@ function MeetingVersionReader({
   // Copying needs the transcript's text, not just its Version metadata; the
   // Download control takes the raw body instead.
   const transcriptText =
-    variant === "document" ? preview?.textContent : undefined;
+    variant === "document" && preview?.textContent
+      ? nameTranscriptSpeakers(preview.textContent, speakerNames)
+      : undefined;
   const transcriptRoot = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [position, setPosition] = useState(0);
@@ -763,7 +772,7 @@ function MeetingVersionReader({
       blob={preview.blob}
       objectUrl={preview.objectUrl}
       previewUrl={preview.previewUrl}
-      textContent={preview.textContent}
+      textContent={transcriptText ?? preview.textContent}
       sourceSizeBytes={preview.sourceSizeBytes}
       presentation="knowledge"
     />
