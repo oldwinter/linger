@@ -82,12 +82,15 @@ export interface PocketNoteEditorHandle {
 }
 
 export function PocketNoteEditor({
+  fitContent,
   maxLength,
   onChange,
   onFull,
   ref,
   value,
 }: {
+  /** Grow with the words so a later page can follow on the same scroll. */
+  fitContent?: boolean;
   maxLength: number;
   onChange: (value: string) => void;
   onFull: () => void;
@@ -238,7 +241,11 @@ export function PocketNoteEditor({
 
   return (
     <div
-      className="pocket-note-paper workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-16 text-sm text-app-ink"
+      className={
+        fitContent
+          ? "pocket-note-paper min-h-[240px] px-5 pb-5 text-sm text-app-ink"
+          : "pocket-note-paper workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-16 text-sm text-app-ink"
+      }
       ref={host}
     />
   );

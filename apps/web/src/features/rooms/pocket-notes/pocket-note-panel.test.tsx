@@ -122,6 +122,25 @@ function pasteText(editor: HTMLElement, text: string) {
   });
 }
 
+describe("PocketNotePanel previous day", () => {
+  it("continues today's page into the newest earlier day", async () => {
+    renderPanel(() =>
+      page([
+        note("2026-10-01", "Today's line"),
+        note("2026-09-30", "Yesterday's idea"),
+        note("2026-09-01", "Older idea"),
+      ]),
+    );
+    expect(
+      await screen.findByRole("textbox", { name: "Today’s note" }),
+    ).toHaveTextContent("Today's line");
+    expect(screen.getByRole("region", { name: "Sep 30" })).toHaveTextContent(
+      "Yesterday's idea",
+    );
+    expect(screen.queryByText("Older idea")).not.toBeInTheDocument();
+  });
+});
+
 describe("PocketNotePanel download", () => {
   it("saves every page as one Markdown file", async () => {
     const listPocketNotes = vi.fn(async (cursor: string | undefined) =>

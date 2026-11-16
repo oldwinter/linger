@@ -55,6 +55,7 @@ import {
 import { TellAnotherMe } from "./tell-another-me-control";
 import { LazyVoiceKeyDialog } from "@/features/rooms/voice-control/lazy-voice-key-dialog";
 import { appendToPocketNote } from "./pocket-note-append";
+import { pocketNoteBefore } from "./pocket-note-before";
 import { pocketNoteCopyText } from "./pocket-note-copy";
 import { groupPocketNotesByMonth } from "./pocket-note-months";
 import { todayNoteOutOfView } from "./pocket-note-today-jump";
@@ -262,6 +263,7 @@ export default function PocketNotePanel({
         <TodayPocketNote
           anotherMeRoomId={anotherMeRoomId}
           closeGuard={closeGuard}
+          earlier={pocketNoteBefore(items, today)}
           key={today}
           onClose={close}
           onOpenChat={onOpenChat}
@@ -285,6 +287,7 @@ export default function PocketNotePanel({
 function TodayPocketNote({
   anotherMeRoomId,
   closeGuard,
+  earlier,
   onClose,
   onOpenChat,
   onShowAll,
@@ -294,6 +297,8 @@ function TodayPocketNote({
 }: {
   anotherMeRoomId?: string;
   closeGuard: RefObject<CloseGuard | undefined>;
+  /** The newest written page before today, read on the same paper. */
+  earlier?: TeamHubPocketNote;
   /** Today's saved text, which a save from elsewhere can change underneath. */
   storedText: string;
   onClose: () => void;
@@ -511,32 +516,52 @@ function TodayPocketNote({
         title={`Today · ${formatPocketNoteDate(today)}`}
       />
       <div className="relative flex min-h-0 flex-1 flex-col">
-        {dictating ? (
-          // While speaking the page is a read-only view of the note with the
-          // words not yet final shown in place, in gray.
-          <div
-            aria-label="Today’s note"
-            aria-live="polite"
-            className="pocket-note-paper workspace-scrollbar min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap break-words px-5 pb-16 text-sm text-app-ink"
-            role="textbox"
-            aria-readonly="true"
-          >
-            {before}
-            <span className="text-app-ink/40" ref={liveRef}>
-              {live && before && !before.endsWith("\n") ? "\n" : ""}
-              {live}
-            </span>
-            {after}
-          </div>
-        ) : (
-          <PocketNoteEditor
-            maxLength={maximumNoteLength}
-            onChange={update}
-            onFull={() => setTruncated(true)}
-            ref={editorRef}
-            value={text}
-          />
-        )}
+        <div
+          className={
+            earlier
+              ? "workspace-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto"
+              : "flex min-h-0 flex-1 flex-col"
+          }
+        >
+          {dictating ? (
+            // While speaking the page is a read-only view of the note with the
+            // words not yet final shown in place, in gray.
+            <div
+              aria-label="Today’s note"
+              aria-live="polite"
+              className={`pocket-note-paper whitespace-pre-wrap break-words px-5 text-sm text-app-ink ${earlier ? "min-h-[240px] pb-5" : "workspace-scrollbar min-h-0 flex-1 overflow-y-auto pb-16"}`}
+              role="textbox"
+              aria-readonly="true"
+            >
+              {before}
+              <span className="text-app-ink/40" ref={liveRef}>
+                {live && before && !before.endsWith("\n") ? "\n" : ""}
+                {live}
+              </span>
+              {after}
+            </div>
+          ) : (
+            <PocketNoteEditor
+              fitContent={Boolean(earlier)}
+              maxLength={maximumNoteLength}
+              onChange={update}
+              onFull={() => setTruncated(true)}
+              ref={editorRef}
+              value={text}
+            />
+          )}
+          {earlier ? (
+            <section
+              aria-label={formatPocketNoteDate(earlier.date)}
+              className="pocket-note-paper break-words border-t border-border px-5 pb-16 pt-4 text-sm text-app-ink"
+            >
+              <h2 className="mb-2 text-xs font-medium text-app-muted">
+                {formatPocketNoteDate(earlier.date)}
+              </h2>
+              <MessageMarkdown authorKind="agent" body={earlier.text} />
+            </section>
+          ) : null}
+        </div>
         {dictation.available ? (
           <DictationButton
             active={listening}
