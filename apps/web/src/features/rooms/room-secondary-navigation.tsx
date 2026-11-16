@@ -52,6 +52,7 @@ import {
   resolveAgentAvatarKey,
 } from "./members/agent-avatar";
 import { RoomAvatar } from "./members/room-avatar";
+import { spokenRoomFace } from "./members/room-spoken-face";
 import { QuietRemindersControl } from "./another-me-quiet-control";
 import { useAnotherMeQuiet } from "./another-me-quiet";
 import { PocketNoteLauncher } from "./pocket-notes/pocket-note-launcher";
@@ -602,7 +603,12 @@ export function RoomSecondaryNavigation({
                         onClick={(event) => completeNavigation(event, room.id)}
                         to={`/t/${tenant.id}/rooms/${room.id}/chat`}
                       >
-                        <RoomAvatar members={room.member_preview ?? []} />
+                        <RoomAvatar
+                          members={spokenRoomFace(
+                            room.member_preview ?? [],
+                            room.latest_message?.author,
+                          )}
+                        />
                         <span className="min-w-0 flex-1 px-1">
                           <RoomRowTitle
                             draftName={

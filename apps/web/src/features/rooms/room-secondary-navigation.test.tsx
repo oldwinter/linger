@@ -534,6 +534,51 @@ function room(
   };
 }
 
+describe("sidebar room face", () => {
+  it("leads with whoever spoke last", () => {
+    const current = room("room-faces", 0, 0);
+    current.member_preview = [
+      {
+        display_name: "Jenny",
+        id: "actor-jenny",
+        kind: "human",
+        tenant_id: "tenant-a",
+      },
+      {
+        display_name: "Codex",
+        id: "actor-codex",
+        kind: "agent",
+        tenant_id: "tenant-a",
+      },
+    ];
+    current.latest_message = {
+      author: current.member_preview[1]!,
+      created_at: "2026-07-24T10:00:00Z",
+      id: "message-1",
+      raw_message: "On it.",
+      room_seq: 2,
+    };
+    render(
+      <MemoryRouter>
+        <RoomSecondaryNavigation
+          onCloseMobile={() => undefined}
+          onCreateRoom={() => undefined}
+          rooms={[current]}
+          tenant={{
+            created_at: "2026-07-24T09:00:00Z",
+            id: "tenant-a",
+            name: "Northstar",
+          }}
+        />
+      </MemoryRouter>,
+    );
+    const lead = screen
+      .getByRole("link", { name: "room-faces" })
+      .querySelector("[data-position='lead'] [aria-label]");
+    expect(lead).toHaveAttribute("aria-label", "Codex avatar");
+  });
+});
+
 function liveRuntime(): TeamHubRuntime {
   return {
     client: {} as TeamHubRuntime["client"],
