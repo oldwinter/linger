@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it } from "vitest";
 
+import { dayKey } from "@/lib/date-format";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubWorkItem } from "@/features/teamhub/teamhub-types";
@@ -222,5 +223,72 @@ describe("WorkItemStoryPage", () => {
       "href",
       "/t/tenant-northstar/library/meetings?entry=meeting-planning",
     );
+  });
+  it("shows the Pocket note from the day the work was opened", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const opened = new Date(2026, 10, 14, 9, 0, 0);
+    const day = dayKey(opened);
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/me/pocket-notes", () => ({
+      items: [
+        {
+          date: day,
+          id: "note-1",
+          text: "Call Lisa about the quote.",
+          updated_at: opened.toISOString(),
+        },
+      ],
+      page: { has_more: false },
+      today: day,
+    }));
+    runtime.seed.workItems = [
+      {
+        assignees: [],
+        created_at: opened.toISOString(),
+        created_by: human,
+        description: "Write the follow-up.",
+        explicit_access_grants: [],
+        id: "workitem-follow-up",
+        kind: "issue",
+        number: 7,
+        priority: "medium",
+        referenced_actors: [],
+        state: "open",
+        tenant_id: "tenant-northstar",
+        title: "Send the follow-up",
+        updated_at: opened.toISOString(),
+        updated_by: human,
+        version: 1,
+      },
+    ];
+    runtime.server.on("GET", "/v0/work-items/{workItemId}/timeline", () => ({
+      items: [],
+      page: { has_more: false },
+    }));
+    const router = createMemoryRouter(
+      [
+        {
+          element: <WorkItemStoryPage />,
+          path: "/t/:tenantId/work-items/:workItemId",
+        },
+      ],
+      {
+        initialEntries: ["/t/tenant-northstar/work-items/workitem-follow-up"],
+      },
+    );
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <RouterProvider router={router} />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Call Lisa about the quote.")).toBeVisible();
+    expect(screen.getByText("Your Pocket note from that day")).toBeVisible();
   });
 });

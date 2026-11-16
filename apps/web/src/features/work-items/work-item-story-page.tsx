@@ -4,10 +4,12 @@ import { Link, useParams } from "react-router";
 import { collectTeamHubCursorPages } from "@/features/teamhub/teamhub-cursor-pages";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { dayKey } from "@/lib/date-format";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 
 import { useMeetings } from "@/features/memory/memory-queries";
 
+import { loadNoteFromThatDay } from "./note-from-that-day";
 import { tenantWorkItemTargetQueryOptions } from "./work-item-queries";
 import { dashboardWorkItemPath } from "./work-item-routes";
 import { workItemActivityText, workRoomPath } from "./work-item-story";
@@ -48,6 +50,12 @@ export function WorkItemStoryPage() {
         tenantId,
       )
     : undefined;
+  const openedDay = item ? dayKey(new Date(item.created_at)) : undefined;
+  const noteQuery = useQuery({
+    enabled: Boolean(openedDay),
+    queryFn: () => loadNoteFromThatDay(client, tenantId, openedDay ?? ""),
+    queryKey: ["teamhub", tenantId, "pocket-note-for-work", openedDay],
+  });
   const roomId =
     item?.work_room_id ??
     timelineQuery.data?.items.reduce<string | undefined>(
@@ -91,6 +99,16 @@ export function WorkItemStoryPage() {
                   ? item.description
                   : "No description yet."}
               </p>
+              {noteQuery.data ? (
+                <blockquote className="mt-4 border-l-2 border-border pl-3">
+                  <p className="text-xs text-muted-foreground">
+                    Your Pocket note from that day
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">
+                    {noteQuery.data}
+                  </p>
+                </blockquote>
+              ) : null}
               {item.mandate ? (
                 <p className="mt-3 text-sm text-muted-foreground">
                   {item.mandate.strength === "create_and_delegate"
