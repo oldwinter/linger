@@ -99,14 +99,18 @@ export type MeetingTab = "summary" | "transcript";
  * once it exists; until then the transcript is shown.
  */
 export function MeetingReader({
+  continueRecording,
   entry,
   file,
   onAskAnotherMe,
   onHidden,
+  onRecordingEnded,
   onSelectTab,
   resolveLink,
   tenantId,
 }: {
+  /** This recording is the next one from the day, so it starts playing. */
+  continueRecording?: boolean;
   entry: TeamHubMemoryEntry;
   /** The `file` URL parameter; "recording" and none choose the default tab. */
   file: string | null;
@@ -114,6 +118,8 @@ export function MeetingReader({
   onAskAnotherMe?: () => void;
   /** Leaves the page once the meeting is deleted from the reader's Meetings. */
   onHidden: () => void;
+  /** The recording reached its end, so the day can continue. */
+  onRecordingEnded?: () => void;
   onSelectTab: (tab: MeetingTab) => void;
   resolveLink?: (reference: string) => string | null | undefined;
   tenantId: string;
@@ -557,9 +563,11 @@ export function MeetingReader({
                     href: meetingPath(tenantId, entry.id),
                     title,
                   }}
+                  continueRecording={continueRecording}
                   documentId={meeting.recording_document_id}
                   filename={meeting.recording_filename}
                   meetingId={entry.id}
+                  onRecordingEnded={onRecordingEnded}
                   onTime={setSpokenSeconds}
                   playFrom={playFrom}
                   variant="player"
@@ -577,9 +585,11 @@ export function MeetingReader({
                   href: meetingPath(tenantId, entry.id),
                   title,
                 }}
+                continueRecording={continueRecording}
                 documentId={meeting.recording_document_id}
                 filename={meeting.recording_filename}
                 meetingId={entry.id}
+                onRecordingEnded={onRecordingEnded}
                 onTime={setSpokenSeconds}
                 playFrom={playFrom}
                 variant="player"
@@ -610,10 +620,12 @@ function MeetingVersionReader({
   accountId,
   captureId,
   carry,
+  continueRecording,
   documentId,
   versionId,
   filename,
   meetingId,
+  onRecordingEnded,
   onTime,
   playFrom,
   spokenSeconds,
@@ -625,11 +637,15 @@ function MeetingVersionReader({
   captureId?: string;
   /** Where a playing recording can keep going once this page closes. */
   carry?: { href: string; title: string };
+  /** This recording is the next one from the day, so it starts playing. */
+  continueRecording?: boolean;
   documentId: string;
   versionId: string;
   filename: string;
   /** Tells the player which meeting it is playing, so its speed starts over. */
   meetingId?: string;
+  /** The recording reached its end, so the day can continue. */
+  onRecordingEnded?: () => void;
   onTime?: (seconds: number) => void;
   /** A topic asked the recording to start at this moment. */
   playFrom?: { at: number; request: number };
@@ -1019,9 +1035,11 @@ function MeetingVersionReader({
           );
           if (draft) carryMeeting(draft);
         }}
+        onRecordingEnded={onRecordingEnded}
         onTime={onTime}
         playFrom={playFrom}
         src={playable ? preview.objectUrl : undefined}
+        startAtBeginning={continueRecording}
         status={
           !preview
             ? "Loading…"

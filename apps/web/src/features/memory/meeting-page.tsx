@@ -16,8 +16,18 @@ import {
   type RefObject,
   type SyntheticEvent,
 } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 import { askAnotherMeAboutMeeting } from "./meeting-ask";
+import {
+  continuesRecording,
+  nextRecordingSameDay,
+} from "./meeting-day-recording";
+import { meetingPath } from "./meeting-routes";
 import { useMeetings } from "./memory-queries";
 import { MeetingReader } from "./meeting-reader";
 import { meetingsTabPath } from "./meetings-panel";
@@ -47,6 +57,7 @@ export function MeetingPage() {
   const { client } = useTeamHubRuntime();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const workspaceTree = useWorkspaceTree();
   const [tocOpen, setTocOpen] = useState(false);
@@ -161,8 +172,20 @@ export function MeetingPage() {
             </div>
           ) : listed && selected.data?.meeting ? (
             <MeetingReader
+              continueRecording={continuesRecording(location.state)}
               entry={selected.data}
               file={searchParams.get("file")}
+              onRecordingEnded={() => {
+                if (!listed) return;
+                const next = nextRecordingSameDay(
+                  meetings.data ?? [],
+                  listed.id,
+                );
+                if (!next) return;
+                void navigate(`${meetingPath(tenantId, next)}&file=summary`, {
+                  state: { continueRecording: true },
+                });
+              }}
               onAskAnotherMe={
                 accountId && anotherMeRoomId && selected.data
                   ? () => {

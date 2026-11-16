@@ -76,9 +76,11 @@ export function MeetingAudioPlayer({
   meetingId,
   onDownload,
   onLeavePlayback,
+  onRecordingEnded,
   onTime,
   playFrom,
   src,
+  startAtBeginning,
   status,
 }: {
   /** Whose listening positions and speed this browser remembers. */
@@ -91,11 +93,18 @@ export function MeetingAudioPlayer({
   onDownload: () => void;
   /** Reports the playhead when this player leaves the screen. */
   onLeavePlayback?: (leave: PlaybackLeave) => void;
+  /** The recording reached its end on its own. */
+  onRecordingEnded?: () => void;
   /** The playhead, so the transcript can follow the line being spoken. */
   onTime?: (seconds: number) => void;
   /** A topic asked to start here. A new request plays even at the same time. */
   playFrom?: { at: number; request: number };
   src?: string;
+  /**
+   * The day is continuing into this recording, so it starts from the beginning
+   * and plays, even when this browser once stopped in the middle.
+   */
+  startAtBeginning?: boolean;
   /** Replaces the time line, e.g. while the recording is still loading. */
   status?: string;
 }) {
@@ -214,7 +223,14 @@ export function MeetingAudioPlayer({
 
   /** Applies a remembered place once its metadata supplies the duration. */
   function restorePosition(audio: HTMLAudioElement) {
-    if (restoredRef.current || !accountId || !meetingId) return;
+    if (restoredRef.current) return;
+    if (startAtBeginning) {
+      restoredRef.current = true;
+      audio.currentTime = 0;
+      void audio.play().catch(() => setPlaying(false));
+      return;
+    }
+    if (!accountId || !meetingId) return;
     restoredRef.current = true;
     // A topic start owns this playback; the remembered place must not replace it.
     if (playFrom) return;
@@ -376,6 +392,7 @@ export function MeetingAudioPlayer({
           onEnded={() => {
             wasPlayingRef.current = false;
             setPlaying(false);
+            onRecordingEnded?.();
           }}
           onError={() => setFailed(true)}
           onLoadedMetadata={(event) => {
