@@ -91,6 +91,7 @@ export function MeetingAudioPlayer({
   paceBusy,
   sessionTitle,
   src,
+  startAt,
   startAtBeginning,
   status,
 }: {
@@ -119,6 +120,8 @@ export function MeetingAudioPlayer({
   /** The meeting's name for the browser's media controls. */
   sessionTitle?: string;
   src?: string;
+  /** A copied line's place in the recording, in seconds. */
+  startAt?: number;
   /**
    * The day is continuing into this recording, so it starts from the beginning
    * and plays, even when this browser once stopped in the middle.
@@ -277,6 +280,18 @@ export function MeetingAudioPlayer({
   /** Applies a remembered place once its metadata supplies the duration. */
   function restorePosition(audio: HTMLAudioElement) {
     if (restoredRef.current) return;
+    if (startAt !== undefined && Number.isFinite(startAt) && startAt >= 0) {
+      restoredRef.current = true;
+      const duration = audio.duration;
+      const position =
+        Number.isFinite(duration) && duration > 0
+          ? Math.min(startAt, duration)
+          : startAt;
+      audio.currentTime = position;
+      setCurrent(position);
+      if (position > 0) setResumeFrom(position);
+      return;
+    }
     if (startAtBeginning) {
       restoredRef.current = true;
       audio.currentTime = 0;

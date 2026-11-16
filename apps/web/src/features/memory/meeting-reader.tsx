@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ClipboardEvent,
 } from "react";
 import { Link } from "react-router";
 import {
@@ -38,6 +39,12 @@ import {
   useCarriedMeeting,
 } from "./meeting-carry";
 import { meetingPace, type MeetingPacePoint } from "./meeting-pace";
+import {
+  copiedMeetingLine,
+  copiedMeetingLineText,
+  meetingCopiedLines,
+  meetingLineOpenUrl,
+} from "./meeting-copied-line";
 import { carryDecisionPath, meetingDecisions } from "./carry-decision";
 import {
   meetingOpensOnLastWords,
@@ -121,6 +128,7 @@ export function MeetingReader({
   onRecordingEnded,
   onSelectTab,
   resolveLink,
+  startAt,
   tenantId,
 }: {
   /** This recording is the next one from the day, so it starts playing. */
@@ -136,6 +144,8 @@ export function MeetingReader({
   onRecordingEnded?: () => void;
   onSelectTab: (tab: MeetingTab) => void;
   resolveLink?: (reference: string) => string | null | undefined;
+  /** Where a copied line opens the recording, in seconds. */
+  startAt?: number;
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
@@ -726,6 +736,7 @@ export function MeetingReader({
                   paceBusy={paceBusy}
                   playFrom={playFrom}
                   sessionTitle={title}
+                  startAt={startAt}
                   variant="player"
                   versionId={meeting.recording_version_id}
                 />
@@ -758,6 +769,7 @@ export function MeetingReader({
                   paceBusy={paceBusy}
                   playFrom={playFrom}
                   sessionTitle={title}
+                  startAt={startAt}
                   variant="player"
                   versionId={meeting.recording_version_id}
                 />
@@ -768,6 +780,15 @@ export function MeetingReader({
               captureId={meeting.capture_id}
               documentId={meeting.transcript_document_id}
               filename="transcript.md"
+              meetingLineUrl={(seconds) =>
+                new URL(
+                  meetingLineOpenUrl(
+                    meetingPath(tenantId, entry.id),
+                    seconds,
+                  ),
+                  window.location.origin,
+                ).toString()
+              }
               spokenSeconds={spokenSeconds}
               variant="document"
               versionId={meeting.transcript_version_id}
@@ -801,6 +822,8 @@ function MeetingVersionReader({
   pace,
   paceBusy,
   sessionTitle,
+  meetingLineUrl,
+  startAt,
   variant,
 }: {
   /** Whose listening positions the player remembers. */
@@ -831,6 +854,10 @@ function MeetingVersionReader({
   paceBusy?: boolean;
   /** The meeting's name for the browser's media controls. */
   sessionTitle?: string;
+  /** Where a copied spoken line can be opened, given its recording offset. */
+  meetingLineUrl?: (startSeconds: number) => string;
+  /** Opens the recording at a copied line instead of the remembered place. */
+  startAt?: number;
   variant: "player" | "document";
 }) {
   const { client } = useTeamHubRuntime();
@@ -1166,6 +1193,19 @@ function MeetingVersionReader({
         </Button>
       </div>
     ) : null;
+  function onCopyTranscript(event: ClipboardEvent<HTMLDivElement>) {
+    if (!transcriptText || !meetingLineUrl) return;
+    const line = copiedMeetingLine(
+      meetingCopiedLines(transcriptText),
+      window.getSelection()?.toString() ?? "",
+    );
+    if (!line) return;
+    event.preventDefault();
+    event.clipboardData.setData(
+      "text/plain",
+      copiedMeetingLineText(line, meetingLineUrl(line.startSeconds)),
+    );
+  }
   if (variant === "player") {
     if (error)
       return (
@@ -1223,6 +1263,7 @@ function MeetingVersionReader({
         pace={pace}
         paceBusy={paceBusy}
         sessionTitle={sessionTitle}
+        startAt={startAt}
         src={playable ? preview.objectUrl : undefined}
         startAtBeginning={continueRecording}
         status={
@@ -1246,7 +1287,11 @@ function MeetingVersionReader({
         speaker={partSpeaker}
         speakers={speakers}
       />
-      {partSpeaker ? null : <div ref={transcriptRoot}>{body}</div>}
+      {partSpeaker ? null : (
+        <div onCopy={onCopyTranscript} ref={transcriptRoot}>
+          {body}
+        </div>
+      )}
     </>
   );
 }

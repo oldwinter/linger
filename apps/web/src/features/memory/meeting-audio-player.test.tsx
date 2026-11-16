@@ -183,6 +183,26 @@ describe("MeetingAudioPlayer", () => {
     expect(onDownload).toHaveBeenCalledOnce();
   });
 
+  it("opens a copied line at that moment in the recording", () => {
+    const { container } = render(
+      <MeetingAudioPlayer
+        filename="recording.m4a"
+        mediaType="audio/mp4"
+        onDownload={vi.fn()}
+        src="blob:recording"
+        startAt={172}
+      />,
+    );
+    const audio = container.querySelector("audio")!;
+    Object.defineProperty(audio, "duration", {
+      configurable: true,
+      value: 400,
+    });
+    fireEvent.loadedMetadata(audio);
+    expect(audio.currentTime).toBe(172);
+    expect(screen.getByText("2:52 / 6:40")).toBeVisible();
+  });
+
   it("applies each offered rate to the element", async () => {
     const { audio } = renderPlayer();
 

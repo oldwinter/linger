@@ -29,6 +29,7 @@ import {
 } from "./meeting-day-recording";
 import { meetingPath } from "./meeting-routes";
 import { useMeetings } from "./memory-queries";
+import { meetingStartAt } from "./meeting-copied-line";
 import { MeetingReader } from "./meeting-reader";
 import { meetingsTabPath } from "./meetings-panel";
 import {
@@ -186,6 +187,7 @@ export function MeetingPage() {
                   state: { continueRecording: true },
                 });
               }}
+              startAt={meetingStartAt(searchParams.get("at"))}
               onAskAnotherMe={
                 accountId && anotherMeRoomId && selected.data
                   ? () => {
