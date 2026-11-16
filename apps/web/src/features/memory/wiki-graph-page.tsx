@@ -17,6 +17,8 @@ import {
   useWikiDisplayState,
 } from "@/features/wiki/wiki-display-state";
 import { usePersonalWikiRefresh } from "@/features/wiki/wiki-refresh";
+import { wikiPreviewPages } from "@/features/wiki/wiki-preview-pages";
+import { graphWithPagesBeingWritten } from "./graph-being-written";
 import { WikiRefreshBanner } from "@/features/wiki/wiki-refresh-status";
 import { useAnotherMeActorId } from "@/features/wiki/wiki-working-card";
 import { nodeMoments, parseEmbeddedWikiGraph } from "./wiki-graph-model";
@@ -62,17 +64,32 @@ export function WikiGraphPage() {
     () => (graph.data ? parseEmbeddedWikiGraph(graph.data) : undefined),
     [graph.data],
   );
+  const refresh = usePersonalWikiRefresh(tenantId);
+  const writing = useMemo(() => {
+    if (!parsedGraph || !refresh.preview) return undefined;
+    const pages = wikiPreviewPages(refresh.preview);
+    if (pages.length === 0) return undefined;
+    return graphWithPagesBeingWritten(parsedGraph, pages);
+  }, [parsedGraph, refresh.preview]);
+  const liveGraph =
+    writing && writing.arrived.length > 0 ? writing.graph : parsedGraph;
   const filteredGraph = useMemo(
     () =>
-      parsedGraph ? filterWikiGraph(parsedGraph, display.decisions) : undefined,
-    [parsedGraph, display.decisions],
+      liveGraph ? filterWikiGraph(liveGraph, display.decisions) : undefined,
+    [liveGraph, display.decisions],
   );
   const timelineMoments = useMemo(
     () => (filteredGraph ? nodeMoments(filteredGraph) : undefined),
     [filteredGraph],
   );
-  const refresh = usePersonalWikiRefresh(tenantId);
   const graphBusy = refresh.refreshing || graph.isFetching;
+  const arriving = writing?.arrived.at(-1);
+  const arrivingLinks = arriving
+    ? arriving.links.flatMap((id) => {
+        const title = liveGraph?.nodes.find((node) => node.id === id)?.title;
+        return title ? [title] : [];
+      })
+    : [];
 
   return (
     <main className="wiki-graph-page flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-app-surface">
@@ -84,6 +101,16 @@ export function WikiGraphPage() {
             ? "Loading reports…"
             : `${reports.data?.length ?? 0} reports · Browse by day`}
         </p>
+        {arriving ? (
+          <p className="mt-2 text-sm text-foreground" role="status">
+            {arriving.day
+              ? `${arriving.name} just landed on ${arriving.day}.`
+              : `${arriving.name} just landed on the graph.`}
+            {arrivingLinks.length
+              ? ` It connects to ${arrivingLinks.join(", ")}.`
+              : ""}
+          </p>
+        ) : null}
       </header>
 
       <div className="px-3 md:px-4">

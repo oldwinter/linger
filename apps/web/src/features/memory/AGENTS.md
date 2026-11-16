@@ -6,7 +6,9 @@
   one calendar day. Shape of today draws one calendar day as open stretches
   and the meetings that sit in them. Searching the Timeline centers the best
   matching page and shows the pages the graph links to it. Opening one
-  recenters the search on that page. Tell this story retells a meeting as
+  recenters the search on that page. While a refresh is still writing, a page
+  that is not published yet lands on this graph, and a dated session lands on
+  its day. Tell this story retells a meeting as
   the lines you could say out loud, then the one line you would actually tell.
   That chosen line stays on this computer and leads the meeting when you come
   back, while the meeting document stays unchanged.
