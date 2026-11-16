@@ -6,6 +6,7 @@ import {
   timeStartsConversation,
 } from "./message-grouping";
 import { sameMomentStarts } from "./same-moment";
+import { pairedAgentAnswers } from "./paired-agent-answers";
 import { Icon } from "@/components/ui/icon";
 import { useRoomRenderTiming } from "../room-render-timing";
 import {
@@ -260,9 +261,32 @@ export function MessageTimeline({
     }),
     [onOpenProfile, onOpenAgentActivity, runtimeStatusViews],
   );
-  const renderMessage = (message: TeamHubMessage, index: number) => {
+  const answerPairs = useMemo(
+    () => pairedAgentAnswers(candidateMessages),
+    [candidateMessages],
+  );
+  const answerPairAt = useMemo(() => {
+    const covered = new Set<number>();
+    const starts = new Map<
+      number,
+      { end: number; parentId: string; start: number }
+    >();
+    for (const pair of answerPairs) {
+      starts.set(pair.start, pair);
+      for (let index = pair.start + 1; index <= pair.end; index += 1) {
+        covered.add(index);
+      }
+    }
+    return { covered, starts };
+  }, [answerPairs]);
+  const renderMessage = (
+    message: TeamHubMessage,
+    index: number,
+    hideTime = false,
+  ) => {
     const previous = candidateMessages[index - 1];
-    const startsConversation = messageStartsConversation(message, previous);
+    const startsConversation =
+      !hideTime && messageStartsConversation(message, previous);
     return (
       <Fragment key={message.id}>
         {startsConversation ? (
@@ -375,7 +399,24 @@ export function MessageTimeline({
         {hasTimelineContent ? (
           <div className="room-message-list flex flex-col gap-1">
             {candidateMessages.map((message, index) => {
-              if (momentStarts.has(index - 1)) return null;
+              if (answerPairAt.covered.has(index) || momentStarts.has(index - 1))
+                return null;
+              const pair = answerPairAt.starts.get(index);
+              if (pair) {
+                return (
+                  <div
+                    className="grid items-start gap-1 md:grid-cols-2"
+                    data-paired-answers={pair.parentId}
+                    key={message.id}
+                  >
+                    {candidateMessages
+                      .slice(pair.start, pair.end + 1)
+                      .map((answer, offset) =>
+                        renderMessage(answer, pair.start + offset, offset > 0),
+                      )}
+                  </div>
+                );
+              }
               const next = candidateMessages[index + 1];
               if (!momentStarts.has(index) || !next) {
                 return renderMessage(message, index);
