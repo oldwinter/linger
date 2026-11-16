@@ -1554,6 +1554,22 @@ function mountMeetingPage(
   return { queryClient, router };
 }
 
+function rectAt(top: number): DOMRect {
+  return {
+    bottom: top,
+    height: 0,
+    left: 0,
+    right: 0,
+    toJSON() {
+      return {};
+    },
+    top,
+    width: 0,
+    x: 0,
+    y: top,
+  };
+}
+
 class FakeHighlight {
   readonly ranges: Range[];
   constructor(...ranges: Range[]) {
