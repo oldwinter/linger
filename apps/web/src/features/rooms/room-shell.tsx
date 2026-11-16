@@ -1,4 +1,8 @@
-import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import {
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
 import {
   lazy,
   Suspense,
@@ -63,6 +67,7 @@ import { AnotherMeArrivedBanner } from "./another-me-arrived-banner";
 import { useAnotherMeNotifications } from "./another-me-notifications";
 import { useRoomMentionNotifications } from "./room-mention-notifications";
 import { useRoomWindowTitle } from "./room-unread-title";
+import { useReturnToArrivedRoom } from "./use-return-to-arrived-room";
 import { requireRoomRouteParam } from "./room-route-params";
 import { useScrollPaneActivity } from "./use-scroll-pane-activity";
 import {
@@ -118,6 +123,7 @@ function RoomShellReady({
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
+  const queryClient = useQueryClient();
   const roomsQuery = useQuery(tenantRoomsQueryOptions(client, tenantId));
   const { data: identity } = useSuspenseQuery(
     teamHubIdentityQueryOptions(client),
@@ -183,6 +189,14 @@ function RoomShellReady({
   useRoomWindowTitle({
     baseTitle: `${spaceOwnerName}'s space`,
     rooms: roomsQuery.data?.items,
+  });
+  useReturnToArrivedRoom({
+    activeRoomId,
+    client,
+    navigate,
+    queryClient,
+    rooms: roomsQuery.data?.items,
+    tenantId,
   });
 
   const rooms = roomsQuery.data;
