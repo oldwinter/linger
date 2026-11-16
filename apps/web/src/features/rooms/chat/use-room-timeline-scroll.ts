@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { RoomDraftScope } from "../room-drafts";
 
 // Presentation-only, bounded to recently visited Rooms in this browser tab.
@@ -14,6 +14,13 @@ const readingPositions = new Map<
 
 /** Content changes this soon after the reader's own input are theirs to keep. */
 const INPUT_SETTLE_MS = 1_000;
+
+/**
+ * Sitting still in an open room this long, with nothing new arriving, lets
+ * the lane rest. The next message no longer pulls the view. This is longer
+ * than the gap that starts a new conversation, and it is not leaving the room.
+ */
+export const QUIET_ROOM_MS = 15 * 60 * 1000;
 
 /** The first Message row in view, and where it sat when the lane was this wide. */
 interface ReadingAnchor {
@@ -220,6 +227,26 @@ export function useRoomTimelineScroll({
       timeline.removeEventListener("keydown", noteInput, true);
     };
   }, [timelineElement]);
+
+  useEffect(() => {
+    if (!timelineElement) return;
+    let timer = window.setTimeout(() => {
+      shouldAutoFollowRef.current = false;
+    }, QUIET_ROOM_MS);
+    const wake = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        shouldAutoFollowRef.current = false;
+      }, QUIET_ROOM_MS);
+    };
+    document.addEventListener("pointerdown", wake, true);
+    document.addEventListener("keydown", wake, true);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("pointerdown", wake, true);
+      document.removeEventListener("keydown", wake, true);
+    };
+  }, [messageCount, pendingMessageCount, timelineElement]);
 
   function prepareForOlderMessages() {
     const timeline = timelineElement;
