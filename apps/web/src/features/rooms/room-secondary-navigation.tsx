@@ -61,7 +61,12 @@ import {
   subscribeRoomComposerDrafts,
 } from "./room-drafts";
 import { WorkingNowStrip } from "./working-now-strip";
-import { workingNowRooms } from "./working-now";
+import {
+  trackRunsYouStarted,
+  workingNowRooms,
+  type FinishedRun,
+  type RunYouStarted,
+} from "./working-now";
 import { RecordingEntry } from "./voice-control/recording-entry";
 import { useNavReorderFlip } from "./use-nav-reorder-flip";
 import {
@@ -159,6 +164,7 @@ function useDraftRoomIds(
 export function RoomSecondaryNavigation({
   accountId,
   activeRoomId,
+  actorId,
   anotherMeRoomId,
   navigationStatus,
   onCloseMobile,
@@ -173,6 +179,8 @@ export function RoomSecondaryNavigation({
   /** Scopes the away recap's dismissal to this Account in this Tenant. */
   accountId?: string;
   activeRoomId?: string;
+  /** The signed-in actor in this tenant, so a run they started can be told apart. */
+  actorId?: string;
   anotherMeRoomId?: string;
   navigationStatus?: ReactNode;
   onCloseMobile: () => void;
@@ -220,6 +228,32 @@ export function RoomSecondaryNavigation({
   // the next render without a cleanup step.
   const now = new Date();
   const runningRooms = new Set(runningRoomIds);
+  const [runsYouStarted, setRunsYouStarted] = useState<{
+    finished: FinishedRun[];
+    started: RunYouStarted[];
+  }>({ finished: [], started: [] });
+  useEffect(() => {
+    setRunsYouStarted((current) => {
+      const next = trackRunsYouStarted({
+        activeRoomId,
+        actorId,
+        anotherMeRoomId,
+        failedRoomIds,
+        finished: current.finished,
+        rooms,
+        runningRoomIds,
+        started: current.started,
+      });
+      return sameRunTrack(current, next) ? current : next;
+    });
+  }, [
+    activeRoomId,
+    actorId,
+    anotherMeRoomId,
+    failedRoomIds,
+    rooms,
+    runningRoomIds,
+  ]);
   const failedRooms = new Set(failedRoomIds);
   const draftRoomIds = useDraftRoomIds(accountId, tenant.id);
   const workingClock = useWorkingClock(runningRoomIds);
@@ -478,6 +512,7 @@ export function RoomSecondaryNavigation({
           </Link>
         ) : null}
         <WorkingNowStrip
+          finished={runsYouStarted.finished}
           onNavigate={onCloseMobile}
           rooms={workingNowRooms(rooms, runningRoomIds)}
           tenantId={tenant.id}
@@ -1286,5 +1321,30 @@ function RoomRowStatus({
         </span>
       </span>
     </span>
+  );
+}
+
+function sameRunTrack(
+  current: { finished: FinishedRun[]; started: RunYouStarted[] },
+  next: { finished: FinishedRun[]; started: RunYouStarted[] },
+) {
+  if (
+    current.started.length !== next.started.length ||
+    current.finished.length !== next.finished.length
+  ) {
+    return false;
+  }
+  return (
+    current.started.every(
+      (item, index) =>
+        item.roomId === next.started[index]?.roomId &&
+        item.messageId === next.started[index]?.messageId,
+    ) &&
+    current.finished.every(
+      (item, index) =>
+        item.roomId === next.finished[index]?.roomId &&
+        item.messageId === next.finished[index]?.messageId &&
+        item.reply === next.finished[index]?.reply,
+    )
   );
 }
