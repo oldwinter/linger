@@ -339,6 +339,56 @@ describe("Meetings panel", () => {
     ).toBeNull();
   });
 
+  it("drops the day that ended from Today when midnight passes", async () => {
+    vi.useFakeTimers({
+      shouldAdvanceTime: true,
+      toFake: ["Date", "setTimeout", "clearTimeout"],
+    });
+    vi.setSystemTime(new Date(2026, 9, 1, 23, 59, 50));
+    renderPanel("&meetings=today");
+    const today = await screen.findByRole("region", { name: "Today" });
+    expect(dayRegions(today)).toEqual(["Meetings on 2026-10-01"]);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(screen.getByText("No meetings today.")).toBeVisible();
+    expect(
+      screen.queryByRole("region", { name: "Meetings on 2026-10-01" }),
+    ).toBeNull();
+    expect(screen.getByRole("radio", { name: "Today" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+  });
+
+  it("slides the past seven days forward when midnight passes", async () => {
+    vi.useFakeTimers({
+      shouldAdvanceTime: true,
+      toFake: ["Date", "setTimeout", "clearTimeout"],
+    });
+    vi.setSystemTime(new Date(2026, 9, 1, 23, 59, 50));
+    renderPanel("&meetings=7d");
+    const calendar = await screen.findByRole("region", {
+      name: "Meeting calendar",
+    });
+    expect(
+      within(calendar).getByRole("button", { name: "2026-10-01: 2 meetings" }),
+    ).toBeVisible();
+    expect(
+      within(calendar).queryByRole("button", {
+        name: "2026-10-02: 0 meetings",
+      }),
+    ).toBeNull();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(
+      within(calendar).getByRole("button", { name: "2026-10-02: 0 meetings" }),
+    ).toBeVisible();
+    expect(
+      within(calendar).queryByRole("button", {
+        name: "2026-09-25: 0 meetings",
+      }),
+    ).toBeNull();
+    expect(within(calendar).getByText("Today")).toBeVisible();
+  });
+
   it("keeps the chosen range in the URL", async () => {
     const router = renderPanel("&meetings=all");
     await screen.findByRole("region", { name: "All meetings" });
