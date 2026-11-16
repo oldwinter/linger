@@ -3,12 +3,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { formatPlaybackTime, MeetingAudioPlayer } from "./meeting-audio-player";
 import {
+  carriedMeetingFromLeave,
+  carriedMeetingSnapshot,
+  carryMeeting,
+  releaseCarriedMeeting,
+} from "./meeting-carry";
+import {
   readMeetingPlaybackSpeed,
   writeMeetingPlaybackSpeed,
 } from "./meeting-playback-speed";
 import { readMeetingResume, rememberMeetingPosition } from "./meeting-resume";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  releaseCarriedMeeting();
+  vi.restoreAllMocks();
+});
 beforeEach(() => localStorage.clear());
 
 const rateLabels = ["0.75x", "1x", "1.25x", "1.5x", "2x"];
@@ -611,5 +620,66 @@ describe("MeetingAudioPlayer speed memory", () => {
     await chooseRate("2x");
 
     expect(readMeetingPlaybackSpeed(ACCOUNT)).toBe(1.25);
+  });
+
+  it("reports the playhead when it leaves while the recording is playing", () => {
+    const onLeavePlayback = vi.fn();
+    const play = vi
+      .spyOn(HTMLMediaElement.prototype, "play")
+      .mockResolvedValue(undefined);
+    const view = render(
+      <MeetingAudioPlayer
+        filename="recording.m4a"
+        mediaType="audio/mp4"
+        meetingId="meeting-1"
+        onDownload={vi.fn()}
+        onLeavePlayback={onLeavePlayback}
+        src="blob:recording"
+      />,
+    );
+    const audio = view.container.querySelector("audio")!;
+    loadDuration(audio, 125);
+    fireEvent.click(screen.getByRole("button", { name: "Play recording" }));
+    fireEvent.play(audio);
+    audio.currentTime = 42;
+    fireEvent.timeUpdate(audio);
+    // Taking the element away pauses it. That pause is not the listener stopping.
+    fireEvent.pause(audio);
+    view.unmount();
+    expect(play).toHaveBeenCalled();
+    expect(onLeavePlayback).toHaveBeenCalledWith({
+      playing: true,
+      rate: 1,
+      seconds: 42,
+    });
+  });
+
+  it("stops a recording that followed you when this one starts", () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:carried");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    carryMeeting(
+      carriedMeetingFromLeave(
+        {
+          blob: new Blob(["audio"], { type: "audio/mp4" }),
+          filename: "other.m4a",
+          href: "/meetings?entry=other",
+          mediaType: "audio/mp4",
+          meetingId: "other",
+          title: "Other",
+        },
+        { playing: true, rate: 1, seconds: 3 },
+      )!,
+    );
+    render(
+      <MeetingAudioPlayer
+        filename="recording.m4a"
+        mediaType="audio/mp4"
+        onDownload={vi.fn()}
+        src="blob:recording"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Play recording" }));
+    expect(carriedMeetingSnapshot()).toBeUndefined();
   });
 });

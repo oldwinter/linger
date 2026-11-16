@@ -72,6 +72,9 @@
 - A meeting reader's recording player remembers where its listener stopped, per
   meeting, in this browser only and keyed per Account. The place is offered on
   reopen, never held by TeamHub, and the This browser settings clear it.
+- Leaving a meeting while its recording is playing keeps that recording
+  playing in a bar on this computer. Closing the bar leaves it behind, and the
+  meeting page does not start a second player for the recording the bar has.
 - While the person is inside the meeting, Space plays or pauses the recording
   and the left and right arrows move five seconds, stopping at either end. Keys
   pressed in a field, inside a dialog, or on a focused control stay with it, and
