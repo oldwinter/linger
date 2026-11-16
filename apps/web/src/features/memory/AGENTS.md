@@ -4,7 +4,9 @@
   with its Daily and Weekly reports, Meetings (calendar, reader, audio), and
   This day (`/library/day`), which reads Pocket, meetings, and the Daily for
   one calendar day. Shape of today draws one calendar day as open stretches
-  and the meetings that sit in them. Searching the Timeline centers the best
+  and the meetings that sit in them. While that page stays open on the live
+  day, the local midnight replaces it with the new day; a day opened in the
+  past stays. Searching the Timeline centers the best
   matching page and shows the pages the graph links to it. Opening one
   recenters the search on that page. While a refresh is still writing, a page
   that is not published yet lands on this graph, and a dated session lands on

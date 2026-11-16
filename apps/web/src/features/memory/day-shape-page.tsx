@@ -1,7 +1,6 @@
-import { useMemo } from "react";
-import { Link, useParams, useSearchParams } from "react-router";
+import { useEffect, useMemo, useRef } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
-import { dayKey } from "@/lib/date-format";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 
 import {
@@ -11,6 +10,7 @@ import {
   openStretchPhrase,
   shiftDay,
 } from "./day-shape";
+import { useLocalCalendarDay } from "./local-calendar-day";
 import { useMeetings } from "./memory-queries";
 import { meetingPath } from "./meeting-routes";
 import {
@@ -22,10 +22,30 @@ import {
 /** One calendar day drawn as open time and the meetings that break it. */
 export function DayShapePage() {
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const today = dayKey(new Date());
+  const today = useLocalCalendarDay();
   const requested = searchParams.get("date") ?? "";
-  const date = isCalendarDay(requested) ? requested : today;
+  const explicit = isCalendarDay(requested) ? requested : null;
+  const date = explicit ?? today;
+  // A page opened on the live day keeps following it. A day chosen in the
+  // past stays put when midnight passes.
+  const tracking = useRef<boolean | undefined>(undefined);
+  const previousToday = useRef(today);
+  useEffect(() => {
+    if (tracking.current === undefined) {
+      tracking.current = explicit === null || explicit === today;
+    }
+    const before = previousToday.current;
+    previousToday.current = today;
+    if (!tracking.current || before === today) return;
+    const showing = explicit ?? before;
+    if (showing !== before) {
+      tracking.current = false;
+      return;
+    }
+    void navigate(dayShapePath(tenantId, today), { replace: true });
+  }, [explicit, navigate, tenantId, today]);
   const meetings = useMeetings(tenantId);
   const dayMeetings = useMemo(
     () => meetingsByDate(meetings.data ?? []).get(date) ?? [],

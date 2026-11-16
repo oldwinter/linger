@@ -40,7 +40,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function renderPage() {
+function renderPage(search = "") {
   const runtime = createTestTeamHubRuntime();
   const entries = [
     meeting(
@@ -67,7 +67,7 @@ function renderPage() {
       },
     ],
     {
-      initialEntries: ["/t/tenant-northstar/library/day-shape"],
+      initialEntries: [`/t/tenant-northstar/library/day-shape${search}`],
     },
   );
   render(
@@ -119,5 +119,48 @@ describe("DayShapePage", () => {
         name: "Shape of Thu, Oct 1 · Today",
       }),
     ).toBeVisible();
+  });
+
+  it("becomes the new day when midnight passes on today", async () => {
+    vi.useFakeTimers({
+      shouldAdvanceTime: true,
+      toFake: ["Date", "setTimeout", "clearTimeout"],
+    });
+    vi.setSystemTime(new Date(2026, 9, 1, 23, 59, 50));
+    const router = renderPage("?date=2026-10-01");
+    expect(
+      await screen.findByRole("heading", {
+        name: "Shape of Thu, Oct 1 · Today",
+      }),
+    ).toBeVisible();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(
+      await screen.findByRole("heading", {
+        name: "Shape of Fri, Oct 2 · Today",
+      }),
+    ).toBeVisible();
+    expect(router.state.location.search).toBe("?date=2026-10-02");
+    expect(screen.getByText("The day is open.")).toBeVisible();
+    expect(
+      screen.queryByRole("link", { name: "Meeting Oct 1, 09:05" }),
+    ).toBeNull();
+    expect(screen.queryByRole("link", { name: "Next day" })).toBeNull();
+  });
+
+  it("leaves a past day in place when midnight passes", async () => {
+    vi.useFakeTimers({
+      shouldAdvanceTime: true,
+      toFake: ["Date", "setTimeout", "clearTimeout"],
+    });
+    vi.setSystemTime(new Date(2026, 9, 1, 23, 59, 50));
+    renderPage("?date=2026-09-30");
+    expect(
+      await screen.findByRole("heading", { name: "Shape of Wed, Sep 30" }),
+    ).toBeVisible();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(
+      screen.getByRole("heading", { name: "Shape of Wed, Sep 30" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("heading", { name: /Oct 2/u })).toBeNull();
   });
 });
