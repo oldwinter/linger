@@ -122,6 +122,46 @@ async function openRoutine(name: string | RegExp) {
 }
 
 describe("RemindersPanel", () => {
+  it("joins routines that would fire in the same minute", async () => {
+    const at = inDays(1, 9);
+    const older: TeamHubRoutine = {
+      ...reminder,
+      created_at: "2026-09-01T00:00:00Z",
+      id: "routine_older",
+      instruction: "Write the brief",
+      name: "Brief",
+      next_run_at: at,
+    };
+    const newer: TeamHubRoutine = {
+      ...reminder,
+      created_at: "2026-09-02T00:00:00Z",
+      id: "routine_newer",
+      instruction: "Send the notes",
+      name: "Notes",
+      next_run_at: at,
+      revision: 2,
+    };
+    const updateRoutine = vi.fn<TestRouteHandler>(() => ({
+      ...older,
+      instruction: "Write the brief\n\nSend the notes",
+      revision: 2,
+    }));
+    const deleteRoutine = vi.fn<TestRouteHandler>();
+    renderPanel({
+      deleteRoutine,
+      listRoomRoutines: list([newer, older]),
+      updateRoutine,
+    });
+    await waitFor(() => expect(updateRoutine).toHaveBeenCalled());
+    expect(sentBody(updateRoutine, 0)).toMatchObject({
+      expected_revision: 1,
+      instruction: "Write the brief\n\nSend the notes",
+    });
+    await waitFor(() =>
+      expect(deletedRoutines(deleteRoutine)).toEqual([["routine_newer", 2]]),
+    );
+  });
+
   it("names each routine and says when it only posts a message", async () => {
     renderPanel({ listRoomRoutines: list([reminder]) });
     expect(
@@ -424,14 +464,21 @@ describe("RemindersPanel", () => {
   it("lists only this Agent's routines", async () => {
     renderPanel({
       listRoomRoutines: list([
-        { ...reminder, id: "r1", name: "Created", instruction: "Created" },
         {
           ...reminder,
-          id: "r2",
-          name: "Mentioned",
-          instruction: "Mentioned",
+          id: "r1",
+          instruction: "Created",
+          name: "Created",
+          next_run_at: inDays(1, 9),
+        },
+        {
+          ...reminder,
           created_by_actor_id: "human-1",
+          id: "r2",
+          instruction: "Mentioned",
           mention_actor_id: AGENT,
+          name: "Mentioned",
+          next_run_at: inDays(1, 10),
         },
         {
           ...reminder,
