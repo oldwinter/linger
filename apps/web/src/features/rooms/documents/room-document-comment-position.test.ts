@@ -40,6 +40,30 @@ describe("comment anchor presentation positions", () => {
     })!;
     expect(doc.textBetween(0, result.from)).toBe("first repeated then ");
   });
+  it("follows a quote whose words were rewritten between the same surround", () => {
+    const rewritten = BlockNoteEditor.create({
+      schema: roomDocumentCommentSchema,
+      initialContent: [
+        {
+          id: "block",
+          type: "paragraph",
+          content: "first changed phrase last",
+        },
+      ],
+    });
+    const result = resolveCommentAnchorPosition(
+      rewritten.prosemirrorState.doc,
+      {
+        block_id: "block",
+        quoted_text: "repeated then repeated",
+        context_before: "first ",
+        context_after: " last",
+      },
+    )!;
+    expect(
+      rewritten.prosemirrorState.doc.textBetween(result.from, result.to),
+    ).toBe("changed phrase");
+  });
   it("does not invent a location for missing or ambiguous quotes", () => {
     for (const quoted_text of ["missing", "repeated"]) {
       expect(

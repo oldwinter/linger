@@ -3,8 +3,8 @@
 - This directory owns the Room Product Client's Room Document editor surface,
   browser collaboration session, IndexedDB persistence, and user-visible
   save-state projection. Mark this moment keeps the current page as a history
-  checkpoint. While you are reading further down, words someone else adds
-  above that place do not move the sentence you are on.
+  checkpoint. While you are reading further down, words someone else adds A comment whose sentence is rewritten stays on the words that
+  above that place do not move the sentence you are on. are there now, between the same surrounding words.
 - TeamHub's public HTTP contract is the only source for Document metadata and
   collaboration credentials. A credential is a signed connection token, opaque
   to the browser; every reconnect asks TeamHub for a new one, because any

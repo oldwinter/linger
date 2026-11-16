@@ -54,8 +54,46 @@ export function resolveCommentAnchorPosition(
         from: positions[index]!,
         to: positions[index + anchor.quoted_text.length - 1]! + 1,
       };
+    } else {
+      const edited = editedQuoteSpan(
+        text,
+        anchor.context_before ?? "",
+        anchor.context_after ?? "",
+      );
+      if (
+        edited &&
+        positions[edited.start] !== undefined &&
+        positions[edited.end - 1] !== undefined
+      ) {
+        result = {
+          from: positions[edited.start]!,
+          to: positions[edited.end - 1]! + 1,
+        };
+      }
     }
     return false;
   });
   return result;
+}
+
+/**
+ * When the quoted words were rewritten, the text between the surrounding
+ * words is the passage now. A missing or repeated surround stays unresolved,
+ * and a passage that was removed stays a deleted reference.
+ */
+function editedQuoteSpan(
+  text: string,
+  before: string,
+  after: string,
+): { end: number; start: number } | undefined {
+  const markerBefore = before.slice(-24);
+  const markerAfter = after.slice(0, 24);
+  if (markerBefore.length < 4 || markerAfter.length < 4) return;
+  const startAt = text.indexOf(markerBefore);
+  if (startAt < 0 || text.indexOf(markerBefore, startAt + 1) >= 0) return;
+  const start = startAt + markerBefore.length;
+  const endAt = text.indexOf(markerAfter, start);
+  if (endAt < 0 || text.indexOf(markerAfter, endAt + 1) >= 0) return;
+  if (text.slice(start, endAt).trim() === "") return;
+  return { end: endAt, start };
 }
