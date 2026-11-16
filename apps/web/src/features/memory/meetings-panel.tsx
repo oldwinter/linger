@@ -19,6 +19,9 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { dayKey } from "@/lib/date-format";
 import { dayShapePath } from "./day-shape";
+import { liveMeetingLine } from "./live-meeting";
+import { LiveMeetingNow } from "./live-meeting-now";
+import { useOptionalVoiceControl } from "@/features/rooms/voice-control/voice-control-context";
 import { useMeetings } from "./memory-queries";
 import { meetingPath } from "./meeting-routes";
 import { weekMemoryPath } from "./week-memory";
@@ -75,6 +78,12 @@ function shiftDate(date: string, days: number) {
  */
 export function MeetingsPanel({ tenantId }: { tenantId: string }) {
   const meetings = useMeetings(tenantId);
+  const voice = useOptionalVoiceControl();
+  const liveLine = liveMeetingLine({
+    partial: voice?.partialTranscript,
+    status: voice?.captureState.status,
+    texts: (voice?.transcriptItems ?? []).map((item) => item.text),
+  });
   const byDate = useMemo(
     () => meetingsByDate(meetings.data ?? []),
     [meetings.data],
@@ -388,6 +397,7 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
                   No meetings on {formatMeetingDay(chosen)}.
                 </p>
               ) : null}
+              {liveLine && !needle ? <LiveMeetingNow line={liveLine} /> : null}
               {days.length ? (
                 <div>
                   {days.map((day) => (
@@ -473,7 +483,7 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
                     </section>
                   ))}
                 </div>
-              ) : (
+              ) : liveLine && !needle ? null : (
                 <p className="px-4 py-3 text-sm text-app-muted md:px-5">
                   {needle
                     ? `No meetings match “${query.trim()}”.`

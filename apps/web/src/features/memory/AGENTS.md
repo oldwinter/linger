@@ -18,6 +18,8 @@
   clock to the closest meeting. A topic's time starts that meeting's
   recording at the moment the topic began. Personal Wiki navigation in
   `features/wiki`
+ While a recording is still being heard, today's
+  meetings show the line being said. Personal Wiki navigation in `features/wiki`
   links here.
 - Call TeamHub through the generated client (`client.api`) and generated
   Memory types; do not handwrite URLs or wire DTOs in components.
