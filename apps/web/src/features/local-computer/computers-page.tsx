@@ -23,6 +23,8 @@ import { computerCanDoPath } from "./computer-can-do";
 import { ComputerDetail } from "./computer-detail";
 import { projectAgentAvailabilitySnapshots } from "./agent-availability";
 import { ComputerDirectory } from "./computer-directory";
+import { useDesktopComputer } from "./desktop-computer";
+import { computerTheDesktopOpens } from "./this-computer";
 import {
   ConnectComputerDialog,
   NoComputers,
@@ -69,6 +71,8 @@ export function ComputersPage() {
     () => new Set(),
   );
   const [removeComputerId, setRemoveComputerId] = useState<string | null>(null);
+  const [showingDirectory, setShowingDirectory] = useState(false);
+  const desktop = useDesktopComputer();
   const { data: inventory } = useSuspenseQuery(
     localComputersQueryOptions(client, tenantId),
   );
@@ -82,13 +86,25 @@ export function ComputersPage() {
     agentAvailability.items,
   );
   const requestedComputerId = searchParams.get("computer");
+  const openThisComputer = computerTheDesktopOpens(
+    inventory.items.map((computer) => computer.computer_id),
+    {
+      requestedId: requestedComputerId,
+      showingDirectory,
+      thisComputerId: desktop?.status?.computerId,
+    },
+  );
   const selectedComputer = requestedComputerId
     ? inventory.items.find(
         (computer) => computer.computer_id === requestedComputerId,
       )
-    : inventory.items.length === 1
-      ? inventory.items[0]
-      : undefined;
+    : openThisComputer
+      ? inventory.items.find(
+          (computer) => computer.computer_id === openThisComputer,
+        )
+      : inventory.items.length === 1
+        ? inventory.items[0]
+        : undefined;
   const removeComputer = inventory.items.find(
     (computer) => computer.computer_id === removeComputerId,
   );
@@ -149,6 +165,19 @@ export function ComputersPage() {
     [tenantId],
   );
 
+  useEffect(() => {
+    if (!openThisComputer) return;
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (next.get("computer") === openThisComputer) return current;
+        next.set("computer", openThisComputer);
+        return next;
+      },
+      { replace: true },
+    );
+  }, [openThisComputer, setSearchParams]);
+
   function openSetup() {
     setExpectedComputerId(null);
     setKnownComputerIds(
@@ -164,6 +193,7 @@ export function ComputersPage() {
   }
 
   function showDirectory() {
+    setShowingDirectory(true);
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
       next.delete("computer");
@@ -191,7 +221,8 @@ export function ComputersPage() {
       >
         <header className="flex items-center justify-between gap-4">
           <h1 className="flex items-center gap-1 text-2xl text-foreground">
-            {requestedComputerId && inventory.items.length > 1 ? (
+            {(requestedComputerId || openThisComputer) &&
+            inventory.items.length > 1 ? (
               <Button
                 aria-label="All computers"
                 onClick={showDirectory}

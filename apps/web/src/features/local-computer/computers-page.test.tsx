@@ -126,6 +126,38 @@ describe("ComputersPage", () => {
     ).toBeVisible();
   });
 
+  it("opens the computer this desktop is running on, and stays on the list after that", async () => {
+    const desktop = window as { lingerDesktop?: unknown };
+    desktop.lingerDesktop = {
+      computer: {
+        enroll: async () => ({ computerId: "computer-jenny-mac" }),
+        getStatus: async () => ({
+          activeOperations: 0,
+          bridge: "connected",
+          computerId: "computer-jenny-mac",
+          runtime: "running",
+        }),
+        onStatus: () => () => undefined,
+      },
+    };
+    try {
+      const runtime = await authenticatedFixture();
+      renderPage(runtime);
+      expect(
+        await screen.findByRole("region", { name: "Jenny's Mac details" }),
+      ).toBeVisible();
+      fireEvent.click(screen.getByRole("button", { name: "All computers" }));
+      expect(
+        await screen.findByRole("list", { name: "Local computers directory" }),
+      ).toBeVisible();
+      expect(
+        screen.queryByRole("region", { name: "Jenny's Mac details" }),
+      ).not.toBeInTheDocument();
+    } finally {
+      delete desktop.lingerDesktop;
+    }
+  });
+
   it("waits for the exact server when another user's Computer connects first", async () => {
     const runtime = await authenticatedFixture();
     const queryClient = renderPage(runtime);
