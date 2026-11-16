@@ -6,9 +6,15 @@ import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 
+import { useMeetings } from "@/features/memory/memory-queries";
+
 import { tenantWorkItemTargetQueryOptions } from "./work-item-queries";
 import { dashboardWorkItemPath } from "./work-item-routes";
 import { workItemActivityText, workRoomPath } from "./work-item-story";
+import {
+  workOpenedDuringMeeting,
+  workOpenedDuringMeetingText,
+} from "./work-opened-during-meeting";
 
 /**
  * The read-only story of one Work Item: what was written, then what happened.
@@ -22,6 +28,7 @@ export function WorkItemStoryPage() {
   const itemQuery = useQuery(
     tenantWorkItemTargetQueryOptions(client, tenantId, workItemId),
   );
+  const meetings = useMeetings(tenantId);
   const timelineQuery = useQuery({
     queryFn: () =>
       collectTeamHubCursorPages((page) =>
@@ -34,6 +41,13 @@ export function WorkItemStoryPage() {
     queryKey: ["teamhub", tenantId, "work-items", workItemId, "timeline"],
   });
   const item = itemQuery.data;
+  const openedDuring = item
+    ? workOpenedDuringMeeting(
+        meetings.data ?? [],
+        new Date(item.created_at),
+        tenantId,
+      )
+    : undefined;
   const roomId =
     item?.work_room_id ??
     timelineQuery.data?.items.reduce<string | undefined>(
@@ -61,6 +75,17 @@ export function WorkItemStoryPage() {
                 {item.kind === "issue" ? "Issue" : "Task"} #{item.number}
               </p>
               <h1 className="mt-1 text-xl text-foreground">{item.title}</h1>
+              {openedDuring ? (
+                <p className="mt-3 text-sm text-foreground">
+                  {workOpenedDuringMeetingText(openedDuring)}{" "}
+                  <Link
+                    className="underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    to={openedDuring.href}
+                  >
+                    Open that meeting
+                  </Link>
+                </p>
+              ) : null}
               <p className="mt-3 whitespace-pre-wrap text-sm text-foreground">
                 {item.description.trim()
                   ? item.description
