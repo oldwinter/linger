@@ -16,6 +16,10 @@ import {
   meetingsByDate,
   monthLabels,
 } from "./meetings-calendar";
+import {
+  meetingsRanTogether,
+  meetingsRanTogetherText,
+} from "./meetings-ran-together";
 import { Spinner } from "@/components/ui/spinner";
 import { dayKey } from "@/lib/date-format";
 import { dayShapePath } from "./day-shape";
@@ -400,88 +404,99 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
               {liveLine && !needle ? <LiveMeetingNow line={liveLine} /> : null}
               {days.length ? (
                 <div>
-                  {days.map((day) => (
-                    <section
-                      aria-label={`Meetings on ${day.date}`}
-                      className="meeting-date-group"
-                      key={day.date}
-                      ref={(node) => {
-                        if (node) dayRefs.current.set(day.date, node);
-                        else dayRefs.current.delete(day.date);
-                      }}
-                    >
-                      <h3>
-                        <button
-                          aria-expanded={!collapsed.has(day.date)}
-                          className="meeting-date-toggle"
-                          onClick={() =>
-                            setCollapsed((current) => {
-                              const next = new Set(current);
-                              if (next.has(day.date)) next.delete(day.date);
-                              else next.add(day.date);
-                              return next;
-                            })
-                          }
-                          type="button"
-                        >
-                          {formatMeetingDay(day.date)}
-                          {day.date === today ? " · Today" : ""}
-                          <Icon
-                            icon={ArrowDown01Icon}
-                            size={14}
-                            className={
-                              collapsed.has(day.date) ? "-rotate-90" : ""
+                  {days.map((day) => {
+                    const together = meetingsRanTogether(day.items);
+                    return (
+                      <section
+                        aria-label={`Meetings on ${day.date}`}
+                        className="meeting-date-group"
+                        key={day.date}
+                        ref={(node) => {
+                          if (node) dayRefs.current.set(day.date, node);
+                          else dayRefs.current.delete(day.date);
+                        }}
+                      >
+                        <h3>
+                          <button
+                            aria-expanded={!collapsed.has(day.date)}
+                            className="meeting-date-toggle"
+                            onClick={() =>
+                              setCollapsed((current) => {
+                                const next = new Set(current);
+                                if (next.has(day.date)) next.delete(day.date);
+                                else next.add(day.date);
+                                return next;
+                              })
                             }
-                          />
-                        </button>
-                      </h3>
-                      <ul className="pb-2" hidden={collapsed.has(day.date)}>
-                        {day.items.map((meeting) => {
-                          const to = meetingPath(tenantId, meeting.id);
-                          const name = `Meeting ${formatMeetingWhen(meeting.date, meeting.time)}`;
-                          return (
-                            <li
-                              className="group flex items-center gap-3 transition-colors duration-300 hover:bg-muted/70"
-                              key={meeting.id}
-                            >
-                              <Link
-                                className="min-w-0 flex-1 truncate py-2 text-sm text-app-ink"
-                                to={to}
+                            type="button"
+                          >
+                            {formatMeetingDay(day.date)}
+                            {day.date === today ? " · Today" : ""}
+                            <Icon
+                              icon={ArrowDown01Icon}
+                              size={14}
+                              className={
+                                collapsed.has(day.date) ? "-rotate-90" : ""
+                              }
+                            />
+                          </button>
+                        </h3>
+                        <ul className="pb-2" hidden={collapsed.has(day.date)}>
+                          {together ? (
+                            <li className="px-4 py-2 text-sm text-foreground md:px-5">
+                              {meetingsRanTogetherText(together)}
+                            </li>
+                          ) : null}
+                          {day.items.map((meeting) => {
+                            const to = meetingPath(tenantId, meeting.id);
+                            const name = `Meeting ${formatMeetingWhen(meeting.date, meeting.time)}`;
+                            return (
+                              <li
+                                className="group flex items-center gap-3 transition-colors duration-300 hover:bg-muted/70"
+                                key={meeting.id}
                               >
-                                Meeting{" "}
-                                {formatMeetingWhen(meeting.date, meeting.time)}
-                              </Link>
-                              {meeting.summaryReady ? (
-                                // The meeting entry opens on its summary.
                                 <Link
-                                  aria-label={`Summary of Meeting ${formatMeetingWhen(meeting.date, meeting.time)}`}
-                                  className="inline-flex shrink-0 items-center gap-1 rounded text-xs text-app-muted hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                                  className="min-w-0 flex-1 truncate py-2 text-sm text-app-ink"
                                   to={to}
                                 >
-                                  <Icon icon={File01Icon} size={12} />
-                                  Summary
+                                  Meeting{" "}
+                                  {formatMeetingWhen(
+                                    meeting.date,
+                                    meeting.time,
+                                  )}
                                 </Link>
-                              ) : null}
-                              <button
-                                aria-label={`Delete ${name}`}
-                                className="flex size-6 shrink-0 items-center justify-center rounded text-app-muted opacity-0 transition-opacity hover:text-app-danger focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus group-hover:opacity-100 [@media(hover:none)]:opacity-100"
-                                onClick={() =>
-                                  setDeleting({
-                                    captureId: meeting.captureId,
-                                    name,
-                                  })
-                                }
-                                title="Delete meeting"
-                                type="button"
-                              >
-                                <Icon icon={Delete02Icon} size={14} />
-                              </button>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </section>
-                  ))}
+                                {meeting.summaryReady ? (
+                                  // The meeting entry opens on its summary.
+                                  <Link
+                                    aria-label={`Summary of Meeting ${formatMeetingWhen(meeting.date, meeting.time)}`}
+                                    className="inline-flex shrink-0 items-center gap-1 rounded text-xs text-app-muted hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                                    to={to}
+                                  >
+                                    <Icon icon={File01Icon} size={12} />
+                                    Summary
+                                  </Link>
+                                ) : null}
+                                <button
+                                  aria-label={`Delete ${name}`}
+                                  className="flex size-6 shrink-0 items-center justify-center rounded text-app-muted opacity-0 transition-opacity hover:text-app-danger focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                                  onClick={() =>
+                                    setDeleting({
+                                      captureId: meeting.captureId,
+                                      name,
+                                    })
+                                  }
+                                  title="Delete meeting"
+                                  type="button"
+                                >
+                                  <Icon icon={Delete02Icon} size={14} />
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </section>
+                    );
+                  })}
                 </div>
               ) : liveLine && !needle ? null : (
                 <p className="px-4 py-3 text-sm text-app-muted md:px-5">
