@@ -41,7 +41,10 @@
   starts a new round. When the open page and exactly one other page link each
   other, and that other page has words in the graph, those words are shown on
   this page. When the page you opened just before this one reaches it through
-  at least one other page, this page says that chain. A direct link stays quiet.
+  at least one other page, this page says that chain. A direct link stays quiet. A published Wiki page that names exactly one other page and does not link to
+  it ends with that page's own sentence. Naming more than one page, or linking
+  to the named page, leaves the reading as it was. A page hidden in this
+  browser does not speak.
   Wiki routes show the overview and collection pages without a sidebar; the directory
   appears only beside an opened Wiki page and lists that page's own collection,
   following links into other collections, until Back.
