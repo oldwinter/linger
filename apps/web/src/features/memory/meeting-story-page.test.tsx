@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it } from "vitest";
 
@@ -87,5 +87,64 @@ describe("MeetingStoryPage", () => {
       screen.getByRole("heading", { name: "The part you would tell" }),
     ).toBeVisible();
     expect(tell[0]).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("keeps the chosen line the next time the story opens", async () => {
+    localStorage.clear();
+    const runtime = createTestTeamHubRuntime();
+    const meeting = entry();
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/memory", ({ query }) => ({
+      items: query.get("kind") === "meeting" ? [meeting] : [],
+    }));
+    runtime.server.on(
+      "GET",
+      "/v0/tenants/{tenantId}/memory/{entryId}",
+      () => meeting,
+    );
+    function draw() {
+      const router = createMemoryRouter(
+        [
+          {
+            element: <MeetingStoryPage />,
+            path: "/t/:tenantId/library/meeting-story",
+          },
+        ],
+        {
+          initialEntries: [
+            `/t/tenant-northstar/library/meeting-story?entry=${entryId}`,
+          ],
+        },
+      );
+      return render(
+        <QueryClientProvider
+          client={
+            new QueryClient({ defaultOptions: { queries: { retry: false } } })
+          }
+        >
+          <TeamHubRuntimeProvider runtime={runtime}>
+            <RouterProvider router={router} />
+          </TeamHubRuntimeProvider>
+        </QueryClientProvider>,
+      );
+    }
+    const first = draw();
+    const tell = await screen.findAllByRole("button", {
+      name: "This is the part I would tell",
+    });
+    fireEvent.click(tell[0]!);
+    expect(
+      screen.getByRole("heading", { name: "The part you would tell" }),
+    ).toBeVisible();
+    first.unmount();
+    cleanup();
+    draw();
+    expect(
+      await screen.findByRole("heading", { name: "The part you would tell" }),
+    ).toBeVisible();
+    expect(
+      screen.getAllByRole("button", {
+        name: "This is the part I would tell",
+      })[0],
+    ).toHaveAttribute("aria-pressed", "true");
   });
 });

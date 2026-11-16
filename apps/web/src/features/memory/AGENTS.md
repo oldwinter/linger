@@ -8,6 +8,8 @@
   matching page and shows the pages the graph links to it. Opening one
   recenters the search on that page. Tell this story retells a meeting as
   the lines you could say out loud, then the one line you would actually tell.
+  That chosen line stays on this computer and leads the meeting when you come
+  back, while the meeting document stays unchanged.
   The week in memory is the Monday-through-Sunday picture of meetings, dailies,
   and Pocket notes together. Carrying a decision posts that decision into a
   room the reader chooses; the meeting stays unchanged. Up next is the live

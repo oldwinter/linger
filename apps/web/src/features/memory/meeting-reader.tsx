@@ -35,7 +35,12 @@ import { askMeetingPath } from "./ask-meeting";
 import { HideMeetingDialog } from "./hide-meeting-dialog";
 import { followUpTexts, useMeetingFollowUps } from "./meeting-follow-ups";
 import { meetingRemindersPath, meetingTodoTexts } from "./meeting-reminders";
-import { meetingStoryBeats, meetingStoryPath } from "./meeting-story";
+import {
+  meetingStoryBeats,
+  meetingStoryPath,
+  storySentence,
+} from "./meeting-story";
+import { useMeetingToldPart } from "./meeting-told-part";
 import {
   formatMeetingWhen,
   meetingTitle,
@@ -103,6 +108,7 @@ export function MeetingReader({
   const identity = useQuery(teamHubIdentityQueryOptions(client));
   const accountId = identity.data?.account.id;
   const anotherMe = useQuery(anotherMeQueryOptions(client, tenantId));
+  const toldPart = useMeetingToldPart(entry.id, true);
   const [deleting, setDeleting] = useState(false);
   // Each click is its own request, so playing the same topic again seeks again.
   const [playFrom, setPlayFrom] = useState<
@@ -228,6 +234,10 @@ export function MeetingReader({
     () => meetingStoryBeats(summaryMarkdown),
     [summaryMarkdown],
   );
+  const toldSentence =
+    toldPart.sentence && story.map(storySentence).includes(toldPart.sentence)
+      ? toldPart.sentence
+      : undefined;
   const decisions = useMemo(
     () => meetingDecisions(summaryMarkdown),
     [summaryMarkdown],
@@ -272,6 +282,12 @@ export function MeetingReader({
               </>
             ) : null}
           </p>
+          {toldSentence ? (
+            <p className="mt-3 text-sm text-app-ink">
+              <span className="text-app-muted">The part you would tell. </span>
+              {toldSentence}
+            </p>
+          ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {linkCopyState === "copied" ? (
