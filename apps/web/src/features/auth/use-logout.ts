@@ -13,6 +13,7 @@ import { announceTeamHubAuthenticationRequired } from "@/features/teamhub/teamhu
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
 import { safeAuthenticationReturnTo } from "./authentication-return-to";
+import { clearInterruptedPage } from "./interrupted-page";
 import { clearLocalAuthenticatedState } from "./local-authenticated-state";
 
 export const LOGOUT_ERROR_MESSAGE = "Could not confirm logout. Please retry.";
@@ -32,6 +33,7 @@ export function useLogout({ returnTo }: { returnTo?: string } = {}) {
       );
       await browserRoomMessageOutbox.clearAccount(identity.account.id);
       await teamHubDone(client.api.POST("/v0/auth/logout"));
+      clearInterruptedPage();
       const safeReturnTo = safeAuthenticationReturnTo(returnTo ?? null);
       await navigate(
         safeReturnTo

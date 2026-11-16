@@ -1,7 +1,13 @@
+// @vitest-environment jsdom
+
 import { QueryClient } from "@tanstack/react-query";
 import { TeamHubError } from "@/features/teamhub/teamhub-error";
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  clearInterruptedPage,
+  takeInterruptedPage,
+} from "@/features/auth/interrupted-page";
 import { createTeamHubAuthenticationSignals } from "@/features/teamhub/teamhub-authentication";
 
 import { startTeamHubAuthenticationRuntime } from "./teamhub-authentication-runtime";
@@ -60,6 +66,34 @@ describe("TeamHub authentication runtime", () => {
       }),
     );
     expect(queryClient.getQueryData(["teamhub", "session"])).toBeUndefined();
+    stop();
+  });
+
+  it("remembers the page a session expiry interrupted", () => {
+    clearInterruptedPage();
+    const queryClient = new QueryClient();
+    const navigate = vi.fn();
+    const signals = createTeamHubAuthenticationSignals({
+      channelFactory: () => null,
+    });
+    const stop = startTeamHubAuthenticationRuntime({
+      currentLocation: () => ({
+        pathname: "/t/tenant-northstar/settings/computers",
+        search: "?computer=computer-lab",
+      }),
+      navigate,
+      queryClient,
+      signals,
+    });
+
+    signals.publish("authentication-required");
+
+    expect(navigate).toHaveBeenCalledWith("/login?reason=session-expired", {
+      replace: true,
+    });
+    expect(takeInterruptedPage()).toBe(
+      "/t/tenant-northstar/settings/computers?computer=computer-lab",
+    );
     stop();
   });
 
