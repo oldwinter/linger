@@ -11,22 +11,11 @@ import {
 } from "@/features/rooms/room-queries";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
+import {
+  draftWithTrackedAction,
+  meetingActionBlock,
+} from "./meeting-action-track";
 import { meetingPath } from "./meeting-routes";
-
-/** The block a Track click adds: the action, its meeting, and the link. */
-function actionBlock(input: {
-  action: string;
-  meetingLink: string;
-  meetingTitle: string;
-}) {
-  return `Track this action: ${input.action}\nFrom the meeting "${input.meetingTitle}": ${input.meetingLink}`;
-}
-
-/** Keeps the existing draft's text and adds the block as its own paragraph. */
-function appendBlock(body: string, block: string) {
-  const existing = body.trimEnd();
-  return existing ? `${existing}\n\n${block}` : block;
-}
 
 /**
  * A Track handler that stages one meeting Action in the Another Me Chat as an
@@ -54,9 +43,9 @@ export function useMeetingActionTrack(input: {
     const draft = readRoomComposerDraft(scope);
     writeRoomComposerDraft(scope, {
       ...draft,
-      body: appendBlock(
+      body: draftWithTrackedAction(
         draft.body,
-        actionBlock({
+        meetingActionBlock({
           action,
           meetingLink: new URL(
             meetingPath(input.tenantId, input.meetingId),

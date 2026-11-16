@@ -28,7 +28,9 @@
   Memory types; do not handwrite URLs or wire DTOs in components.
 - From a meeting, Ask Another Me writes a follow-up into that room's
   composer (keeping any unsent draft) and opens the chat with the composer
-  focused. The meeting itself stays read-only.
+  focused. The meeting itself stays read-only. Tracking an action stages
+  that ask once in the same draft; tracking it again leaves the draft
+  unchanged and still opens the chat.
 - A meeting's to-do list can be checked off on this computer. The checks
   belong to the signed-in account and that capture; the meeting document
   stays read-only.
