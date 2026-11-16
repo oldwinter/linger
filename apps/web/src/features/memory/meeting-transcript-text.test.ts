@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  meetingSpeakerPart,
+  meetingSpeakerPartText,
+  meetingSpeakers,
   meetingTranscriptCues,
   meetingTranscriptText,
   meetingTranscriptTurns,
@@ -99,5 +102,54 @@ describe("meetingTranscriptText", () => {
   it("produces nothing for an empty transcript", () => {
     expect(meetingTranscriptText("")).toBe("");
     expect(meetingTranscriptText("# Recording Transcript\n\n")).toBe("");
+  });
+});
+
+describe("meetingSpeakerPart", () => {
+  const markdown = [
+    "# Recording Transcript",
+    "",
+    "[00:00:10 - 00:00:20] Speaker 1 First.",
+    "",
+    "[00:00:20 - 00:00:40] Speaker 2 Meanwhile.",
+    "",
+    "[00:04:40 - 00:05:00] Speaker 1 Again.",
+    "",
+    "[00:05:10 - 00:05:20] Speaker 1 Still here.",
+    "",
+    "[02:05:20 - 02:06:00] Speaker 1 Much later.",
+  ].join("\n");
+
+  it("names the minutes before a speaker talks again", () => {
+    expect(meetingSpeakers(markdown)).toEqual(["Speaker 1", "Speaker 2"]);
+    expect(meetingSpeakerPart(markdown, "Speaker 1")).toEqual([
+      { kind: "said", text: "First." },
+      { kind: "passed", text: "4 minutes passed" },
+      { kind: "said", text: "Again." },
+      { kind: "said", text: "Still here." },
+      { kind: "passed", text: "2 hours passed" },
+      { kind: "said", text: "Much later." },
+    ]);
+    expect(
+      meetingSpeakerPartText(meetingSpeakerPart(markdown, "Speaker 1")),
+    ).toBe(
+      [
+        "First.",
+        "4 minutes passed",
+        "Again.",
+        "Still here.",
+        "2 hours passed",
+        "Much later.",
+      ].join("\n\n"),
+    );
+  });
+
+  it("leaves a one-voice meeting as that voice, with no invented wait", () => {
+    const alone = "[00:00:01 - 00:00:02] Speaker 1 Only me.";
+    expect(meetingSpeakers(alone)).toEqual(["Speaker 1"]);
+    expect(meetingSpeakerPart(alone, "Speaker 1")).toEqual([
+      { kind: "said", text: "Only me." },
+    ]);
+    expect(meetingSpeakerPart(markdown, "Speaker 3")).toEqual([]);
   });
 });
