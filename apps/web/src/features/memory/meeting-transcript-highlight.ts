@@ -81,6 +81,25 @@ export function applyMeetingTranscriptMarks({
  * between matches must not move the page or another panel, so it adjusts that
  * container's scrollTop instead of calling scrollIntoView.
  */
+const SPOKEN_NOW = "data-spoken-now";
+
+/**
+ * Marks the paragraph for the turn being spoken. A mismatch between the
+ * rendered blocks and the turn list clears the mark instead of guessing.
+ */
+export function markSpokenTurn(
+  root: HTMLElement,
+  index: number | undefined,
+  turnCount: number,
+) {
+  const blocks = turnBlocks(root);
+  const aligned = blocks.length === turnCount;
+  blocks.forEach((block, blockIndex) => {
+    if (aligned && blockIndex === index) block.setAttribute(SPOKEN_NOW, "");
+    else block.removeAttribute(SPOKEN_NOW);
+  });
+}
+
 export function scrollMeetingTranscriptTurn(
   root: HTMLElement,
   turnIndex: number,

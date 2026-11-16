@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  meetingTranscriptCues,
   meetingTranscriptText,
   meetingTranscriptTurns,
+  spokenTurnIndex,
 } from "./meeting-transcript-text";
 
 describe("meetingTranscriptText", () => {
@@ -23,6 +25,15 @@ describe("meetingTranscriptText", () => {
     ]);
     expect(meetingTranscriptText(markdown)).toBe(
       meetingTranscriptTurns(markdown).join("\n"),
+    );
+    expect(meetingTranscriptCues(markdown)).toEqual([
+      { start: 1, end: 2 },
+      { start: 2, end: 3 },
+    ]);
+    expect(spokenTurnIndex(meetingTranscriptCues(markdown), 2.4)).toBe(1);
+    expect(spokenTurnIndex(meetingTranscriptCues(markdown), 0)).toBeUndefined();
+    expect(meetingTranscriptCues(markdown).length).toBe(
+      meetingTranscriptTurns(markdown).length,
     );
   });
 

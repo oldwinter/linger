@@ -28,6 +28,64 @@ export function meetingTranscriptTurns(markdown: string): string[] {
     .filter((line): line is string => line !== null);
 }
 
+export interface TranscriptCue {
+  start: number;
+  end: number;
+}
+
+const CUE_CLOCK =
+  /^\[(\d{1,2}:\d{2}(?::\d{2})?)\s*[-–—]\s*(\d{1,2}:\d{2}(?::\d{2})?)\]/u;
+
+/**
+ * One clock per turn, in the same order as `meetingTranscriptTurns`. A turn
+ * with no bracketed range keeps an empty slot so the lists stay aligned.
+ */
+export function meetingTranscriptCues(
+  markdown: string,
+): (TranscriptCue | undefined)[] {
+  return markdown.split(/\r?\n\s*\r?\n/u).flatMap((block) => {
+    if (turnText(block) === null) return [];
+    return [cueRange(block)];
+  });
+}
+
+function cueRange(block: string): TranscriptCue | undefined {
+  const text = markdownPlainText(block)
+    .replace(/\s*\n\s*/gu, " ")
+    .trim();
+  const match = CUE_CLOCK.exec(text);
+  const startClock = match?.[1];
+  const endClock = match?.[2];
+  if (!startClock || !endClock) return;
+  const start = clockSeconds(startClock);
+  const end = clockSeconds(endClock);
+  if (start === undefined || end === undefined || end < start) return;
+  return { start, end };
+}
+
+function clockSeconds(clock: string): number | undefined {
+  const parts = clock.split(":").map(Number);
+  if (parts.some((part) => !Number.isFinite(part))) return;
+  if (parts.length === 2) return parts[0]! * 60 + parts[1]!;
+  if (parts.length === 3) return parts[0]! * 3600 + parts[1]! * 60 + parts[2]!;
+  return;
+}
+
+/** The turn being spoken at `time`, staying on it through the gap before the next. */
+export function spokenTurnIndex(
+  cues: readonly (TranscriptCue | undefined)[],
+  time: number,
+): number | undefined {
+  if (!Number.isFinite(time) || time < 0) return;
+  let current: number | undefined;
+  for (let index = 0; index < cues.length; index += 1) {
+    const cue = cues[index];
+    if (!cue || cue.start > time) continue;
+    current = index;
+  }
+  return current;
+}
+
 function turnText(block: string): string | null {
   if (STRUCTURAL_LINE.test(block.trimStart())) return null;
   // The same line-based Markdown stripper the app's previews use; a turn that

@@ -20,10 +20,10 @@
   room the reader chooses; the meeting stays unchanged. Up next is the live
   clock to the closest meeting. A topic's time starts that meeting's
   recording at the moment the topic began. While a recording is still being
-  heard, today's meetings show the line being said. Personal Wiki navigation in
-  `features/wiki` links here. When one meeting begins while an earlier one
-  is still underway, that day says so. Personal Wiki navigation in `features/wiki`
-  links here.
+  heard, today's meetings show the line being said. On the transcript, the
+  recording marks the turn being spoken and keeps that turn in view. When one
+  meeting begins while an earlier one is still underway, that day says so.
+  Personal Wiki navigation in `features/wiki` links here.
 - Call TeamHub through the generated client (`client.api`) and generated
   Memory types; do not handwrite URLs or wire DTOs in components.
 - From a meeting, Ask Another Me writes a follow-up into that room's

@@ -52,6 +52,7 @@ import { meetingPath } from "./meeting-routes";
 import { MeetingShareAction } from "./meeting-share-action";
 import {
   applyMeetingTranscriptMarks,
+  markSpokenTurn,
   scrollMeetingTranscriptTurn,
 } from "./meeting-transcript-highlight";
 import {
@@ -60,8 +61,10 @@ import {
   searchMeetingTranscript,
 } from "./meeting-transcript-search";
 import {
+  meetingTranscriptCues,
   meetingTranscriptText,
   meetingTranscriptTurns,
+  spokenTurnIndex,
 } from "./meeting-transcript-text";
 import { useMeetingActionTrack } from "./use-meeting-action-track";
 import { nameTranscriptSpeakers } from "./name-transcript";
@@ -117,6 +120,7 @@ export function MeetingReader({
   const [playFrom, setPlayFrom] = useState<
     { at: number; request: number } | undefined
   >();
+  const [spokenSeconds, setSpokenSeconds] = useState<number>();
   const tab: MeetingTab =
     file === "summary" || file === "transcript"
       ? file
@@ -539,6 +543,7 @@ export function MeetingReader({
                 documentId={meeting.recording_document_id}
                 filename={meeting.recording_filename}
                 meetingId={entry.id}
+                onTime={setSpokenSeconds}
                 playFrom={playFrom}
                 variant="player"
                 versionId={meeting.recording_version_id}
@@ -546,14 +551,27 @@ export function MeetingReader({
             </div>
           </>
         ) : (
-          <MeetingVersionReader
-            key={meeting.transcript_version_id}
-            captureId={meeting.capture_id}
-            documentId={meeting.transcript_document_id}
-            versionId={meeting.transcript_version_id}
-            filename="transcript.md"
-            variant="document"
-          />
+          <>
+            <MeetingVersionReader
+              accountId={accountId}
+              documentId={meeting.recording_document_id}
+              filename={meeting.recording_filename}
+              meetingId={entry.id}
+              onTime={setSpokenSeconds}
+              playFrom={playFrom}
+              variant="player"
+              versionId={meeting.recording_version_id}
+            />
+            <MeetingVersionReader
+              key={meeting.transcript_version_id}
+              captureId={meeting.capture_id}
+              documentId={meeting.transcript_document_id}
+              filename="transcript.md"
+              spokenSeconds={spokenSeconds}
+              variant="document"
+              versionId={meeting.transcript_version_id}
+            />
+          </>
         )}
       </div>
     </article>
@@ -571,7 +589,9 @@ function MeetingVersionReader({
   versionId,
   filename,
   meetingId,
+  onTime,
   playFrom,
+  spokenSeconds,
   variant,
 }: {
   /** Whose listening positions the player remembers. */
@@ -583,8 +603,11 @@ function MeetingVersionReader({
   filename: string;
   /** Tells the player which meeting it is playing, so its speed starts over. */
   meetingId?: string;
+  onTime?: (seconds: number) => void;
   /** A topic asked the recording to start at this moment. */
   playFrom?: { at: number; request: number };
+  /** Playhead on the transcript tab, so the spoken turn can be marked. */
+  spokenSeconds?: number;
   variant: "player" | "document";
 }) {
   const { client } = useTeamHubRuntime();
@@ -606,11 +629,40 @@ function MeetingVersionReader({
     () => (transcriptText ? meetingTranscriptTurns(transcriptText) : []),
     [transcriptText],
   );
+  const cues = useMemo(
+    () => (transcriptText ? meetingTranscriptCues(transcriptText) : []),
+    [transcriptText],
+  );
+  const spokenIndex =
+    spokenSeconds === undefined
+      ? undefined
+      : spokenTurnIndex(cues, spokenSeconds);
   const match = useMemo(
     () => searchMeetingTranscript(turns, query),
     [query, turns],
   );
   const searching = query.trim() !== "";
+  useEffect(() => {
+    if (variant !== "document") return;
+    const root = transcriptRoot.current;
+    if (!root) return;
+    const apply = () => markSpokenTurn(root, spokenIndex, turns.length);
+    apply();
+    // The transcript renders after this effect, so the mark follows the blocks.
+    const observer = new MutationObserver(apply);
+    observer.observe(root, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [spokenIndex, turns.length, variant]);
+  useEffect(() => {
+    if (variant !== "document" || spokenIndex === undefined || searching)
+      return;
+    const root = transcriptRoot.current;
+    if (!root) return;
+    const frame = requestAnimationFrame(() =>
+      scrollMeetingTranscriptTurn(root, spokenIndex, turns.length),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [searching, spokenIndex, turns.length, variant]);
   // A new query starts at its first match; a shorter result list clamps a
   // position left over from the previous query.
   const current = match.count ? Math.min(position, match.count - 1) : 0;
@@ -898,6 +950,7 @@ function MeetingVersionReader({
         mediaType={preview?.version.media_type}
         meetingId={meetingId}
         onDownload={() => void download()}
+        onTime={onTime}
         playFrom={playFrom}
         src={playable ? preview.objectUrl : undefined}
         status={

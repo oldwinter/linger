@@ -73,6 +73,7 @@ export function MeetingAudioPlayer({
   mediaType,
   meetingId,
   onDownload,
+  onTime,
   playFrom,
   src,
   status,
@@ -85,6 +86,8 @@ export function MeetingAudioPlayer({
   /** Changes with the meeting, so the next one carries its Account's speed. */
   meetingId?: string;
   onDownload: () => void;
+  /** The playhead, so the transcript can follow the line being spoken. */
+  onTime?: (seconds: number) => void;
   /** A topic asked to start here. A new request plays even at the same time. */
   playFrom?: { at: number; request: number };
   src?: string;
@@ -200,6 +203,7 @@ export function MeetingAudioPlayer({
     audio.currentTime = position;
     setCurrent(position);
     setResumeFrom(position);
+    onTime?.(position);
   }
 
   function startFromBeginning() {
@@ -208,12 +212,14 @@ export function MeetingAudioPlayer({
     lastSavedAt.current = 0;
     setCurrent(0);
     setResumeFrom(undefined);
+    onTime?.(0);
     forgetMeetingPosition(accountId, meetingId);
   }
 
   function onTimeUpdate(event: SyntheticEvent<HTMLAudioElement>) {
     const at = event.currentTarget.currentTime;
     setCurrent(at);
+    onTime?.(at);
     // Scrubbing fires time updates in a burst; one write per interval is enough
     // to survive a reload, and pause or seek saves land immediately.
     if (Date.now() - lastSavedAt.current < resumeSaveIntervalMs) return;

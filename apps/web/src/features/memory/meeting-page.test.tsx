@@ -272,10 +272,10 @@ describe("MeetingPage", () => {
       "href",
       `/t/tenant-northstar/library/meetings/ask?entry=${entry.id}`,
     );
-    // The Transcript tab holds only the transcript; the recording closes Summary.
+    // The transcript carries the recording so the spoken line can follow it.
     expect(
-      within(reader).queryByRole("region", { name: "Meeting recording" }),
-    ).toBeNull();
+      within(reader).getByRole("region", { name: "Meeting recording" }),
+    ).toBeInTheDocument();
     const transcriptTab = within(reader).getByRole("tab", {
       name: "Transcript",
     });
