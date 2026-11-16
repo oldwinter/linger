@@ -6,6 +6,7 @@ import { findDocumentCandidates } from "./message-composer-references";
 import {
   activeMessageMentions,
   findMessageMentionQuery,
+  omitDepartedMentions,
 } from "./message-mentions";
 
 const codex: TeamHubActorRef = {
@@ -40,6 +41,35 @@ describe("activeMessageMentions", () => {
     expect(
       activeMessageMentions("Ask @Claude Code before @Codex", [codex, claude]),
     ).toEqual([claude, codex]);
+  });
+});
+
+describe("omitDepartedMentions", () => {
+  const room = new Set([codex.id, claude.id]);
+
+  it("lifts a departed name out of the unsent sentence", () => {
+    expect(
+      omitDepartedMentions(
+        "Ask @Codex to look",
+        [codex, claude],
+        new Set([claude.id]),
+        8,
+      ),
+    ).toEqual({
+      body: "Ask to look",
+      caret: 4,
+      mentions: [claude],
+    });
+    expect(
+      omitDepartedMentions("@Claude Code, please", [claude], new Set()),
+    ).toEqual({
+      body: ", please",
+      caret: ", please".length,
+      mentions: [],
+    });
+    expect(
+      omitDepartedMentions("Ask @Codex to look", [codex], room),
+    ).toMatchObject({ body: "Ask @Codex to look", mentions: [codex] });
   });
 });
 

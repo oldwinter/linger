@@ -168,6 +168,8 @@ export interface MessageComposerProps {
   initialValue?: string;
   mentionOptions?: TeamHubActorRef[];
   onDraftStateChange?: (draft: MessageComposerDraft) => void;
+  /** Current room members. A mention of someone who leaves is lifted out. */
+  roomMemberIds?: ReadonlySet<string>;
   onVoiceModePresentation?: (presentation: VoiceModePresentation) => void;
   /**
    * Keeps selected attachments and their uploads alive across remounts, so
@@ -262,6 +264,7 @@ function useMessageComposer(
     initialValue = "",
     mentionOptions = [],
     onCancelAttachment,
+    roomMemberIds,
     onDocumentQueryChange,
     onDraftStateChange,
     onVoiceModePresentation,
@@ -297,6 +300,7 @@ function useMessageComposer(
     initialValue,
     mentionOptions,
     onDraftStateChange,
+    roomMemberIds,
     skillOptions,
     voice,
   });
