@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Spinner } from "@/components/ui/spinner";
 import { documentLogicalTitle } from "@/features/library/document-display-name";
+import { WikiCarriedSentence } from "@/features/wiki/wiki-carried-voice";
 import { WikiConnectionsPanel } from "@/features/wiki/wiki-connections-panel";
 import { WikiNamedSentence } from "@/features/wiki/wiki-named-voice";
 import { wikiPageKey, wikiPagePath } from "@/features/wiki/wiki-display-state";
@@ -115,6 +116,10 @@ export function UnifiedDocumentBody({
       {isWikiPage && document ? (
         <>
           <WikiNamedSentence
+            pageKey={wikiPageKey(wikiPagePath(document))}
+            tenantId={model.tenantId}
+          />
+          <WikiCarriedSentence
             pageKey={wikiPageKey(wikiPagePath(document))}
             tenantId={model.tenantId}
           />
