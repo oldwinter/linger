@@ -15,6 +15,7 @@ import type { TeamHubSession } from "@/features/teamhub/teamhub-types";
 
 import { authenticationOperation } from "./authentication-operation";
 import type { DesktopLocalAccount } from "./desktop-local-account";
+import { takeInterruptedPage } from "./interrupted-page";
 
 export interface AuthenticationResult {
   kind: "login";
@@ -99,6 +100,7 @@ export function useTeamHubAuthentication(input: {
     queryClient.setQueryData(teamHubSessionQueryKey, session);
     queryClient.setQueryData(teamHubIdentityQueryKey, session.identity);
     const result: AuthenticationResult = { kind: "login", session };
+    const interrupted = takeInterruptedPage();
     announceTeamHubAuthenticated();
     if (input.onAuthenticated)
       await authenticationOperation(signal, async () =>
@@ -108,6 +110,7 @@ export function useTeamHubAuthentication(input: {
       const tenantId = session.identity.actors[0]?.tenant_id;
       await navigate(
         input.returnTo ??
+          interrupted ??
           (tenantId ? `/t/${encodeURIComponent(tenantId)}/rooms` : "/"),
         { replace: true },
       );

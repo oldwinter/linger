@@ -16,6 +16,10 @@ import {
   writeRoomComposerDraft,
 } from "@/features/rooms/room-drafts";
 import { teamHubAuthenticationSignals } from "@/features/teamhub/teamhub-authentication";
+import {
+  rememberInterruptedPage,
+  takeInterruptedPage,
+} from "./interrupted-page";
 import { LOGOUT_UNSAVED_DOCUMENT_MESSAGE, useLogout } from "./use-logout";
 
 const localCopies = vi.hoisted(() => ({
@@ -244,6 +248,21 @@ describe("useLogout", () => {
         actorIds: identity.actors.map((actor) => actor.id),
       }),
     );
+  });
+
+  it("drops the interrupted page so the next sign-in does not reopen it", async () => {
+    const runtime = await testRuntime();
+    runtime.server.on("POST", "/v0/auth/logout", () => undefined);
+    vi.spyOn(browserRoomMessageOutbox, "clearAccount").mockResolvedValue();
+    rememberInterruptedPage("/t/tenant-northstar/settings/security");
+    renderLogout(runtime, "/t/tenant-northstar/settings/security");
+
+    fireEvent.click(screen.getByRole("button", { name: "Log out" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(/^\/login$/),
+    );
+    expect(takeInterruptedPage()).toBeNull();
   });
 
   it("rejects an external return destination", async () => {

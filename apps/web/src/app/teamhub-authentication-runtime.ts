@@ -2,6 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { TeamHubError } from "@/features/teamhub/teamhub-error";
 
 import { safeAuthenticationReturnTo } from "@/features/auth/authentication-return-to";
+import { rememberInterruptedPage } from "@/features/auth/interrupted-page";
 import { clearLocalAuthenticatedState } from "@/features/auth/local-authenticated-state";
 import {
   teamHubAuthenticationSignals,
@@ -28,6 +29,9 @@ export function startTeamHubAuthenticationRuntime({
   const invalidate = (reason: TeamHubAuthenticationReason) => {
     clearLocalAuthenticatedState(queryClient);
     const location = currentLocation?.();
+    if (location && location.pathname !== "/login") {
+      rememberInterruptedPage(`${location.pathname}${location.search}`);
+    }
     const returnTo = location
       ? safeAuthenticationReturnTo(
           location.pathname === "/login"

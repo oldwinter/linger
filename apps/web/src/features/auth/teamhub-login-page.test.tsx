@@ -17,9 +17,16 @@ import {
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 
 import { DESKTOP_LOCAL_ACCOUNT_CHECK_MS } from "./desktop-local-account";
+import {
+  clearInterruptedPage,
+  rememberInterruptedPage,
+} from "./interrupted-page";
 import { TeamHubLoginPage } from "./teamhub-login-page";
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  clearInterruptedPage();
+  vi.useRealTimers();
+});
 
 describe("TeamHubLoginPage", () => {
   it.each(["login", "getSession"] as const)(
@@ -352,6 +359,32 @@ describe("TeamHubLoginPage", () => {
       "Linger could not establish a browser session. Use the secure workspace address or contact your workspace administrator.",
     );
     expect(onAuthenticated).not.toHaveBeenCalled();
+  });
+
+  it("opens the page the expired session interrupted", async () => {
+    rememberInterruptedPage("/t/tenant-northstar/settings/security");
+    renderAuthenticationPage(
+      {
+        login: () => ({
+          id: "session-login",
+          identity: { actors: [{ tenant_id: "tenant-existing" }] },
+        }),
+      },
+      { showLocation: true },
+    );
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "jenny@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "secret-password" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/t/tenant-northstar/settings/security",
+      ),
+    );
   });
 
   it("sends a signed-in Human to Rooms", async () => {
