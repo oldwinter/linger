@@ -21,6 +21,10 @@ import { MeetingOpenAndClose } from "./meeting-open-close";
 import { walkMeetingEars, type MeetingEarWalk } from "./meeting-ear";
 import { paceAt, type MeetingPacePoint } from "./meeting-pace";
 import {
+  bindMeetingMediaSession,
+  placeMeetingMediaSession,
+} from "./meeting-media-session";
+import {
   forgetMeetingPosition,
   readMeetingResume,
   rememberMeetingPosition,
@@ -85,6 +89,7 @@ export function MeetingAudioPlayer({
   onHearPace,
   pace,
   paceBusy,
+  sessionTitle,
   src,
   startAtBeginning,
   status,
@@ -111,6 +116,8 @@ export function MeetingAudioPlayer({
   onHearPace?: () => void;
   pace?: readonly MeetingPacePoint[];
   paceBusy?: boolean;
+  /** The meeting's name for the browser's media controls. */
+  sessionTitle?: string;
   src?: string;
   /**
    * The day is continuing into this recording, so it starts from the beginning
@@ -247,6 +254,17 @@ export function MeetingAudioPlayer({
     }
   }, [hearingPace, pace, rate]);
 
+  useEffect(() => {
+    if (!src) return undefined;
+    return bindMeetingMediaSession({
+      onPause: () => audioRef.current?.pause(),
+      onPlay: () => {
+        void audioRef.current?.play().catch(() => setPlaying(false));
+      },
+      title: sessionTitle || filename,
+    });
+  }, [filename, sessionTitle, src]);
+
   /** Saves the place now; a position at the very start is no place to return to. */
   function savePosition(at: number) {
     if (!accountId || !meetingId) return;
@@ -290,6 +308,15 @@ export function MeetingAudioPlayer({
     forgetMeetingPosition(accountId, meetingId);
   }
 
+  function publishMedia(audio: HTMLAudioElement, at: number) {
+    placeMeetingMediaSession({
+      duration: audio.duration,
+      playbackRate: audio.playbackRate,
+      playing: !audio.paused,
+      position: at,
+    });
+  }
+
   function onTimeUpdate(event: SyntheticEvent<HTMLAudioElement>) {
     const at = event.currentTarget.currentTime;
     leaveRef.current = { ...leaveRef.current, seconds: at };
@@ -304,6 +331,7 @@ export function MeetingAudioPlayer({
         }
       }
     }
+    publishMedia(event.currentTarget, at);
     setCurrent(at);
     onTime?.(at);
     // Scrubbing fires time updates in a burst; one write per interval is enough
@@ -439,6 +467,8 @@ export function MeetingAudioPlayer({
             wasPlayingRef.current = false;
             setPlaying(false);
             onRecordingEnded?.();
+          onEnded={(event) => {
+            publishMedia(event.currentTarget, event.currentTarget.currentTime);
           }}
           onError={() => setFailed(true)}
           onLoadedMetadata={(event) => {
@@ -454,12 +484,24 @@ export function MeetingAudioPlayer({
             };
             setPlaying(false);
             savePosition(event.currentTarget.currentTime);
+            placeMeetingMediaSession({
+              duration: event.currentTarget.duration,
+              playbackRate: event.currentTarget.playbackRate,
+              playing: false,
+              position: event.currentTarget.currentTime,
+            });
           }}
           onPlay={(event) => {
             wasPlayingRef.current = true;
             setPlaying(true);
             setResumeFrom(undefined);
             earRef.current ??= walkMeetingEars(event.currentTarget);
+            placeMeetingMediaSession({
+              duration: event.currentTarget.duration,
+              playbackRate: event.currentTarget.playbackRate,
+              playing: true,
+              position: event.currentTarget.currentTime,
+            });
           }}
           onTimeUpdate={onTimeUpdate}
           preload="metadata"

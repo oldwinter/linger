@@ -662,6 +662,7 @@ export function MeetingReader({
                 }
                 pace={hearingPace ? pace : undefined}
                 paceBusy={paceBusy}
+                sessionTitle={title}
                 variant="player"
                 versionId={meeting.recording_version_id}
               />
@@ -703,6 +704,7 @@ function MeetingVersionReader({
   onHearPace,
   pace,
   paceBusy,
+  sessionTitle,
   variant,
 }: {
   /** Whose listening positions the player remembers. */
@@ -731,6 +733,8 @@ function MeetingVersionReader({
   onHearPace?: () => void;
   pace?: readonly MeetingPacePoint[];
   paceBusy?: boolean;
+  /** The meeting's name for the browser's media controls. */
+  sessionTitle?: string;
   variant: "player" | "document";
 }) {
   const { client } = useTeamHubRuntime();
@@ -1122,6 +1126,7 @@ function MeetingVersionReader({
         onHearPace={onHearPace}
         pace={pace}
         paceBusy={paceBusy}
+        sessionTitle={sessionTitle}
         src={playable ? preview.objectUrl : undefined}
         startAtBeginning={continueRecording}
         status={

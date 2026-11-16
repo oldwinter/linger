@@ -102,6 +102,9 @@
   as the listener's speed. Stopping it returns the recording to the speed this
   browser kept. The transcript is read when the listener asks, and a transcript
   with no such spread offers no pace.
+- While the recording is on the page, the browser's media controls name that
+  meeting and can play or pause it. Those controls do not move through the
+  recording. Leaving the recording releases them.
 - A meeting reader may send its summary to a Room as one Message from the
   header's Room picker. That Message copies derived reading state, writes no
   Memory state, and reuses its idempotency key only when retrying the same
