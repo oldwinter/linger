@@ -84,6 +84,7 @@ import { continueTableCellList } from "./room-document-table-list";
 import { filterRoomDocumentSlashMenuItems } from "./room-document-slash-menu";
 import { createRoomDocumentCursorRenderer } from "./room-document-presence-model";
 import { restoreRoomDocumentCollaborationUndo } from "./room-document-undo";
+import { bindSharedPassage } from "./shared-passage";
 import {
   knowledgeHiddenBlockIds,
   useKnowledgePresentation,
@@ -376,6 +377,10 @@ export function RoomDocumentBlockNoteEditor({
     if (!scrollport) return;
     return bindRemoteReadingPlace(editor, scrollport);
   }, [editor]);
+  useEffect(
+    () => bindSharedPassage(() => editor.prosemirrorView, session.awareness),
+    [editor, session.awareness],
+  );
   const [isEmptyDocument, setIsEmptyDocument] = useState(() =>
     roomDocumentBlocksAreEmpty(editor.document),
   );
