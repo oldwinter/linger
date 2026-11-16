@@ -29,7 +29,7 @@ build:assets` to check the initial JS budget.
   already playing while its summary is still being written stays where it is
   when the summary arrives. - `src/features/wiki`: A Wiki page Another Me finished yesterday waits at the
   front of Wiki until that page is opened.
-- `src/features/local-computer`: What this Mac can do asks macOS for Screen Recording and Accessibility on one computer, then relaunches Linger when a new grant needs it.
+- `src/features/local-computer`: What this Mac can do asks macOS for Screen Recording and Accessibility on one computer, then relaunches Linger when a new grant needs it. Opening Computers on this Mac opens that computer when several are connected. All computers stays on the list.
 - `src/test`: unit-test support, including the in-process TeamHub test server.
 - `e2e`: Playwright product workflows; every spec runs on the real TeamHub and
   Document Runtime stack (`make check-e2e-room-document`).
