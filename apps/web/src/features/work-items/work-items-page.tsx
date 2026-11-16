@@ -54,6 +54,7 @@ import {
 } from "./work-item-dashboard-filters";
 import { WorkItemBoardCopyAction } from "./work-item-board-copy-action";
 import { workItemBoardCsv } from "./work-item-board-csv";
+import { workItemPairPath } from "./work-item-pair";
 import { WorkItemBoardCsvAction } from "./work-item-board-csv-action";
 import {
   nextWorkItemCardId,
@@ -664,6 +665,18 @@ function WorkItemBoard({
               items={selectedItems}
               tenantId={tenantId}
             />
+          ) : null}
+          {selectedItems.length === 2 ? (
+            <Link
+              className="inline-flex h-7 items-center rounded-lg border border-border px-2.5 text-sm text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              to={workItemPairPath(
+                tenantId,
+                selectedItems[0]!.id,
+                selectedItems[1]!.id,
+              )}
+            >
+              Read side by side
+            </Link>
           ) : null}
           {hasSelection ? (
             <Button

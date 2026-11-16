@@ -1,0 +1,155 @@
+import { useQuery } from "@tanstack/react-query";
+import { Link, useParams, useSearchParams } from "react-router";
+
+import { collectTeamHubCursorPages } from "@/features/teamhub/teamhub-cursor-pages";
+import { teamHubData } from "@/features/teamhub/teamhub-api";
+import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import type { TeamHubWorkItem } from "@/features/teamhub/teamhub-types";
+import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
+
+import { tenantWorkItemTargetQueryOptions } from "./work-item-queries";
+import { workItemPairContrast } from "./work-item-pair";
+import { workItemActivityText } from "./work-item-story";
+
+/** Two Work Items from the board, read next to each other. The board stays put. */
+export function WorkItemPairPage() {
+  const { client } = useTeamHubRuntime();
+  const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
+  const search = useSearchParams()[0];
+  const leftId = search.get("left") ?? "";
+  const rightId = search.get("right") ?? "";
+  const left = useQuery({
+    ...tenantWorkItemTargetQueryOptions(client, tenantId, leftId),
+    enabled: leftId.length > 0,
+  });
+  const right = useQuery({
+    ...tenantWorkItemTargetQueryOptions(client, tenantId, rightId),
+    enabled: rightId.length > 0 && rightId !== leftId,
+  });
+  const ready = left.data && right.data;
+  const contrast = ready
+    ? workItemPairContrast(
+        {
+          priority: left.data.priority,
+          room: Boolean(left.data.work_room_id),
+          state: left.data.state,
+          title: left.data.title,
+        },
+        {
+          priority: right.data.priority,
+          room: Boolean(right.data.work_room_id),
+          state: right.data.state,
+          title: right.data.title,
+        },
+      )
+    : undefined;
+
+  return (
+    <main className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-5 py-7 md:px-10">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+        <header>
+          <h1 className="text-xl text-foreground">Side by side</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Two Work Items from the board, read together. Nothing here changes
+            them.
+          </p>
+          {contrast ? (
+            <p className="mt-3 text-sm text-foreground">{contrast}</p>
+          ) : null}
+        </header>
+        {leftId.length === 0 || rightId.length === 0 || leftId === rightId ? (
+          <p className="text-sm text-muted-foreground" role="status">
+            Choose two different Work Items on the board.
+          </p>
+        ) : (
+          <div className="grid gap-6 md:grid-cols-2">
+            <WorkItemColumn
+              item={left.data}
+              pending={left.isPending}
+              tenantId={tenantId}
+              workItemId={leftId}
+            />
+            <WorkItemColumn
+              item={right.data}
+              pending={right.isPending}
+              tenantId={tenantId}
+              workItemId={rightId}
+            />
+          </div>
+        )}
+        <Link
+          className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          to={`/t/${encodeURIComponent(tenantId)}/dashboard`}
+        >
+          Back to the board
+        </Link>
+      </div>
+    </main>
+  );
+}
+
+function WorkItemColumn({
+  item,
+  pending,
+  tenantId,
+  workItemId,
+}: {
+  item: TeamHubWorkItem | undefined;
+  pending: boolean;
+  tenantId: string;
+  workItemId: string;
+}) {
+  const { client } = useTeamHubRuntime();
+  const timeline = useQuery({
+    enabled: Boolean(item),
+    queryFn: () =>
+      collectTeamHubCursorPages((page) =>
+        teamHubData(
+          client.api.GET("/v0/work-items/{workItemId}/timeline", {
+            params: { path: { workItemId }, query: page },
+          }),
+        ),
+      ),
+    queryKey: ["teamhub", tenantId, "work-items", workItemId, "pair-timeline"],
+  });
+  if (pending) {
+    return (
+      <p className="text-sm text-muted-foreground" role="status">
+        Loading this Work Item.
+      </p>
+    );
+  }
+  if (!item) {
+    return (
+      <p className="text-sm text-muted-foreground" role="status">
+        This Work Item is not on the Dashboard.
+      </p>
+    );
+  }
+  const story = (timeline.data?.items ?? []).flatMap((entry) =>
+    entry.type === "activity" ? [workItemActivityText(entry.activity)] : [],
+  );
+  return (
+    <article
+      aria-label={item.title}
+      className="flex flex-col gap-3 rounded-2xl border border-border px-4 py-4"
+    >
+      <h2 className="text-lg text-foreground">{item.title}</h2>
+      <p className="whitespace-pre-wrap text-sm text-foreground">
+        {item.description.trim() ? item.description : "No description yet."}
+      </p>
+      {story.length > 0 ? (
+        <ol aria-label={`${item.title} story`} className="flex flex-col gap-2">
+          {story.map((line, index) => (
+            <li
+              className="text-sm text-muted-foreground"
+              key={`${index}-${line}`}
+            >
+              {line}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </article>
+  );
+}
