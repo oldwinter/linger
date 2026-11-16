@@ -30,7 +30,9 @@
   and Companies are the display labels for the existing `graph`, `contacts` and
   `clients` entries; keep their routes and data keys.
   The Wiki home's Surprise me action opens one of the pages already listed at
-  random through the normal page route, adding no query or refetch.
+  random through the normal page route, adding no query or refetch. It does
+  not open a page again until the other listed pages have been opened, then
+  starts a new round.
   Wiki routes show the overview and collection pages without a sidebar; the directory
   appears only beside an opened Wiki page and lists that page's own collection,
   following links into other collections, until Back.

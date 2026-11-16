@@ -31,7 +31,11 @@ import { usePersonalWikiRefresh, type WikiRefreshStatus } from "./wiki-refresh";
 import { WikiRefreshBanner } from "./wiki-refresh-status";
 import { useAnotherMeActorId } from "./wiki-working-card";
 import { wikiDocumentPath, wikiPreviewPath } from "./wiki-routes";
-import { wikiSurpriseIndex } from "./wiki-surprise";
+import {
+  nextWikiSurprise,
+  readWikiSurpriseSeen,
+  writeWikiSurpriseSeen,
+} from "./wiki-surprise";
 import {
   useWikiDisplayState,
   wikiCollection,
@@ -208,13 +212,14 @@ function WikiSurpriseButton({ tenantId }: { tenantId: string }) {
   return (
     <Button
       onClick={() => {
-        const index = wikiSurpriseIndex({
-          count: pages.length,
-          random: Math.random,
-        });
-        const page = index === undefined ? undefined : pages[index];
-        if (!page) return;
-        void navigate(wikiDocumentPath(tenantId, page.id));
+        const pick = nextWikiSurprise(
+          pages,
+          readWikiSurpriseSeen(tenantId),
+          Math.random,
+        );
+        if (!pick) return;
+        writeWikiSurpriseSeen(tenantId, pick.seenIds);
+        void navigate(wikiDocumentPath(tenantId, pick.page.id));
       }}
       size="compact"
       title="Open one of your Wiki pages at random"

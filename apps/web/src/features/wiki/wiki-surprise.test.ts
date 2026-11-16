@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { wikiSurpriseIndex } from "./wiki-surprise";
+import { nextWikiSurprise, wikiSurpriseIndex } from "./wiki-surprise";
 
 /** A random source that always returns the same fraction. */
 const fixed = (value: number) => () => value;
@@ -47,5 +47,25 @@ describe("wikiSurpriseIndex", () => {
     expect(
       wikiSurpriseIndex({ count: 3, currentIndex: 9, random: fixed(0.5) }),
     ).toBe(1);
+  });
+});
+
+describe("nextWikiSurprise", () => {
+  const pages = [{ id: "launch" }, { id: "pricing" }, { id: "people" }];
+
+  it("does not repeat a page until the others have been opened", () => {
+    const first = nextWikiSurprise(pages, [], fixed(0));
+    expect(first?.page.id).toBe("launch");
+    const second = nextWikiSurprise(pages, first?.seenIds ?? [], fixed(0));
+    expect(second?.page.id).toBe("pricing");
+    const third = nextWikiSurprise(pages, second?.seenIds ?? [], fixed(0));
+    expect(third?.page.id).toBe("people");
+    const again = nextWikiSurprise(pages, third?.seenIds ?? [], fixed(0));
+    expect(again?.page.id).toBe("launch");
+    expect(again?.seenIds).toEqual(["launch"]);
+  });
+
+  it("returns nothing when there are no pages", () => {
+    expect(nextWikiSurprise([], [], fixed(0))).toBeUndefined();
   });
 });
