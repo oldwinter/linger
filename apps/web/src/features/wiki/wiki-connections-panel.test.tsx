@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { expect, it, vi } from "vitest";
 
@@ -100,6 +100,31 @@ it("lists both link directions and opens each page", async () => {
   );
   expect(screen.getByRole("region", { name: "Linked from" })).toContainElement(
     screen.getByRole("link", { name: "Gamma" }),
+  );
+});
+
+it("shows the words of the one page that points back", async () => {
+  const runtime = createTestTeamHubRuntime();
+  serveWikiDocuments(runtime).mockResolvedValue({
+    items: [
+      pageDocument("project-alpha", "projects/alpha.md"),
+      pageDocument("person-maya", "people/maya.md"),
+    ],
+    page: { has_more: false },
+  });
+  const maya = graphNode("people/maya", "Maya", ["projects/alpha"]);
+  maya.body = "Maya keeps the notes.";
+  const alpha = graphNode("projects/alpha", "Alpha", ["people/maya"]);
+  serveGraph(runtime, [alpha, maya]);
+  renderPanel(runtime, "projects/alpha");
+
+  const back = await screen.findByRole("region", {
+    name: "The page that points back",
+  });
+  expect(back).toHaveTextContent("Maya keeps the notes.");
+  expect(within(back).getByRole("link", { name: "Maya" })).toHaveAttribute(
+    "href",
+    "/t/tenant-northstar/documents/person-maya",
   );
 });
 
