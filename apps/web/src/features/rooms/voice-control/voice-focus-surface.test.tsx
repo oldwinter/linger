@@ -668,6 +668,58 @@ describe("VoiceFocusSurface", () => {
     expect(screen.getByText("still saying this")).toBeVisible();
   });
 
+  it("grows words that continue the last line under that speaker", () => {
+    render(
+      <VoiceControlContext.Provider
+        value={voiceValue({
+          partialTranscript: "Confirmed live transcript and more",
+          transcriptItems: [
+            {
+              createdAtMs: 1,
+              endOffsetMs: 1_000,
+              id: "final-1",
+              speakerLabel: "Speaker 1",
+              startOffsetMs: 0,
+              text: "Confirmed live transcript",
+            },
+          ],
+        })}
+      >
+        <VoiceFocusSurface onExit={vi.fn()} />
+      </VoiceControlContext.Provider>,
+    );
+    const speaker = screen.getByText("Speaker 1");
+    const line = speaker.parentElement?.querySelector("p");
+    expect(line).toHaveTextContent("Confirmed live transcript and more");
+    expect(line?.querySelector("span.italic")).toHaveTextContent("and more");
+  });
+
+  it("keeps a sentence said again on its own line", () => {
+    render(
+      <VoiceControlContext.Provider
+        value={voiceValue({
+          partialTranscript: "Confirmed live transcript",
+          transcriptItems: [
+            {
+              createdAtMs: 1,
+              endOffsetMs: 1_000,
+              id: "final-1",
+              startOffsetMs: 0,
+              text: "Confirmed live transcript",
+            },
+          ],
+        })}
+      >
+        <VoiceFocusSurface onExit={vi.fn()} />
+      </VoiceControlContext.Provider>,
+    );
+    const lines = screen.getAllByText("Confirmed live transcript");
+    const ownLine = lines.find((line) => line.tagName === "SPAN");
+    const spokenLine = lines.find((line) => line.tagName === "P");
+    expect(ownLine).toHaveClass("italic");
+    expect(spokenLine?.querySelector("span.italic")).toBeNull();
+  });
+
   it("shows saving until finalization completes and returns to Room on exit", async () => {
     const stopCapture = vi.fn(async () => undefined);
     const onExit = vi.fn();

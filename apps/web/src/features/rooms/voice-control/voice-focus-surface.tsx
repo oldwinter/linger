@@ -32,6 +32,7 @@ import {
   useVoiceArming,
 } from "./voice-focus-state";
 import { sentencesStillBeingSaid } from "./sentences-still-being-said";
+import { wordsGrowingOnTheLine } from "./words-growing-on-the-line";
 import {
   speakerDisplayName,
   useSpeakerNames,
@@ -119,19 +120,37 @@ export function VoiceFocusSurface({
       ? undefined
       : voice.partialTranscript;
   const saying = wordsStillBeingSaid(partial, visibleItems);
+  const continuation = wordsGrowingOnTheLine(partial, visibleItems.at(-1));
+  const continuationSentences = sentencesStillBeingSaid(
+    continuation.growing,
+    visibleItems,
+  );
+  // A finished sentence inside the continuation stays its own line. Only an
+  // unfinished continuation grows on the line already being spoken.
+  const growsOnTheLine =
+    Boolean(continuation.growing) && continuationSentences.said.length === 0;
   const [heldWords, setHeldWords] = useState<{
     count: number;
+    onTheLine: boolean;
     text: string;
   }>();
   useEffect(() => {
-    if (saying) setHeldWords({ count: visibleItems.length, text: saying });
-  }, [saying, visibleItems.length]);
+    if (saying)
+      setHeldWords({
+        count: visibleItems.length,
+        onTheLine: growsOnTheLine,
+        text: saying,
+      });
+  }, [growsOnTheLine, saying, visibleItems.length]);
   const unfinished = unfinishedWhileSaving(
     saying,
     visibleItems.length,
     heldWords,
     captureStatus === "finalizing",
   );
+  const onTheLine = saying
+    ? growsOnTheLine
+    : Boolean(unfinished && heldWords?.onTheLine);
 
   if (!voice) return null;
   const captureActive =
@@ -176,7 +195,11 @@ export function VoiceFocusSurface({
       connected ||
       armStatus === "blocked" ||
       !voice.boundDevice);
-  const spoken = sentencesStillBeingSaid(unfinished, visibleItems);
+  const spoken = sentencesStillBeingSaid(
+    onTheLine ? undefined : unfinished,
+    visibleItems,
+  );
+  const growing = onTheLine ? unfinished : undefined;
   const title = recoveryFailed
     ? "Recording saved. Transcript recovery paused"
     : inputInterrupted
@@ -474,8 +497,16 @@ export function VoiceFocusSurface({
                     className="w-full space-y-1"
                     role="log"
                   >
-                    {visibleItems.map((item) => (
-                      <VoiceFocusTranscriptRow item={item} key={item.id} />
+                    {visibleItems.map((item, index) => (
+                      <VoiceFocusTranscriptRow
+                        growing={
+                          index === visibleItems.length - 1
+                            ? growing
+                            : undefined
+                        }
+                        item={item}
+                        key={item.id}
+                      />
                     ))}
                     {spoken.said.map((sentence, index) => (
                       <p
@@ -497,7 +528,8 @@ export function VoiceFocusSurface({
                     ) : null}
                     {visibleItems.length === 0 &&
                     spoken.said.length === 0 &&
-                    !spoken.saying ? (
+                    !spoken.saying &&
+                    !growing ? (
                       <p className="py-3 text-center text-[12px] leading-[18px] text-app-muted">
                         {idle
                           ? "This recording’s transcript will appear here. View previous transcripts in the chat."
@@ -684,11 +716,17 @@ function speakerColor(speakerId: string | undefined, label: string) {
   return speakerColors[(Math.max(index, 1) - 1) % speakerColors.length]!;
 }
 
-function VoiceFocusTranscriptRow({ item }: { item: VoiceTranscriptItem }) {
+function VoiceFocusTranscriptRow({
+  growing,
+  item,
+}: {
+  growing?: string;
+  item: VoiceTranscriptItem;
+}) {
   const names = useSpeakerNames(item.captureId);
   const label = speakerDisplayName(item.speakerId, item.speakerLabel, names);
   // Town message rows: a 13px name line over 14px body text, starting
-  // straight with the speaker.
+  // straight with the speaker. Words that continue this line grow under it.
   return (
     <div className="flex flex-col gap-0.5 rounded-lg px-2.5 py-1.5">
       {label ? (
@@ -698,7 +736,12 @@ function VoiceFocusTranscriptRow({ item }: { item: VoiceTranscriptItem }) {
           {label}
         </span>
       ) : null}
-      <p className="m-0 text-sm leading-5 text-app-body">{item.text}</p>
+      <p className="m-0 text-sm leading-5 text-app-body">
+        {item.text}
+        {growing ? (
+          <span className="text-app-muted italic"> {growing}</span>
+        ) : null}
+      </p>
     </div>
   );
 }
