@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 
@@ -9,11 +9,13 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import {
   beginCatchUp,
   catchUpAttention,
+  catchUpNote,
   clearCatchUpWalk,
   readCatchUpWalk,
   writeCatchUpWalk,
   type CatchUpWalk,
 } from "./catch-up";
+import { keepCatchUpInPocket } from "./catch-up-note";
 import {
   teamHubIdentityQueryOptions,
   tenantRoomsQueryOptions,
@@ -26,12 +28,20 @@ import {
  */
 export function CatchUpPage() {
   const { client } = useTeamHubRuntime();
+  const queryClient = useQueryClient();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
   const identity = useQuery(teamHubIdentityQueryOptions(client));
   const rooms = useQuery(tenantRoomsQueryOptions(client, tenantId));
   const accountId = identity.data?.account.id;
   const [walk, setWalk] = useState<CatchUpWalk | undefined>();
+  const [kept, setKept] = useState<"kept" | "already" | "failed" | undefined>();
   const started = useRef(false);
+  const keep = useMutation({
+    mutationFn: (note: string) =>
+      keepCatchUpInPocket({ client, note, queryClient, tenantId }),
+    onError: () => setKept("failed"),
+    onSuccess: (result) => setKept(result),
+  });
 
   useEffect(() => {
     if (started.current || !accountId || !rooms.data) return;
@@ -133,9 +143,36 @@ export function CatchUpPage() {
                 ))}
               </ul>
             ) : null}
-            <Button onClick={startOver} size="compact" tone="secondary">
-              Start over
-            </Button>
+            <div className="flex items-center gap-3">
+              {walk.rooms.length > 0 &&
+              kept !== "kept" &&
+              kept !== "already" ? (
+                <Button
+                  disabled={keep.isPending}
+                  onClick={() => {
+                    const note = catchUpNote(walk.rooms);
+                    if (note) keep.mutate(note);
+                  }}
+                  size="compact"
+                  tone="secondary"
+                >
+                  Keep this in today's note
+                </Button>
+              ) : null}
+              <Button onClick={startOver} size="compact" tone="secondary">
+                Start over
+              </Button>
+            </div>
+            {kept === "kept" || kept === "already" ? (
+              <p className="text-sm text-app-ink" role="status">
+                Kept in today's note.
+              </p>
+            ) : null}
+            {kept === "failed" ? (
+              <p className="text-sm text-app-danger" role="alert">
+                Today's note was not saved.
+              </p>
+            ) : null}
           </section>
         )}
       </div>
