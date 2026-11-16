@@ -23,6 +23,8 @@ build:assets` to check the initial JS budget.
 - `src/features/work-items`: What happened opens one Work Item's description and the recorded story, and can open the Room doing the work. Two selected cards can be read side by side, including how they differ on state, priority, and whether a room is doing the work. The board itself still edits through its existing peek, selection, and menus. When the Work Item was opened while a meeting was still underway, the story names that meeting, how far in, and opens it. When a Pocket note exists for the day the Work Item was opened, the story shows that note. When someone is assigned and is not a member of the room doing the work, the story says so.
 - `src/features/jump`: one field that opens a room, a meeting, or a library
   place. Cmd/Ctrl+J opens it from the shell. It does not search message text.
+- `src/features/memory`: Meetings. Reading the transcript while its summary is
+  still being written keeps that place when the summary arrives.
 - `src/features/local-computer`: What this Mac can do asks macOS for Screen Recording and Accessibility on one computer, then relaunches Linger when a new grant needs it.
 - `src/test`: unit-test support, including the in-process TeamHub test server.
 - `e2e`: Playwright product workflows; every spec runs on the real TeamHub and

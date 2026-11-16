@@ -97,7 +97,8 @@ export type MeetingTab = "summary" | "transcript";
 /**
  * One page per meeting: Summary and Transcript share the reading area as two
  * tabs, and the recording player closes the Summary tab. Summary opens first
- * once it exists; until then the transcript is shown.
+ * once it exists; until then the transcript is shown. Reading that transcript
+ * keeps it in place when the summary arrives.
  */
 export function MeetingReader({
   continueRecording,
@@ -198,6 +199,32 @@ export function MeetingReader({
       : meeting.summary_ready
         ? "summary"
         : "transcript";
+  const articleRef = useRef<HTMLElement>(null);
+  const heldTranscript = useRef(false);
+  // The transcript is what this page shows until the summary exists. Reading
+  // it pins that tab, so the summary arriving does not take the place.
+  useEffect(() => {
+    if (meeting.summary_ready || file === "summary" || file === "transcript")
+      return;
+    const article = articleRef.current;
+    if (!article) return;
+    const hold = (event: Event) => {
+      if (heldTranscript.current) return;
+      const panel = article.querySelector("#meeting-transcript");
+      if (!(event.target instanceof Node) || !panel?.contains(event.target))
+        return;
+      heldTranscript.current = true;
+      onSelectTab("transcript");
+    };
+    article.addEventListener("wheel", hold, { passive: true });
+    article.addEventListener("pointerdown", hold);
+    article.addEventListener("keydown", hold);
+    return () => {
+      article.removeEventListener("wheel", hold);
+      article.removeEventListener("pointerdown", hold);
+      article.removeEventListener("keydown", hold);
+    };
+  }, [file, meeting.summary_ready, onSelectTab]);
   const when = meetingWhen(entry.path);
   const title = meetingTitle(entry);
   // The bar already owns this recording, so the page must not start a second one.
@@ -366,6 +393,7 @@ export function MeetingReader({
       aria-label="Meeting"
       className="meeting-document mx-auto w-full max-w-4xl px-5 py-7 md:px-10"
       data-meeting-surface
+      ref={articleRef}
     >
       <header className="mb-4 flex items-start gap-3">
         <div className="min-w-0 flex-1">
