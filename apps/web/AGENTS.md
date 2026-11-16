@@ -24,7 +24,9 @@ build:assets` to check the initial JS budget.
 - `src/features/jump`: one field that opens a room, a meeting, or a library
   place. Cmd/Ctrl+J opens it from the shell. It does not search message text.
 - `src/features/memory`: Meetings. Reading the transcript while its summary is
-  still being written keeps that place when the summary arrives.
+  still being written keeps that place when the summary arrives. A recording
+  already playing while its summary is still being written stays where it is
+  when the summary arrives.
 - `src/features/local-computer`: What this Mac can do asks macOS for Screen Recording and Accessibility on one computer, then relaunches Linger when a new grant needs it.
 - `src/test`: unit-test support, including the in-process TeamHub test server.
 - `e2e`: Playwright product workflows; every spec runs on the real TeamHub and

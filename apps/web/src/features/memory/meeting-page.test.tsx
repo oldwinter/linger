@@ -1399,7 +1399,67 @@ function mountMeetingPage(
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
+    it("keeps a playing recording in place when the summary arrives", async () => {
+    const runtime = await loggedInRuntime();
+    const entries = [meetingEntry()];
+    serveMeetings(runtime, entries);
+    let top = 120;
+    const bounds = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(() => rectAt(top));
+    onTestFinished(() => bounds.mockRestore());
+    const { queryClient } = mountMeetingPage(
+      runtime,
+      `?entry=${entries[0]!.id}&file=summary`,
+    );
+    await screen.findByRole("region", { name: "Meeting recording" });
+    const player = document.querySelector("[data-meeting-player]");
+    const scroller = document.querySelector<HTMLElement>(
+      "[data-meeting-scroll]",
+    );
+    expect(player).not.toBeNull();
+    expect(scroller).not.toBeNull();
+    const audio = document.createElement("audio");
+    Object.defineProperty(audio, "paused", { get: () => false });
+    audio.currentTime = 8;
+    player?.append(audio);
+    top = 480;
+
+    entries[0] = meetingEntry(
+      { content: "# Meeting\n\nWe shipped the beta." },
+      true,
+    );
+    await queryClient.invalidateQueries();
+    expect(await screen.findByText("We shipped the beta.")).toBeVisible();
+    expect(scroller?.scrollTop).toBe(360);
   });
+  it("leaves the page where it is when a waiting recording's summary arrives", async () => {
+    const runtime = await loggedInRuntime();
+    const entries = [meetingEntry()];
+    serveMeetings(runtime, entries);
+    let top = 120;
+    const bounds = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(() => rectAt(top));
+    onTestFinished(() => bounds.mockRestore());
+    const { queryClient } = mountMeetingPage(
+      runtime,
+      `?entry=${entries[0]!.id}&file=summary`,
+    );
+    await screen.findByRole("region", { name: "Meeting recording" });
+    const scroller = document.querySelector<HTMLElement>(
+      "[data-meeting-scroll]",
+    );
+    top = 480;
+    entries[0] = meetingEntry(
+      { content: "# Meeting\n\nWe shipped the beta." },
+      true,
+    );
+    await queryClient.invalidateQueries();
+    expect(await screen.findByText("We shipped the beta.")).toBeVisible();
+    expect(scroller?.scrollTop).toBe(0);
+  });
+});
   const router = createMemoryRouter(
     [
       {

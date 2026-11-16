@@ -1,5 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Link } from "react-router";
 import {
   ArrowDown01Icon,
@@ -78,6 +85,7 @@ import {
   meetingTranscriptTurns,
   spokenTurnIndex,
 } from "./meeting-transcript-text";
+import { scrollKeepingTheRecording } from "./scroll-keeping-the-recording";
 import { useMeetingActionTrack } from "./use-meeting-action-track";
 import { nameTranscriptSpeakers } from "./name-transcript";
 import { useSpeakerNames } from "@/features/rooms/voice-control/speaker-names";
@@ -225,6 +233,35 @@ export function MeetingReader({
       article.removeEventListener("keydown", hold);
     };
   }, [file, meeting.summary_ready, onSelectTab]);
+  const playerHold = useRef<HTMLDivElement>(null);
+  const playerTop = useRef<number | undefined>(undefined);
+  // The summary is inserted above the recording. A recording already playing
+  // stays at the same place on screen; a recording that is waiting does not
+  // pull the new summary away.
+  useLayoutEffect(() => {
+    const player = playerHold.current;
+    if (!player) {
+      playerTop.current = undefined;
+      return;
+    }
+    const top = player.getBoundingClientRect().top;
+    const scroller = player.closest<HTMLElement>("[data-meeting-scroll]");
+    if (!meeting.summary_ready) {
+      playerTop.current = top;
+      return;
+    }
+    const playing = [...player.querySelectorAll("audio")].some(
+      (audio) => !audio.paused && audio.currentTime > 0,
+    );
+    if (scroller)
+      scroller.scrollTop = scrollKeepingTheRecording(
+        scroller.scrollTop,
+        playerTop.current,
+        top,
+        playing,
+      );
+    playerTop.current = undefined;
+  }, [meeting.summary_ready]);
   const when = meetingWhen(entry.path);
   const title = meetingTitle(entry);
   // The bar already owns this recording, so the page must not start a second one.
@@ -637,7 +674,7 @@ export function MeetingReader({
               </p>
             )}
             {soundStayed ? null : (
-              <div className="mt-8">
+              <div className="mt-8" data-meeting-player ref={playerHold}>
                 <MeetingVersionReader
                   key={meeting.recording_version_id}
                   accountId={accountId}
@@ -660,6 +697,7 @@ export function MeetingReader({
                   pace={hearingPace ? pace : undefined}
                   paceBusy={paceBusy}
                   playFrom={playFrom}
+                  sessionTitle={title}
                   variant="player"
                   versionId={meeting.recording_version_id}
                 />
@@ -669,31 +707,33 @@ export function MeetingReader({
         ) : (
           <>
             {soundStayed ? null : (
-              <MeetingVersionReader
-                accountId={accountId}
-                carry={{
-                  href: meetingPath(tenantId, entry.id),
-                  title,
-                }}
-                continueRecording={continueRecording}
-                documentId={meeting.recording_document_id}
-                filename={meeting.recording_filename}
-                hearingPace={hearingPace}
-                meetingId={entry.id}
-                onRecordingEnded={onRecordingEnded}
-                onTime={setSpokenSeconds}
-                playFrom={playFrom}
-                onHearPace={
-                  paceOffer && meeting.transcript_document_id
-                    ? hearPace
-                    : undefined
-                }
-                pace={hearingPace ? pace : undefined}
-                paceBusy={paceBusy}
-                sessionTitle={title}
-                variant="player"
-                versionId={meeting.recording_version_id}
-              />
+              <div data-meeting-player ref={playerHold}>
+                <MeetingVersionReader
+                  accountId={accountId}
+                  carry={{
+                    href: meetingPath(tenantId, entry.id),
+                    title,
+                  }}
+                  continueRecording={continueRecording}
+                  documentId={meeting.recording_document_id}
+                  filename={meeting.recording_filename}
+                  hearingPace={hearingPace}
+                  meetingId={entry.id}
+                  onHearPace={
+                    paceOffer && meeting.transcript_document_id
+                      ? hearPace
+                      : undefined
+                  }
+                  onRecordingEnded={onRecordingEnded}
+                  onTime={setSpokenSeconds}
+                  pace={hearingPace ? pace : undefined}
+                  paceBusy={paceBusy}
+                  playFrom={playFrom}
+                  sessionTitle={title}
+                  variant="player"
+                  versionId={meeting.recording_version_id}
+                />
+              </div>
             )}
             <MeetingVersionReader
               key={meeting.transcript_version_id}
