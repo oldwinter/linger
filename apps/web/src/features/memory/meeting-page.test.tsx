@@ -717,6 +717,68 @@ describe("MeetingPage", () => {
     expect(screen.queryByText("Copied")).toBeNull();
   });
 
+  it("opens a meeting that ended with no decision on the last words", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry(
+      {
+        content: [
+          "## Decisions And Outcomes",
+          "",
+          "- Completed: The brief is written.",
+          "",
+          "## Action Items",
+          "",
+          "- Action: Send the deck.",
+        ].join("\n"),
+      },
+      true,
+    );
+    serveMeetings(runtime, [entry]);
+    const previous = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollHeight",
+    );
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get: () => 900,
+    });
+    try {
+      renderPage(runtime, `?entry=${entry.id}`);
+      expect(
+        await screen.findByRole("tab", { name: "Transcript" }),
+      ).toHaveAttribute("aria-selected", "true");
+      await screen.findByRole("article", {
+        name: "Read-only Markdown document",
+      });
+      await waitFor(() =>
+        expect(
+          document.querySelector<HTMLElement>("[data-meeting-scroll]")
+            ?.scrollTop,
+        ).toBe(900),
+      );
+    } finally {
+      if (previous) {
+        Object.defineProperty(HTMLElement.prototype, "scrollHeight", previous);
+      }
+    }
+  });
+
+  it("still opens a meeting that wrote a decision on its summary", async () => {
+    const runtime = await loggedInRuntime();
+    const entry = meetingEntry(
+      {
+        content: "## Decisions And Outcomes\n\n- Decision: Ship the beta.\n",
+      },
+      true,
+    );
+    serveMeetings(runtime, [entry]);
+    renderPage(runtime, `?entry=${entry.id}`);
+    expect(await screen.findByRole("tab", { name: "Summary" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
   it("copies the meeting's link with the app's origin", async () => {
     const runtime = await loggedInRuntime();
     const entry = meetingEntry();

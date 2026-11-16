@@ -39,6 +39,10 @@ import {
 } from "./meeting-carry";
 import { meetingPace, type MeetingPacePoint } from "./meeting-pace";
 import { carryDecisionPath, meetingDecisions } from "./carry-decision";
+import {
+  meetingOpensOnLastWords,
+  meetingReadingTab,
+} from "./meeting-without-decision";
 import { parseMeetingSummary } from "./meeting-overview";
 import {
   MeetingKeywords,
@@ -201,12 +205,12 @@ export function MeetingReader({
         if (!controller.signal.aborted) setPaceBusy(false);
       });
   }
-  const tab: MeetingTab =
-    file === "summary" || file === "transcript"
-      ? file
-      : meeting.summary_ready
-        ? "summary"
-        : "transcript";
+  const tab = meetingReadingTab(file, meeting.summary_ready, entry.content);
+  const opensOnLastWords = meetingOpensOnLastWords(
+    file,
+    meeting.summary_ready,
+    entry.content,
+  );
   const articleRef = useRef<HTMLElement>(null);
   const heldTranscript = useRef(false);
   // The transcript is what this page shows until the summary exists. Reading
@@ -233,6 +237,30 @@ export function MeetingReader({
       article.removeEventListener("keydown", hold);
     };
   }, [file, meeting.summary_ready, onSelectTab]);
+  // A meeting that ended with no decision opens on the last words said.
+  useEffect(() => {
+    if (!opensOnLastWords) return;
+    const article = articleRef.current;
+    const scroller = article?.closest<HTMLElement>("[data-meeting-scroll]");
+    if (!article || !scroller) return;
+    let landed = false;
+    const land = () => {
+      if (landed) return;
+      const panel = article.querySelector("#meeting-transcript");
+      if (!panel?.textContent?.trim()) return;
+      scroller.scrollTop = scroller.scrollHeight;
+      landed = true;
+      observer.disconnect();
+    };
+    const observer = new MutationObserver(land);
+    observer.observe(article, {
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+    land();
+    return () => observer.disconnect();
+  }, [opensOnLastWords, entry.id]);
   const playerHold = useRef<HTMLDivElement>(null);
   const playerTop = useRef<number | undefined>(undefined);
   // The summary is inserted above the recording. A recording already playing
