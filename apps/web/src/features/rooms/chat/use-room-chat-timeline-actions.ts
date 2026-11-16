@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useEffect } from "react";
+import { useMemo, useCallback, useEffect, useState } from "react";
 
 import type { TeamHubMessage } from "@/features/teamhub/teamhub-types";
 import { createRoomCardDecisionController } from "@/features/rooms/cards/room-card-decision-controller";
@@ -17,6 +17,9 @@ import {
   directPeerCanCompose,
   projectDirectPeerState,
 } from "./room-composer-dock";
+import { taskWaitingOnDecision } from "@/features/work-items/task-waiting-on-decision";
+import type { TaskWaitingOnDecision } from "@/features/work-items/task-waiting-on-decision";
+
 import type { RoomChatData } from "./use-room-chat-data";
 import type { RoomChatConversationState } from "./use-room-chat-conversation-state";
 
@@ -61,6 +64,13 @@ export function useRoomChatTimelineActions(
     timeline,
   }: RoomChatConversationState,
 ) {
+  const [arrivedTask, setArrivedTask] = useState<TaskWaitingOnDecision | null>(
+    null,
+  );
+  const clearArrivedTask = useCallback(() => setArrivedTask(null), []);
+  useEffect(() => {
+    setArrivedTask(null);
+  }, [roomId]);
   const cardDecisionController = useMemo(
     () =>
       createRoomCardDecisionController({
@@ -138,6 +148,19 @@ export function useRoomChatTimelineActions(
         decision: Parameters<typeof cardDecisionController.decide>[0],
       ) => {
         await cardDecisionController.decide(decision);
+        // The decision already stands. The task it was holding comes to this
+        // person only after an acceptance, and a miss leaves the receipt.
+        if (decision.decision !== "approve") return;
+        try {
+          const task = await taskWaitingOnDecision(
+            client,
+            tenantId,
+            decision.requestId,
+          );
+          if (task) setArrivedTask(task);
+        } catch {
+          // The task could not be read. The accepted decision stays as it is.
+        }
       },
       onOpenUrl: (href: string) => {
         const target = new URL(href);
@@ -148,7 +171,7 @@ export function useRoomChatTimelineActions(
         });
       },
     }),
-    [cardDecisionController, openPanelTab],
+    [cardDecisionController, client, openPanelTab, tenantId],
   );
   const directPeerState = projectDirectPeerState(
     room,
@@ -232,6 +255,8 @@ export function useRoomChatTimelineActions(
         )
       : undefined;
   return {
+    arrivedTask,
+    clearArrivedTask,
     actorDisplayNames,
     actorKinds,
     directAgentRegistration,

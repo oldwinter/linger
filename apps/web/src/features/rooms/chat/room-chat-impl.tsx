@@ -1,3 +1,5 @@
+import { lazy, Suspense } from "react";
+
 import { FileDropTarget } from "@/components/ui/file-drop-target";
 import { WorkItemCreateDialog } from "@/features/work-items/work-item-create-dialog";
 import { messageWorkItemDraft } from "@/features/work-items/work-item-create-draft";
@@ -11,6 +13,13 @@ import { useRoomChatConversationState } from "./use-room-chat-conversation-state
 import { useRoomChatTimelineActions } from "./use-room-chat-timeline-actions";
 import { RoomChatTimelineSection } from "./room-chat-timeline-section";
 import { RoomChatComposerSection } from "./room-chat-composer-section";
+
+const TaskConversationDialog = lazy(async () => {
+  const module = await import(
+    "../task-sidebar/adapters/task-conversation-dialog"
+  );
+  return { default: module.TaskConversationDialog };
+});
 
 export function RoomChatImpl() {
   // The sub-hooks run in this order so their effects keep the order the Room
@@ -59,6 +68,17 @@ export function RoomChatImpl() {
             onClose={() => setForwardMessage(null)}
             tenantId={tenantId}
           />
+        ) : null}
+        {actions.arrivedTask ? (
+          <Suspense fallback={null}>
+            <TaskConversationDialog
+              onClose={actions.clearArrivedTask}
+              originRoomId={roomId}
+              taskId={actions.arrivedTask.id}
+              tenantId={tenantId}
+              title={actions.arrivedTask.title}
+            />
+          </Suspense>
         ) : null}
         {createIssueMessage ? (
           <WorkItemCreateDialog
