@@ -410,6 +410,7 @@ describe("Settings surfaces", () => {
 
 describe("Browser preferences", () => {
   const PREFERENCE_KEYS = [
+    "last-room.v1:account-a",
     "linger.room-composer-draft:account-a:tenant-a:room-a",
     "room-mention-snooze.v1:account-a",
     "room-mention-mute.v1:account-a",
@@ -436,6 +437,7 @@ describe("Browser preferences", () => {
         .getAllByRole("listitem")
         .map((item) => item.textContent),
     ).toEqual([
+      "Last opened room",
       "Composer drafts",
       "Room mention snoozes and mutes",
       "Snoozed Rooms",

@@ -5,6 +5,7 @@ import { subscribeRecentDocuments } from "@/features/library/recent-documents";
 import { subscribeMeetingPlaybackSpeed } from "@/features/memory/meeting-playback-speed";
 import { subscribeMeetingResume } from "@/features/memory/meeting-resume";
 import { subscribeDesktopNotificationPause } from "@/features/rooms/desktop-notification-pause";
+import { subscribeLastRoom } from "@/features/rooms/last-room";
 import { subscribeRoomComposerDrafts } from "@/features/rooms/room-drafts";
 import { subscribeRoomMentionPreferences } from "@/features/rooms/room-mention-snooze";
 import { subscribeRoomSnooze } from "@/features/rooms/room-snooze";
@@ -30,6 +31,7 @@ export function BrowserPreferencesSettings() {
   useEffect(() => {
     const refresh = () => setStored(holdsAnything());
     const stops = [
+      subscribeLastRoom(refresh),
       subscribeRoomComposerDrafts(refresh),
       subscribeRoomMentionPreferences(refresh),
       subscribeRoomSnooze(refresh),

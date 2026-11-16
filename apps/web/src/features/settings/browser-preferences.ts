@@ -14,6 +14,7 @@ import {
   clearDesktopNotificationPauses,
   hasDesktopNotificationPauses,
 } from "@/features/rooms/desktop-notification-pause";
+import { clearLastRooms, hasLastRoom } from "@/features/rooms/last-room";
 import { clearRoomDrafts, hasRoomDrafts } from "@/features/rooms/room-drafts";
 import {
   clearRoomMentionPreferences,
@@ -48,6 +49,12 @@ export interface BrowserPreference {
  * what TeamHub holds.
  */
 export const browserPreferences: readonly BrowserPreference[] = [
+  {
+    clear: clearLastRooms,
+    hasAnything: hasLastRoom,
+    label: "Last opened room",
+    module: "features/rooms/last-room.ts",
+  },
   {
     clear: clearRoomDrafts,
     hasAnything: hasRoomDrafts,
