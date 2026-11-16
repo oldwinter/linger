@@ -35,6 +35,7 @@ export type RuntimeActivityPathItem =
       kind: "command";
       name: string;
       outcome?: ActivityOutcome;
+      recovery?: ActivityRecovery;
       title: string;
       unconfirmed?: boolean;
     }
@@ -45,6 +46,7 @@ export type RuntimeActivityPathItem =
       key: string;
       kind: "activity";
       outcome?: ActivityOutcome;
+      recovery?: ActivityRecovery;
       unconfirmed?: boolean;
       title: string;
     }
@@ -52,6 +54,7 @@ export type RuntimeActivityPathItem =
       calls: readonly RuntimeActivityPathToolCall[];
       kind: "tool_calls";
       key: string;
+      recovery?: ActivityRecovery;
     }
   | {
       active: boolean;
@@ -87,6 +90,16 @@ export interface RuntimeActivityPathToolCall {
   name: string;
   outcome?: ActivityOutcome;
   unconfirmed?: boolean;
+}
+
+/**
+ * The line a step published when it failed, and the line it published when
+ * that same step later succeeded. The concise log keeps one row, so both
+ * lines have to live on it.
+ */
+export interface ActivityRecovery {
+  failed: string;
+  succeeded: string;
 }
 
 const TOOL_KINDS = new Set<RuntimeActivityPresentation["kind"]>([
