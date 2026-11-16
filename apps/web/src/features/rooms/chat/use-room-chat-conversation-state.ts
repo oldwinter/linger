@@ -24,6 +24,7 @@ import {
 import { useRoomMessageInteractions } from "./use-room-message-interactions";
 import { useAnotherMeOnboarding } from "./use-another-me-onboarding";
 import { useRoomTimelineScroll } from "./use-room-timeline-scroll";
+import { leadingYesterdayQuestion } from "./yesterday-question";
 import { useRoomReadBoundary } from "./use-room-read-boundary";
 import type { RoomChatData } from "./use-room-chat-data";
 
@@ -147,6 +148,14 @@ export function useRoomChatConversationState({
   const timeline = useRoomTimelineScroll({
     scope: draftScope,
     firstMessageId,
+    leadingMessageId:
+      room.participation === "left"
+        ? null
+        : (leadingYesterdayQuestion(
+            orderedMessages,
+            currentActorId,
+            new Date(),
+          ) ?? null),
     linkedMessageId,
     linkedMessageReady:
       linkedInTimeline || linkedMessage.data?.id === linkedMessageId,
