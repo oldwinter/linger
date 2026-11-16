@@ -74,6 +74,7 @@ export function MeetingAudioPlayer({
   meetingId,
   onDownload,
   src,
+  startAt,
   status,
 }: {
   /** Whose listening positions and speed this browser remembers. */
@@ -85,6 +86,8 @@ export function MeetingAudioPlayer({
   meetingId?: string;
   onDownload: () => void;
   src?: string;
+  /** A copied line's place in the recording, in seconds. */
+  startAt?: number;
   /** Replaces the time line, e.g. while the recording is still loading. */
   status?: string;
 }) {
@@ -155,7 +158,20 @@ export function MeetingAudioPlayer({
 
   /** Applies a remembered place once its metadata supplies the duration. */
   function restorePosition(audio: HTMLAudioElement) {
-    if (restoredRef.current || !accountId || !meetingId) return;
+    if (restoredRef.current) return;
+    if (startAt !== undefined && Number.isFinite(startAt) && startAt >= 0) {
+      restoredRef.current = true;
+      const duration = audio.duration;
+      const position =
+        Number.isFinite(duration) && duration > 0
+          ? Math.min(startAt, duration)
+          : startAt;
+      audio.currentTime = position;
+      setCurrent(position);
+      if (position > 0) setResumeFrom(position);
+      return;
+    }
+    if (!accountId || !meetingId) return;
     restoredRef.current = true;
     const entry = readMeetingResume(accountId)[meetingId];
     const position = entry

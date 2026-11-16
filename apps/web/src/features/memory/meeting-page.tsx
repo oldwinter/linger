@@ -19,6 +19,7 @@ import {
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { askAnotherMeAboutMeeting } from "./meeting-ask";
 import { useMeetings } from "./memory-queries";
+import { meetingStartAt } from "./meeting-copied-line";
 import { MeetingReader } from "./meeting-reader";
 import { meetingsTabPath } from "./meetings-panel";
 import {
@@ -163,6 +164,7 @@ export function MeetingPage() {
             <MeetingReader
               entry={selected.data}
               file={searchParams.get("file")}
+              startAt={meetingStartAt(searchParams.get("at"))}
               onAskAnotherMe={
                 accountId && anotherMeRoomId && selected.data
                   ? () => {

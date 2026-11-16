@@ -1,5 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+} from "react";
 import { Link } from "react-router";
 import {
   ArrowDown01Icon,
@@ -24,6 +31,12 @@ import {
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 import { MeetingAudioPlayer } from "./meeting-audio-player";
+import {
+  copiedMeetingLine,
+  copiedMeetingLineText,
+  meetingCopiedLines,
+  meetingLineOpenUrl,
+} from "./meeting-copied-line";
 import { carryDecisionPath, meetingDecisions } from "./carry-decision";
 import { parseMeetingSummary } from "./meeting-overview";
 import {
@@ -83,6 +96,7 @@ export function MeetingReader({
   onHidden,
   onSelectTab,
   resolveLink,
+  startAt,
   tenantId,
 }: {
   entry: TeamHubMemoryEntry;
@@ -94,6 +108,8 @@ export function MeetingReader({
   onHidden: () => void;
   onSelectTab: (tab: MeetingTab) => void;
   resolveLink?: (reference: string) => string | null | undefined;
+  /** Where a copied line opens the recording, in seconds. */
+  startAt?: number;
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
@@ -475,6 +491,7 @@ export function MeetingReader({
                 documentId={meeting.recording_document_id}
                 filename={meeting.recording_filename}
                 meetingId={entry.id}
+                startAt={startAt}
                 variant="player"
                 versionId={meeting.recording_version_id}
               />
@@ -484,9 +501,15 @@ export function MeetingReader({
           <MeetingVersionReader
             key={meeting.transcript_version_id}
             documentId={meeting.transcript_document_id}
-            versionId={meeting.transcript_version_id}
             filename="transcript.md"
+            meetingLineUrl={(seconds) =>
+              new URL(
+                meetingLineOpenUrl(meetingPath(tenantId, entry.id), seconds),
+                window.location.origin,
+              ).toString()
+            }
             variant="document"
+            versionId={meeting.transcript_version_id}
           />
         )}
       </div>
@@ -504,6 +527,8 @@ function MeetingVersionReader({
   versionId,
   filename,
   meetingId,
+  meetingLineUrl,
+  startAt,
   variant,
 }: {
   /** Whose listening positions the player remembers. */
@@ -513,6 +538,10 @@ function MeetingVersionReader({
   filename: string;
   /** Tells the player which meeting it is playing, so its speed starts over. */
   meetingId?: string;
+  /** Where a copied spoken line can be opened, given its recording offset. */
+  meetingLineUrl?: (startSeconds: number) => string;
+  /** Opens the recording at a copied line instead of the remembered place. */
+  startAt?: number;
   variant: "player" | "document";
 }) {
   const { client } = useTeamHubRuntime();
@@ -792,6 +821,19 @@ function MeetingVersionReader({
         </Button>
       </div>
     ) : null;
+  function onCopyTranscript(event: ClipboardEvent<HTMLDivElement>) {
+    if (!transcriptText || !meetingLineUrl) return;
+    const line = copiedMeetingLine(
+      meetingCopiedLines(transcriptText),
+      window.getSelection()?.toString() ?? "",
+    );
+    if (!line) return;
+    event.preventDefault();
+    event.clipboardData.setData(
+      "text/plain",
+      copiedMeetingLineText(line, meetingLineUrl(line.startSeconds)),
+    );
+  }
   if (variant === "player") {
     if (error)
       return (
@@ -823,6 +865,7 @@ function MeetingVersionReader({
         mediaType={preview?.version.media_type}
         meetingId={meetingId}
         onDownload={() => void download()}
+        startAt={startAt}
         src={playable ? preview.objectUrl : undefined}
         status={
           !preview
@@ -838,7 +881,9 @@ function MeetingVersionReader({
     <>
       {searchBar}
       {header}
-      <div ref={transcriptRoot}>{body}</div>
+      <div onCopy={onCopyTranscript} ref={transcriptRoot}>
+        {body}
+      </div>
     </>
   );
 }
