@@ -17,10 +17,12 @@ import type {
 import { MessageMarkdown } from "../chat/message-markdown";
 import {
   projectRuntimeActivityPath,
+  type ActivityRecovery,
   type RuntimeActivityPathItem,
   type RuntimeActivityLifecycle,
   type RuntimeActivityPathToolCall,
 } from "./runtime-activity-path";
+import type { RuntimeActivityEntry } from "./runtime-presentation-events";
 import { RuntimeActivityEntries } from "./runtime-activity-entries";
 import { TaskActivityBlock } from "./task-activity-block";
 import {
@@ -148,6 +150,27 @@ function compactActivityItems(
       isRepeatableActivityItem(previous) &&
       activityItemLabel(previous) === activityItemLabel(item)
     ) {
+      // One row per repeated step. A failure this same step then got past
+      // would otherwise vanish, so the two lines it published stay on the row.
+      const failed = publishedLine(previous);
+      const succeeded = publishedLine(item);
+      if (
+        (item.kind === "command" ||
+          item.kind === "activity" ||
+          item.kind === "tool_calls") &&
+        activityIdentity(previous) === activityIdentity(item) &&
+        stepOutcome(previous) === "failed" &&
+        stepOutcome(item) === "succeeded" &&
+        failed &&
+        succeeded &&
+        failed !== succeeded
+      ) {
+        concise[concise.length - 1] = {
+          ...item,
+          recovery: { failed, succeeded },
+        };
+        continue;
+      }
       concise[concise.length - 1] = item;
       continue;
     }
@@ -174,6 +197,94 @@ function isSuccessfulMessageOnlyGroup(
 
 function isRepeatableActivityItem(item: RuntimeActivityPathItem) {
   return ["command", "activity", "tool_calls", "reply"].includes(item.kind);
+}
+
+/** The command, interaction, or tool names that make two steps the same step. */
+function activityIdentity(item: RuntimeActivityPathItem): string {
+  if (item.kind === "command") return `command:${item.name}`;
+  if (item.kind === "activity") return `activity:${item.title}`;
+  if (item.kind === "tool_calls") {
+    return `tools:${item.calls.map((call) => `${call.kind}:${call.name}`).join("\n")}`;
+  }
+  return item.kind;
+}
+
+function stepOutcome(
+  item: RuntimeActivityPathItem,
+): "failed" | "succeeded" | undefined {
+  if (item.kind === "command" || item.kind === "activity") {
+    return item.outcome === "failed" || item.outcome === "succeeded"
+      ? item.outcome
+      : undefined;
+  }
+  if (item.kind !== "tool_calls" || item.calls.length === 0) return undefined;
+  if (item.calls.every((call) => call.outcome === "failed")) return "failed";
+  if (item.calls.every((call) => call.outcome === "succeeded"))
+    return "succeeded";
+  return undefined;
+}
+
+/**
+ * One tool group is already a single row. When every call is the same tool
+ * and an earlier call failed before a later one succeeded, both lines belong
+ * on that row.
+ */
+function recoveryAcrossCalls(
+  calls: readonly RuntimeActivityPathToolCall[],
+): ActivityRecovery | undefined {
+  const first = calls[0];
+  if (!first || calls.length < 2) return undefined;
+  if (
+    !calls.every((call) => call.kind === first.kind && call.name === first.name)
+  ) {
+    return undefined;
+  }
+  let failed: string | undefined;
+  let succeeded: string | undefined;
+  for (const call of calls) {
+    const line = firstPublishedLine(call.entries);
+    if (!line) continue;
+    if (call.outcome === "failed") failed = line;
+    if (call.outcome === "succeeded" && failed && line !== failed)
+      succeeded = line;
+  }
+  if (!failed || !succeeded) return undefined;
+  return { failed, succeeded };
+}
+
+/** The first line a step published besides the command or input it was given. */
+function publishedLine(item: RuntimeActivityPathItem): string | undefined {
+  const entries =
+    item.kind === "command" || item.kind === "activity"
+      ? item.entries
+      : item.kind === "tool_calls"
+        ? (item.calls.at(-1)?.entries ?? [])
+        : [];
+  return firstPublishedLine(entries);
+}
+
+function firstPublishedLine(
+  entries: readonly RuntimeActivityEntry[],
+): string | undefined {
+  const input = entries.find(
+    (entry) =>
+      entry.type === "content" &&
+      (entry.block.format === "code" || entry.block.format === "json"),
+  );
+  for (const entry of entries) {
+    if (entry === input) continue;
+    const line = entryLine(entry);
+    if (!line) continue;
+    return line.length > 160 ? `${line.slice(0, 157).trimEnd()}...` : line;
+  }
+  return undefined;
+}
+
+function entryLine(entry: RuntimeActivityEntry): string | undefined {
+  const text =
+    entry.type === "content" ? entry.block.content : entry.detail;
+  const line = text.trim().split("\n", 1)[0]?.trim();
+  return line || undefined;
 }
 
 function activityItemLabel(item: RuntimeActivityPathItem): string {
@@ -232,6 +343,7 @@ function RuntimeActivityPathRow({ item }: { item: RuntimeActivityPathItem }) {
         entries={item.entries}
         icon={presentation.glyph}
         outcome={item.outcome}
+        recovery={item.recovery}
         summary={presentation.summary}
         tool={item.title}
       />
@@ -246,13 +358,14 @@ function RuntimeActivityPathRow({ item }: { item: RuntimeActivityPathItem }) {
         entries={item.entries}
         icon={presentation.glyph}
         outcome={item.outcome}
+        recovery={item.recovery}
         summary={presentation.summary}
         tool={item.title}
       />
     );
   }
   if (item.kind === "tool_calls") {
-    return <ToolCallsRow calls={item.calls} />;
+    return <ToolCallsRow calls={item.calls} recovery={item.recovery} />;
   }
   if (item.kind === "plan") {
     return <PlanRow item={item} />;
@@ -275,6 +388,7 @@ function ActivitySummaryRow({
   entries,
   icon,
   outcome,
+  recovery,
   summary,
   tool,
 }: {
@@ -283,19 +397,31 @@ function ActivitySummaryRow({
   entries: RuntimeActivityPathToolCall["entries"];
   icon: IconSvgElement;
   outcome: RuntimeActivityPathToolCall["outcome"];
+  recovery?: ActivityRecovery;
   summary: string;
   tool: string;
 }) {
   return (
     <li className="runtime-activity-step">
       <details className="group">
-        <summary className="flex min-h-8 cursor-pointer list-none items-center gap-2 py-1.5 hover:text-app-body focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app-focus [&::-webkit-details-marker]:hidden">
-          <Icon className="shrink-0" icon={icon} size={14} />
-          <span
-            className={`min-w-0 flex-1 truncate ${active ? "town-shimmer-text" : ""}`}
-            title={summary}
-          >
-            {summary}
+        <summary
+          className={`flex min-h-8 cursor-pointer list-none gap-2 py-1.5 hover:text-app-body focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app-focus [&::-webkit-details-marker]:hidden ${recovery ? "items-start" : "items-center"}`}
+        >
+          <Icon
+            className={recovery ? "mt-0.5 shrink-0" : "shrink-0"}
+            icon={icon}
+            size={14}
+          />
+          <span className="min-w-0 flex-1">
+            <span
+              className={
+                active ? "block truncate town-shimmer-text" : "block truncate"
+              }
+              title={summary}
+            >
+              {summary}
+            </span>
+            {recovery ? <RecoveryLines recovery={recovery} /> : null}
           </span>
           {active ? <ActiveMark /> : null}
           {unconfirmed ? (
@@ -320,10 +446,21 @@ function ActivitySummaryRow({
   );
 }
 
+function RecoveryLines({ recovery }: { recovery: ActivityRecovery }) {
+  return (
+    <span className="mt-0.5 block min-w-0">
+      <span className="block truncate text-app-danger">{recovery.failed}</span>
+      <span className="block truncate text-app-body">{recovery.succeeded}</span>
+    </span>
+  );
+}
+
 function ToolCallsRow({
   calls,
+  recovery,
 }: {
   calls: readonly RuntimeActivityPathToolCall[];
+  recovery?: ActivityRecovery;
 }) {
   const active = calls.some((call) => call.active);
   const presentedCalls = calls.map((call) => {
@@ -333,11 +470,16 @@ function ToolCallsRow({
     };
   });
   const { glyph: groupGlyph, label } = toolGroupPresentation(presentedCalls);
+  const lines = recovery ?? recoveryAcrossCalls(calls);
   return (
     <li className="runtime-activity-step">
       <details className="group">
-        <summary className="flex min-h-8 cursor-pointer list-none items-center gap-2 py-1.5 hover:text-app-body focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app-focus [&::-webkit-details-marker]:hidden">
-          <span className="relative inline-flex size-[15px] shrink-0 items-center justify-center">
+        <summary
+          className={`flex min-h-8 cursor-pointer list-none gap-2 py-1.5 hover:text-app-body focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app-focus [&::-webkit-details-marker]:hidden ${lines ? "items-start" : "items-center"}`}
+        >
+          <span
+            className={`relative inline-flex size-[15px] shrink-0 items-center justify-center ${lines ? "mt-0.5" : ""}`}
+          >
             <Icon
               className="absolute inset-0 m-auto group-hover:hidden group-focus-within:hidden group-open:hidden"
               icon={groupGlyph}
@@ -349,11 +491,16 @@ function ToolCallsRow({
               size={14}
             />
           </span>
-          <span
-            className={`min-w-0 flex-1 truncate ${active ? "town-shimmer-text" : ""}`}
-            title={label}
-          >
-            {label}
+          <span className="min-w-0 flex-1">
+            <span
+              className={
+                active ? "block truncate town-shimmer-text" : "block truncate"
+              }
+              title={label}
+            >
+              {label}
+            </span>
+            {lines ? <RecoveryLines recovery={lines} /> : null}
           </span>
           {active ? <ActiveMark /> : null}
         </summary>

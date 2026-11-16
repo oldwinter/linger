@@ -1015,6 +1015,99 @@ describe("Runtime activity path", () => {
       },
     ]);
   });
+
+  it("keeps the failed line and the later line when the same step succeeds", () => {
+    const command = (
+      ordinal: string,
+      id: string,
+      output: string,
+      outcome: "failed" | "succeeded",
+      line = "ls",
+    ) => [
+      record(ordinal, {
+        activity_id: id,
+        content: [{ content: line, format: "code", label: "Command" }],
+        kind: "command" as const,
+        title: "exec_command",
+        type: "activity.started" as const,
+      }),
+      record(String(Number(ordinal) + 1), {
+        activity_id: id,
+        content: [{ content: output, format: "text" as const, label: "Output" }],
+        outcome,
+        type: "activity.finished" as const,
+      }),
+    ];
+    const { unmount } = render(
+      <RuntimeActivityPath
+        embedded
+        records={[
+          ...command("1", "failed-ls", "permission denied", "failed"),
+          ...command("3", "retried-ls", "40 lines", "succeeded"),
+        ]}
+      />,
+    );
+    const recovered = screen.getByText("Running a command").closest("summary");
+    expect(recovered).toHaveTextContent("permission denied");
+    expect(recovered).toHaveTextContent("40 lines");
+    unmount();
+
+    const different = render(
+      <RuntimeActivityPath
+        embedded
+        records={[
+          ...command("1", "failed-ls", "permission denied", "failed"),
+          ...command("3", "pwd", "/repo", "succeeded", "pwd"),
+        ]}
+      />,
+    );
+    expect(screen.getAllByText("Running a command")).toHaveLength(1);
+    expect(screen.queryByText("permission denied")).not.toBeInTheDocument();
+    different.unmount();
+
+    render(
+      <RuntimeActivityPath
+        embedded
+        records={[
+          record("1", {
+            activity_id: "search-failed",
+            content: [{ content: "{}", format: "json", label: "Input" }],
+            kind: "search",
+            title: "search_files",
+            type: "activity.started",
+          }),
+          record("2", {
+            activity_id: "search-failed",
+            content: [
+              { content: "index unavailable", format: "text", label: "Result" },
+            ],
+            outcome: "failed",
+            type: "activity.finished",
+          }),
+          record("3", {
+            activity_id: "search-ok",
+            content: [{ content: "{}", format: "json", label: "Input" }],
+            kind: "search",
+            title: "search_files",
+            type: "activity.started",
+          }),
+          record("4", {
+            activity_id: "search-ok",
+            content: [
+              { content: "rooms.ts:12", format: "text", label: "Result" },
+            ],
+            outcome: "succeeded",
+            type: "activity.finished",
+          }),
+        ]}
+      />,
+    );
+    const search = screen
+      .getAllByText("Searching for information")[0]
+      ?.closest("summary");
+    expect(search).toHaveTextContent("index unavailable");
+    expect(search).toHaveTextContent("rooms.ts:12");
+  });
 });
 
 function record(
