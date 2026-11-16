@@ -37,6 +37,8 @@ interface PendingPrepend {
 
 interface RoomTimelineScrollOptions {
   firstMessageId?: string;
+  /** A question from yesterday that leads until it is cleared. */
+  leadingMessageId?: string | null;
   linkedMessageId: string | null;
   linkedMessageReady?: boolean;
   messageCount: number;
@@ -47,6 +49,7 @@ interface RoomTimelineScrollOptions {
 
 export function useRoomTimelineScroll({
   firstMessageId,
+  leadingMessageId = null,
   linkedMessageId,
   linkedMessageReady,
   messageCount,
@@ -79,6 +82,7 @@ export function useRoomTimelineScroll({
     key: string;
     positioned: boolean;
   } | null>(null);
+  const anchoredRef = useRef(false);
 
   useLayoutEffect(() => {
     const timeline = timelineElement;
@@ -91,9 +95,11 @@ export function useRoomTimelineScroll({
       shouldAutoFollowRef.current = true;
       pendingPrependRef.current = null;
       linkedPositionRef.current = null;
+      anchoredRef.current = false;
       const position = scopeKey ? readingPositions.get(scopeKey) : undefined;
       if (
         !linkedMessageId &&
+        !leadingMessageId &&
         position &&
         !position.atBottom &&
         position.firstMessageId === firstMessageId
@@ -102,7 +108,12 @@ export function useRoomTimelineScroll({
         shouldAutoFollowRef.current = false;
       }
     }
-    const linkKey = JSON.stringify([scopeKey, linkedMessageId]);
+    const anchorId = linkedMessageId || leadingMessageId || null;
+    const linkKey = JSON.stringify([
+      scopeKey,
+      linkedMessageId,
+      leadingMessageId,
+    ]);
     if (linkedPositionRef.current?.key !== linkKey) {
       linkedPositionRef.current = { key: linkKey, positioned: false };
     }
@@ -120,9 +131,9 @@ export function useRoomTimelineScroll({
       );
       return;
     }
-    if (linkedMessageId && !linkedPositionRef.current.positioned) {
+    if (anchorId && !linkedPositionRef.current.positioned) {
       const target = timeline.querySelector(
-        `[data-message-id="${CSS.escape(linkedMessageId)}"]`,
+        `[data-message-id="${CSS.escape(anchorId)}"]`,
       );
       if (target instanceof HTMLElement) {
         target.scrollIntoView({ block: "center", inline: "nearest" });
@@ -130,12 +141,17 @@ export function useRoomTimelineScroll({
       } else {
         timeline.scrollTop = 0;
       }
+      anchoredRef.current = true;
       shouldAutoFollowRef.current = false;
       setInitialScrollReady(true);
       setUnreadDividerVisible(
         unreadDividerIsInView(timeline, unreadDividerRef.current),
       );
       return;
+    }
+    if (!anchorId && anchoredRef.current) {
+      anchoredRef.current = false;
+      shouldAutoFollowRef.current = true;
     }
 
     if (!pendingPrepend && shouldAutoFollowRef.current) {
@@ -150,6 +166,7 @@ export function useRoomTimelineScroll({
   }, [
     timelineElement,
     firstMessageId,
+    leadingMessageId,
     linkedMessageId,
     linkedMessageReady,
     messageCount,

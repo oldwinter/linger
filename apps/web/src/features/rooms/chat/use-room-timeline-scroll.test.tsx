@@ -9,6 +9,7 @@ function Timeline({
   visible,
   scope,
   firstMessageId = "first",
+  leadingMessageId = null,
   linkedMessageId = null,
   messageCount = 10,
   pendingMessageCount = 0,
@@ -18,6 +19,7 @@ function Timeline({
   visible: boolean;
   scope?: { accountId: string; tenantId: string; roomId: string };
   firstMessageId?: string;
+  leadingMessageId?: string | null;
   linkedMessageId?: string | null;
   messageCount?: number;
   pendingMessageCount?: number;
@@ -26,6 +28,7 @@ function Timeline({
 }) {
   const scroll = useRoomTimelineScroll({
     firstMessageId,
+    leadingMessageId,
     linkedMessageId,
     linkedMessageReady:
       linkedMessageId !== null && messageIds.includes(linkedMessageId),
@@ -66,6 +69,34 @@ function Timeline({
 }
 
 afterEach(() => vi.restoreAllMocks());
+
+describe("a question that leads the room", () => {
+  it("stays on the question while later messages arrive, then follows once it is answered", () => {
+    const position = vi
+      .spyOn(HTMLElement.prototype, "scrollIntoView")
+      .mockImplementation(function (this: HTMLElement) {
+        this.parentElement!.scrollTop = 400;
+      });
+    vi.spyOn(Element.prototype, "scrollHeight", "get").mockReturnValue(1000);
+    vi.spyOn(Element.prototype, "clientHeight", "get").mockReturnValue(200);
+    const props = {
+      visible: true,
+      leadingMessageId: "asked",
+      messageIds: ["asked", "later"],
+    };
+    const view = render(<Timeline {...props} />);
+    expect(position).toHaveBeenCalledWith({
+      block: "center",
+      inline: "nearest",
+    });
+    const timeline = screen.getByLabelText("Room timeline");
+    expect(timeline.scrollTop).toBe(400);
+    view.rerender(<Timeline {...props} messageCount={11} />);
+    expect(timeline.scrollTop).toBe(400);
+    view.rerender(<Timeline {...props} leadingMessageId={null} />);
+    expect(timeline.scrollTop).toBe(1000);
+  });
+});
 
 describe("Message deep-link positioning", () => {
   function setup() {
