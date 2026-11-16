@@ -32,6 +32,7 @@ import { surprisePath } from "./surprise-room";
 import { whoIsAwakePath } from "./who-is-awake";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import { myRulesQueryOptions } from "@/features/settings/my-rules-queries";
+import { teamHubIdentityQueryOptions } from "./room-queries";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { cn } from "@/lib/cn";
 
@@ -1102,6 +1103,15 @@ function AnotherMeCard({
   working: boolean;
 }) {
   const name = room.direct_peer?.display_name ?? "Another Me";
+  const { client } = useTeamHubRuntime();
+  const identity = useQuery(teamHubIdentityQueryOptions(client));
+  const human = identity.data?.actors.find(
+    (actor) => actor.tenant_id === tenantId,
+  );
+  const wornFace =
+    active && human
+      ? { actorId: human.id, name: human.display_name }
+      : undefined;
   const quiet = useAnotherMeQuiet(accountId);
   const agentRecord = useAgentAvatarRecord(room.direct_peer?.id);
   const brand = agentAvatarAppearance(
@@ -1193,6 +1203,7 @@ function AnotherMeCard({
           <ActorAvatar
             actorId={room.direct_peer?.id}
             animate={hovered || working}
+            asHuman={wornFace}
             kind="agent"
             name={name}
             size="card"

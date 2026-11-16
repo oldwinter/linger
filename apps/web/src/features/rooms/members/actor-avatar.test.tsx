@@ -103,6 +103,50 @@ describe("ActorAvatar", () => {
     expect(fallback.querySelector(".agent-avatar-tile img")).not.toBeNull();
   });
 
+  it("wears the person's picture while keeping Another Me's name", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const identity = runtime.seed.identity;
+    const actor = identity.actors[0]!;
+    queryClient.setQueryData(accountProfileQueryKey(actor.tenant_id), {
+      avatar_image: "data:image/png;base64,AAAA",
+      name: actor.display_name,
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <ActorAvatarImageProvider
+            identity={identity}
+            tenantId={actor.tenant_id}
+          >
+            <ActorAvatar
+              actorId="actor-another-me"
+              asHuman={{ actorId: actor.id, name: actor.display_name }}
+              avatarKey="figure:dog:5A8F66"
+              kind="agent"
+              name="Another Me"
+              size="nav"
+            />
+          </ActorAvatarImageProvider>
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    const avatar = await screen.findByRole("img", {
+      name: "Another Me avatar",
+    });
+    await waitFor(() =>
+      expect(avatar).toHaveAttribute(
+        "src",
+        expect.stringContaining("data:image/png"),
+      ),
+    );
+    expect(avatar.querySelector(".agent-avatar-tile")).toBeNull();
+  });
+
   it("shows the Settings profile picture wherever the Actor appears", async () => {
     const runtime = createTestTeamHubRuntime();
 

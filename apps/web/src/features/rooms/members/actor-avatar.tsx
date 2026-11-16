@@ -30,6 +30,7 @@ function humanAvatarTint(seed: string) {
 export function ActorAvatar({
   actorId,
   animate = false,
+  asHuman,
   avatarKey,
   cheer,
   kind,
@@ -40,6 +41,11 @@ export function ActorAvatar({
   actorId?: string;
   /** Plays an Agent figure's motion; Humans and uploaded images stay still. */
   animate?: boolean;
+  /**
+   * Another Me wears this person while you are with them: their picture, or
+   * their initials when they have not set one. The Agent's name stays.
+   */
+  asHuman?: { actorId: string; name: string };
   avatarKey?: AgentAvatarKey | string;
   /** Each new value makes an Agent's figure lean in and smile once. */
   cheer?: number;
@@ -86,6 +92,7 @@ export function ActorAvatar({
   const displayName = name.trim() || "Unknown Actor";
   const title = showTitle ? displayName : undefined;
   const uploadedImage = useActorAvatarImage(actorId);
+  const wornFace = useActorAvatarImage(asHuman?.actorId);
   const agentRecord = useAgentAvatarRecord(
     kind === "agent" ? actorId : undefined,
   );
@@ -108,6 +115,34 @@ export function ActorAvatar({
         }}
         title={title}
       />
+    );
+  }
+
+  if (kind === "agent" && asHuman) {
+    if (wornFace) {
+      return (
+        <img
+          alt={`${displayName} avatar`}
+          className={`shrink-0 object-cover ${shapeClass} ${sizeClass}`}
+          onLoad={() => setLoadedSrc(wornFace)}
+          src={wornFace}
+          style={{
+            opacity: loadedSrc === wornFace ? 1 : 0,
+            transition: "opacity 200ms ease",
+          }}
+          title={title}
+        />
+      );
+    }
+    return (
+      <span
+        aria-label={`${displayName} avatar`}
+        className={`flex shrink-0 items-center justify-center font-semibold tracking-[0.02em] ${shapeClass} ${humanAvatarTint(asHuman.actorId)} ${sizeClass} ${textSizeClass}`}
+        role="img"
+        title={title}
+      >
+        {actorInitials(asHuman.name)}
+      </span>
     );
   }
 
