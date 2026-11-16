@@ -29,6 +29,7 @@ import { LOGOUT_ERROR_MESSAGE, useLogout } from "@/features/auth/use-logout";
 
 import { Button } from "@/components/ui/button";
 import { useCarriedMeeting } from "@/features/memory/meeting-carry";
+import { useOpenMeetingAtStart } from "@/features/memory/use-open-meeting-at-start";
 import { jumpPath } from "@/features/jump/jump-path";
 import { useJumpShortcut } from "@/features/jump/jump-shortcut";
 import type {
@@ -198,6 +199,7 @@ function RoomShellReady({
     rooms: roomsQuery.data?.items,
     tenantId,
   });
+  useOpenMeetingAtStart(tenantId);
 
   const rooms = roomsQuery.data;
   return (

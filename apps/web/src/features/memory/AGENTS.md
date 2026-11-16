@@ -27,7 +27,9 @@
   heard, today's meetings show the line being said. On the transcript, the
   recording marks the turn being spoken and keeps that turn in view. When one
   meeting begins while an earlier one is still underway, that day says so.
-  Personal Wiki navigation in `features/wiki` links here.
+  When that meeting's start time arrives while the app is open somewhere else,
+  the meeting opens, unless you are already on it, writing, or a dialog is
+  open. Personal Wiki navigation in `features/wiki` links here.
 - Call TeamHub through the generated client (`client.api`) and generated
   Memory types; do not handwrite URLs or wire DTOs in components.
 - From a meeting, Ask Another Me writes a follow-up into that room's
