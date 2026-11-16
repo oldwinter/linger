@@ -478,11 +478,10 @@ export function MeetingAudioPlayer({
           onDurationChange={(event) =>
             setDuration(event.currentTarget.duration)
           }
-          onEnded={() => {
+          onEnded={(event) => {
             wasPlayingRef.current = false;
             setPlaying(false);
             onRecordingEnded?.();
-          onEnded={(event) => {
             publishMedia(event.currentTarget, event.currentTarget.currentTime);
           }}
           onError={() => setFailed(true)}

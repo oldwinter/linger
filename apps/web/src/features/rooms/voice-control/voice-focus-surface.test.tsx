@@ -754,6 +754,26 @@ describe("VoiceFocusSurface", () => {
       expect(await screen.findByText(allowAccess)).toBeVisible();
     });
   });
+
+  it("keeps a finished sentence while the rest is still being said", () => {
+    render(
+      <VoiceControlContext.Provider
+        value={voiceValue({
+          partialTranscript: "We should ship it. And then we",
+        })}
+      >
+        <VoiceFocusSurface onExit={vi.fn()} />
+      </VoiceControlContext.Provider>,
+    );
+    const transcript = screen.getByRole("log", {
+      name: "Voice focus transcript",
+    });
+    expect(transcript).toHaveTextContent("We should ship it.");
+    expect(transcript).toHaveTextContent("And then we");
+    expect(transcript.querySelector("span.italic")).toHaveTextContent(
+      "And then we",
+    );
+  });
 });
 
 function stubMicrophonePermission(result: Promise<PermissionStatus>) {
@@ -843,25 +863,6 @@ function clickStop() {
   fireEvent.click(
     screen.getByRole("button", { name: /^(Stop|Close) recording$/ }),
   );
-  const confirm = screen.queryByRole("button", { name: "Stop & save"   it("keeps a finished sentence while the rest is still being said", () => {
-    render(
-      <VoiceControlContext.Provider
-        value={voiceValue({
-          partialTranscript: "We should ship it. And then we",
-        })}
-      >
-        <VoiceFocusSurface onExit={vi.fn()} />
-      </VoiceControlContext.Provider>,
-    );
-    const transcript = screen.getByRole("log", {
-      name: "Voice focus transcript",
-    });
-    expect(transcript).toHaveTextContent("We should ship it.");
-    expect(transcript).toHaveTextContent("And then we");
-    expect(transcript.querySelector("span.italic")).toHaveTextContent(
-      "And then we",
-    );
-  });
-});
+  const confirm = screen.queryByRole("button", { name: "Stop & save" });
   if (confirm) fireEvent.click(confirm);
 }
