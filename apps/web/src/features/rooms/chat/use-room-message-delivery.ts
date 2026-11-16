@@ -75,6 +75,10 @@ export function useRoomMessageDelivery({
   const networkStartedRef = useRef(new Set<string>());
   const attemptsRef = useRef(new Map<string, number>());
   const cancelWritesRef = useRef(new Map<string, Promise<void>>());
+  const outgoingRef = useRef(outgoing);
+  const commitRef = useRef<(intent: OutgoingMessage) => Promise<unknown>>(
+    async () => undefined,
+  );
   const outboxAccountId = outboxScope.accountId;
   const outboxRoomId = outboxScope.roomId;
   const outboxTenantId = outboxScope.tenantId;
@@ -137,6 +141,29 @@ export function useRoomMessageDelivery({
     },
     [],
   );
+
+  useEffect(() => {
+    outgoingRef.current = outgoing;
+    commitRef.current = commitOutgoing;
+  });
+
+  useEffect(() => {
+    let away = false;
+    function onVisibility() {
+      if (document.hidden) {
+        away = true;
+        return;
+      }
+      if (!away) return;
+      away = false;
+      for (const item of outgoingRef.current) {
+        if (item.status !== "unknown" || item.heldByPerson) continue;
+        void commitRef.current(item).catch(() => undefined);
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
 
   async function commitOutgoing(
     current: OutgoingMessage,
@@ -473,6 +500,7 @@ function canceledAfterNetworkStartedIntent(
     ...intent,
     error:
       "Delivery may already have reached TeamHub. Retry with the same idempotency key to reconcile it safely.",
+    heldByPerson: true,
     status: "unknown",
   };
 }

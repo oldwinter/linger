@@ -442,6 +442,125 @@ describe("Room Message delivery identity", () => {
     await waitFor(() => expect(createMessage).toHaveBeenCalledTimes(2));
   });
 
+  it("sends an unconfirmed message again when the window is visible", async () => {
+    const hidden = { value: false };
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      get: () => hidden.value,
+    });
+    try {
+      const createMessage = vi
+        .fn<RoomMessageSender["createMessage"]>()
+        .mockRejectedValueOnce(new Error("Connection lost."))
+        .mockResolvedValue({
+          message: committedMessage(),
+          presentation: { attachments: [], mentions: [] },
+        });
+      const queryClient = new QueryClient();
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
+      );
+      const { result } = renderHook(
+        () =>
+          useRoomMessageDelivery({
+            composition: sender(createMessage),
+            messagesQueryKey: ["messages"],
+            roomId: "room-1",
+            ...useTestOutbox("room-1"),
+          }),
+        { wrapper },
+      );
+
+      act(() => {
+        void result.current.sendMessage({
+          body: "Left while sending",
+          files: [],
+          mentions: [],
+        });
+      });
+      await waitFor(() =>
+        expect(result.current.outgoing[0]?.status).toBe("unknown"),
+      );
+      const idempotencyKey = createMessage.mock.calls[0]?.[0].idempotencyKey;
+
+      hidden.value = true;
+      document.dispatchEvent(new Event("visibilitychange"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(createMessage).toHaveBeenCalledOnce();
+
+      hidden.value = false;
+      document.dispatchEvent(new Event("visibilitychange"));
+      await waitFor(() => expect(createMessage).toHaveBeenCalledTimes(2));
+      expect(createMessage.mock.calls[1]?.[0].idempotencyKey).toBe(
+        idempotencyKey,
+      );
+      await waitFor(() => expect(result.current.outgoing).toEqual([]));
+    } finally {
+      Reflect.deleteProperty(document, "hidden");
+    }
+  });
+
+  it("does not resend a message the person stopped when the window is visible", async () => {
+    const hidden = { value: false };
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      get: () => hidden.value,
+    });
+    try {
+      const createMessage = vi.fn<RoomMessageSender["createMessage"]>(
+        ({ signal }) =>
+          new Promise((_, reject) => {
+            signal?.addEventListener("abort", () =>
+              reject(new DOMException("Aborted", "AbortError")),
+            );
+          }),
+      );
+      const queryClient = new QueryClient();
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
+      );
+      const { result } = renderHook(
+        () =>
+          useRoomMessageDelivery({
+            composition: sender(createMessage),
+            messagesQueryKey: ["messages"],
+            roomId: "room-1",
+            ...useTestOutbox("room-1"),
+          }),
+        { wrapper },
+      );
+
+      act(() => {
+        void result.current.sendMessage({
+          body: "Stop this",
+          files: [],
+          mentions: [],
+        });
+      });
+      await waitFor(() => expect(createMessage).toHaveBeenCalledOnce());
+      await act(() =>
+        result.current.cancelMessage(result.current.outgoing[0]!.clientId),
+      );
+      expect(result.current.outgoing[0]).toMatchObject({
+        heldByPerson: true,
+        status: "unknown",
+      });
+
+      hidden.value = true;
+      document.dispatchEvent(new Event("visibilitychange"));
+      hidden.value = false;
+      document.dispatchEvent(new Event("visibilitychange"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(createMessage).toHaveBeenCalledOnce();
+    } finally {
+      Reflect.deleteProperty(document, "hidden");
+    }
+  });
+
   it("restores a failed Message after remount and retries the original idempotent intent", async () => {
     const outbox = createMemoryRoomMessageOutbox();
     const createMessage = vi

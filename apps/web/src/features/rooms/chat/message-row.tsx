@@ -117,6 +117,8 @@ export interface PendingRoomMessage {
   // Epoch milliseconds of the first send; retries keep it.
   createdAt: number;
   error?: string;
+  // The person stopped this send. Coming back does not try it again.
+  heldByPerson?: true;
   mentions: TeamHubActorRef[];
   status: "failed" | "sending" | "unknown";
 }
