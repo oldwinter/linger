@@ -106,6 +106,37 @@ describe("Dashboard page", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("leads Todo with a promise whose day ended", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        created_at: new Date().toISOString(),
+        id: "workitem-newer",
+        title: "Newer open work",
+        updated_at: new Date().toISOString(),
+      }),
+      workItem(human, {
+        assignees: [assignment(human)],
+        created_at: "2026-01-02T00:00:00.000Z",
+        id: "workitem-promise",
+        title: "Send the deck",
+        updated_at: "2026-01-02T00:00:00.000Z",
+      }),
+    ]);
+    renderPage(runtime);
+
+    const todo = await screen.findByRole("region", { name: "Todo" });
+    await waitFor(() =>
+      expect(
+        within(todo)
+          .getAllByRole("link")
+          .filter((card) => card.hasAttribute("data-work-item-id"))
+          .map((card) => card.getAttribute("data-work-item-id")),
+      ).toEqual(["workitem-promise", "workitem-newer"]),
+    );
+  });
+
   it("keeps Task deep links focused without rendering a detail surface", async () => {
     const runtime = await testRuntime();
     const identity = runtime.seed.identity;

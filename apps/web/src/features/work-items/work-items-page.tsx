@@ -78,11 +78,13 @@ import { createWorkItemRoomFilterModel } from "./work-item-room-filter";
 import { WorkItemSelectionCopyLinks } from "./work-item-selection-copy";
 import {
   createWorkItemDashboardSort,
+  DEFAULT_WORK_ITEM_DASHBOARD_SORT,
   sortWorkItems,
   WORK_ITEM_DASHBOARD_SORTS,
   workItemDashboardSortSearch,
   type WorkItemDashboardSort,
 } from "./work-item-sort";
+import { leadUnmetPromises } from "./work-item-unmet-promise";
 import { useWorkItemSelection } from "./use-work-item-selection";
 
 interface DashboardColumn {
@@ -164,6 +166,7 @@ export function WorkItemsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const filters = createWorkItemDashboardFilters(searchParams);
   const sort = createWorkItemDashboardSort(searchParams.get("sort"));
+  const day = useLocalDay();
   const identityQuery = useQuery(teamHubIdentityQueryOptions(client));
   const currentActorId = identityQuery.data
     ? currentDashboardActorId(identityQuery.data, tenantId)
@@ -245,12 +248,18 @@ export function WorkItemsPage() {
   const textHidesBoard =
     Boolean(filters.text.trim()) && filteredItems.length === 0;
   // The columns render these exact lists, so the copied Markdown matches them.
-  const boardSections: BoardSection[] = dashboardColumns.map((column) => ({
-    column,
-    items: orderedItems.filter(
+  const boardSections: BoardSection[] = dashboardColumns.map((column) => {
+    const columnItems = orderedItems.filter(
       (item) => dashboardColumnFor(item) === column.id,
-    ),
-  }));
+    );
+    return {
+      column,
+      items:
+        column.id === "todo" && sort === DEFAULT_WORK_ITEM_DASHBOARD_SORT
+          ? leadUnmetPromises(columnItems, currentActorId, day)
+          : columnItems,
+    };
+  });
   const exportSections = boardSections.map(
     ({ column, items: columnItems }) => ({
       items: columnItems,
@@ -1047,6 +1056,21 @@ function WorkItemStatus({
       <span>{column.label}</span>
     </span>
   );
+}
+
+/** The local day, replaced when that day ends so an unmet promise can lead. */
+function useLocalDay() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const next = new Date(now);
+    next.setHours(24, 0, 0, 0);
+    const timer = window.setTimeout(
+      () => setNow(new Date()),
+      Math.max(0, next.getTime() - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [now]);
+  return now;
 }
 
 function dashboardColumnFor(item: TeamHubWorkItem): DashboardColumn["id"] {
