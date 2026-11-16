@@ -632,6 +632,42 @@ describe("VoiceFocusSurface", () => {
     expect(transcript).toHaveTextContent("Recognizing this sentence live");
   });
 
+  it("keeps the words still being said while the recording saves", () => {
+    const said = {
+      createdAtMs: 1,
+      endOffsetMs: 1_000,
+      id: "final-1",
+      startOffsetMs: 0,
+      text: "Confirmed live transcript",
+    };
+    const view = render(
+      <VoiceControlContext.Provider
+        value={voiceValue({
+          partialTranscript: "still saying this",
+          transcriptItems: [said],
+        })}
+      >
+        <VoiceFocusSurface onExit={vi.fn()} />
+      </VoiceControlContext.Provider>,
+    );
+    expect(screen.getByText("still saying this")).toBeVisible();
+    view.rerender(
+      <VoiceControlContext.Provider
+        value={voiceValue({
+          captureState: {
+            status: "finalizing",
+            capture: { ...capture(), status: "finalizing" },
+          },
+          partialTranscript: undefined,
+          transcriptItems: [said],
+        })}
+      >
+        <VoiceFocusSurface onExit={vi.fn()} />
+      </VoiceControlContext.Provider>,
+    );
+    expect(screen.getByText("still saying this")).toBeVisible();
+  });
+
   it("shows saving until finalization completes and returns to Room on exit", async () => {
     const stopCapture = vi.fn(async () => undefined);
     const onExit = vi.fn();
