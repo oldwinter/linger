@@ -1,5 +1,5 @@
 import { Cancel01Icon, Search01Icon } from "@hugeicons/core-free-icons";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { Icon } from "@/components/ui/icon";
 
@@ -8,10 +8,29 @@ import {
   type KeyboardShortcutGroup,
 } from "./keyboard-shortcuts";
 import { SettingsPageHeading } from "./settings-page-heading";
+import { playedShortcuts, type PlayedShortcut } from "./shortcut-rehearsal";
 
 export function ShortcutsSettingsPage() {
   const [query, setQuery] = useState("");
+  const [played, setPlayed] = useState<PlayedShortcut[]>([]);
   const groups = filterKeyboardShortcutGroups(query);
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.repeat || event.isComposing || event.keyCode === 229) return;
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        target.closest("input, textarea, select, [contenteditable='true']")
+      ) {
+        return;
+      }
+      const matches = playedShortcuts(event);
+      if (matches.length === 0) return;
+      setPlayed(matches);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   return (
     <div className="mx-auto flex w-full max-w-(--app-settings-width) flex-col gap-8 pb-4">
@@ -51,6 +70,8 @@ export function ShortcutsSettingsPage() {
           </button>
         ) : null}
       </label>
+
+      <ShortcutStage played={played} />
 
       {groups.length === 0 ? (
         <p className="rounded-2xl border border-border bg-background p-6 text-sm text-muted-foreground">
@@ -102,6 +123,36 @@ export function ShortcutsSettingsPage() {
         })
       )}
     </div>
+  );
+}
+
+function ShortcutStage({ played }: { played: PlayedShortcut[] }) {
+  return (
+    <section
+      aria-label="Shortcut you pressed"
+      aria-live="polite"
+      className="rounded-2xl border border-border bg-background p-6"
+    >
+      {played.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Press a shortcut. This page says what it does, and where.
+        </p>
+      ) : (
+        <>
+          <p className="font-mono text-3xl text-foreground">
+            {played[0]?.chord}
+          </p>
+          <ul className="mt-4 flex flex-col gap-3">
+            {played.map((item) => (
+              <li key={`${item.where}\n${item.action}`}>
+                <p className="text-sm text-foreground">{item.action}</p>
+                <p className="text-sm text-muted-foreground">{item.where}</p>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
   );
 }
 

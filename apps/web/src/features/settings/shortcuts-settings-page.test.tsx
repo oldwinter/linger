@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { keyboardShortcutGroups } from "./keyboard-shortcuts";
@@ -58,6 +58,24 @@ describe("Shortcuts settings page", () => {
     expect(searchbox).toHaveValue("");
     expect(
       screen.getByRole("heading", { level: 2, name: "Work Items board" }),
+    ).toBeVisible();
+  });
+
+  it("says what a pressed shortcut does, including every place Escape works", () => {
+    render(<ShortcutsSettingsPage />);
+    const stage = screen.getByRole("region", { name: "Shortcut you pressed" });
+    expect(stage).toHaveTextContent("Press a shortcut.");
+
+    fireEvent.keyDown(window, { key: "j" });
+    expect(
+      within(stage).getByText("Select the next Work Item card"),
+    ).toBeVisible();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(within(stage).getAllByText("Escape").length).toBeGreaterThan(0);
+    expect(within(stage).getByText("Works anywhere in a Room.")).toBeVisible();
+    expect(
+      within(stage).getByText("Works while the search dialog has focus."),
     ).toBeVisible();
   });
 });
