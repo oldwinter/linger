@@ -1,16 +1,50 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const pdf = vi.hoisted(() => ({
-  getDocument: vi.fn(),
-  loadingDestroy: vi.fn(),
-  renderCancel: vi.fn(),
-  renderPage: vi.fn(),
-}));
+const pdf = vi.hoisted(() => {
+  class TextLayer {
+    options: {
+      container: HTMLElement;
+      textContentSource: { items?: { str?: string }[] };
+    };
+
+    constructor(options: TextLayer["options"]) {
+      this.options = options;
+      for (const item of options.textContentSource.items ?? []) {
+        if (!item.str) continue;
+        const span = document.createElement("span");
+        span.textContent = item.str;
+        options.container.append(span);
+      }
+    }
+
+    render() {
+      return Promise.resolve();
+    }
+
+    cancel() {}
+
+    get textContentItemsStr() {
+      return (this.options.textContentSource.items ?? []).map(
+        (item) => item.str ?? "",
+      );
+    }
+  }
+
+  return {
+    TextLayer,
+    getDocument: vi.fn(),
+    loadingDestroy: vi.fn(),
+    renderCancel: vi.fn(),
+    renderPage: vi.fn(),
+    textItems: [] as { str: string }[],
+  };
+});
 const resizeObservers: TestResizeObserver[] = [];
 
 vi.mock("pdfjs-dist", () => ({
   GlobalWorkerOptions: {},
+  TextLayer: pdf.TextLayer,
   getDocument: pdf.getDocument,
 }));
 
@@ -22,6 +56,7 @@ import { PdfPreviewAdapter } from "./pdf-preview-adapter";
 
 describe("PdfPreviewAdapter task lifecycle", () => {
   beforeEach(() => {
+    pdf.textItems = [];
     vi.clearAllMocks();
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
       {} as CanvasRenderingContext2D,
@@ -33,8 +68,10 @@ describe("PdfPreviewAdapter task lifecycle", () => {
       promise: Promise.resolve(),
     }));
     const page = {
+      getTextContent: vi.fn(async () => ({ items: pdf.textItems })),
       getViewport: ({ scale }: { scale: number }) => ({
         height: 900 * scale,
+        scale,
         width: 600 * scale,
       }),
       render: pdf.renderPage,
@@ -79,6 +116,35 @@ describe("PdfPreviewAdapter task lifecycle", () => {
     );
     expect(screen.getByLabelText("PDF page 2")).toBeVisible();
     expect(screen.getByText("2 / 2")).toBeVisible();
+  });
+
+  it("puts the page's words on the picture and copies them as a sentence", async () => {
+    pdf.textItems = [{ str: "The launch slipped." }];
+    render(
+      <PdfPreviewAdapter
+        blob={new Blob(["%PDF-1.4\n%%EOF"])}
+        filename="brief.pdf"
+      />,
+    );
+    const line = await screen.findByText("The launch slipped.");
+    expect(screen.queryByLabelText("PDF page 1")).not.toBeInTheDocument();
+
+    const setData = vi.fn();
+    vi.spyOn(document, "getSelection").mockReturnValue({
+      anchorNode: line,
+      toString: () => "The launch\0 slipped.",
+    } as unknown as Selection);
+    const event = new Event("copy", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", { value: { setData } });
+    line.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(setData).toHaveBeenCalledWith("text/plain", "The launch slipped.");
+
+    pdf.textItems = [{ str: "The next page." }];
+    fireEvent.click(screen.getByRole("button", { name: "Next PDF page" }));
+    expect(await screen.findByText("The next page.")).toBeVisible();
+    expect(screen.queryByText("The launch slipped.")).not.toBeInTheDocument();
+    vi.mocked(document.getSelection).mockRestore();
   });
 
   it("does not rebuild tasks or flash Rendering for the same blob and viewport", async () => {
