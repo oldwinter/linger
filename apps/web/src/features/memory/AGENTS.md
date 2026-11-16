@@ -9,7 +9,9 @@
   recenters the search on that page. While a refresh is still writing, a page
   that is not published yet lands on this graph, and a dated session lands on
   its day. A summary topic can open the lines the recording spoke while that
-  topic was going on. Tell this story retells a meeting as
+  topic was going on. Tell this story retells a meeting as Play the year walks the days something
+  landed, names each page, and skips the empty days between them. Tell this
+  story retells a meeting as
   the lines you could say out loud, then the one line you would actually tell.
   That chosen line stays on this computer and leads the meeting when you come
   back, while the meeting document stays unchanged.
