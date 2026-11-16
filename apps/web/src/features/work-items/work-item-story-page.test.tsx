@@ -291,4 +291,84 @@ describe("WorkItemStoryPage", () => {
     expect(await screen.findByText("Call Lisa about the quote.")).toBeVisible();
     expect(screen.getByText("Your Pocket note from that day")).toBeVisible();
   });
-});
+  it("says when an assignee is not in the room doing the work", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    runtime.server.on("GET", "/v0/rooms/{roomId}/members", () => ({
+      items: [
+        {
+          added_by: human,
+          actor: human,
+          joined_at: "2026-11-14T01:00:00Z",
+          role: "owner",
+          room_id: "room-login",
+          updated_at: "2026-11-14T01:00:00Z",
+        },
+      ],
+      page: { has_more: false },
+    }));
+    runtime.seed.workItems = [
+      {
+        assignees: [
+          {
+            actor: {
+              display_name: "Codex",
+              id: "actor-codex",
+              kind: "agent",
+              tenant_id: "tenant-northstar",
+            },
+            assigned_at: "2026-11-14T01:00:00Z",
+            assigned_by: human,
+          },
+        ],
+        created_at: "2026-11-14T01:00:00Z",
+        created_by: human,
+        description: "Write the follow-up.",
+        explicit_access_grants: [],
+        id: "workitem-follow-up",
+        kind: "issue",
+        number: 7,
+        priority: "medium",
+        referenced_actors: [],
+        state: "open",
+        tenant_id: "tenant-northstar",
+        title: "Send the follow-up",
+        updated_at: "2026-11-14T01:00:00Z",
+        updated_by: human,
+        version: 1,
+        work_room_id: "room-login",
+      },
+    ];
+    runtime.server.on("GET", "/v0/work-items/{workItemId}/timeline", () => ({
+      items: [],
+      page: { has_more: false },
+    }));
+    const router = createMemoryRouter(
+      [
+        {
+          element: <WorkItemStoryPage />,
+          path: "/t/:tenantId/work-items/:workItemId",
+        },
+      ],
+      {
+        initialEntries: ["/t/tenant-northstar/work-items/workitem-follow-up"],
+      },
+    );
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <RouterProvider router={router} />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByText(
+        "Codex is assigned and is not in the room doing this work.",
+      ),
+    ).toBeVisible();
+  });});

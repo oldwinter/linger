@@ -8,7 +8,12 @@ import { dayKey } from "@/lib/date-format";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 
 import { useMeetings } from "@/features/memory/memory-queries";
+import { roomMembersQueryOptions } from "@/features/rooms/room-queries";
 
+import {
+  assigneesMissingFromRoom,
+  assigneesMissingFromRoomText,
+} from "./assignee-not-in-room";
 import { loadNoteFromThatDay } from "./note-from-that-day";
 import { tenantWorkItemTargetQueryOptions } from "./work-item-queries";
 import { dashboardWorkItemPath } from "./work-item-routes";
@@ -56,6 +61,23 @@ export function WorkItemStoryPage() {
     queryFn: () => loadNoteFromThatDay(client, tenantId, openedDay ?? ""),
     queryKey: ["teamhub", tenantId, "pocket-note-for-work", openedDay],
   });
+  const members = useQuery({
+    ...roomMembersQueryOptions(client, tenantId, item?.work_room_id ?? ""),
+    enabled: Boolean(item?.work_room_id && item.assignees.length > 0),
+  });
+  const missingAssignees =
+    item && members.data
+      ? assigneesMissingFromRoom(
+          item.assignees.map((assignee) => ({
+            id: assignee.actor.id,
+            name: assignee.actor.display_name,
+          })),
+          new Set(members.data.items.map((member) => member.actor.id)),
+        )
+      : [];
+  const missingAssigneeText = assigneesMissingFromRoomText(
+    missingAssignees.map((actor) => actor.name),
+  );
   const roomId =
     item?.work_room_id ??
     timelineQuery.data?.items.reduce<string | undefined>(
@@ -108,6 +130,11 @@ export function WorkItemStoryPage() {
                     {noteQuery.data}
                   </p>
                 </blockquote>
+              ) : null}
+              {missingAssigneeText ? (
+                <p className="mt-3 text-sm text-foreground" role="status">
+                  {missingAssigneeText}
+                </p>
               ) : null}
               {item.mandate ? (
                 <p className="mt-3 text-sm text-muted-foreground">
