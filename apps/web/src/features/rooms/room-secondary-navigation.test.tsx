@@ -705,6 +705,77 @@ describe("Room navigation working indicator", () => {
     ).toHaveTextContent("On it.");
   });
 
+  it("keeps the reply when a run you started finishes in another room", async () => {
+    const asked = room("room-codex", 0, 0);
+    asked.latest_message = {
+      author: {
+        display_name: "Jenny",
+        id: "actor-jenny",
+        kind: "human",
+        tenant_id: "tenant-a",
+      },
+      created_at: "2026-07-24T10:00:00Z",
+      id: "message-1",
+      raw_message: "Ship the brief",
+      room_seq: 2,
+    };
+    asked.name = "Codex";
+    const replied = {
+      ...asked,
+      latest_message: {
+        author: {
+          display_name: "Codex",
+          id: "actor-codex",
+          kind: "agent" as const,
+          tenant_id: "tenant-a",
+        },
+        created_at: "2026-07-24T10:05:00Z",
+        id: "message-2",
+        raw_message: "The brief is shipped.",
+        room_seq: 3,
+      },
+    };
+    const navigation = (
+      current: TeamHubRoomListItem,
+      runningRoomIds: readonly string[],
+      activeRoomId = "room-here",
+    ) => (
+      <MemoryRouter>
+        <RoomSecondaryNavigation
+          activeRoomId={activeRoomId}
+          actorId="actor-jenny"
+          onCloseMobile={() => undefined}
+          onCreateRoom={() => undefined}
+          rooms={[current]}
+          runningRoomIds={runningRoomIds}
+          tenant={{
+            created_at: "2026-07-24T09:00:00Z",
+            id: "tenant-a",
+            name: "Northstar",
+          }}
+        />
+      </MemoryRouter>
+    );
+    const view = render(navigation(asked, [asked.id]));
+    expect(
+      await screen.findByRole("region", { name: "Working now" }),
+    ).toHaveTextContent("Ship the brief");
+    view.rerender(navigation(replied, []));
+    const reply = await screen.findByRole("link", {
+      name: "Codex, The brief is shipped.",
+    });
+    expect(reply).toHaveAttribute("href", "/t/tenant-a/rooms/room-codex/chat");
+    expect(
+      screen.queryByRole("heading", { name: "Working now" }),
+    ).not.toBeInTheDocument();
+    view.rerender(navigation(replied, [], "room-codex"));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("link", { name: "Codex, The brief is shipped." }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
   it("shows a failed mark that yields to a working spinner", () => {
     const group = room("room-failed", 1, 0);
     const renderNavigation = (

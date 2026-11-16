@@ -15,7 +15,10 @@ import { isDesktopShell, useDesktopListCollapsed } from "@/app/desktop-shell";
 import { BrandMark } from "@/components/ui/brand-mark";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
 import { useRoomListWidth } from "@/components/ui/use-sidebar-width";
-import { documentQueryOptions } from "./room-queries";
+import {
+  documentQueryOptions,
+  teamHubIdentityQueryOptions,
+} from "./room-queries";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubRoomListItem,
@@ -76,6 +79,13 @@ export function RoomNavigation({
   const [listCollapsed, setListCollapsed] = useDesktopListCollapsed(tenant.id);
   const { roomId, documentId } = useParams();
   const { client } = useTeamHubRuntime();
+  const identity = useQuery({
+    ...teamHubIdentityQueryOptions(client),
+    enabled: typeof client.api?.GET === "function",
+  });
+  const actorId = identity.data?.actors.find(
+    (actor) => actor.tenant_id === tenant.id,
+  )?.id;
   const document = useQuery({
     ...documentQueryOptions(client, tenant.id, documentId ?? ""),
     enabled: Boolean(documentId),
@@ -240,6 +250,7 @@ export function RoomNavigation({
             <RoomSecondaryNavigation
               accountId={accountId}
               activeRoomId={effectiveRoomId}
+              actorId={actorId}
               onCloseMobile={onCloseMobile}
               onCreateRoom={onCreateRoom}
               onOpenSearch={onOpenSearch}

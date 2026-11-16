@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
 
-import { workingNowRooms, workingPhaseLabel } from "./working-now";
+import {
+  trackRunsYouStarted,
+  workingNowRooms,
+  workingPhaseLabel,
+} from "./working-now";
 
 function room(
   id: string,
@@ -91,5 +95,127 @@ describe("working now", () => {
     ]);
     expect(workingPhaseLabel("on-your-message")).toBe("On your message");
     expect(workingPhaseLabel("replying")).toBe("Replying");
+  });
+});
+
+describe("trackRunsYouStarted", () => {
+  const yours = {
+    author: {
+      display_name: "Jenny",
+      id: "actor-jenny",
+      kind: "human" as const,
+      tenant_id: "tenant-a",
+    },
+    created_at: "2026-07-24T10:00:00Z",
+    id: "message-1",
+    raw_message: "Ship the brief",
+    room_seq: 2,
+  };
+  const reply = {
+    author: {
+      display_name: "Codex",
+      id: "actor-codex",
+      kind: "agent" as const,
+      tenant_id: "tenant-a",
+    },
+    created_at: "2026-07-24T10:05:00Z",
+    id: "message-2",
+    raw_message: "The brief is shipped.",
+    room_seq: 3,
+  };
+
+  it("keeps the reply when a run you started finishes in another room", () => {
+    const running = trackRunsYouStarted({
+      activeRoomId: "room-here",
+      actorId: "actor-jenny",
+      failedRoomIds: [],
+      finished: [],
+      rooms: [
+        room("room-codex", {
+          latest_message: yours,
+          name: "Codex",
+        }),
+      ],
+      runningRoomIds: ["room-codex"],
+      started: [],
+    });
+    expect(running.started).toEqual([
+      { messageId: "message-1", roomId: "room-codex" },
+    ]);
+    const done = trackRunsYouStarted({
+      activeRoomId: "room-here",
+      actorId: "actor-jenny",
+      failedRoomIds: [],
+      finished: running.finished,
+      rooms: [
+        room("room-codex", {
+          latest_message: reply,
+          name: "Codex",
+        }),
+      ],
+      runningRoomIds: [],
+      started: running.started,
+    });
+    expect(done.started).toEqual([]);
+    expect(done.finished).toEqual([
+      {
+        messageId: "message-2",
+        name: "Codex",
+        reply: "The brief is shipped.",
+        roomId: "room-codex",
+      },
+    ]);
+    expect(
+      trackRunsYouStarted({
+        activeRoomId: "room-codex",
+        actorId: "actor-jenny",
+        failedRoomIds: [],
+        finished: done.finished,
+        rooms: [room("room-codex", { latest_message: reply, name: "Codex" })],
+        runningRoomIds: [],
+        started: [],
+      }).finished,
+    ).toEqual([]);
+  });
+
+  it("leaves the reply out when you are in that room, it failed, or it is Another Me", () => {
+    const started = [{ messageId: "message-1", roomId: "room-codex" }];
+    const rooms = [
+      room("room-codex", { latest_message: reply, name: "Codex" }),
+    ];
+    expect(
+      trackRunsYouStarted({
+        activeRoomId: "room-codex",
+        actorId: "actor-jenny",
+        failedRoomIds: [],
+        finished: [],
+        rooms,
+        runningRoomIds: [],
+        started,
+      }).finished,
+    ).toEqual([]);
+    expect(
+      trackRunsYouStarted({
+        activeRoomId: "room-here",
+        actorId: "actor-jenny",
+        failedRoomIds: ["room-codex"],
+        finished: [],
+        rooms,
+        runningRoomIds: [],
+        started,
+      }).finished,
+    ).toEqual([]);
+    expect(
+      trackRunsYouStarted({
+        activeRoomId: "room-here",
+        actorId: "actor-jenny",
+        anotherMeRoomId: "room-codex",
+        failedRoomIds: [],
+        finished: [],
+        rooms,
+        runningRoomIds: [],
+        started,
+      }).finished,
+    ).toEqual([]);
   });
 });
