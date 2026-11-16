@@ -26,6 +26,9 @@
 - How Another Me would introduce you turns the profile into a short card.
   The Human chooses which line leads, then can leave that card on today's
   Pocket note.
+- How Another Me would tell your life (`/library/life`) speaks the Background
+  timeline one chapter at a time, earliest year first, as a line you could say
+  out loud. The profile list stays as it is, and the telling writes nothing.
 - Wiki navigation owns Profile, Timeline, Projects, Topics, People, and Companies. Timeline, People
   and Companies are the display labels for the existing `graph`, `contacts` and
   `clients` entries; keep their routes and data keys.
