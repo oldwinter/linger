@@ -62,6 +62,9 @@
 - A transcript with more than one speaker can be read as one speaker's words.
   A minute or more before that speaker talks again is named in the part. The
   recording is not moved, and copying while a part is open copies that part.
+- A transcript with more than one clocked speaker shows who held the floor:
+  a strip from the first word to the last, and how long each voice spoke.
+  The recording is not moved.
 - A meeting reader may copy its summary as the Markdown the summary view renders
   from. The clipboard again holds derived reading state, and a refused copy says
   so.

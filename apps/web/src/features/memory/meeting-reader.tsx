@@ -65,6 +65,8 @@ import {
   previousMatchPosition,
   searchMeetingTranscript,
 } from "./meeting-transcript-search";
+import { MeetingFloorStrip } from "./meeting-floor-strip";
+import { meetingFloor } from "./meeting-floor";
 import { MeetingSpeakerPart } from "./meeting-speaker-part";
 import {
   meetingSpeakerPart,
@@ -681,6 +683,10 @@ function MeetingVersionReader({
     [partSpeaker, transcriptText],
   );
   useEffect(() => setPartSpeaker(undefined), [transcriptText]);
+  const floor = useMemo(
+    () => (transcriptText ? meetingFloor(transcriptText) : undefined),
+    [transcriptText],
+  );
   const match = useMemo(
     () => searchMeetingTranscript(turns, query),
     [query, turns],
@@ -1030,6 +1036,7 @@ function MeetingVersionReader({
     <>
       {partSpeaker ? null : searchBar}
       {header}
+      {floor ? <MeetingFloorStrip floor={floor} /> : null}
       <MeetingSpeakerPart
         lines={partLines}
         onSelect={setPartSpeaker}
