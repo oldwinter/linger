@@ -22,6 +22,7 @@ export type LibrarySection =
  */
 export function LibrarySidebar({
   active,
+  backTo,
   children,
   id,
   mobileOpen = false,
@@ -30,6 +31,8 @@ export function LibrarySidebar({
   tenantId,
 }: {
   active: LibrarySection | null;
+  /** Where Back lands. A file inside a folder returns to that folder. */
+  backTo?: string;
   children: ReactNode;
   id?: string;
   mobileOpen?: boolean;
@@ -100,7 +103,7 @@ export function LibrarySidebar({
             <Link
               className="-ml-1.5 inline-flex h-8 min-w-0 items-center gap-1 rounded-lg px-1.5 text-[14px] font-medium text-app-ink transition-colors hover:bg-app-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
               onClick={onMobileClose}
-              to={`/t/${encodeURIComponent(tenantId)}/library`}
+              to={backTo ?? `/t/${encodeURIComponent(tenantId)}/library`}
             >
               <Icon icon={ArrowLeft01Icon} className="shrink-0" size={16} />
               <span className="truncate">Back to Library</span>
