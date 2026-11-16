@@ -96,6 +96,12 @@
 - A meeting recording starts in the left ear and finishes in the right, moving
   as the listener moves through it. A browser that cannot place sound this way
   plays the recording through its own output.
+- A recording whose transcript has clocked turns of different density can be
+  heard at the pace they spoke: a rush slows down and a sparse stretch speeds
+  up, within the speeds the player already offers. That pace is not remembered
+  as the listener's speed. Stopping it returns the recording to the speed this
+  browser kept. The transcript is read when the listener asks, and a transcript
+  with no such spread offers no pace.
 - A meeting reader may send its summary to a Room as one Message from the
   header's Room picker. That Message copies derived reading state, writes no
   Memory state, and reuses its idempotency key only when retrying the same

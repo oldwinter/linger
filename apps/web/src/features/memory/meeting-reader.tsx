@@ -30,6 +30,7 @@ import {
   carryMeeting,
   useCarriedMeeting,
 } from "./meeting-carry";
+import { meetingPace, type MeetingPacePoint } from "./meeting-pace";
 import { carryDecisionPath, meetingDecisions } from "./carry-decision";
 import { parseMeetingSummary } from "./meeting-overview";
 import {
@@ -138,6 +139,59 @@ export function MeetingReader({
     { at: number; request: number } | undefined
   >();
   const [spokenSeconds, setSpokenSeconds] = useState<number>();
+  const [pace, setPace] = useState<readonly MeetingPacePoint[]>();
+  const [hearingPace, setHearingPace] = useState(false);
+  const [paceBusy, setPaceBusy] = useState(false);
+  const [paceOffer, setPaceOffer] = useState(true);
+  const paceAbort = useRef<AbortController | undefined>(undefined);
+  useEffect(() => {
+    setPace(undefined);
+    setHearingPace(false);
+    setPaceBusy(false);
+    setPaceOffer(true);
+    paceAbort.current?.abort();
+    return () => paceAbort.current?.abort();
+  }, [entry.id]);
+  function hearPace() {
+    if (hearingPace) {
+      paceAbort.current?.abort();
+      setHearingPace(false);
+      return;
+    }
+    const documentId = meeting.transcript_document_id;
+    const versionId = meeting.transcript_version_id;
+    if (!documentId || !versionId) {
+      setPaceOffer(false);
+      return;
+    }
+    paceAbort.current?.abort();
+    const controller = new AbortController();
+    paceAbort.current = controller;
+    setPaceBusy(true);
+    void loadArtifactPreview({
+      client,
+      documentId,
+      signal: controller.signal,
+      versionId,
+    })
+      .then((preview) => {
+        const points = meetingPace(preview.textContent ?? "");
+        preview.dispose();
+        if (controller.signal.aborted) return;
+        if (!points) {
+          setPaceOffer(false);
+          return;
+        }
+        setPace(points);
+        setHearingPace(true);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setPaceOffer(false);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPaceBusy(false);
+      });
+  }
   const tab: MeetingTab =
     file === "summary" || file === "transcript"
       ? file
@@ -566,9 +620,17 @@ export function MeetingReader({
                   continueRecording={continueRecording}
                   documentId={meeting.recording_document_id}
                   filename={meeting.recording_filename}
+                  hearingPace={hearingPace}
                   meetingId={entry.id}
+                  onHearPace={
+                    paceOffer && meeting.transcript_document_id
+                      ? hearPace
+                      : undefined
+                  }
                   onRecordingEnded={onRecordingEnded}
                   onTime={setSpokenSeconds}
+                  pace={hearingPace ? pace : undefined}
+                  paceBusy={paceBusy}
                   playFrom={playFrom}
                   variant="player"
                   versionId={meeting.recording_version_id}
@@ -588,10 +650,18 @@ export function MeetingReader({
                 continueRecording={continueRecording}
                 documentId={meeting.recording_document_id}
                 filename={meeting.recording_filename}
+                hearingPace={hearingPace}
                 meetingId={entry.id}
                 onRecordingEnded={onRecordingEnded}
                 onTime={setSpokenSeconds}
                 playFrom={playFrom}
+                onHearPace={
+                  paceOffer && meeting.transcript_document_id
+                    ? hearPace
+                    : undefined
+                }
+                pace={hearingPace ? pace : undefined}
+                paceBusy={paceBusy}
                 variant="player"
                 versionId={meeting.recording_version_id}
               />
@@ -624,11 +694,15 @@ function MeetingVersionReader({
   documentId,
   versionId,
   filename,
+  hearingPace,
   meetingId,
   onRecordingEnded,
   onTime,
   playFrom,
   spokenSeconds,
+  onHearPace,
+  pace,
+  paceBusy,
   variant,
 }: {
   /** Whose listening positions the player remembers. */
@@ -642,6 +716,8 @@ function MeetingVersionReader({
   documentId: string;
   versionId: string;
   filename: string;
+  /** The recording is following how densely the room spoke. */
+  hearingPace?: boolean;
   /** Tells the player which meeting it is playing, so its speed starts over. */
   meetingId?: string;
   /** The recording reached its end, so the day can continue. */
@@ -651,6 +727,10 @@ function MeetingVersionReader({
   playFrom?: { at: number; request: number };
   /** Playhead on the transcript tab, so the spoken turn can be marked. */
   spokenSeconds?: number;
+  /** Starts or stops hearing the recording at the pace the room spoke. */
+  onHearPace?: () => void;
+  pace?: readonly MeetingPacePoint[];
+  paceBusy?: boolean;
   variant: "player" | "document";
 }) {
   const { client } = useTeamHubRuntime();
@@ -1014,6 +1094,7 @@ function MeetingVersionReader({
         accountId={accountId}
         downloadDisabled={!preview || downloading}
         filename={filename}
+        hearingPace={hearingPace}
         mediaType={preview?.version.media_type}
         meetingId={meetingId}
         onDownload={() => void download()}
@@ -1038,6 +1119,9 @@ function MeetingVersionReader({
         onRecordingEnded={onRecordingEnded}
         onTime={onTime}
         playFrom={playFrom}
+        onHearPace={onHearPace}
+        pace={pace}
+        paceBusy={paceBusy}
         src={playable ? preview.objectUrl : undefined}
         startAtBeginning={continueRecording}
         status={

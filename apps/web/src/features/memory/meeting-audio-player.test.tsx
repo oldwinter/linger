@@ -751,4 +751,33 @@ describe("MeetingAudioPlayer speed memory", () => {
     fireEvent.click(screen.getByRole("button", { name: "Play recording" }));
     expect(carriedMeetingSnapshot()).toBeUndefined();
   });
+  it("slows a rush and speeds a sparse stretch without saving that speed", () => {
+    const onHearPace = vi.fn();
+    const { container } = render(
+      <MeetingAudioPlayer
+        accountId="account-a"
+        filename="recording.m4a"
+        hearingPace
+        meetingId="meeting-1"
+        onDownload={vi.fn()}
+        onHearPace={onHearPace}
+        pace={[
+          { at: 0, rate: 0.75 },
+          { at: 50, rate: 2 },
+        ]}
+        src="blob:recording"
+      />,
+    );
+    const audio = container.querySelector("audio")!;
+    loadDuration(audio, 100);
+    expect(audio.playbackRate).toBe(0.75);
+    audio.currentTime = 50;
+    fireEvent.timeUpdate(audio);
+    expect(audio.playbackRate).toBe(2);
+    expect(readMeetingPlaybackSpeed("account-a")).toBe(1);
+    expect(speedTrigger()).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Stop the pace" }));
+    expect(onHearPace).toHaveBeenCalledOnce();
+  });
+
 });
