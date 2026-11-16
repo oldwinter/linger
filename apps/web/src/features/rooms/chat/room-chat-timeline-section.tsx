@@ -2,6 +2,8 @@ import { type ComponentProps, useMemo } from "react";
 
 import { timelineMessages } from "./message-grouping";
 import { MessageTimeline } from "./message-timeline";
+import { roomAgreedMessage } from "./room-agreed";
+import { RoomAgreedLine } from "./room-agreed-line";
 import { RoomUnreadJump } from "./room-unread-jump";
 import { findUnreadDividerIndex } from "./unread-divider";
 import type { RoomChatData } from "./use-room-chat-data";
@@ -176,8 +178,20 @@ function RoomTimelineViewport({
   viewportRef,
   ...timelineProps
 }: RoomTimelineViewportProps) {
+  const agreed = useMemo(() => {
+    const memberIds = timelineProps.memberActorIds;
+    const actorKinds = timelineProps.actorKinds;
+    if (!memberIds || !actorKinds) return;
+    const humanIds = [...memberIds].filter((id) => actorKinds[id] === "human");
+    return roomAgreedMessage(timelineProps.messages, humanIds);
+  }, [
+    timelineProps.actorKinds,
+    timelineProps.memberActorIds,
+    timelineProps.messages,
+  ]);
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
+      {agreed ? <RoomAgreedLine message={agreed} /> : null}
       <div
         aria-label="Room timeline"
         data-voice-scroll="main"
