@@ -93,6 +93,9 @@
   day opens on Summary and starts from the beginning, even if this browser once
   stopped in the middle of it. A day with no later recording just ends. Pausing
   does not continue the day.
+- A meeting recording starts in the left ear and finishes in the right, moving
+  as the listener moves through it. A browser that cannot place sound this way
+  plays the recording through its own output.
 - A meeting reader may send its summary to a Room as one Message from the
   header's Room picker. That Message copies derived reading state, writes no
   Memory state, and reuses its idempotency key only when retrying the same

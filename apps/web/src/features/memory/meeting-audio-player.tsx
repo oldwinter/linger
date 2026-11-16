@@ -18,6 +18,7 @@ import {
 
 import { releaseCarriedMeeting, type PlaybackLeave } from "./meeting-carry";
 import { MeetingOpenAndClose } from "./meeting-open-close";
+import { walkMeetingEars, type MeetingEarWalk } from "./meeting-ear";
 import {
   forgetMeetingPosition,
   readMeetingResume,
@@ -109,6 +110,7 @@ export function MeetingAudioPlayer({
   status?: string;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const earRef = useRef<MeetingEarWalk | undefined>(undefined);
   const sectionRef = useRef<HTMLElement>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
@@ -170,7 +172,14 @@ export function MeetingAudioPlayer({
     if (audioRef.current) audioRef.current.playbackRate = storedRate;
   }, [accountId, meetingId]);
 
-  useEffect(() => () => window.clearTimeout(rateNoticeTimer.current), []);
+  useEffect(
+    () => () => {
+      window.clearTimeout(rateNoticeTimer.current);
+      earRef.current?.close();
+      earRef.current = undefined;
+    },
+    [],
+  );
   useEffect(() => {
     onLeaveRef.current = onLeavePlayback;
     leaveRef.current = {
@@ -258,6 +267,7 @@ export function MeetingAudioPlayer({
   function onTimeUpdate(event: SyntheticEvent<HTMLAudioElement>) {
     const at = event.currentTarget.currentTime;
     leaveRef.current = { ...leaveRef.current, seconds: at };
+    earRef.current?.place(at, event.currentTarget.duration);
     setCurrent(at);
     onTime?.(at);
     // Scrubbing fires time updates in a burst; one write per interval is enough
@@ -409,10 +419,11 @@ export function MeetingAudioPlayer({
             setPlaying(false);
             savePosition(event.currentTarget.currentTime);
           }}
-          onPlay={() => {
+          onPlay={(event) => {
             wasPlayingRef.current = true;
             setPlaying(true);
             setResumeFrom(undefined);
+            earRef.current ??= walkMeetingEars(event.currentTarget);
           }}
           onTimeUpdate={onTimeUpdate}
           preload="metadata"

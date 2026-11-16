@@ -17,6 +17,7 @@ import { readMeetingResume, rememberMeetingPosition } from "./meeting-resume";
 afterEach(() => {
   releaseCarriedMeeting();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 beforeEach(() => localStorage.clear());
 
@@ -108,6 +109,35 @@ describe("MeetingAudioPlayer", () => {
     await waitFor(() => expect(audio.currentTime).toBe(33));
     expect(play).toHaveBeenCalled();
     expect(screen.getByText("0:33 / 2:05")).toBeVisible();
+  });
+
+  it("walks from the left ear to the right as it plays", () => {
+    const panner = {
+      connect: () => undefined,
+      pan: { value: 9 },
+    };
+    class FakeAudioContext {
+      close() {
+        return Promise.resolve();
+      }
+      createMediaElementSource() {
+        return { connect: () => undefined };
+      }
+      createStereoPanner() {
+        return panner;
+      }
+      resume() {
+        return Promise.resolve();
+      }
+    }
+    vi.stubGlobal("AudioContext", FakeAudioContext);
+    const { audio } = renderPlayer();
+    loadDuration(audio, 100);
+    fireEvent.play(audio);
+    expect(panner.pan.value).toBe(-1);
+    audio.currentTime = 100;
+    fireEvent.timeUpdate(audio);
+    expect(panner.pan.value).toBe(1);
   });
 
   it("plays, follows the playhead, seeks, and downloads", () => {
