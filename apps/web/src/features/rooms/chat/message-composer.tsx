@@ -146,6 +146,8 @@ export interface MessageComposerHandle {
   canAcceptFiles: () => boolean;
   clearCommittedBody: (body: string) => void;
   insertMention: (actor: TeamHubActorRef) => void;
+  /** Places a mention without moving focus into the composer. */
+  insertMentionQuietly: (actor: TeamHubActorRef) => void;
   focus: (options?: FocusOptions) => void;
   stageQuoteReply: (reply: StagedQuoteReply) => void;
 }

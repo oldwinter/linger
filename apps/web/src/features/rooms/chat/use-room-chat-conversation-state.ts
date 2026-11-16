@@ -22,6 +22,7 @@ import {
   useRoomConversation,
 } from "./use-room-conversation";
 import { useRoomMessageInteractions } from "./use-room-message-interactions";
+import { useUnansweredFollowUp } from "./use-unanswered-follow-up";
 import { useAnotherMeOnboarding } from "./use-another-me-onboarding";
 import { useRoomTimelineScroll } from "./use-room-timeline-scroll";
 import { useRoomReadBoundary } from "./use-room-read-boundary";
@@ -97,6 +98,17 @@ export function useRoomChatConversationState({
     mentionOptions,
     roomId,
     tenantId,
+  });
+  useUnansweredFollowUp({
+    clearContext: interactions.clearContext,
+    composerRef: interactions.composerRef,
+    currentActorId,
+    draftScope,
+    enabled: room.participation !== "left",
+    holdReply: interactions.holdReply,
+    mentionOptions,
+    messages: orderedMessages,
+    selectedContextMessages: interactions.selectedContextMessages,
   });
   const conversation = useRoomConversation({
     client,

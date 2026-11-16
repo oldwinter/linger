@@ -58,6 +58,10 @@ export function useRoomMessageInteractions(input: {
       }
     }
 
+    function holdReply(message: TeamHubMessage) {
+      updateContextSelection(() => [message]);
+    }
+
     return {
       clearContext: (messageIds?: readonly string[]) =>
         updateContextSelection((current) => {
@@ -66,6 +70,7 @@ export function useRoomMessageInteractions(input: {
           return current.filter((message) => !cleared.has(message.id));
         }),
       composerRef,
+      holdReply,
       mentionAuthor: (actor: TeamHubActorRef) =>
         composerRef.current?.insertMention(actor),
       removeContext: (messageId: string) =>
