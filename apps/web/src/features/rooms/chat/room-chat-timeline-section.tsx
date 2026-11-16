@@ -6,6 +6,7 @@ import {
   earlierConversationEnd,
 } from "./earlier-conversation";
 import { formatMessageTime, timelineMessages } from "./message-grouping";
+import { useWritingSeat } from "./writing-seat";
 import { MessageTimeline } from "./message-timeline";
 import { roomAgreedMessage } from "./room-agreed";
 import { RoomAgreedLine } from "./room-agreed-line";
@@ -31,9 +32,11 @@ export function RoomChatTimelineSection({
     actorItems,
     linkedInTimeline,
     linkedMessage,
+    identity,
     linkedMessageId,
     members,
     messages,
+    roomId,
     navigation,
     setCreateIssueMessage,
     setForwardMessage,
@@ -72,6 +75,16 @@ export function RoomChatTimelineSection({
   useEffect(() => {
     if (conversation.pendingMessages.length > 0) setAsOf(undefined);
   }, [conversation.pendingMessages.length]);
+  const writingSeatText = useWritingSeat({
+    accountId: identity.account.id,
+    roomId,
+    tenantId,
+  });
+  // A voice draft or a message already on its way owns the end of the room.
+  const writingSeat =
+    voiceLiveDraft || conversation.pendingMessages.length > 0
+      ? undefined
+      : writingSeatText;
   const unreadDivider = useMemo(
     () =>
       readBoundary
@@ -125,6 +138,7 @@ export function RoomChatTimelineSection({
         messages={visibleMessages}
         messagesArriving={onboarding.messagesHeld}
         voiceLiveDraft={voiceLiveDraft ?? undefined}
+        writingSeat={writingSeat}
         runStatuses={conversation.streamingRunStatuses}
         runtimePresentationEventsByRunStatusId={
           agentStreaming.runtimePresentationEventsByRunStatusId

@@ -65,6 +65,7 @@ import {
   VoiceLiveDraftRow,
   type VoiceLiveDraft,
 } from "./voice-mode/voice-live-draft";
+import { WritingSeatRow } from "./writing-seat-row";
 import type { RoomCardDecision } from "../cards/room-message-card-contract";
 import type { DocumentCardMetadata } from "../files/document-card-metadata";
 import { ActorAvatar } from "../members/actor-avatar";
@@ -112,6 +113,8 @@ interface MessageTimelineProps {
   messagesArriving?: boolean;
   runStatuses?: readonly TeamHubRunStatus[];
   voiceLiveDraft?: VoiceLiveDraft;
+  /** Unsent composer words, shown in the writer's place until they are sent. */
+  writingSeat?: string;
   memberActorIds?: ReadonlySet<string>;
   mentionableActorIds?: ReadonlySet<string>;
   onCancel: (clientId: string) => Promise<void> | void;
@@ -174,6 +177,7 @@ export function MessageTimeline({
   messagesArriving = false,
   runStatuses = EMPTY_RUN_STATUSES,
   voiceLiveDraft,
+  writingSeat,
   memberActorIds = EMPTY_STATIC_AGENT_ACTOR_IDS,
   mentionableActorIds = EMPTY_STATIC_AGENT_ACTOR_IDS,
   onCancel,
@@ -222,7 +226,10 @@ export function MessageTimeline({
     [runStatuses, runtimePresentationEventsByRunStatusId],
   );
   const hasTimelineContent = Boolean(
-    candidateMessages.length || pendingMessages.length || voiceLiveDraft,
+    candidateMessages.length ||
+    pendingMessages.length ||
+    voiceLiveDraft ||
+    writingSeat,
   );
   const avatarContext = useMemo(
     () => ({
@@ -405,6 +412,17 @@ export function MessageTimeline({
               <VoiceLiveDraftRow
                 draft={voiceLiveDraft}
                 startsGroup={pendingMessages.length === 0 && startsOwnGroup}
+              />
+            ) : writingSeat ? (
+              <WritingSeatRow
+                actorId={currentActorId}
+                name={
+                  (currentActorId
+                    ? actorDisplayNames[currentActorId]
+                    : undefined) ?? "You"
+                }
+                startsGroup={pendingMessages.length === 0 && startsOwnGroup}
+                text={writingSeat}
               />
             ) : null}
           </div>
