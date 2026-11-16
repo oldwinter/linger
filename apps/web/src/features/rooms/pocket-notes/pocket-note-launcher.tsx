@@ -1,10 +1,14 @@
-import { lazy, Suspense, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
 
-// The notepad loads on first open so the sidebar's initial bundle only
-// carries this trigger.
-const PocketNotePanel = lazy(() => import("./pocket-note-panel"));
+import {
+  openPocketNote,
+  readPocketNoteHold,
+  registerPocketNoteAnchor,
+  requestPocketNoteClose,
+  subscribePocketNoteHold,
+} from "./pocket-note-hold";
 
 const stroke = {
   stroke: "currentColor",
@@ -22,7 +26,7 @@ const noteWriteIcon: IconSvgElement = [
 
 /**
  * Always-visible toolbar action opens today's Pocket Note, with all pages
- * one click away.
+ * one click away. The open page stays up when this button leaves with a room.
  */
 export function PocketNoteLauncher({
   anotherMeRoomId,
@@ -31,47 +35,29 @@ export function PocketNoteLauncher({
   anotherMeRoomId?: string;
   tenantId: string;
 }) {
-  const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const closeRef = useRef<(() => void) | undefined>(undefined);
+  const hold = useSyncExternalStore(
+    subscribePocketNoteHold,
+    readPocketNoteHold,
+  );
+  const open = hold?.tenantId === tenantId;
+  const [button, setButton] = useState<HTMLButtonElement | null>(null);
+  useEffect(() => registerPocketNoteAnchor(button), [button]);
   return (
-    <>
-      <button
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        aria-label="Pocket Notes"
-        className="xs-nav-btn"
-        onClick={() =>
-          open ? (closeRef.current ?? (() => setOpen(false)))() : setOpen(true)
-        }
-        ref={triggerRef}
-        title="Pocket Notes"
-        type="button"
-      >
-        <Icon icon={noteWriteIcon} size={16} />
-      </button>
-      {open ? (
-        <Suspense fallback={null}>
-          <PocketNotePanel
-            anchorRef={triggerRef}
-            anotherMeRoomId={anotherMeRoomId}
-            closeRef={closeRef}
-            onClose={() => setOpen(false)}
-            onOpenChat={
-              anotherMeRoomId
-                ? () => {
-                    setOpen(false);
-                    void navigate(
-                      `/t/${encodeURIComponent(tenantId)}/rooms/${encodeURIComponent(anotherMeRoomId)}/chat`,
-                    );
-                  }
-                : undefined
-            }
-            tenantId={tenantId}
-          />
-        </Suspense>
-      ) : null}
-    </>
+    <button
+      aria-expanded={open}
+      aria-haspopup="dialog"
+      aria-label="Pocket Notes"
+      className="xs-nav-btn"
+      onClick={() =>
+        open
+          ? requestPocketNoteClose()
+          : openPocketNote({ anotherMeRoomId, tenantId })
+      }
+      ref={setButton}
+      title="Pocket Notes"
+      type="button"
+    >
+      <Icon icon={noteWriteIcon} size={16} />
+    </button>
   );
 }

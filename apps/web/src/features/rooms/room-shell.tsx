@@ -77,6 +77,11 @@ const VoiceModeMiniWindow = lazy(
   () => import("./chat/voice-mode/voice-mode-mini-window"),
 );
 const RecordingWindow = lazy(() => import("./voice-control/recording-window"));
+const PocketNoteHost = lazy(() =>
+  import("./pocket-notes/pocket-note-host").then((module) => ({
+    default: module.PocketNoteHost,
+  })),
+);
 const RoomCreateDialog = lazy(async () => ({
   default: (await import("./room-create-dialog")).RoomCreateDialog,
 }));
@@ -396,6 +401,9 @@ function RoomShellContent({
       <OpenMobileNavigationContext value={openMobileNavigation}>
         {/* Inside the avatar provider so the window can show Another Me. */}
         <RecordingWindowHost />
+        <Suspense fallback={null}>
+          <PocketNoteHost />
+        </Suspense>
         <VoiceModeWindowHost
           anotherMeActorId={anotherMeActorId}
           currentActorId={

@@ -17,6 +17,8 @@ import type {
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 
 import type { VoiceModeEvent } from "../chat/voice-mode/voice-mode-controller";
+import { closePocketNote } from "./pocket-note-hold";
+import { PocketNoteHost } from "./pocket-note-host";
 import { PocketNoteLauncher } from "./pocket-note-launcher";
 
 const voice = vi.hoisted(() => ({
@@ -31,6 +33,7 @@ vi.mock("../chat/voice-mode/voice-mode-transport", () => ({
 }));
 
 beforeEach(() => {
+  closePocketNote();
   // JSDOM has no text-range layout; browser coverage exercises caret scrolling.
   Object.defineProperties(Range.prototype, {
     getClientRects: { configurable: true, value: () => [] },
@@ -109,6 +112,7 @@ function renderLauncher(routes: PocketNoteRoutes, anotherMeRoomId?: string) {
     <QueryClientProvider client={new QueryClient()}>
       <TeamHubRuntimeProvider runtime={runtime}>
         <MemoryRouter>
+          <PocketNoteHost />
           <PocketNoteLauncher
             anotherMeRoomId={anotherMeRoomId}
             tenantId="tenant-1"
@@ -140,6 +144,46 @@ describe("PocketNoteLauncher", () => {
     expect(button).toHaveAttribute("title", "Pocket Notes");
     fireEvent.click(button);
     expect(button).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("keeps today's page open when the room button leaves", async () => {
+    const runtime = createTestTeamHubRuntime();
+    runtime.server.on(
+      "GET",
+      "/v0/tenants/{tenantId}/me/pocket-notes",
+      async () => page,
+    );
+    const view = render(
+      <QueryClientProvider client={new QueryClient()}>
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <MemoryRouter>
+            <PocketNoteHost />
+            <PocketNoteLauncher tenantId="tenant-1" />
+          </MemoryRouter>
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Pocket Notes" }));
+    expect(
+      await screen.findByRole("textbox", { name: "Today’s note" }),
+    ).toBeVisible();
+
+    view.rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <MemoryRouter>
+            <PocketNoteHost />
+          </MemoryRouter>
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByRole("textbox", { name: "Today’s note" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Pocket Notes" }),
+    ).not.toBeInTheDocument();
   });
 
   it("opens on today's blank page and autosaves what the Human writes", async () => {

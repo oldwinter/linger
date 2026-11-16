@@ -86,9 +86,7 @@ function renderPanel(
       ({ params }) => deletePocketNote(params.noteDate!),
     );
   }
-  const anchorRef: RefObject<HTMLButtonElement | null> = {
-    current: document.createElement("button"),
-  };
+  const anchor = document.createElement("button");
   const closeRef: RefObject<(() => void) | undefined> = { current: undefined };
   const onClose = vi.fn();
   render(
@@ -99,7 +97,7 @@ function renderPanel(
     >
       <TeamHubRuntimeProvider runtime={runtime}>
         <PocketNotePanel
-          anchorRef={anchorRef}
+          anchor={anchor}
           closeRef={closeRef}
           onClose={onClose}
           tenantId="tenant-1"
