@@ -28,7 +28,8 @@
   Pocket note.
 - How Another Me would tell your life (`/library/life`) speaks the Background
   timeline one chapter at a time, earliest year first, as a line you could say
-  out loud. The profile list stays as it is, and the telling writes nothing.
+  out loud. The profile list stays as it is, and the telling writes nothing. Introduce you in a Room posts that card into the chosen Room
+  as one message. The page does not open the Room or leave a draft.
 - Wiki navigation owns Profile, Timeline, Projects, Topics, People, and Companies. Timeline, People
   and Companies are the display labels for the existing `graph`, `contacts` and
   `clients` entries; keep their routes and data keys.

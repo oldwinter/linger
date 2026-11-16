@@ -19,6 +19,7 @@ import {
   noteWithIntroduction,
   type IntroductionLead,
 } from "./introduction";
+import { IntroduceInRoom } from "./introduce-in-room-control";
 
 const leads: Array<{ id: IntroductionLead; label: string }> = [
   { id: "person", label: "Lead with who you are" },
@@ -153,6 +154,11 @@ export function IntroductionPage() {
                 {pending ? "Leaving it" : "Leave this on today's note"}
               </Button>
             )}
+            <IntroduceInRoom
+              key={paragraphs.join("\n")}
+              paragraphs={paragraphs}
+              tenantId={tenantId}
+            />
           </>
         )}
         <Link
