@@ -31,6 +31,7 @@ import {
   useSurfaceAction,
   useVoiceArming,
 } from "./voice-focus-state";
+import { sentencesStillBeingSaid } from "./sentences-still-being-said";
 import {
   speakerDisplayName,
   useSpeakerNames,
@@ -175,6 +176,7 @@ export function VoiceFocusSurface({
       connected ||
       armStatus === "blocked" ||
       !voice.boundDevice);
+  const spoken = sentencesStillBeingSaid(unfinished, visibleItems);
   const title = recoveryFailed
     ? "Recording saved. Transcript recovery paused"
     : inputInterrupted
@@ -475,17 +477,27 @@ export function VoiceFocusSurface({
                     {visibleItems.map((item) => (
                       <VoiceFocusTranscriptRow item={item} key={item.id} />
                     ))}
-                    {unfinished ? (
+                    {spoken.said.map((sentence, index) => (
+                      <p
+                        className="m-0 rounded-lg px-2.5 py-1.5 text-sm leading-5 text-app-body"
+                        key={`${index}:${sentence}`}
+                      >
+                        {sentence}
+                      </p>
+                    ))}
+                    {spoken.saying ? (
                       <div className="flex gap-2 rounded-lg px-2.5 py-1.5 text-sm leading-5 text-app-muted">
                         <Icon
                           icon={Loading03Icon}
                           className="mt-[3px] shrink-0 animate-spin text-app-muted"
                           size={14}
                         />
-                        <span className="min-w-0 italic">{unfinished}</span>
+                        <span className="min-w-0 italic">{spoken.saying}</span>
                       </div>
                     ) : null}
-                    {visibleItems.length === 0 && !unfinished ? (
+                    {visibleItems.length === 0 &&
+                    spoken.said.length === 0 &&
+                    !spoken.saying ? (
                       <p className="py-3 text-center text-[12px] leading-[18px] text-app-muted">
                         {idle
                           ? "This recording’s transcript will appear here. View previous transcripts in the chat."
