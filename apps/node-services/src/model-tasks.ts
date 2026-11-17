@@ -7,6 +7,7 @@
 const modelCallKinds = [
   "approval",
   "voice_ask",
+  "meeting_notes",
   "memory",
   "agent_memory",
   "wiki",
@@ -62,6 +63,16 @@ export const modelCallPolicies: Readonly<
     interactive: true,
     attempts: 1,
     timeoutMs: 45_000,
+  },
+  // Quick notes right after a recording ends: the completion message waits
+  // on them, so they never queue, answer only when done, and get one short
+  // attempt.
+  meeting_notes: {
+    queued: false,
+    priority: 0,
+    interactive: true,
+    attempts: 1,
+    timeoutMs: 20_000,
   },
   agent_memory: {
     queued: true,

@@ -59,10 +59,11 @@ type Kind = agentapi.ModelCallKind
 
 // Kinds TeamHub asks for.
 const (
-	KindApproval = agentapi.ModelCallKindApproval
-	KindVoiceAsk = agentapi.ModelCallKindVoiceAsk
-	KindProfile  = agentapi.ModelCallKindProfile
-	KindInsight  = agentapi.ModelCallKindInsight
+	KindApproval     = agentapi.ModelCallKindApproval
+	KindVoiceAsk     = agentapi.ModelCallKindVoiceAsk
+	KindMeetingNotes = agentapi.ModelCallKindMeetingNotes
+	KindProfile      = agentapi.ModelCallKindProfile
+	KindInsight      = agentapi.ModelCallKindInsight
 )
 
 // ModelCallOwner names the Human whose Another Me's Computer runs the call.

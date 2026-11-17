@@ -324,7 +324,7 @@ func (q *Queries) ListRoomBackgroundTasks(ctx context.Context, arg ListRoomBackg
 }
 
 const listRoomRunningTasks = `-- name: ListRoomRunningTasks :many
-SELECT item.id, item.title, item.description, item.created_at,
+SELECT item.id, item.title, item.description, item.created_at, item.quiet,
        EXISTS (SELECT 1 FROM voice_live_tasks voice WHERE voice.work_item_id=item.id)::boolean AS live
 FROM work_items item
 WHERE item.id IN (
@@ -349,12 +349,14 @@ type ListRoomRunningTasksRow struct {
 	Title       string             `json:"title"`
 	Description string             `json:"description"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	Quiet       bool               `json:"quiet"`
 	Live        bool               `json:"live"`
 }
 
 // The Tasks running for this Room, oldest first: the background Tasks its Meta
 // delegated and the tasks Live started with it as their home Room; live
-// marks the latter, which have no Meta.
+// marks the latter, which have no Meta. quiet marks a Task started during a
+// proactive wake or a Routine that serves a Tracking Item.
 func (q *Queries) ListRoomRunningTasks(ctx context.Context, arg ListRoomRunningTasksParams) ([]ListRoomRunningTasksRow, error) {
 	rows, err := q.db.Query(ctx, listRoomRunningTasks, arg.RoomID, arg.TenantID)
 	if err != nil {
@@ -369,6 +371,7 @@ func (q *Queries) ListRoomRunningTasks(ctx context.Context, arg ListRoomRunningT
 			&i.Title,
 			&i.Description,
 			&i.CreatedAt,
+			&i.Quiet,
 			&i.Live,
 		); err != nil {
 			return nil, err

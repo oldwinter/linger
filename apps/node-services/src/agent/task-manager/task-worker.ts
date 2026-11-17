@@ -1196,6 +1196,12 @@ const parseMessageSegments = (
           type: "html_fragment",
           content: requiredTextSegmentContent(segment.content),
         };
+      case "meeting_notes":
+        // A recording's quick notes reach an Agent as their text.
+        return {
+          type: "text",
+          content: requiredTextSegmentContent(segment.content),
+        };
       case "reference": {
         const content = requiredString(
           segment.content,

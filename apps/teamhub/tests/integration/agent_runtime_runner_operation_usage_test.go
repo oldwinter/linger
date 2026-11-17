@@ -77,3 +77,48 @@ func TestAgentRuntimeRunnerOperationUsageLandsOnTheRunOnce(t *testing.T) {
 		t.Fatalf("unrelated operations=%v err=%v", unrelated, err)
 	}
 }
+
+func TestAgentRuntimeRunnerOperationTurnsLandOnTheRunOnce(t *testing.T) {
+	allowParallelIntegrationTest(t)
+	env := newRuntimeStateTestEnv(t)
+	submitted, err := env.service.SubmitTrustedTurn(t.Context(), agentruntimestate.SubmitTrustedTurnInput{ContextKey: env.contextKey, Epoch: env.epoch,
+		Inputs: []agentruntimestate.RuntimeInput{runtimeInput("operation-turn-input", "trusted_turn", "", "once")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := env.service.ClaimLocalRun(t.Context(), agentruntimestate.ClaimLocalRunInput{ClaimID: "operation-turn-claim", ContextKey: env.contextKey, Epoch: env.epoch})
+	if err != nil || claimed.Run == nil {
+		t.Fatalf("claim: %+v %v", claimed, err)
+	}
+	const usage = `[{"provider":"openai","model":"turn-test-model","input":1,"cache_read":0,"cache_write":0,"output":1}]`
+	// The start, the turn and the terminal of each Operation are separate,
+	// possibly repeated reports; each turn is kept once.
+	for _, report := range []struct{ operationID, turnID, usage string }{
+		{"operation-earlier", "", ""},
+		{"operation-earlier", "turn-earlier", ""},
+		{"operation-earlier", "turn-earlier", usage},
+		{"operation-latest", "turn-latest", ""},
+		{"operation-latest", "turn-latest", ""},
+	} {
+		input := agentruntimestate.RecordRunOperationInput{
+			ContextKey: env.contextKey, Epoch: env.epoch, RunID: submitted.RunID,
+			OperationID: report.operationID, RuntimeType: "codex", TurnID: report.turnID,
+		}
+		if report.usage != "" {
+			input.Usage = json.RawMessage(report.usage)
+		}
+		if err := env.service.RecordRunOperation(t.Context(), input); err != nil {
+			t.Fatalf("record %+v: %v", report, err)
+		}
+	}
+	if err := env.service.RecordRunOperation(t.Context(), agentruntimestate.RecordRunOperationInput{
+		ContextKey: env.contextKey, Epoch: env.epoch, RunID: submitted.RunID, OperationID: "operation-latest", RuntimeType: "codex", TurnID: "   ",
+	}); !errors.Is(err, agentruntimestate.ErrInvalid) {
+		t.Fatalf("blank turn: err=%v, want invalid", err)
+	}
+	turns, err := store.New(env.pool).ListAgentRuntimeNativeTurnIDs(t.Context(), submitted.RunID)
+	if err != nil || len(turns) != 2 || turns[0] != "turn-earlier" || turns[1] != "turn-latest" {
+		t.Fatalf("native turns=%v err=%v", turns, err)
+	}
+}

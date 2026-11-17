@@ -9,6 +9,7 @@ import {
   diagnosticsEntry,
   DiagnosticsModule,
   excludedFromDiagnostics,
+  homeRedactor,
   redactDiagnostics,
 } from "./diagnostics.js";
 import { stubModule, tempDirectory, testHost } from "./test-support.js";
@@ -96,7 +97,63 @@ describe("redactDiagnostics", () => {
   });
 });
 
+describe("homeRedactor", () => {
+  it("replaces a macOS or Linux home folder with ~", () => {
+    const strip = homeRedactor("/Users/alice/");
+    expect(strip("open /Users/alice/.linger/x.log and /Users/alice")).toBe(
+      "open ~/.linger/x.log and ~",
+    );
+    // Another account whose name starts the same stays.
+    expect(strip("/Users/alice2/notes")).toBe("/Users/alice2/notes");
+  });
+
+  it("replaces a Windows home in every form a log prints it", () => {
+    const strip = homeRedactor("C:\\Users\\Alice");
+    expect(
+      strip(
+        [
+          "C:\\Users\\Alice\\.linger\\job.log",
+          '{"path":"C:\\\\Users\\\\Alice\\\\.linger"}',
+          "c:/users/alice/AppData",
+        ].join("\n"),
+      ),
+    ).toBe(
+      ["~\\.linger\\job.log", '{"path":"~\\\\.linger"}', "~/AppData"].join(
+        "\n",
+      ),
+    );
+  });
+
+  it("leaves text alone for a home at the root", () => {
+    expect(homeRedactor("/root")("/root/.linger")).toBe("/root/.linger");
+  });
+});
+
 describe("collectDiagnostics", () => {
+  it("replaces the home folder in every entry and the summary", async () => {
+    const root = tempDirectory();
+    const userHome = path.join(root, "people", "alice");
+    const home = path.join(userHome, ".linger");
+    const output = path.join(root, "out");
+    mkdirSync(output);
+    write(
+      path.join(home, "installer", "jobs", "job_1.log"),
+      `unpacking into ${path.join(home, "source")}\n`,
+    );
+    const { file } = await collectDiagnostics({
+      userData: path.join(root, "userData"),
+      homes: [home],
+      output,
+      summary: {},
+      userHome,
+    });
+    const text = [...unzip(file).values()].join("\n");
+    expect(text).not.toContain(userHome);
+    expect(unzip(file).get("linger-home/installer/jobs/job_1.log")).toBe(
+      `unpacking into ${path.join("~", ".linger", "source")}\n`,
+    );
+  });
+
   it("bundles logs and job state without credentials", async () => {
     const root = tempDirectory();
     const userData = path.join(root, "userData");
@@ -133,7 +190,11 @@ describe("collectDiagnostics", () => {
     );
     write(path.join(home, "instances", "desktop", "data", "db.json"), "{}");
 
-    const file = await collectDiagnostics({
+    const {
+      file,
+      entries: listed,
+      bytes,
+    } = await collectDiagnostics({
       userData,
       homes: [home, home],
       output,
@@ -145,6 +206,8 @@ describe("collectDiagnostics", () => {
     if (process.platform !== "win32")
       expect(statSync(file).mode & 0o777).toBe(0o600);
     const entries = unzip(file);
+    expect(bytes).toBe(statSync(file).size);
+    expect([...listed].sort()).toEqual([...entries.keys()].sort());
     expect([...entries.keys()].sort()).toEqual([
       "desktop/logs/computer-daemon.log",
       "desktop/logs/main.log",
@@ -178,12 +241,14 @@ describe("collectDiagnostics", () => {
       "connecting with soniox-123\nlive session key xai-456 rejected\n",
     );
     const entries = unzip(
-      await collectDiagnostics({
-        userData: path.join(root, "userData"),
-        homes: [home],
-        output,
-        summary: {},
-      }),
+      (
+        await collectDiagnostics({
+          userData: path.join(root, "userData"),
+          homes: [home],
+          output,
+          summary: {},
+        })
+      ).file,
     );
     expect(entries.has("linger-home/instances/desktop/user.env")).toBe(false);
     const text = [...entries.values()].join("\n");
@@ -229,6 +294,7 @@ describe("collectDiagnostics", () => {
       home,
       version: "0.16.27",
       output: () => output,
+      outbox: path.join(userData, "diagnostics-outbox"),
       openFolder: async () => "",
       showFile: vi.fn(),
     });

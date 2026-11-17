@@ -37,12 +37,13 @@ components:
     AgentEffectiveResources:
       type: object
       additionalProperties: false
-      required: [effective_sha256, skills, connected_apps]
+      required: [effective_sha256, skills, connected_apps, connected_app_keys]
       properties:
         effective_sha256:
           type: string
           description: >-
-            Deterministic digest of the effective Skill set and connected_apps;
+            Deterministic digest of the effective Skill set, connected_apps and
+            connected_app_keys;
             Agent Service compares it at Run boundaries.
           pattern: "^[a-f0-9]{64}$"
         connected_apps:
@@ -51,6 +52,20 @@ components:
             TeamHub currently has a Composio API key, from the environment or
             saved on the Apps page, so the Agent is taught and allowed the
             connected app commands.
+        connected_app_keys:
+          type: array
+          description: >-
+            Sorted keys of the apps with an account granted to this Agent, such
+            as gmail or google_calendar, so its instructions name only sources
+            it can query. Empty without connected_apps. Agent Service requires
+            this field, so TeamHub ships before Agent Service.
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+            pattern: "^[a-z0-9_]+$"
         skills:
           type: array
           maxItems: 100

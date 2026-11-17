@@ -149,10 +149,10 @@ describe("PocketNoteLauncher", () => {
     await import("./pocket-note-panel");
   }, 30_000);
 
-  it("shows Pocket Notes as an icon button named in its tooltip", () => {
+  it("shows Pocket Notes as a labeled button with a tooltip", () => {
     renderLauncher({ listPocketNotes: vi.fn(async () => page) });
     const button = screen.getByRole("button", { name: "Pocket Notes" });
-    expect(button).toHaveTextContent("");
+    expect(button).toHaveTextContent("Pocket Notes");
     expect(button).toHaveAttribute("title", "Pocket Notes");
     fireEvent.click(button);
     expect(button).toHaveAttribute("aria-expanded", "true");

@@ -72,7 +72,7 @@ func TestAgentRunWakesFollowCommitsAndReconnect(t *testing.T) {
 		writeMessage(tx, "run_wake_message")
 		for _, statement := range []string{
 			// The Task worker delivers the private Meta stream; it wakes nothing.
-			`INSERT INTO task_meta_messages(id,tenant_id,task_id,agent_actor_id,meta_seq,author_actor_id,body,segments) VALUES('meta_wake','tenant_acme','task_run_wake','actor_acme_official',1,'actor_acme_alice','private meta body','[]')`,
+			`INSERT INTO task_meta_messages(id,tenant_id,task_id,agent_actor_id,meta_seq,author_actor_id,body,segments,source) VALUES('meta_wake','tenant_acme','task_run_wake','actor_acme_official',1,'actor_acme_alice','private meta body','[]','message')`,
 			`UPDATE task_meta_inboxes SET through_seq=1 WHERE task_id='task_run_wake'`,
 			`INSERT INTO task_meta_callback_messages(id,tenant_id,task_id,generation,meta_seq,author_actor_id,body,segments) VALUES('callback_wake','tenant_acme','task_run_wake',1,1,'actor_acme_official','private callback body','[]')`,
 			`UPDATE task_meta_callbacks SET through_seq=1 WHERE task_id='task_run_wake'`,

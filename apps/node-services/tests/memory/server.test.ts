@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MemoryScheduleConfig } from "../../src/memory/config.js";
 import { PersonalKnowledgeGraphNotFoundError } from "../../src/memory/graph-visualization.js";
 import { MemoryScheduler } from "../../src/memory/scheduler.js";
+import { startHttpHost } from "../../src/http-host.js";
 import { startMemoryServer } from "../../src/memory/server.js";
 
 const roots: string[] = [];
@@ -25,6 +26,44 @@ afterEach(async () => {
 });
 
 describe("Memory server", () => {
+  it("unmounts on close without stopping other roles and allows a replacement", async () => {
+    const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), "memory-server-"));
+    roots.push(dataRoot);
+    const http = await startHttpHost({ host: "127.0.0.1", port: 0 });
+    http.mount({ prefixes: ["/v1/"], fetch: () => new Response("agent") });
+    const options = {
+      dataRoot,
+      http,
+      scheduler: new MemoryScheduler(schedule, async () => undefined),
+      serviceToken: "memory-token",
+    };
+    try {
+      const server = await startMemoryServer(options);
+      http.finishStartup();
+      expect(
+        (await fetch(`${http.url}/internal/v1/memory/entries`)).status,
+      ).toBe(401);
+      await server.close();
+      await server.close();
+      expect(
+        (await fetch(`${http.url}/internal/v1/memory/entries`)).status,
+      ).toBe(404);
+      expect(await (await fetch(`${http.url}/v1/status`)).text()).toBe("agent");
+      const replacement = await startMemoryServer(options);
+      try {
+        // Closing the previous instance again must not remove its replacement.
+        await server.close();
+        expect(
+          (await fetch(`${http.url}/internal/v1/memory/entries`)).status,
+        ).toBe(401);
+      } finally {
+        await replacement.close();
+      }
+    } finally {
+      await http.close();
+    }
+  });
+
   it("lists and reads only authenticated Memory entries through the internal API", async () => {
     const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), "memory-server-"));
     roots.push(dataRoot);
@@ -426,9 +465,24 @@ describe("Memory server", () => {
         "memory-token",
       );
       expect(budgets.at(-1)).toBe(14_400);
+      // The time windows, as_of, one list and a later page pass through.
+      const full = {
+        ...body,
+        date_to: "2026-09-30",
+        event_from: "2026-08-01",
+        event_to: "2026-08-31",
+        as_of: "2026-09-15",
+        scope: "originals",
+        page: 2,
+      };
+      expect((await post(full, "memory-token")).status).toBe(200);
+      expect(received.at(-1)).toEqual(full);
       for (const removed of [
         { source: "personal_knowledge" },
         { node_types: ["Session"] },
+        { as_of: "2026-13-01" },
+        { scope: "wiki" },
+        { page: 11 },
       ]) {
         expect(
           await post({ ...body, ...removed }, "memory-token"),
@@ -524,6 +578,20 @@ describe("failure health", () => {
     const chunkFailures = {
       failedSources: vi.fn().mockRejectedValue(new Error("pg down")),
     };
+    const factSummary = {
+      scope: "process" as const,
+      observed_since: "2026-09-29T00:00:00.000Z",
+      total: 1,
+      items: [
+        {
+          agent_id: "agent_a",
+          failed_windows: 2,
+          last_failure_at: "2026-09-29T01:00:00.000Z",
+          last_error_kind: "invalid_output",
+        },
+      ],
+    };
+    const factFailures = { failures: vi.fn().mockReturnValue(factSummary) };
     const server = await startMemoryServer({
       dataRoot,
       host: "127.0.0.1",
@@ -531,6 +599,7 @@ describe("failure health", () => {
       scheduler,
       serviceToken: "test",
       chunkFailures,
+      factFailures,
     });
     const headers = {
       authorization: "Bearer test",
@@ -546,6 +615,7 @@ describe("failure health", () => {
       expect(
         (await fetch(`${server.url}/internal/v1/health/failures`)).status,
       ).toBe(401);
+      expect(factFailures.failures).not.toHaveBeenCalled();
       expect((await retry({}, { ...headers, authorization: "" })).status).toBe(
         401,
       );
@@ -561,6 +631,20 @@ describe("failure health", () => {
           pending_retries: [],
         },
         raw_chunk_sources: { error: "unavailable" },
+        session_facts: { configured: true, ...factSummary },
+      });
+      expect(factFailures.failures).toHaveBeenCalledExactlyOnceWith(200);
+      factFailures.failures.mockImplementationOnce(() => {
+        throw new Error("Unavailable");
+      });
+      const degraded = await fetch(
+        `${server.url}/internal/v1/health/failures`,
+        { headers },
+      );
+      expect(degraded.status).toBe(200);
+      expect(await degraded.json()).toMatchObject({
+        scheduler: { exhausted_total: 0 },
+        session_facts: { error: "unavailable" },
       });
       for (const invalid of [
         { extra: {} },
@@ -569,6 +653,7 @@ describe("failure health", () => {
         { scheduler: { task_keys: ["init:rebuild:agent_a:2026-09-30"] } },
         { scheduler: { task_keys: [] } },
         { openwiki_jobs: { owner_id: "owner_a" } },
+        { session_facts: {} },
         [],
       ]) {
         expect((await retry(invalid)).status).toBe(400);
@@ -768,6 +853,7 @@ describe("failure health", () => {
         total: 1,
       });
       expect(summary).not.toHaveProperty("openwiki_jobs");
+      expect(summary.session_facts).toEqual({ configured: false });
       expect(failedSources).toHaveBeenCalledWith(200);
     } finally {
       await server.close();

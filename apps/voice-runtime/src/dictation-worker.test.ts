@@ -57,6 +57,12 @@ import {
   voicePurposeFromMetadata,
 } from "./livekit-worker.js";
 
+// Hands out media epochs the way TeamHub does: every claim takes a new number.
+function claimEpochs() {
+  let next = 0;
+  return async (_voiceSessionId: string) => next++;
+}
+
 afterEach(() => vi.restoreAllMocks());
 
 const payload = (requestId: string) =>
@@ -109,6 +115,7 @@ async function harness(finalAck?: Promise<void>, startSpeaking = true) {
     end_offset_ms: number;
   }> = [];
   const client = {
+    claimMediaEpoch: claimEpochs(),
     reportObservation: vi.fn(async (event) => {
       observations.push(event);
       if (event.kind === "final") await finalAck;

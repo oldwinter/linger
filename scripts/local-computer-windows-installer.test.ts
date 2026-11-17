@@ -164,10 +164,10 @@ function teamhubEntries(
   ];
 }
 
-async function fixture(launcherBytes = 0) {
+async function fixture(launcherBytes = 0, dataDirectory = "Usuário computer") {
   const root = await mkdtemp(path.join(os.tmpdir(), "windows-installer-"));
   roots.push(root);
-  const dataRoot = path.join(root, "Usuário computer");
+  const dataRoot = path.join(root, dataDirectory);
   const distribution = path.join(root, "distribution");
   await mkdir(path.join(distribution, "files"), { recursive: true });
   const settings = {
@@ -597,7 +597,7 @@ describe("Windows installer trust boundary", () => {
       extractWindowsBundle([bad], path.join(f.root, "extra"), privatePlatform),
     ).rejects.toThrow("outside its CLI manifest");
   });
-  it.each(["valid", "corrupt", "unlisted"])(
+  it.each(["valid", "corrupt", "unlisted", "metadata"])(
     "checks Computer tools including USTAR prefixes and empty assets: %s",
     async (variant) => {
       const f = await fixture();
@@ -641,6 +641,9 @@ describe("Windows installer trust boundary", () => {
           name: "cli/computer-tools/node_modules/unlisted.js",
           content: "unexpected",
         });
+      // A release archive must match its manifest even for Explorer files.
+      if (variant === "metadata")
+        toolEntries.push({ name: "cli/computer-tools/Thumbs.db", content: "" });
       const target = path.join(f.root, `tools-${variant}.tar.gz`);
       await writeFile(
         target,
@@ -666,9 +669,23 @@ describe("Windows installer trust boundary", () => {
             "utf8",
           ),
         ).toBe("");
-        await expect(bundleChecksum(staged, privatePlatform)).resolves.toMatch(
-          /^[0-9a-f]{64}$/u,
+        const checksum = await bundleChecksum(staged, privatePlatform);
+        expect(checksum).toMatch(/^[0-9a-f]{64}$/u);
+        // Explorer metadata in an installed bundle is not a tool asset.
+        await writeFile(path.join(staged, "cli/computer-tools/Thumbs.db"), "");
+        await writeFile(
+          path.join(staged, "cli/computer-tools/extensions/desktop.ini"),
+          "",
         );
+        await expect(bundleChecksum(staged, privatePlatform)).resolves.toBe(
+          checksum,
+        );
+        const extra = path.join(staged, "cli/computer-tools/extensions/x.js");
+        await writeFile(extra, "");
+        await expect(bundleChecksum(staged, privatePlatform)).rejects.toThrow(
+          "Unlisted or unsafe Computer tool asset: extensions/x.js",
+        );
+        await rm(extra);
         await writeFile(
           path.join(staged, "cli/computer-tools", files[0]!.path),
           "changed",
@@ -1121,7 +1138,7 @@ describe.skipIf(process.platform === "win32")(
       );
     });
     it("reports each operation's progress steps and outcome in order", async () => {
-      const f = await fixture();
+      const f = await fixture(0, "Usuário 5s computer");
       const lines: string[] = [];
       const run = (extra = {}) =>
         runWindowsInstaller(
@@ -1141,7 +1158,14 @@ describe.skipIf(process.platform === "win32")(
               );
             },
             log: (line: string) =>
-              lines.push(line.replace(/\d+m \d+s|\d+s/gu, "T")),
+              lines.push(
+                line
+                  .replace(/^(\[\d+\/\d+\] .+ \()(?:\d+m )?\d+s(\))$/u, "$1T$2")
+                  .replace(
+                    /^(Linger Computer .+? in |Uninstalled .+? in )(?:\d+m )?\d+s(\.)/u,
+                    "$1T$2",
+                  ),
+              ),
             readinessTimeoutMs: 1,
             checkExecutable: async () => {},
           },

@@ -158,7 +158,7 @@ func deliverReminder(ctx context.Context, tx pgx.Tx, queries *store.Queries, rec
 	if err != nil {
 		return 0, "", dropped, err
 	}
-	instruction := record.Instruction + trackingNote(record)
+	instruction := wakeInstruction(record)
 	origin := &messagecreation.FiredRoutine{ID: record.ID, Instruction: strings.TrimSpace(instruction)}
 	seq := func() (int64, error) {
 		return appendChangedWithName(ctx, queries, Authority{
@@ -207,15 +207,22 @@ func deliverReminder(ctx context.Context, tx pgx.Tx, queries *store.Queries, rec
 	return value, created.Message.ID, dropped, nil
 }
 
-// trackingNote names the Tracking Item a Routine serves, so the woken Agent
-// checks that matter and adjusts its Routines as it changes.
+// wakeInstruction is what a fired Routine tells its Agent: the tracking note,
+// if any, then the Routine's own instruction.
+func wakeInstruction(record store.RoomReminder) string {
+	return trackingNote(record) + record.Instruction
+}
+
+// trackingNote names the Tracking Item a Routine serves and how to carry out
+// its note. It comes before the Routine's own instruction, which says what to
+// check and what, if anything, to look up first.
 func trackingNote(record store.RoomReminder) string {
 	if !record.TrackingItemID.Valid {
 		return ""
 	}
-	return "\n" + Prompt(RoutineTrackingItem, map[string]string{
+	return Prompt(RoutineTrackingItem, map[string]string{
 		"id": record.TrackingItemID.String, "purpose": record.TrackingPurpose.String,
-	})
+	}) + "\n"
 }
 
 // A Human-created Routine keeps that Human as the message author. An Agent

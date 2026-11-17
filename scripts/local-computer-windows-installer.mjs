@@ -51,6 +51,10 @@ const safeToolPath = (name) =>
   !name.includes("\\") &&
   !Array.from(name).some((character) => character.charCodeAt(0) < 0x20) &&
   name.split("/").every((part) => part && part !== "." && part !== "..");
+// Files that Finder or Explorer write into any directory a user opens.
+const fileManagerMetadata = (name) =>
+  (name.startsWith("._") && name.length > 2) ||
+  [".ds_store", "thumbs.db", "desktop.ini"].includes(name.toLowerCase());
 const computerToolEntry = (name) =>
   name.startsWith("cli/computer-tools/") && safeToolPath(name);
 export const permittedBundleEntry = (name) =>
@@ -252,7 +256,16 @@ async function computerToolEntries(bundle, platform, fresh) {
         expected.has(entry)
       )
         actual.push(entry);
-      else throw new Error("Unlisted or unsafe Computer tool asset.");
+      // A file manager may have opened an existing bundle; an archive this
+      // installer just extracted must still match its manifest exactly.
+      else if (
+        !fresh &&
+        info.isFile() &&
+        !info.isSymbolicLink() &&
+        fileManagerMetadata(name)
+      )
+        continue;
+      else throw new Error(`Unlisted or unsafe Computer tool asset: ${entry}`);
     }
   };
   await walk();

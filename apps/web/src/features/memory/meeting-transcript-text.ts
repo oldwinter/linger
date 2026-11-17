@@ -64,7 +64,6 @@ function cueRange(block: string): TranscriptCue | undefined {
   return { start, end };
 }
 
-
 /** The turn being spoken at `time`, staying on it through the gap before the next. */
 export function spokenTurnIndex(
   cues: readonly (TranscriptCue | undefined)[],

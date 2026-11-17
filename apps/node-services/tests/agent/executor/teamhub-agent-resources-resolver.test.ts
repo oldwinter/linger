@@ -8,6 +8,7 @@ import { requestUrlText } from "@linger/service-kit";
 const response = () => ({
   effective_sha256: "a".repeat(64),
   connected_apps: true,
+  connected_app_keys: ["gmail", "google_calendar"],
   skills: [
     {
       skill_id: "skill-one",
@@ -46,6 +47,7 @@ describe("Agent effective resources", () => {
       packageName: "one",
       config: { mode: "exact" },
     });
+    expect(resources.connectedAppKeys).toEqual(["gmail", "google_calendar"]);
     expect(JSON.stringify(resources)).not.toMatch(/snapshot|access.token/u);
   });
   it("rejects repeated package identity and never reflects upstream error bodies", async () => {
@@ -54,6 +56,9 @@ describe("Agent effective resources", () => {
         ...response(),
         skills: [...response().skills, ...response().skills],
       }),
+    ).toThrow();
+    expect(() =>
+      parseAgentEffectiveResources({ ...response(), connected_app_keys: [1] }),
     ).toThrow();
     const reader = createTeamHubAgentResourcesResolver({
       baseUrl: "https://teamhub.example/",

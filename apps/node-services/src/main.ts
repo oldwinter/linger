@@ -9,6 +9,7 @@ import { createJsonLogger, type JsonLogger } from "@linger/service-kit/node";
 import type { Flashback } from "./flashback.js";
 import type { ModelCall } from "./runtime-model-call.js";
 import { startHttpHost, type HttpHost } from "./http-host.js";
+import { pruneModelPackages } from "./model-packages.js";
 import {
   NODE_SERVICES_DEFAULT_ADDRESS,
   readListenAddress,
@@ -150,12 +151,15 @@ export async function main(
     const http = selected.some((name) => HTTP_ROLES.has(name))
       ? await startHttpHost(readHttpAddress(process.env))
       : undefined;
-    const normalizer = new WorkerDocumentNormalizer({
-      onModelsUnavailable: (error) =>
-        logger.log("warn", "document_normalizer.models_unavailable", {
-          error,
-        }),
-    });
+    const normalizer = new WorkerDocumentNormalizer();
+    void pruneModelPackages().then(
+      (removed) => {
+        if (removed.length)
+          logger.log("info", "model_packages.pruned", { packages: removed });
+      },
+      (error: unknown) =>
+        logger.log("warn", "model_packages.prune_failed", { error }),
+    );
     const seams: RoleHost["seams"] = {};
     const running: { name: RoleName; role: RunningRole }[] = [];
     const stopRoles = async (): Promise<void> => {

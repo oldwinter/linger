@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	idgen "github.com/simplexai-labs/linger/apps/teamhub/internal/ids"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/messagecreation"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/reminder"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 )
 
@@ -92,7 +94,8 @@ func (s *Service) SetOnboarding(writer OnboardingHandoffWriter, connections Onbo
 // OnboardingProgressTx writes the hidden status that goes ahead of the
 // Human's first own Message in AnotherMe's Direct Room while a setup card is
 // still open, so AnotherMe answers the Message knowing what setup has
-// collected. It reports false, writing nothing, in every other case. The
+// collected. It reports false, writing nothing, in every other case, and once
+// a status in the Room has offered the Profile. The
 // caller publishes it before the Human's Message, in that Message's
 // transaction.
 func (s *Service) OnboardingProgressTx(ctx context.Context, tx pgx.Tx, queries *store.Queries, room store.Room, human store.Actor) (messagecreation.Persisted, bool, error) {
@@ -110,6 +113,12 @@ func (s *Service) OnboardingProgressTx(ctx context.Context, tx pgx.Tx, queries *
 		return messagecreation.Persisted{}, false, nil
 	}
 	if err != nil {
+		return messagecreation.Persisted{}, false, err
+	}
+	// After a status that offered the Profile, such as the idle reminder, the
+	// Human's first Message is often the reply to it.
+	offered, err := queries.ProfileOfferedInRoom(ctx, store.ProfileOfferedInRoomParams{RoomID: room.ID, HumanActorID: human.ID, AgentActorID: room.DirectAgentActorID.String})
+	if err != nil || offered {
 		return messagecreation.Persisted{}, false, err
 	}
 	agent, err := queries.GetActor(ctx, store.GetActorParams{ID: room.DirectAgentActorID.String, TenantID: room.TenantID})
@@ -144,6 +153,12 @@ type onboardingStatus struct {
 	files       int
 	// chatted reports that the Human has written in the chat themselves.
 	chatted bool
+	// alreadyAsked reports that an earlier status offered the Profile, so the
+	// Human is not asked about the Profile again.
+	alreadyAsked bool
+	// idleReminder reports the reminder TeamHub writes once the Room is quiet
+	// while setup is unfinished; no Message of the Human's comes with it.
+	idleReminder bool
 }
 
 // onboardingStatusText is the hidden status AnotherMe reads: the facts, then
@@ -189,8 +204,12 @@ func onboardingStatusText(status onboardingStatus) string {
 		lines = append(lines, "Answer the Human's message first. Then mention once that they can still connect an app or share links and files in the setup cards above. Do not open the personal-profile Skill until they share something.")
 	case !shared:
 		lines = append(lines, "The Human shared nothing. Do not open the personal-profile Skill or bring up setup again. Say briefly that you will get to know them as you talk and that they can connect apps anytime, then talk normally.")
+	case status.idleReminder:
+		lines = append(lines, "The Human connected these apps but has not finished setup, and has no Profile yet; no message of theirs comes with this status. Tell them once that building their profile takes a while, and ask whether to start now from what is connected. Start it with the personal-profile Skill only if they agree. Mention that they can still share links and files in the setup card.")
 	case !status.finished:
 		lines = append(lines, "Answer the Human's message first. Then tell them once that building their profile takes a while, and ask whether to start now from what is connected so far. Start it with the personal-profile Skill only if they agree; otherwise wait until they finish the setup cards.")
+	case status.alreadyAsked:
+		lines = append(lines, "You already brought up their profile; do not ask the Human about it again. If their profile is started or done, add these sources to it with the personal-profile Skill; otherwise only acknowledge them briefly.")
 	case status.chatted:
 		lines = append(lines, "Building their profile takes a while, so ask the Human once whether to start now from these sources, and start it with the personal-profile Skill only after they agree. If their profile is already started or done, only offer to add the sources it does not cover yet.")
 	default:
@@ -327,9 +346,9 @@ func (s *Service) profileSetupOutcome(
 		return nil, err
 	}
 	if authority.Kind == DecisionKindProfileSetupSources {
-		handoff, err := s.onboardingFinished(ctx, tx, queries, authority, answer, accountID, decisionID, human, agent)
-		if err != nil {
-			return nil, err
+		handoff, found, err := s.onboardingFinished(ctx, tx, queries, authority, answer, accountID, decisionID, human, agent)
+		if err != nil || !found {
+			return []messagecreation.Persisted{result}, err
 		}
 		return []messagecreation.Persisted{result, handoff}, nil
 	}
@@ -361,27 +380,125 @@ func (s *Service) onboardingFinished(
 	answer decisionAnswer,
 	accountID, decisionID string,
 	human, agent store.Actor,
-) (messagecreation.Persisted, error) {
+) (messagecreation.Persisted, bool, error) {
 	if s.onboardingHandoff == nil {
-		return messagecreation.Persisted{}, errors.New("onboarding handoff writer is not configured")
+		return messagecreation.Persisted{}, false, errors.New("onboarding handoff writer is not configured")
+	}
+	// The Human is offered the Profile once: after a status that offered it,
+	// a sources card that shares nothing writes none, and new links or files
+	// are handed over without offering it again. A status that only said to
+	// wait for a source does not count.
+	offered, err := queries.ProfileOfferedInRoom(ctx, store.ProfileOfferedInRoomParams{RoomID: authority.RoomID, HumanActorID: human.ID, AgentActorID: agent.ID})
+	if err != nil || offered && len(answer.Links) == 0 && len(answer.AttachmentUploadIDs) == 0 {
+		return messagecreation.Persisted{}, false, err
 	}
 	connections, err := s.grantedConnections(ctx, tx, agent)
 	if err != nil {
-		return messagecreation.Persisted{}, err
+		return messagecreation.Persisted{}, false, err
 	}
 	chatted, err := queries.HumanWroteInRoom(ctx, store.HumanWroteInRoomParams{RoomID: authority.RoomID, HumanActorID: human.ID})
 	if err != nil {
-		return messagecreation.Persisted{}, err
+		return messagecreation.Persisted{}, false, err
 	}
 	text := onboardingStatusText(onboardingStatus{
 		finished: true, connections: connections, links: answer.Links,
-		files: len(answer.AttachmentUploadIDs), chatted: chatted,
+		files: len(answer.AttachmentUploadIDs), chatted: chatted, alreadyAsked: offered,
 	})
-	return s.onboardingHandoff(ctx, tx, queries, OnboardingHandoff{
+	handoff, err := s.onboardingHandoff(ctx, tx, queries, OnboardingHandoff{
 		TenantID: authority.TenantID, RoomID: authority.RoomID, AccountID: accountID,
 		Human: human, Agent: agent, CardMessageID: authority.MessageID,
 		IdempotencyKey: decisionID, Text: text, AttachmentUploadIDs: answer.AttachmentUploadIDs,
 	})
+	return handoff, err == nil, err
+}
+
+// RemindProfileSetup wakes the AnotherMe of each unfinished setup that a newly
+// active Connection serves, so a Human who connected an app but never reached
+// the cards' status, for example by starting by voice, is still offered a
+// Profile. Each setup is reminded once, when the Room has been quiet for
+// reminder.Window, and only while the Human has no Profile and no status has
+// offered one. It returns how long until a Room still in
+// conversation is quiet; the caller tries again then.
+func (s *Service) RemindProfileSetup(ctx context.Context, connectionID string, now time.Time) (time.Duration, error) {
+	cards, err := store.New(s.pool).ListProfileSetupReminderCards(ctx, connectionID)
+	if err != nil {
+		return 0, err
+	}
+	var wait time.Duration
+	for _, card := range cards {
+		next, err := s.remindProfileSetup(ctx, card, now)
+		if err != nil {
+			return 0, err
+		}
+		if next > 0 && (wait == 0 || next < wait) {
+			wait = next
+		}
+	}
+	return wait, nil
+}
+
+func (s *Service) remindProfileSetup(ctx context.Context, card store.ListProfileSetupReminderCardsRow, now time.Time) (time.Duration, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+	queries := store.New(tx)
+	// The same lock order as a decision answer, so the Human's answer and the
+	// reminder never cross.
+	if err := queries.AcquireAdvisoryTransactionLock(ctx, "room-membership|"+card.RoomID); err != nil {
+		return 0, err
+	}
+	locked, err := queries.LockPendingProfileSetupCard(ctx, card.DecisionID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	// The Human's Message path writes its status under the Room's delivery
+	// lock, so the checks below run after it and see that status and the
+	// Message itself.
+	if err := queries.LockTenantDeliveryRooms(ctx, store.LockTenantDeliveryRoomsParams{TenantID: locked.TenantID, RoomIds: []string{card.RoomID}}); err != nil {
+		return 0, err
+	}
+	offered, err := queries.ProfileOfferedInRoom(ctx, store.ProfileOfferedInRoomParams{RoomID: card.RoomID, HumanActorID: locked.DeciderActorID, AgentActorID: locked.RequestedByActorID})
+	if err != nil || offered {
+		return 0, err
+	}
+	notStarted, err := queries.PersonalProfileNotStarted(ctx, store.PersonalProfileNotStartedParams{TenantID: locked.TenantID, OwnerActorID: locked.DeciderActorID})
+	if err != nil || !notStarted {
+		return 0, err
+	}
+	last, err := queries.GetRoomLastConversationAt(ctx, card.RoomID)
+	if err != nil {
+		return 0, err
+	}
+	if wait := reminder.Wait(last, now, reminder.Window); wait > 0 {
+		return wait, nil
+	}
+	human, err := queries.GetActor(ctx, store.GetActorParams{ID: locked.DeciderActorID, TenantID: locked.TenantID})
+	if err != nil {
+		return 0, err
+	}
+	agent, err := queries.GetActor(ctx, store.GetActorParams{ID: locked.RequestedByActorID, TenantID: locked.TenantID})
+	if err != nil {
+		return 0, err
+	}
+	connections, err := s.grantedConnections(ctx, tx, agent)
+	if err != nil || len(connections) == 0 {
+		return 0, err
+	}
+	status, err := messagecreation.CardHandoff(ctx, queries, messagecreation.Draft{
+		TenantID: locked.TenantID, RoomID: card.RoomID, Author: human, CardContextMessageID: locked.MessageID,
+	}, agent, " "+onboardingStatusText(onboardingStatus{connections: connections, idleReminder: true}))
+	if err != nil {
+		return 0, err
+	}
+	if _, err := messagecreation.Publish(ctx, queries, status); err != nil {
+		return 0, err
+	}
+	return 0, tx.Commit(ctx)
 }
 
 // normalizeProfileSourcesAnswer takes the links and uploads a sources card

@@ -273,6 +273,43 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/VoiceCaptureQuestion"
+    VoiceCaptureQuickNotes:
+      type: object
+      additionalProperties: false
+      required: [state]
+      description: >-
+        Quick notes written from the transcript seconds after the completion Message, which
+        promised them. title and sections are present once state is ready; failed means the
+        Message keeps only the recording and transcript.
+      properties:
+        state:
+          type: string
+          enum: [pending, ready, failed]
+        title:
+          type: string
+          minLength: 1
+          maxLength: 240
+        sections:
+          type: array
+          minItems: 1
+          maxItems: 6
+          items:
+            type: object
+            additionalProperties: false
+            required: [heading, bullets]
+            properties:
+              heading:
+                type: string
+                minLength: 1
+                maxLength: 240
+              bullets:
+                type: array
+                minItems: 1
+                maxItems: 5
+                items:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
     VoiceCapture:
       type: object
       additionalProperties: false
@@ -287,6 +324,8 @@ components:
         - created_at
         - updated_at
       properties:
+        quick_notes:
+          $ref: "#/components/schemas/VoiceCaptureQuickNotes"
         source_audio_document_version_id:
           $ref: "./common.yaml#/components/schemas/Id"
         transcript_recovery_status:

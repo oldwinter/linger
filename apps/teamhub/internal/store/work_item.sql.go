@@ -47,7 +47,7 @@ RETURNING id, tenant_id, number, kind, title, description, priority, state, reso
           task_control_source_kind, task_control_source_id, task_control_requested_by_actor_id,
           task_control_requested_at, task_control_payload,
           task_execution_updated_at, task_next_reconcile_at, task_worker_id,
-          task_lease_token_hash, task_lease_generation, task_lease_expires_at
+          task_lease_token_hash, task_lease_generation, task_lease_expires_at, quiet
 `
 
 type CreateWorkItemParams struct {
@@ -109,6 +109,7 @@ func (q *Queries) CreateWorkItem(ctx context.Context, arg CreateWorkItemParams) 
 		&i.TaskLeaseTokenHash,
 		&i.TaskLeaseGeneration,
 		&i.TaskLeaseExpiresAt,
+		&i.Quiet,
 	)
 	return i, err
 }
@@ -387,7 +388,7 @@ SELECT wi.id, wi.tenant_id, wi.number, wi.kind, wi.title, wi.description, wi.pri
        wi.task_control_source_kind, wi.task_control_source_id, wi.task_control_requested_by_actor_id,
        wi.task_control_requested_at, wi.task_control_payload,
        wi.task_execution_updated_at, wi.task_next_reconcile_at, wi.task_worker_id,
-       wi.task_lease_token_hash, wi.task_lease_generation, wi.task_lease_expires_at
+       wi.task_lease_token_hash, wi.task_lease_generation, wi.task_lease_expires_at, wi.quiet
 FROM work_items wi
 WHERE wi.id=$1::text
   AND EXISTS (
@@ -442,6 +443,7 @@ func (q *Queries) GetWorkItemForHuman(ctx context.Context, arg GetWorkItemForHum
 		&i.TaskLeaseTokenHash,
 		&i.TaskLeaseGeneration,
 		&i.TaskLeaseExpiresAt,
+		&i.Quiet,
 	)
 	return i, err
 }
@@ -456,7 +458,7 @@ SELECT wi.id, wi.tenant_id, wi.number, wi.kind, wi.title, wi.description, wi.pri
        wi.task_control_source_kind, wi.task_control_source_id, wi.task_control_requested_by_actor_id,
        wi.task_control_requested_at, wi.task_control_payload,
        wi.task_execution_updated_at, wi.task_next_reconcile_at, wi.task_worker_id,
-       wi.task_lease_token_hash, wi.task_lease_generation, wi.task_lease_expires_at
+       wi.task_lease_token_hash, wi.task_lease_generation, wi.task_lease_expires_at, wi.quiet
 FROM work_items wi
 WHERE wi.id=$1::text
   AND EXISTS (
@@ -512,6 +514,7 @@ func (q *Queries) GetWorkItemForHumanForUpdate(ctx context.Context, arg GetWorkI
 		&i.TaskLeaseTokenHash,
 		&i.TaskLeaseGeneration,
 		&i.TaskLeaseExpiresAt,
+		&i.Quiet,
 	)
 	return i, err
 }
@@ -706,7 +709,7 @@ SELECT wi.id, wi.tenant_id, wi.number, wi.kind, wi.title, wi.description, wi.pri
        wi.task_control_source_kind, wi.task_control_source_id, wi.task_control_requested_by_actor_id,
        wi.task_control_requested_at, wi.task_control_payload,
        wi.task_execution_updated_at, wi.task_next_reconcile_at, wi.task_worker_id,
-       wi.task_lease_token_hash, wi.task_lease_generation, wi.task_lease_expires_at
+       wi.task_lease_token_hash, wi.task_lease_generation, wi.task_lease_expires_at, wi.quiet
 FROM work_items wi
 WHERE wi.tenant_id=$1::text
   AND EXISTS (
@@ -861,6 +864,7 @@ func (q *Queries) ListWorkItemsForHuman(ctx context.Context, arg ListWorkItemsFo
 			&i.TaskLeaseTokenHash,
 			&i.TaskLeaseGeneration,
 			&i.TaskLeaseExpiresAt,
+			&i.Quiet,
 		); err != nil {
 			return nil, err
 		}
@@ -887,7 +891,7 @@ RETURNING id, tenant_id, number, kind, title, description, priority, state, reso
           task_control_source_kind, task_control_source_id, task_control_requested_by_actor_id,
           task_control_requested_at, task_control_payload,
           task_execution_updated_at, task_next_reconcile_at, task_worker_id,
-          task_lease_token_hash, task_lease_generation, task_lease_expires_at
+          task_lease_token_hash, task_lease_generation, task_lease_expires_at, quiet
 `
 
 type SetWorkItemArchivedParams struct {
@@ -941,6 +945,7 @@ func (q *Queries) SetWorkItemArchived(ctx context.Context, arg SetWorkItemArchiv
 		&i.TaskLeaseTokenHash,
 		&i.TaskLeaseGeneration,
 		&i.TaskLeaseExpiresAt,
+		&i.Quiet,
 	)
 	return i, err
 }
@@ -978,7 +983,7 @@ RETURNING id, tenant_id, number, kind, title, description, priority, state, reso
           task_control_source_kind, task_control_source_id, task_control_requested_by_actor_id,
           task_control_requested_at, task_control_payload,
           task_execution_updated_at, task_next_reconcile_at, task_worker_id,
-          task_lease_token_hash, task_lease_generation, task_lease_expires_at
+          task_lease_token_hash, task_lease_generation, task_lease_expires_at, quiet
 `
 
 type TransitionWorkItemParams struct {
@@ -1034,6 +1039,7 @@ func (q *Queries) TransitionWorkItem(ctx context.Context, arg TransitionWorkItem
 		&i.TaskLeaseTokenHash,
 		&i.TaskLeaseGeneration,
 		&i.TaskLeaseExpiresAt,
+		&i.Quiet,
 	)
 	return i, err
 }
@@ -1055,7 +1061,7 @@ RETURNING id, tenant_id, number, kind, title, description, priority, state, reso
           task_control_source_kind, task_control_source_id, task_control_requested_by_actor_id,
           task_control_requested_at, task_control_payload,
           task_execution_updated_at, task_next_reconcile_at, task_worker_id,
-          task_lease_token_hash, task_lease_generation, task_lease_expires_at
+          task_lease_token_hash, task_lease_generation, task_lease_expires_at, quiet
 `
 
 type UpdateWorkItemMetadataParams struct {
@@ -1113,6 +1119,7 @@ func (q *Queries) UpdateWorkItemMetadata(ctx context.Context, arg UpdateWorkItem
 		&i.TaskLeaseTokenHash,
 		&i.TaskLeaseGeneration,
 		&i.TaskLeaseExpiresAt,
+		&i.Quiet,
 	)
 	return i, err
 }

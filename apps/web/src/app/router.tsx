@@ -35,7 +35,6 @@ import {
 import { pickLandingRoom, readLastRoom } from "@/features/rooms/last-room";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { RoomShell } from "@/features/rooms/room-shell";
-import { RoomSurface } from "@/features/rooms/room-surface";
 import { routeLayoutKey } from "@/features/rooms/route-layout-key";
 import { RoomChatLoading } from "@/features/rooms/route-loading-surface";
 import {
@@ -205,7 +204,10 @@ export function createAppRoutes(
           path: "rooms/:roomId/step-out",
         },
         {
-          element: <RoomSurface />,
+          lazy: async () => ({
+            Component: (await import("@/features/rooms/room-surface"))
+              .RoomSurface,
+          }),
           errorElement: <RoomRouteErrorSurface queryClient={queryClient} />,
           loader: ({ params }) => {
             const tenantId = requireRoomRouteParam(params.tenantId, "Tenant");
@@ -1041,6 +1043,13 @@ function createSettingsRoute(): RouteObject {
             .ComputersPage,
         }),
         path: "computers",
+      },
+      {
+        lazy: async () => ({
+          Component: (await import("@/features/local-models/local-models-page"))
+            .LocalModelsPage,
+        }),
+        path: "local-models",
       },
       { loader: openProfile, path: "administration" },
     ],

@@ -1,8 +1,6 @@
 import {
   ArrowRight02Icon,
   ComputerIcon,
-  Mail01Icon,
-  SquareLock02Icon,
   ViewIcon,
   ViewOffIcon,
 } from "@hugeicons/core-free-icons";
@@ -45,7 +43,7 @@ export function TeamHubLoginPage({
       : null;
 
   return (
-    <AuthShell title="Log in">
+    <AuthShell subtitle="Welcome back to Linger." title="Log in">
       {authenticationNotice ? (
         <div className="mb-4">
           <FormFeedback tone="danger">{authenticationNotice}</FormFeedback>
@@ -70,7 +68,7 @@ function LocalAccountSignIn({
   authentication: AuthenticationController;
 }) {
   return (
-    <div className="mb-4">
+    <div className="auth-local-account">
       <Button
         className="w-full"
         disabled={authentication.state.isSubmitting}
@@ -84,10 +82,10 @@ function LocalAccountSignIn({
         <Icon icon={ComputerIcon} size={16} />
         <span>Sign in with this computer's account</span>
       </Button>
-      <div className="mt-4 flex items-center gap-3 text-xs text-muted-foreground">
-        <span className="h-px flex-1 bg-border" />
+      <div className="auth-divider">
+        <span />
         <span>or</span>
-        <span className="h-px flex-1 bg-border" />
+        <span />
       </div>
     </div>
   );
@@ -103,7 +101,7 @@ function AuthenticationForm({
 
   return (
     <form
-      className="space-y-3"
+      className="auth-form"
       noValidate
       onSubmit={(event) => {
         void handleSubmit(event);
@@ -112,10 +110,8 @@ function AuthenticationForm({
       <Field
         autoComplete="email"
         label="Email"
-        labelClassName="sr-only"
         onChange={(event) => changeField("email", event.target.value)}
-        placeholder="Work email"
-        prefix={<Icon icon={Mail01Icon} size={16} />}
+        placeholder="you@company.com"
         type="email"
         value={email}
       />
@@ -128,7 +124,7 @@ function AuthenticationForm({
       {error ? <FormFeedback tone="danger">{error}</FormFeedback> : null}
       <Button
         aria-label="Sign in"
-        className="mt-2 w-full"
+        className="auth-submit w-full"
         disabled={isSubmitting}
         size="large"
         type="submit"
@@ -158,10 +154,7 @@ function PasswordField({
     <Field
       autoComplete={autoComplete}
       label={label}
-      labelClassName="sr-only"
       onChange={(event) => onChange(event.target.value)}
-      placeholder={label}
-      prefix={<Icon icon={SquareLock02Icon} size={16} />}
       suffix={
         <button
           aria-label={`${visible ? "Hide" : "Show"} ${label.toLowerCase()}`}

@@ -31,7 +31,8 @@ Gateway and runs Agents. The daemon exits with the app.
   `out/Linger-<version>-x64.zip` on Linux after `node build.mjs` with the
   `win32-x64` daemon target. Needs the
   `wintool` image from `packaging/win/Dockerfile`. Neither is
-  Authenticode-signed and Windows has no self-update yet.
+  Authenticode-signed. The updater runs the setup program with
+  `/S /relaunch`; the portable folder only links to the release page.
 - `python3 packaging/linux/package.py`: build
   `out/Linger-<version>-linux-x64.tar.gz` (one folder with the `linger`
   executable) after `node build.mjs` with the `linux-x64` daemon target.
@@ -83,7 +84,13 @@ Gateway and runs Agents. The daemon exits with the app.
   and clears it after 60 s if it still holds the password) and "Open account
   file location" (`shell.showItemInFolder`); an unreadable file shows why
   instead. Only the email and file are kept; Show and Copy read the file
-  again, and closing the setup window hides the password. After a logout
+  again, and closing the setup window hides the password. When the
+  installer set a database from the earlier Simplex app aside
+  (`simplex-backup-*` in the instance, see the local-installation package),
+  the desktop logs `local_server.legacy_data_set_aside`, clears its
+  enrollment so it enrolls this computer again in the fresh database, keeps
+  that folder as `legacyBackup` in its config so this happens once, and the
+  ready screen says where the earlier data went. After a logout
   the SPA's login page asks `window.lingerDesktop.localAccount.available()`
   on load, every 15 s and when the window comes back into view; it is true
   only while the window shows the origin in `local-server.json`, the
@@ -115,11 +122,38 @@ Gateway and runs Agents. The daemon exits with the app.
   TeamHub and a relay forwards it the same way; a fix needs a check that
   the web port belongs to the web process the installer started. Every
   existing session cookie for the origin has the same exposure.
+  On a Mac older than `MIN_MACOS` (14.0, the `LSMinimumSystemVersion`
+  `packaging/mac/package.py` writes), read with Electron's
+  `process.getSystemVersion()`, it neither fetches Node.js nor runs the
+  installer, and the failed step says "Linger needs macOS 14.0 or later.
+  This Mac runs macOS <version>. Update macOS in System Settings > General >
+  Software Update, then try again."; see
+  [Packaging Details](../../docs/desktop-release.md#packaging-details) for
+  where the minimum comes from.
   Quick Install installs the `recommendation` of the localmodels setup
   report (`installer.js --inspect`, run once as the setup window opens):
   `local-models` is the planned model served by Pi, shown with the model,
-  GPU, memory and download; otherwise the named runtime, with the tool's
-  reason for no local model. The page adds no host rule of its own; while
+  GPU, memory and download, plus the tool's caveat when it has one;
+  otherwise the named runtime, with the tool's reason for no local model.
+  Under Customize the local model runs only behind Pi: with another runtime
+  it is greyed (`aria-disabled`, still focusable), does not toggle, and says
+  "Local models are only available with the Pi runtime."; choosing another
+  runtime clears it, and choosing Pi offers it again.
+  When the tool reports local models blocked now (`stack.state:
+"blocked-now"`: the model fits the hardware, but other programs hold the
+  memory it needs now; a tool before that field marks it by `basis:
+"capacity"` or reason `free-memory-required`, either one), the install
+  would plan again against the memory free then and stop, so the local model
+  shows on hold and is not offered. With the tool's `stack.memory` the page
+  says "quit other programs first; it needs X of memory, Y is free" (and the
+  graphics memory on a discrete GPU), adding the tool's words for any other
+  reason code; without it, the tool's reason. Quick Install installs the
+  runtime the installer recommends instead, and Check again
+  (`local.recheck`) runs the check again. A tool before `stack.state` still
+  recommends `local-models` there, so the installer's setup adapter
+  (`packages/local-installation/src/setup-plan.ts`) replaces that pick with
+  an installed runtime (signed-in first), else Codex; that override and the
+  fallbacks go once the pinned tool reports `state`. The page adds no host rule of its own; while
   the check runs the button waits with a spinner and says what it waits for
   (the first run downloads the localmodels tool, counted by `download`
   event lines before the report), and Customize marks the
@@ -184,8 +218,20 @@ Gateway and runs Agents. The daemon exits with the app.
   `control.key`, `credential.json`, `launch.html`, `*.env`, `*.input.json`,
   keys, cookies, databases) never go in, every saved voice key is replaced
   wherever a log printed it, and every text passes through `redact` plus a
-  secret-key JSON filter, alongside daemon connection/status summary fields. It imports no Electron API, so it is
-  tested with Windows paths on any platform.
+  secret-key JSON filter, and the person's home folder becomes `~`. It
+  includes daemon connection/status summary fields. It imports no Electron
+  API, so it is tested with Windows paths on any platform.
+- `src/main/diagnostics-upload.ts`: "Send Diagnostics" on the same three
+  surfaces, shown only while a receiver is set up (`diagnosticsUploadUrl` in
+  `config.json`, else `HOSTED_DIAGNOSTICS_UPLOAD_URL`, which `build.mjs` bakes
+  in from the release pipeline's `LINGER_DIAGNOSTICS_UPLOAD_URL` secret and
+  leaves unset in other builds). `DiagnosticsSender` builds the zip
+  into `<userData>/diagnostics-outbox`, waits for consent showing every file,
+  the size and the host, uploads it with the
+  [`linger.diagnostics-upload/v1`](../../docs/diagnostics-upload.md)
+  protocol and shows the receiver's report id; a retryable failure keeps the
+  zip for Try Again. The setup page draws the flow itself; the tray and the
+  start failure page use native dialogs (`diagnostics-dialogs.ts`).
 - `src/main/window-manager.ts`: one `BaseWindow` with two views, the title bar
   (`app://shell/titlebar`) and the SPA. macOS keeps native traffic lights,
   Windows uses `titleBarOverlay`, Linux draws its own controls. Closing hides
@@ -251,9 +297,12 @@ Gateway and runs Agents. The daemon exits with the app.
   LocalServer runs `installer.js --migrate` when an instance record still
   carries a `simplex-` project name, before it reads
   `desktop/local-server.json`
-  (`packages/local-installation/src/legacy-migration.ts`). A failed migration
-  puts LocalServer in the failed state with the installer's error, which names
-  each instance that is still legacy; Retry runs the migration again. There is
+  (`packages/local-installation/src/legacy-migration.ts`). Instances the
+  installer left unconverted are logged as
+  `local_server.legacy_instance_skipped` with their reason and do not hold
+  the app back; only when `desktop` itself stayed unconverted, or the
+  installer could not run, LocalServer enters the failed state with that
+  reason, and Retry runs the migration again. There is
   no downgrade path: an older build reads neither the converted instances nor
   the moved data folder. The bundle ID and
   Windows AppUserModelID are `com.simplexai.linger.desktop.preview`. The
@@ -291,6 +340,12 @@ Gateway and runs Agents. The daemon exits with the app.
   handshake that this needs; the bridge itself was deleted.
 - `scripts/build-daemon.mjs`: cross-compiles the daemon, stamped with the
   `apps/computer` release the Gateway checks.
+- `scripts/stage-computer-tools.mjs`: stages the browser and computer-control
+  tools and their Node.js for each daemon target into
+  `dist/computer-tools/<target>/` with the root
+  `scripts/computer-tool-bundle.mjs`; `packaging/computer_tools.py` puts them in
+  `resources/cli/` and `resources/runtime/` and checks every package for them
+  (see [Computer Tools](../../docs/desktop-release.md#computer-tools)).
 
 ## Important Conventions
 
@@ -350,7 +405,18 @@ building a package.
   variables do not reach the daemon. The config's
   `runtimeEnvironment` (the local server's runtime: these paths plus
   `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `PI_CODING_AGENT_DIR`) replaces them,
-  names compared case-insensitively for Windows.
+  names compared case-insensitively for Windows. Its four
+  `LINGER_LOCALMODELS_*` paths become the daemon config's `local_models`
+  section, which the daemon's model library runs. Every `--resume` reports
+  the runtime again; a change updates `runtimeEnvironment` and restarts the
+  daemon once its tasks end (`computer.runtime`), so an install from before
+  the daemon knew the tool gains it.
+- `LINGER_LOCALMODELS_DEV_PYTHON`, `LINGER_LOCALMODELS_DEV_MODULE_DIR`:
+  absolute Python and module directory for running a local `localmodels`
+  checkout in Quick Install and the Desktop Computer without fetching the
+  published kit. `LOCALMODELS_DEBUG` (`simulate` or `tiny`) or
+  `~/.config/localmodels/debug.json` enables fast local-model testing in both
+  source and packaged builds.
 - Without a display, run with `--ozone-platform=headless --disable-gpu`. The
   tray, native menus, and the quick note's global shortcut are skipped in
   that mode; use Xvfb to check them.

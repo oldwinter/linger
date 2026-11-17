@@ -444,11 +444,9 @@ func appendChangedWithName(ctx context.Context, queries *store.Queries, authorit
 }
 
 // checkLimits bounds a Room's Routines when a write makes one count: a
-// recurring Routine counts while it exists and a one-shot one until it fires,
-// and at most maxPendingOncePerRoom one-shot Routines wait to fire.
+// recurring Routine counts while it exists and a one-shot one until it fires.
 func checkLimits(ctx context.Context, queries *store.Queries, authority Authority, before *store.RoomReminder, kind string, enabled bool) error {
 	counts := func(kind string, enabled bool) bool { return kind != "once" || enabled }
-	waits := func(kind string, enabled bool) bool { return kind == "once" && enabled }
 	if counts(kind, enabled) && (before == nil || !counts(before.CadenceKind.String, before.Enabled)) {
 		count, err := queries.CountRoomReminders(ctx, store.CountRoomRemindersParams{
 			RoomID: authority.RoomID, TenantID: authority.TenantID,
@@ -458,17 +456,6 @@ func checkLimits(ctx context.Context, queries *store.Queries, authority Authorit
 		}
 		if count >= maxRemindersPerRoom {
 			return ErrLimitReached
-		}
-	}
-	if waits(kind, enabled) && (before == nil || !waits(before.CadenceKind.String, before.Enabled)) {
-		pending, err := queries.CountEnabledOnceRoomReminders(ctx, store.CountEnabledOnceRoomRemindersParams{
-			RoomID: authority.RoomID, TenantID: authority.TenantID,
-		})
-		if err != nil {
-			return err
-		}
-		if pending >= maxPendingOncePerRoom {
-			return ErrPendingOnceLimit
 		}
 	}
 	return nil

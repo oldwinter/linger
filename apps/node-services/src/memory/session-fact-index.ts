@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import type { PersonalKnowledgeQueryResponse } from "@linger/wire-contracts/node-services-internal/client";
+import type { components as NodeServicesInternal } from "@linger/wire-contracts/node-services-internal/types";
 import type postgres from "postgres";
 import { tokenizeSearchText } from "../bm25.js";
 import { chunkSource, type SourceChunk } from "./search/chunks.js";
 import { RRF_K } from "./search/rrf.js";
 import {
+  boostByRecency,
   selectWithTemporalCoverage,
   TEMPORAL_POOL_SIZE,
   windowBounds,
@@ -19,7 +21,7 @@ import {
   type FactBatchWindow,
   type FactWindow,
 } from "./session-fact-extraction.js";
-import { isComputerOffline } from "../runtime-model-call.js";
+import { isComputerOffline, ModelCallError } from "../runtime-model-call.js";
 import { memoryDatabase } from "./database.js";
 import { localDateWindow } from "./date.js";
 import { memoryLogger } from "./run-telemetry.js";
@@ -64,9 +66,16 @@ export interface FactSyncResult {
   failed: number;
 }
 
+type SessionFactFailure = NodeServicesInternal["schemas"]["SessionFactFailure"];
+type SessionFactFailures =
+  NodeServicesInternal["schemas"]["SessionFactFailures"];
+
 export interface FactSearchInput extends ChunkSearchInput {
+  /** When the asked event happened: a window that votes, never a filter. */
   event_from?: string;
   event_to?: string;
+  /** The day a changing value is asked for: its latest mention on or before it votes. */
+  as_of?: string;
 }
 
 /** One Raw source facts are extracted from, at its active version. */
@@ -137,6 +146,20 @@ export function factChunk(
   return best;
 }
 
+/**
+ * A fact happened in the window when its event interval overlaps it; a fact
+ * without one (something said, not an event) happened on its source's local
+ * day. Unlike Hindsight's match, a mention inside the window does not count
+ * for an event elsewhere: when a record was made is the recorded window.
+ * Needs `fact` and the active `version` in scope.
+ */
+function eventMatch(sql: postgres.Sql, bounds: { from: string; to: string }) {
+  return sql`((fact.occurred_start IS NOT NULL
+      AND fact.occurred_start <= ${bounds.to}::date AND fact.occurred_end >= ${bounds.from}::date)
+    OR (fact.occurred_start IS NULL
+      AND version.manifest->>'date' BETWEEN ${bounds.from} AND ${bounds.to}))`;
+}
+
 /** The Room message heading (`## <ISO time> · <author>`) that contains an offset. */
 export function messageAt(
   content: string,
@@ -163,6 +186,9 @@ export class SessionFactIndex {
   readonly #concurrency: number;
   // One sync per Agent at a time, so repeated triggers never extract twice.
   readonly #agents = new Map<string, Promise<unknown>>();
+  // Process-local observations, not a persisted inventory of pending windows.
+  readonly #observedSince = new Date().toISOString();
+  readonly #failures = new Map<string, SessionFactFailure>();
 
   constructor(options: {
     /** Memory's shared pool; the role ends it, not the index. */
@@ -180,9 +206,31 @@ export class SessionFactIndex {
   syncAgent(agentId: string): Promise<FactSyncResult> {
     const run = (this.#agents.get(agentId) ?? Promise.resolve())
       .catch(() => undefined)
-      .then(() => this.#syncAgent(agentId));
+      .then(() => this.#syncAgent(agentId))
+      .catch((error: unknown) => {
+        this.#failures.set(agentId, {
+          agent_id: agentId,
+          failed_windows: null,
+          last_failure_at: new Date().toISOString(),
+          last_error_kind:
+            error instanceof ModelCallError ? error.kind : "unknown",
+        });
+        throw error;
+      });
     this.#agents.set(agentId, run);
     return run;
+  }
+
+  /** Latest failed syncs observed by this process; success clears only that Agent. */
+  failures(limit = 200): Omit<SessionFactFailures, "configured"> {
+    return {
+      scope: "process",
+      observed_since: this.#observedSince,
+      total: this.#failures.size,
+      items: [...this.#failures.values()]
+        .slice(0, limit)
+        .map((item) => ({ ...item })),
+    };
   }
 
   async #syncAgent(agentId: string): Promise<FactSyncResult> {
@@ -292,6 +340,7 @@ export class SessionFactIndex {
     // An offline Computer fails every later batch too; they wait for the
     // next sync instead.
     let offline = false;
+    let lastErrorKind = "unknown";
     const runBatch = async (batch: readonly PendingWindow[]) => {
       if (offline) {
         result.failed += batch.length;
@@ -308,8 +357,14 @@ export class SessionFactIndex {
         // Not recorded as done, so the next sync retries the windows.
         result.failed += batch.length;
         offline ||= isComputerOffline(error);
+        lastErrorKind =
+          error instanceof ModelCallError ? error.kind : "unknown";
         memoryLogger().log("error", "memory.session_fact_extraction_failed", {
           error,
+          error_kind: lastErrorKind,
+          agent_id: agentId,
+          tenant_id: tenantId,
+          owner_id: ownerActorId,
           windows: batch.length,
         });
         return;
@@ -318,6 +373,7 @@ export class SessionFactIndex {
         const facts = extracted.get(item.window.sha256);
         if (!facts) {
           result.failed += 1;
+          lastErrorKind = "invalid_output";
           continue;
         }
         await this.#store(source, item.window, facts);
@@ -334,6 +390,16 @@ export class SessionFactIndex {
         },
       ),
     );
+    if (result.failed) {
+      this.#failures.set(agentId, {
+        agent_id: agentId,
+        failed_windows: result.failed,
+        last_failure_at: new Date().toISOString(),
+        last_error_kind: lastErrorKind,
+      });
+    } else {
+      this.#failures.delete(agentId);
+    }
     return result;
   }
 
@@ -404,7 +470,11 @@ export class SessionFactIndex {
     });
   }
 
-  /** Keyword matches, with those inside the event window ranked higher. */
+  /**
+   * Keyword matches, with more votes for facts whose event falls in the event
+   * window and facts recorded in the recorded window; as_of nudges the fused
+   * order toward facts mentioned near that day. No window excludes a fact.
+   */
   async search(
     input: FactSearchInput,
     tokens: readonly string[],
@@ -414,16 +484,18 @@ export class SessionFactIndex {
       ? [...new Set(input.sourceIds)]
       : undefined;
     const query = tokens.join(" | ");
-    const eventWindow = input.event_from || input.event_to;
-    const window = { from: input.event_from, to: input.event_to };
-    const bounds = windowBounds(window);
-    const branch = (order: "lexical" | "event") =>
+    const event = { from: input.event_from, to: input.event_to };
+    const recorded = { from: input.date_from, to: input.date_to };
+    const eventBounds = windowBounds(event);
+    const recordedBounds = windowBounds(recorded);
+    const branch = (order: "lexical" | "event" | "recorded") =>
       this.#sql<FactRow[]>`
         SELECT fact.id AS fact_id, chunk.id AS chunk_id,
           source.document_id, fact.source_sha256,
           ts_rank_cd(fact.search_tsv, to_tsquery('simple', ${query}))::float8 AS score,
           fact.text, fact.fact_type, fact.occurred_start::text,
-          fact.occurred_end::text, fact.mentioned_at, fact.entities
+          fact.occurred_end::text, fact.mentioned_at, fact.entities,
+          version.manifest->>'date' AS source_date
         FROM memory_index.session_facts fact
         JOIN memory_index.sources source
           ON source.id = fact.source_id AND source.active_sha256 = fact.source_sha256
@@ -436,46 +508,56 @@ export class SessionFactIndex {
           AND fact.owner_id = ${input.user_artifact_owner_actor_id}
           AND fact.agent_id = ${input.agent_id}
           AND (${sourceIds === undefined} OR source.document_id = ANY(${sourceIds ?? []}::text[]))
-          AND (${input.date_from ?? null}::text IS NULL OR version.manifest->>'date' >= ${input.date_from ?? null})
-          AND (${input.date_to ?? null}::text IS NULL OR version.manifest->>'date' <= ${input.date_to ?? null})
           AND fact.search_tsv @@ to_tsquery('simple', ${query})
           ${
             order === "event"
-              ? // Hindsight's window match: event overlap, or an event edge or the mention inside it.
-                this
-                  .#sql`AND ((fact.occurred_start <= ${bounds.to}::date AND fact.occurred_end >= ${bounds.from}::date)
-                  OR fact.mentioned_at::date BETWEEN ${bounds.from}::date AND ${bounds.to}::date)`
-              : this.#sql``
+              ? this.#sql`AND ${eventMatch(this.#sql, eventBounds)}`
+              : order === "recorded"
+                ? // Recorded on its source's day, the Human's local date.
+                  this
+                    .#sql`AND version.manifest->>'date' BETWEEN ${recordedBounds.from} AND ${recordedBounds.to}`
+                : this.#sql``
           }
         ORDER BY score DESC, fact.id
-        LIMIT ${order === "event" ? TEMPORAL_POOL_SIZE : FACT_CANDIDATES}`;
-    const [lexical, event] = await Promise.all([
+        LIMIT ${order === "lexical" ? FACT_CANDIDATES : TEMPORAL_POOL_SIZE}`;
+    const none = Promise.resolve<FactRow[]>([]);
+    const [lexical, inEvent, inRecorded] = await Promise.all([
       branch("lexical"),
-      eventWindow ? branch("event") : Promise.resolve<FactRow[]>([]),
+      event.from || event.to ? branch("event") : none,
+      recorded.from || recorded.to ? branch("recorded") : none,
     ]);
+    // A fact is mentioned on its source's local day; mentioned_at is UTC.
     const covered = selectWithTemporalCoverage(
+      inEvent,
+      (row) => row.occurred_start ?? row.source_date,
       event,
-      (row) =>
-        row.occurred_start ??
-        new Date(row.mentioned_at).toISOString().slice(0, 10),
-      window,
+    );
+    const recordedCovered = selectWithTemporalCoverage(
+      inRecorded,
+      (row) => row.source_date,
+      recorded,
     );
     // Rank fusion across the fact branches, then one fact per statement.
     const fused = new Map<string, { row: FactRow; score: number }>();
-    for (const rows of [lexical, covered])
+    for (const rows of [lexical, covered, recordedCovered])
       for (const [index, row] of rows.entries()) {
         const current = fused.get(row.fact_id);
         const vote = 1 / (RRF_K + index + 1);
         if (current) current.score += vote;
         else fused.set(row.fact_id, { row, score: vote });
       }
+    const ranked = [...fused.values()].sort(
+      (left, right) =>
+        right.score - left.score ||
+        left.row.fact_id.localeCompare(right.row.fact_id),
+    );
     const seen = new Set<string>();
-    return [...fused.values()]
-      .sort(
-        (left, right) =>
-          right.score - left.score ||
-          left.row.fact_id.localeCompare(right.row.fact_id),
-      )
+    // A fact is mentioned on its source's local day.
+    return (
+      input.as_of
+        ? boostByRecency(ranked, ({ row }) => row.source_date, input.as_of)
+        : ranked
+    )
       .filter(({ row }) => !seen.has(row.text) && Boolean(seen.add(row.text)))
       .slice(0, FACT_RESULTS)
       .map(({ row }) => factHit(row));
@@ -494,6 +576,7 @@ interface FactRow {
   occurred_end: string | null;
   mentioned_at: Date;
   entities: string[];
+  source_date: string;
 }
 
 function factHit(row: FactRow): SessionFactHit {

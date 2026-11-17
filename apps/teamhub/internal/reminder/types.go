@@ -9,13 +9,13 @@ import (
 )
 
 const (
-	maxNameRunes        = 120
-	maxPromptRunes      = 50000
-	maxRemindersPerRoom = 50
-	// maxPendingOncePerRoom bounds the one-shot checks an Agent can line up.
-	maxPendingOncePerRoom = 20
-	defaultListLimit      = 50
-	maxListLimit          = 100
+	maxNameRunes   = 120
+	maxPromptRunes = 50000
+	// maxRemindersPerRoom bounds a Room's Routines: recurring ones while they
+	// exist and one-shot ones until they fire.
+	maxRemindersPerRoom = 100
+	defaultListLimit    = 50
+	maxListLimit        = 100
 )
 
 var (
@@ -26,8 +26,6 @@ var (
 	ErrIdempotencyConflict = errors.New("reminder idempotency key reused")
 	ErrLimitReached        = errors.New("room reminder limit reached")
 	ErrMentionInvalid      = fmt.Errorf("%w: mention", ErrInvalid)
-	// ErrPendingOnceLimit is the limit on one-shot Routines still waiting to fire.
-	ErrPendingOnceLimit = fmt.Errorf("%w: pending one-shot", ErrLimitReached)
 	// ErrTemplateAgentUnavailable is a template copy whose Agent is not active,
 	// so the copy cannot run or be enabled now.
 	ErrTemplateAgentUnavailable = fmt.Errorf("%w: template Agent unavailable", ErrConflict)

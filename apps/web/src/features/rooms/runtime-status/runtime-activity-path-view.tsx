@@ -281,8 +281,7 @@ function firstPublishedLine(
 }
 
 function entryLine(entry: RuntimeActivityEntry): string | undefined {
-  const text =
-    entry.type === "content" ? entry.block.content : entry.detail;
+  const text = entry.type === "content" ? entry.block.content : entry.detail;
   const line = text.trim().split("\n", 1)[0]?.trim();
   return line || undefined;
 }

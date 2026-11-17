@@ -126,6 +126,7 @@ UPDATE work_items
 SET state=sqlc.arg(work_item_state)::text,
     resolution=NULL,
     task_source_key=sqlc.narg(source_key)::text,
+    quiet=sqlc.arg(quiet)::boolean,
     task_execution_generation=sqlc.arg(generation)::bigint,
     task_execution_status=sqlc.arg(execution_status)::text,
     task_execution_revision=sqlc.arg(execution_revision)::bigint,
@@ -193,7 +194,7 @@ WHERE registration.agent_management_id=sqlc.arg(agent_management_id)::text
 
 -- name: LockTaskExecutionSnapshot :one
 SELECT item.id AS task_id,item.tenant_id,item.title,item.state AS work_item_state,item.resolution,item.version,
-       item.task_source_key,item.task_execution_generation,
+       item.quiet,item.task_source_key,item.task_execution_generation,
        item.task_execution_status,item.task_execution_revision,item.task_execution_reason_code,
        item.task_desired_control,item.task_control_revision,item.task_control_settled_revision,
        item.task_control_outcome,item.task_control_payload,item.task_execution_updated_at,

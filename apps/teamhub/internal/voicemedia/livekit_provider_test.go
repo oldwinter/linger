@@ -453,6 +453,23 @@ func TestUnassignedVoiceRuntimeDispatchExpiresAfterWorkerOutage(t *testing.T) {
 	}
 }
 
+func TestJobLessVoiceRuntimeDispatchIsReplacedSoonAfterAssignmentTimeout(t *testing.T) {
+	metadata := voiceRuntimeDispatchMetadata(time.Now(), PurposeHardwareControl)
+	dispatch := &livekit.AgentDispatch{Id: "dropped", AgentName: voiceRuntimeAgentName, Metadata: metadata,
+		State: &livekit.AgentDispatchState{CreatedAt: time.Now().Add(-12 * time.Second).UnixNano()}}
+	if !hasVoiceRuntimeDispatch(voiceRuntimeAgentName, []*livekit.AgentDispatch{dispatch}, metadata, nil, time.Time{}) {
+		t.Fatal("a dispatch still within the worker assignment timeout was replaced")
+	}
+	dispatch.State.CreatedAt = time.Now().Add(-20 * time.Second).UnixNano()
+	if got := staleVoiceRuntimeDispatches(voiceRuntimeAgentName, []*livekit.AgentDispatch{dispatch}, metadata, nil, time.Time{}); len(got) != 1 || got[0] != "dropped" {
+		t.Fatalf("stale dispatches=%v want=[dropped]", got)
+	}
+	dispatch.State.Jobs = []*livekit.Job{{State: &livekit.JobState{Status: livekit.JobStatus_JS_PENDING}}}
+	if !hasVoiceRuntimeDispatch(voiceRuntimeAgentName, []*livekit.AgentDispatch{dispatch}, metadata, nil, time.Time{}) {
+		t.Fatal("a dispatch with a pending job lost its minute of assignment grace")
+	}
+}
+
 func TestClosingVoiceSessionRemovesTheWholeProviderRoom(t *testing.T) {
 	methods := make(chan string, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

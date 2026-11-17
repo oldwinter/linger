@@ -1033,7 +1033,9 @@ describe("Runtime activity path", () => {
       }),
       record(String(Number(ordinal) + 1), {
         activity_id: id,
-        content: [{ content: output, format: "text" as const, label: "Output" }],
+        content: [
+          { content: output, format: "text" as const, label: "Output" },
+        ],
         outcome,
         type: "activity.finished" as const,
       }),

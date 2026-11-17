@@ -1547,6 +1547,18 @@ export interface components {
       entry_document_id?: components["schemas"]["Id"];
       entry_document_version_id?: components["schemas"]["Id"];
     } & (unknown | unknown);
+    /** @description A finished recording's quick notes, which TeamHub writes from its transcript after posting the recording and transcript. Clients read them from the Capture's quick_notes. Only TeamHub creates it. */
+    MeetingNotesSegment: {
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: "meeting_notes";
+      /** @description User-visible label included in raw_message. */
+      content: string;
+      /** @description The recording's Capture Session; its meeting in Library carries the full notes. */
+      capture_id: components["schemas"]["Id"];
+    };
     MessageSegment:
       | components["schemas"]["ReferenceSegment"]
       | components["schemas"]["TextSegment"]
@@ -1554,7 +1566,8 @@ export interface components {
       | components["schemas"]["HtmlFragmentSegment"]
       | components["schemas"]["DocumentSegment"]
       | components["schemas"]["SkillSegment"]
-      | components["schemas"]["ArtifactTreeSegment"];
+      | components["schemas"]["ArtifactTreeSegment"]
+      | components["schemas"]["MeetingNotesSegment"];
     AgentHistoryMessage: {
       message_id: string;
       inbox_id: string;
@@ -1630,7 +1643,7 @@ export interface components {
       alternates?: string[];
       /**
        * Format: date
-       * @description Start of the period the sources were recorded in; ranks matching sources higher and excludes none.
+       * @description Start of the period the asked records were made in, such as mail received in January; ranks sources and facts recorded then higher and excludes none.
        */
       dateFrom?: string;
       /**
@@ -1640,7 +1653,7 @@ export interface components {
       dateTo?: string;
       /**
        * Format: date
-       * @description Inclusive start of when the asked event happened; takes precedence over dateFrom and dateTo and excludes none.
+       * @description Inclusive start of when the asked event happened, whenever it was recorded; ranks facts and sources from that period higher and excludes none.
        */
       eventFrom?: string;
       /**
@@ -1648,6 +1661,11 @@ export interface components {
        * @description Inclusive end of when the asked event happened; pair with eventFrom.
        */
       eventTo?: string;
+      /**
+       * Format: date
+       * @description Day a changing value or state is asked for, today for the current one; among similarly relevant results, those said shortly before that day rank a little higher and later ones remain.
+       */
+      asOf?: string;
       /**
        * @description Return only one list with the whole result size, summaries (Wiki pages and Daily/Weekly reports) or originals (conversations, recordings, mail, documents, notes, the Profile). Omit to get both.
        * @enum {string}

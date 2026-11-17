@@ -14,6 +14,7 @@ export type AgentToDaemonEnvelope =
   | CapabilitySkillsScan
   | CapabilityBrowserConnect
   | CapabilityComputerPermission
+  | CapabilityLocalModelsExecute
   | OperationPrepare
   | ProviderPrepare
   | SessionCompact
@@ -89,6 +90,25 @@ export type CapabilityComputerPermission = LocalSkillCommandIdentity & {
   permission?: "screen_recording" | "accessibility";
   kind: "computer_permission";
 };
+/**
+ * Ask the Computer to act on its model library. The Computer answers at once with accepted or refused and supervises the localmodels job itself; progress and the outcome arrive as runner.local_models snapshots. refresh rereads the library and needs no model_id; every other action names one. unload_first is only for load.
+ */
+export type CapabilityLocalModelsExecute = LocalSkillCommandIdentity & {
+  type: "execute";
+  kind: "local_models";
+  action: "download" | "cancel" | "load" | "unload" | "remove" | "refresh";
+  model_id?: LocalModelId;
+  /**
+   * @maxItems 64
+   */
+  unload_first?: LocalModelId[];
+} & {
+  [k: string]: unknown;
+};
+/**
+ * Stable localmodels library id: catalog id and variant, such as qwen3-4b:Q4_K_M.
+ */
+export type LocalModelId = string;
 export type OperationPrepare = OperationIdentity & {
   type: "prepare";
   command_id: Id;
@@ -167,6 +187,7 @@ export type DaemonToAgentEnvelope =
   | RunnerHeartbeat
   | RunnerRuntimeDiagnostics
   | RunnerHerdrEvent
+  | RunnerLocalModels
   | RuntimeRegistrationObserved
   | AgentRunnerReady
   | AgentRunnerRemoved
@@ -180,6 +201,8 @@ export type DaemonToAgentEnvelope =
   | CapabilityBrowserFailed
   | CapabilityComputerPermissionSucceeded
   | CapabilityComputerPermissionFailed
+  | CapabilityLocalModelsAccepted
+  | CapabilityLocalModelsRefused
   | OperationPrepared
   | ProviderPrepared
   | SessionCompacted
@@ -266,6 +289,63 @@ export type ActiveOperation = OperationScope & {
   last_acked_seq: NonNegativeInteger;
 };
 export type NonNegativeInteger = number;
+/**
+ * Why a Computer reports no model library: TOOL_NOT_INSTALLED when the Computer config names no localmodels tool, TOOL_FAILED when the tool did not answer library status.
+ */
+export type LocalModelsUnavailableCode = "TOOL_NOT_INSTALLED" | "TOOL_FAILED";
+/**
+ * A place a model can live: gpu:<index>, system (RAM beside GPUs) or unified (RAM of a GPU-less or Apple silicon host).
+ */
+export type LocalModelPoolId = string;
+/**
+ * Closed localmodels library error set. Extend it only together with the localmodels library contract.
+ */
+export type LocalModelErrorCode =
+  | "MODEL_UNKNOWN"
+  | "INVALID_STATE"
+  | "JOB_RUNNING"
+  | "MEMORY_INSUFFICIENT"
+  | "DISK_INSUFFICIENT"
+  | "PLATFORM_UNSUPPORTED"
+  | "LOAD_NO_ROOM"
+  | "DOWNLOAD_FAILED"
+  | "CHECKSUM_MISMATCH"
+  | "NETWORK_UNAVAILABLE"
+  | "ENGINE_START_FAILED"
+  | "HEALTH_CHECK_FAILED"
+  | "OUT_OF_MEMORY"
+  | "MODEL_FILES_MISSING"
+  | "GATEWAY_REGISTRATION_FAILED"
+  | "CANCELLED";
+/**
+ * Model family for brand presentation; never inferred from name.
+ */
+export type LocalModelFamily =
+  | "qwen"
+  | "gemma"
+  | "llama"
+  | "openai"
+  | "deepseek"
+  | "mistral"
+  | "phi"
+  | "glm"
+  | "kimi"
+  | "claude"
+  | "grok"
+  | "other";
+/**
+ * Weight activation topology: dense activates all parameters per token; moe activates a subset.
+ */
+export type LocalModelArchitecture = "dense" | "moe";
+/**
+ * Model capability verified by localmodels on this platform.
+ */
+export type LocalModelCapability =
+  | "vision"
+  | "tool_use"
+  | "reasoning"
+  | "coding"
+  | "multilingual";
 export type AgentRunnerReady = AgentRunnerWireIdentity & {
   type: "agent_runner.state";
   runner_pid: PositiveInteger;
@@ -351,6 +431,49 @@ export type CapabilityComputerPermissionFailed = LocalSkillCommandIdentity & {
   kind: "computer_permission";
   outcome: "failed";
 };
+/**
+ * The Computer started the action, or for refresh queued a fresh snapshot.
+ */
+export type CapabilityLocalModelsAccepted = LocalSkillCommandIdentity & {
+  type: "executed";
+  kind: "local_models";
+  action: "download" | "cancel" | "load" | "unload" | "remove" | "refresh";
+  model_id?: LocalModelId;
+  outcome: "accepted";
+};
+/**
+ * The Computer did not start the action; nothing changed on it.
+ */
+export type CapabilityLocalModelsRefused = LocalSkillCommandIdentity & {
+  type: "executed";
+  kind: "local_models";
+  action: "download" | "cancel" | "load" | "unload" | "remove" | "refresh";
+  model_id?: LocalModelId;
+  refusal: LocalModelActionRefusal;
+  outcome: "refused";
+};
+/**
+ * Why the Computer refused an action before it started: a localmodels library error or a reason the library is unavailable.
+ */
+export type LocalModelActionRefusalCode =
+  | "MODEL_UNKNOWN"
+  | "INVALID_STATE"
+  | "JOB_RUNNING"
+  | "MEMORY_INSUFFICIENT"
+  | "DISK_INSUFFICIENT"
+  | "PLATFORM_UNSUPPORTED"
+  | "LOAD_NO_ROOM"
+  | "DOWNLOAD_FAILED"
+  | "CHECKSUM_MISMATCH"
+  | "NETWORK_UNAVAILABLE"
+  | "ENGINE_START_FAILED"
+  | "HEALTH_CHECK_FAILED"
+  | "OUT_OF_MEMORY"
+  | "MODEL_FILES_MISSING"
+  | "GATEWAY_REGISTRATION_FAILED"
+  | "CANCELLED"
+  | "TOOL_NOT_INSTALLED"
+  | "TOOL_FAILED";
 export type OperationPrepared = OperationIdentity & {
   type: "prepared";
   command_id: Id;
@@ -1105,6 +1228,214 @@ export interface HerdrAgentEvent {
    */
   tail?: string;
 }
+/**
+ * The Computer's model library. Sent after runner.hello, after every library change, and at most every 2 seconds while a download or load runs. revision grows within one connection.
+ */
+export interface RunnerLocalModels {
+  type: "runner.local_models";
+  protocol_version: ProtocolVersion;
+  runner_id: Id;
+  sent_at: Timestamp;
+  revision: PositiveInteger;
+  local_models: LocalModelsSnapshot;
+}
+/**
+ * The Computer's model library, mapped from localmodels.library-status/v1. When available is false only reason and observed_at are meaningful and the lists are empty.
+ */
+export interface LocalModelsSnapshot {
+  available: boolean;
+  reason?: LocalModelsUnavailableReason;
+  observed_at: Timestamp;
+  tool_version?: string;
+  host?: LocalModelHost;
+  /**
+   * @maxItems 65
+   */
+  pools: LocalModelPool[];
+  /**
+   * @maxItems 256
+   */
+  models: LocalModel[];
+}
+/**
+ * Present only when available is false.
+ */
+export interface LocalModelsUnavailableReason {
+  code: LocalModelsUnavailableCode;
+  /**
+   * Diagnostic text for display; never matched on.
+   */
+  detail?: string;
+}
+/**
+ * Present when available.
+ */
+export interface LocalModelHost {
+  platform: "linux" | "darwin" | "windows";
+  arch: "x86_64" | "arm64";
+  /**
+   * Display only.
+   */
+  os_label: string;
+  /**
+   * Display only.
+   */
+  engine_label: string;
+  ram_total_bytes: NonNegativeInteger;
+  disk_free_bytes: NonNegativeInteger;
+  /**
+   * @maxItems 64
+   */
+  gpus: LocalModelGpu[];
+}
+export interface LocalModelGpu {
+  index: NonNegativeInteger;
+  uuid?: string;
+  name: string;
+  total_bytes: NonNegativeInteger;
+  free_bytes: NonNegativeInteger;
+}
+/**
+ * One place models load into. The system and unified budgets are 80% of RAM, as localmodels computes them.
+ */
+export interface LocalModelPool {
+  id: LocalModelPoolId;
+  kind: "gpu" | "system" | "unified";
+  /**
+   * Present only for kind gpu; matches LocalModelGpu.index.
+   */
+  gpu_index?: number;
+  total_bytes: NonNegativeInteger;
+  used_bytes: NonNegativeInteger;
+  /**
+   * @maxItems 256
+   */
+  holders: LocalModelPoolHolder[];
+}
+/**
+ * Something holding pool memory. A component is a foundation service (embedding, reranker, speech) that is never a model row.
+ */
+export interface LocalModelPoolHolder {
+  kind: "model" | "component";
+  id: string;
+  name: string;
+  bytes: NonNegativeInteger;
+}
+/**
+ * One validated chat model of the catalog on this platform, with its state on this Computer. Bytes everywhere; the reader formats them.
+ */
+export interface LocalModel {
+  id: LocalModelId;
+  name: string;
+  description: string;
+  quant: string;
+  context_tokens: NonNegativeInteger;
+  vision: boolean;
+  download_bytes: NonNegativeInteger;
+  /**
+   * Footprint when loaded at its context policy, from the localmodels estimator.
+   */
+  memory_bytes: number;
+  /**
+   * Where the model can live judged on total capacity; stable across loads. system means localmodels can run it from RAM, slower.
+   */
+  fit: "gpu" | "unified" | "system" | "none";
+  /**
+   * At most one model, only an absent downloadable one.
+   */
+  recommended: boolean;
+  availability: LocalModelAvailability;
+  /**
+   * A place a model can live: gpu:<index>, system (RAM beside GPUs) or unified (RAM of a GPU-less or Apple silicon host).
+   */
+  pool?: string;
+  state: "absent" | "downloading" | "idle" | "loading" | "loaded" | "failed";
+  download?: LocalModelDownloadProgress;
+  endpoint?: LocalModelEndpoint;
+  /**
+   * The runtime_model an Agent on runtime pi stores for this model, <pi provider>/<pi model id>; present while the model is on the Computer.
+   */
+  pi_model?: string;
+  /**
+   * Warm speed measured at the last load; absent when unknown.
+   */
+  tokens_per_second?: number;
+  error?: LocalModelError;
+  note?: LocalModelNote;
+  family?: LocalModelFamily;
+  /**
+   * Organization or author that published the weights.
+   */
+  publisher?: string;
+  architecture?: LocalModelArchitecture;
+  /**
+   * Total parameter scale for display, such as 30B or 4B.
+   */
+  parameters?: string;
+  /**
+   * Parameters active per token on an moe model, such as 3B.
+   */
+  active_parameters?: string;
+  /**
+   * Capabilities verified by localmodels on this platform.
+   */
+  capabilities?: LocalModelCapability[];
+  /**
+   * SPDX identifier or license name, such as Apache-2.0 or Gemma Terms of Use.
+   */
+  license?: string;
+  /**
+   * HTTPS model card or repository URL.
+   */
+  source_url?: string;
+  /**
+   * Warm prompt-processing speed in tokens/s measured at the last load; absent when unknown.
+   */
+  prompt_tokens_per_second?: number;
+}
+export interface LocalModelAvailability {
+  downloadable: boolean;
+  reason?: LocalModelAvailabilityReason;
+}
+/**
+ * Present only when downloadable is false.
+ */
+export interface LocalModelAvailabilityReason {
+  code: "MEMORY_INSUFFICIENT" | "DISK_INSUFFICIENT" | "PLATFORM_UNSUPPORTED";
+  need_bytes?: NonNegativeInteger;
+  have_bytes?: NonNegativeInteger;
+}
+/**
+ * Present only while downloading.
+ */
+export interface LocalModelDownloadProgress {
+  step: "download" | "verify";
+  done_bytes: NonNegativeInteger;
+  total_bytes: NonNegativeInteger;
+  bytes_per_second?: NonNegativeInteger;
+}
+/**
+ * Present only while loaded.
+ */
+export interface LocalModelEndpoint {
+  base_url: string;
+}
+/**
+ * Present only when failed.
+ */
+export interface LocalModelError {
+  code: LocalModelErrorCode;
+  /**
+   * Diagnostic text for display; never matched on.
+   */
+  detail?: string;
+}
+/**
+ * Present only when idle and the automatic load after download was skipped.
+ */
+export interface LocalModelNote {
+  code: "NO_ROOM_TO_LOAD";
+}
 export interface RuntimeRegistrationObserved {
   type: "runtime.registration.observed";
   protocol_version: ProtocolVersion;
@@ -1485,6 +1816,25 @@ export interface ComputerPermissionStatus {
               ];
         },
       ];
+}
+export interface LocalModelActionRefusal {
+  code: LocalModelActionRefusalCode;
+  /**
+   * Diagnostic text for display; never matched on.
+   */
+  detail?: string;
+  /**
+   * A place a model can live: gpu:<index>, system (RAM beside GPUs) or unified (RAM of a GPU-less or Apple silicon host).
+   */
+  pool?: string;
+  /**
+   * With LOAD_NO_ROOM, MEMORY_INSUFFICIENT or DISK_INSUFFICIENT.
+   */
+  need_bytes?: number;
+  /**
+   * With LOAD_NO_ROOM, MEMORY_INSUFFICIENT or DISK_INSUFFICIENT.
+   */
+  free_bytes?: number;
 }
 export interface NativeResumeMeasurement {
   duration_ms: NonNegativeInteger;

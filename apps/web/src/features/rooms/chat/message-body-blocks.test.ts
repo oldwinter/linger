@@ -88,6 +88,24 @@ describe("messageBodyBlocks", () => {
     ]);
   });
 
+  it("sets a recording's quick notes apart from the text around them", () => {
+    const notes = {
+      capture_id: "capture_launch",
+      content: "Quick notes",
+      type: "meeting_notes" as const,
+    };
+    expect(
+      messageBodyBlocks([
+        { content: "The meeting has ended.\n", type: "text" },
+        notes,
+        { content: "\n", type: "text" },
+      ]),
+    ).toEqual([
+      { body: "The meeting has ended.", kind: "text" },
+      { kind: "meeting_notes", segment: notes },
+    ]);
+  });
+
   it("inlines only html_fragment segments", () => {
     expect(
       messageBodyBlocks([

@@ -546,7 +546,8 @@ func TestPiResourceArgsAreFresh(t *testing.T) {
 	first := PiRPCResourceArgs()
 	first[0] = "changed"
 	_ = append(first, "--extra")
-	if got := PiRPCResourceArgs(); len(got) != 6 || got[0] != "--no-extensions" || got[5] != "--no-approve" {
+	if got := PiRPCResourceArgs(); len(got) != 8 || got[0] != "--no-extensions" || got[5] != "--no-approve" ||
+		got[6] != "--system-prompt" || got[7] != "" {
 		t.Fatalf("args = %v", got)
 	}
 }
@@ -613,6 +614,29 @@ func TestPiCatalogCarriesTheDeclaredContextWindow(t *testing.T) {
 	}
 	if !slices.Equal(windows, []int{131072, 0, 0, 0}) {
 		t.Fatalf("context windows = %v", windows)
+	}
+}
+
+func TestPiCatalogLabelsAModelByItsName(t *testing.T) {
+	list, err := piCatalogList(piCatalogState{}, []json.RawMessage{
+		json.RawMessage(`{"id":"localmodels-agent","name":"ling-3.0-tiny","provider":"localmodels"}`),
+		json.RawMessage(`{"id":"same","name":"same","provider":"local"}`),
+		json.RawMessage(`{"id":"blank","name":" ","provider":"local"}`),
+		json.RawMessage(`{"id":"unnamed","provider":"local"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids, labels []string
+	for _, model := range list.Models {
+		ids = append(ids, model.ID)
+		labels = append(labels, model.Label)
+	}
+	if !slices.Equal(ids, []string{"localmodels/localmodels-agent", "local/same", "local/blank", "local/unnamed"}) {
+		t.Fatalf("ids = %v", ids)
+	}
+	if !slices.Equal(labels, []string{"ling-3.0-tiny (localmodels/localmodels-agent)", "local/same", "local/blank", "local/unnamed"}) {
+		t.Fatalf("labels = %v", labels)
 	}
 }
 

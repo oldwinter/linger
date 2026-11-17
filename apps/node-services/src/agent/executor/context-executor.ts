@@ -329,6 +329,7 @@ export class ContextExecutor<TRuntimeSettings> {
       snapshotConfiguration(
         instructedAgent(composed, this.#ghost.agent, this.record, {
           connectedApps: true,
+          connectedAppKeys: [],
           compactInstructions: false,
         }),
       ),

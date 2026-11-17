@@ -607,10 +607,10 @@ func TestReminderOccurrenceJobsAreStaleAfterEditOrDelete(t *testing.T) {
 }
 
 // Routine writes lock the Routine before comparing revisions and recheck the
-// caller inside the write: a patch to one-shot respects the pending limit, a
-// Human removed from the Room is refused, a repeated delete finds no Routine, a patch
-// waiting on a fire keeps the fire's schedule, and a deleted Tracking Item
-// takes its Routines with a recorded deletion.
+// caller inside the write: a Human removed from the Room is refused, a
+// repeated delete finds no Routine, a patch waiting on a fire keeps the fire's
+// schedule, and a deleted Tracking Item takes its Routines with a recorded
+// deletion.
 func TestRoutineWritesLockAndRecheck(t *testing.T) {
 	allowParallelIntegrationTest(t)
 	env, alice := newWorkItemAgentEnv(t)
@@ -627,25 +627,6 @@ func TestRoutineWritesLockAndRecheck(t *testing.T) {
 		decode(t, raw, &created)
 		return created
 	}
-
-	t.Run("patch to one-shot respects the pending limit", func(t *testing.T) {
-		routine := create(t, "to-once")
-		if _, err := env.pool.Exec(t.Context(), `INSERT INTO room_reminders (id, tenant_id, room_id, created_by_actor_id, name, instruction, cadence_kind, timezone, run_at, enabled, next_run_at)
-			SELECT 'routine_pending_'||n, $1, $2, 'actor_acme_alice', 'Pending '||n, 'Pending', 'once', 'UTC', now()+interval '1 day', true, now()+interval '1 day'
-			FROM generate_series(1, 20) n`, acmeTenant, roomID); err != nil {
-			t.Fatal(err)
-		}
-		defer func() {
-			if _, err := env.pool.Exec(t.Context(), `DELETE FROM room_reminders WHERE id LIKE 'routine_pending_%'`); err != nil {
-				t.Fatal(err)
-			}
-		}()
-		once := map[string]any{"kind": "once", "timezone": "UTC", "run_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339)}
-		code, _, raw := env.request(alice, http.MethodPatch, "/v0/routines/"+routine.ID, map[string]any{"expected_revision": routine.Revision, "cadence": once}, "to-once-"+suffix)
-		if code != http.StatusConflict || !strings.Contains(string(raw), "REMINDER_LIMIT_REACHED") {
-			t.Fatalf("patch past the one-shot limit: %d %s", code, raw)
-		}
-	})
 
 	t.Run("a repeated delete finds no Routine", func(t *testing.T) {
 		routine := create(t, "deleted")

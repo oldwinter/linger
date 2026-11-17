@@ -83,15 +83,10 @@ export async function normalizeDocumentContent(
       markdown = await extractGzipMarkdown(input);
       break;
     case "svg":
-      markdown = (await import("./document-image-extract.js")).svgToMarkdown(
+      markdown = (await import("./document-svg-extract.js")).svgToMarkdown(
         decodeUtf8Text(input.source),
         input.filename,
       );
-      break;
-    case "image":
-      markdown = await (
-        await import("./document-image-extract.js")
-      ).rasterImageToMarkdown(input.source, input.filename);
       break;
     case "html":
       markdown = htmlToMarkdown(decodeUtf8Text(input.source));

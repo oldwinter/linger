@@ -25,9 +25,6 @@ export const NODE_SERVICES_EXTERNALS = [
   "sharp",
   "@img/*",
   "pdfjs-dist",
-  "tesseract.js",
-  "tesseract.js-core",
-  "@tesseract.js-data/*",
   "jsdom",
   // Loads file-type, pdfjs-dist and its parsers by name at runtime.
   "officeparser",

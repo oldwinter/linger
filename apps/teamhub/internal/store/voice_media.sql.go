@@ -61,7 +61,7 @@ const activateVoiceSession = `-- name: ActivateVoiceSession :one
 UPDATE voice_sessions
 SET status='connected',last_failure_code=NULL,updated_at=clock_timestamp()
 WHERE id=$1 AND status IN ('provisioning','reconnecting')
-RETURNING id, tenant_id, room_id, created_by_actor_id, status, provider_room_name, participant_identity, credential_generation, last_failure_code, created_at, updated_at, closed_at, latest_partial_text, latest_partial_start_offset_ms, latest_partial_end_offset_ms, latest_partial_updated_at, last_input_started_ms, last_input_ended_ms, purpose, auth_session_id, live_agent_actor_id, live_lease_until
+RETURNING id, tenant_id, room_id, created_by_actor_id, status, provider_room_name, participant_identity, credential_generation, last_failure_code, created_at, updated_at, closed_at, latest_partial_text, latest_partial_start_offset_ms, latest_partial_end_offset_ms, latest_partial_updated_at, last_input_started_ms, last_input_ended_ms, purpose, auth_session_id, live_agent_actor_id, live_lease_until, next_media_epoch
 `
 
 func (q *Queries) ActivateVoiceSession(ctx context.Context, id string) (VoiceSession, error) {
@@ -90,6 +90,7 @@ func (q *Queries) ActivateVoiceSession(ctx context.Context, id string) (VoiceSes
 		&i.AuthSessionID,
 		&i.LiveAgentActorID,
 		&i.LiveLeaseUntil,
+		&i.NextMediaEpoch,
 	)
 	return i, err
 }
@@ -151,7 +152,7 @@ const advanceVoiceSessionCredentialGeneration = `-- name: AdvanceVoiceSessionCre
 UPDATE voice_sessions
 SET credential_generation=credential_generation+1,updated_at=clock_timestamp()
 WHERE id=$1 AND status IN ('provisioning','connected','reconnecting')
-RETURNING id, tenant_id, room_id, created_by_actor_id, status, provider_room_name, participant_identity, credential_generation, last_failure_code, created_at, updated_at, closed_at, latest_partial_text, latest_partial_start_offset_ms, latest_partial_end_offset_ms, latest_partial_updated_at, last_input_started_ms, last_input_ended_ms, purpose, auth_session_id, live_agent_actor_id, live_lease_until
+RETURNING id, tenant_id, room_id, created_by_actor_id, status, provider_room_name, participant_identity, credential_generation, last_failure_code, created_at, updated_at, closed_at, latest_partial_text, latest_partial_start_offset_ms, latest_partial_end_offset_ms, latest_partial_updated_at, last_input_started_ms, last_input_ended_ms, purpose, auth_session_id, live_agent_actor_id, live_lease_until, next_media_epoch
 `
 
 func (q *Queries) AdvanceVoiceSessionCredentialGeneration(ctx context.Context, id string) (VoiceSession, error) {
@@ -180,6 +181,7 @@ func (q *Queries) AdvanceVoiceSessionCredentialGeneration(ctx context.Context, i
 		&i.AuthSessionID,
 		&i.LiveAgentActorID,
 		&i.LiveLeaseUntil,
+		&i.NextMediaEpoch,
 	)
 	return i, err
 }
@@ -263,7 +265,7 @@ WHERE id=$1::text
     WHEN last_failure_code='publisher_absent' AND status<>'closing' THEN interval '60 seconds'
     ELSE $2::interval
   END
-RETURNING id, tenant_id, room_id, created_by_actor_id, status, provider_room_name, participant_identity, credential_generation, last_failure_code, created_at, updated_at, closed_at, latest_partial_text, latest_partial_start_offset_ms, latest_partial_end_offset_ms, latest_partial_updated_at, last_input_started_ms, last_input_ended_ms, purpose, auth_session_id, live_agent_actor_id, live_lease_until
+RETURNING id, tenant_id, room_id, created_by_actor_id, status, provider_room_name, participant_identity, credential_generation, last_failure_code, created_at, updated_at, closed_at, latest_partial_text, latest_partial_start_offset_ms, latest_partial_end_offset_ms, latest_partial_updated_at, last_input_started_ms, last_input_ended_ms, purpose, auth_session_id, live_agent_actor_id, live_lease_until, next_media_epoch
 `
 
 type ClaimVoiceSessionReconcileParams struct {
@@ -299,8 +301,26 @@ func (q *Queries) ClaimVoiceSessionReconcile(ctx context.Context, arg ClaimVoice
 		&i.AuthSessionID,
 		&i.LiveAgentActorID,
 		&i.LiveLeaseUntil,
+		&i.NextMediaEpoch,
 	)
 	return i, err
+}
+
+const claimVoiceTranscriptEpoch = `-- name: ClaimVoiceTranscriptEpoch :one
+UPDATE voice_sessions
+SET next_media_epoch=next_media_epoch+1
+WHERE id=$1 AND status IN ('provisioning','connected','reconnecting','closing')
+RETURNING (next_media_epoch-1)::integer AS media_epoch
+`
+
+// Each claim returns a number no earlier claim for the session returned, even
+// across runtime restarts, so transcript coverage streams never collide. It
+// leaves updated_at alone: the reconcile worker reads it as publisher activity.
+func (q *Queries) ClaimVoiceTranscriptEpoch(ctx context.Context, id string) (int32, error) {
+	row := q.db.QueryRow(ctx, claimVoiceTranscriptEpoch, id)
+	var media_epoch int32
+	err := row.Scan(&media_epoch)
+	return media_epoch, err
 }
 
 const clearConfirmedVoicePartialTranscript = `-- name: ClearConfirmedVoicePartialTranscript :exec
@@ -325,7 +345,7 @@ UPDATE voice_sessions
 SET latest_partial_text=NULL,latest_partial_start_offset_ms=NULL,
     latest_partial_end_offset_ms=NULL,latest_partial_updated_at=NULL,updated_at=clock_timestamp()
 WHERE id=$1
-RETURNING id, tenant_id, room_id, created_by_actor_id, status, provider_room_name, participant_identity, credential_generation, last_failure_code, created_at, updated_at, closed_at, latest_partial_text, latest_partial_start_offset_ms, latest_partial_end_offset_ms, latest_partial_updated_at, last_input_started_ms, last_input_ended_ms, purpose, auth_session_id, live_agent_actor_id, live_lease_until
+RETURNING id, tenant_id, room_id, created_by_actor_id, status, provider_room_name, participant_identity, credential_generation, last_failure_code, created_at, updated_at, closed_at, latest_partial_text, latest_partial_start_offset_ms, latest_partial_end_offset_ms, latest_partial_updated_at, last_input_started_ms, last_input_ended_ms, purpose, auth_session_id, live_agent_actor_id, live_lease_until, next_media_epoch
 `
 
 func (q *Queries) ClearVoiceSessionPartialTranscript(ctx context.Context, id string) (VoiceSession, error) {
@@ -354,6 +374,7 @@ func (q *Queries) ClearVoiceSessionPartialTranscript(ctx context.Context, id str
 		&i.AuthSessionID,
 		&i.LiveAgentActorID,
 		&i.LiveLeaseUntil,
+		&i.NextMediaEpoch,
 	)
 	return i, err
 }
@@ -364,7 +385,7 @@ SET status='closed',closed_at=coalesce(closed_at,clock_timestamp()),updated_at=c
     latest_partial_text=NULL,latest_partial_start_offset_ms=NULL,
     latest_partial_end_offset_ms=NULL,latest_partial_updated_at=NULL
 WHERE id=$1 AND status IN ('provisioning','connected','reconnecting','closing','closed')
-RETURNING id, tenant_id, room_id, created_by_actor_id, status, provider_room_name, participant_identity, credential_generation, last_failure_code, created_at, updated_at, closed_at, latest_partial_text, latest_partial_start_offset_ms, latest_partial_end_offset_ms, latest_partial_updated_at, last_input_started_ms, last_input_ended_ms, purpose, auth_session_id, live_agent_actor_id, live_lease_until
+RETURNING id, tenant_id, room_id, created_by_actor_id, status, provider_room_name, participant_identity, credential_generation, last_failure_code, created_at, updated_at, closed_at, latest_partial_text, latest_partial_start_offset_ms, latest_partial_end_offset_ms, latest_partial_updated_at, last_input_started_ms, last_input_ended_ms, purpose, auth_session_id, live_agent_actor_id, live_lease_until, next_media_epoch
 `
 
 // A closed session keeps no partial text (M11-N16).
@@ -394,6 +415,7 @@ func (q *Queries) CloseVoiceSession(ctx context.Context, id string) (VoiceSessio
 		&i.AuthSessionID,
 		&i.LiveAgentActorID,
 		&i.LiveLeaseUntil,
+		&i.NextMediaEpoch,
 	)
 	return i, err
 }
@@ -501,7 +523,7 @@ func (q *Queries) CreateCaptureMediaRange(ctx context.Context, arg CreateCapture
 
 const createLiveKitCaptureSession = `-- name: CreateLiveKitCaptureSession :one
 WITH voice AS (
-  SELECT session.id, session.tenant_id, session.room_id, session.created_by_actor_id, session.status, session.provider_room_name, session.participant_identity, session.credential_generation, session.last_failure_code, session.created_at, session.updated_at, session.closed_at, session.latest_partial_text, session.latest_partial_start_offset_ms, session.latest_partial_end_offset_ms, session.latest_partial_updated_at, session.last_input_started_ms, session.last_input_ended_ms, session.purpose, session.auth_session_id, session.live_agent_actor_id, session.live_lease_until
+  SELECT session.id, session.tenant_id, session.room_id, session.created_by_actor_id, session.status, session.provider_room_name, session.participant_identity, session.credential_generation, session.last_failure_code, session.created_at, session.updated_at, session.closed_at, session.latest_partial_text, session.latest_partial_start_offset_ms, session.latest_partial_end_offset_ms, session.latest_partial_updated_at, session.last_input_started_ms, session.last_input_ended_ms, session.purpose, session.auth_session_id, session.live_agent_actor_id, session.live_lease_until, session.next_media_epoch
   FROM voice_sessions session
   JOIN actors caller
     ON caller.id=session.created_by_actor_id
@@ -521,7 +543,7 @@ INSERT INTO capture_sessions(
 SELECT $1::text,voice.tenant_id,voice.room_id,voice.created_by_actor_id,
   'starting',voice.id,$2::bigint,$2::bigint
 FROM voice
-RETURNING id, tenant_id, room_id, created_by_actor_id, status, created_at, updated_at, transcript_start_offset_ms, transcript_end_offset_ms, document_id, document_version_id, transcript_document_id, transcript_document_version_id, voice_session_id, transcript_integrity_lost, source_audio_document_id, source_audio_document_version_id, transcript_recovered_at, requested_transcript_start_offset_ms, voice_completion_attempts, voice_completion_failed_at, voice_completion_failure_code, staging_deleted_at, stop_requested_at, materialize_requested_at, materialize_attempts, materialize_retry_at, transcript_recovery_status, transcript_recovery_progress_ms, transcript_recovery_total_ms, transcript_recovery_failures, transcript_recovery_failure_code, transcript_recovery_retry_at, hidden_at
+RETURNING id, tenant_id, room_id, created_by_actor_id, status, created_at, updated_at, transcript_start_offset_ms, transcript_end_offset_ms, document_id, document_version_id, transcript_document_id, transcript_document_version_id, voice_session_id, transcript_integrity_lost, source_audio_document_id, source_audio_document_version_id, transcript_recovered_at, requested_transcript_start_offset_ms, voice_completion_attempts, voice_completion_failed_at, voice_completion_failure_code, staging_deleted_at, stop_requested_at, materialize_requested_at, materialize_attempts, materialize_retry_at, transcript_recovery_status, transcript_recovery_progress_ms, transcript_recovery_total_ms, transcript_recovery_failures, transcript_recovery_failure_code, transcript_recovery_retry_at, hidden_at, quick_notes_state, quick_notes
 `
 
 type CreateLiveKitCaptureSessionParams struct {
@@ -576,6 +598,8 @@ func (q *Queries) CreateLiveKitCaptureSession(ctx context.Context, arg CreateLiv
 		&i.TranscriptRecoveryFailureCode,
 		&i.TranscriptRecoveryRetryAt,
 		&i.HiddenAt,
+		&i.QuickNotesState,
+		&i.QuickNotes,
 	)
 	return i, err
 }
@@ -663,7 +687,7 @@ SELECT $1::text,authority.tenant_id,$2::text,authority.actor_id,
   'provisioning',$3::text,$4::text,
   $5::text,$6::text
 FROM authority
-RETURNING id, tenant_id, room_id, created_by_actor_id, status, provider_room_name, participant_identity, credential_generation, last_failure_code, created_at, updated_at, closed_at, latest_partial_text, latest_partial_start_offset_ms, latest_partial_end_offset_ms, latest_partial_updated_at, last_input_started_ms, last_input_ended_ms, purpose, auth_session_id, live_agent_actor_id, live_lease_until
+RETURNING id, tenant_id, room_id, created_by_actor_id, status, provider_room_name, participant_identity, credential_generation, last_failure_code, created_at, updated_at, closed_at, latest_partial_text, latest_partial_start_offset_ms, latest_partial_end_offset_ms, latest_partial_updated_at, last_input_started_ms, last_input_ended_ms, purpose, auth_session_id, live_agent_actor_id, live_lease_until, next_media_epoch
 `
 
 type CreateVoiceSessionParams struct {
@@ -710,6 +734,7 @@ func (q *Queries) CreateVoiceSession(ctx context.Context, arg CreateVoiceSession
 		&i.AuthSessionID,
 		&i.LiveAgentActorID,
 		&i.LiveLeaseUntil,
+		&i.NextMediaEpoch,
 	)
 	return i, err
 }
@@ -825,7 +850,7 @@ WITH failed_capture AS (
   WHERE capture.id=$1::text
     AND capture.materialize_requested_at IS NOT NULL
     AND capture.status='finalizing'
-  RETURNING capture.id, capture.tenant_id, capture.room_id, capture.created_by_actor_id, capture.status, capture.created_at, capture.updated_at, capture.transcript_start_offset_ms, capture.transcript_end_offset_ms, capture.document_id, capture.document_version_id, capture.transcript_document_id, capture.transcript_document_version_id, capture.voice_session_id, capture.transcript_integrity_lost, capture.source_audio_document_id, capture.source_audio_document_version_id, capture.transcript_recovered_at, capture.requested_transcript_start_offset_ms, capture.voice_completion_attempts, capture.voice_completion_failed_at, capture.voice_completion_failure_code, capture.staging_deleted_at, capture.stop_requested_at, capture.materialize_requested_at, capture.materialize_attempts, capture.materialize_retry_at, capture.transcript_recovery_status, capture.transcript_recovery_progress_ms, capture.transcript_recovery_total_ms, capture.transcript_recovery_failures, capture.transcript_recovery_failure_code, capture.transcript_recovery_retry_at, capture.hidden_at
+  RETURNING capture.id, capture.tenant_id, capture.room_id, capture.created_by_actor_id, capture.status, capture.created_at, capture.updated_at, capture.transcript_start_offset_ms, capture.transcript_end_offset_ms, capture.document_id, capture.document_version_id, capture.transcript_document_id, capture.transcript_document_version_id, capture.voice_session_id, capture.transcript_integrity_lost, capture.source_audio_document_id, capture.source_audio_document_version_id, capture.transcript_recovered_at, capture.requested_transcript_start_offset_ms, capture.voice_completion_attempts, capture.voice_completion_failed_at, capture.voice_completion_failure_code, capture.staging_deleted_at, capture.stop_requested_at, capture.materialize_requested_at, capture.materialize_attempts, capture.materialize_retry_at, capture.transcript_recovery_status, capture.transcript_recovery_progress_ms, capture.transcript_recovery_total_ms, capture.transcript_recovery_failures, capture.transcript_recovery_failure_code, capture.transcript_recovery_retry_at, capture.hidden_at, capture.quick_notes_state, capture.quick_notes
 ), marked_epoch AS (
   UPDATE voice_media_epochs epoch
   SET last_failure_code='transcript_unavailable',updated_at=clock_timestamp()
@@ -833,7 +858,7 @@ WITH failed_capture AS (
   WHERE epoch.capture_session_id=capture.id
     AND epoch.observed_state='available'
 )
-SELECT id, tenant_id, room_id, created_by_actor_id, status, created_at, updated_at, transcript_start_offset_ms, transcript_end_offset_ms, document_id, document_version_id, transcript_document_id, transcript_document_version_id, voice_session_id, transcript_integrity_lost, source_audio_document_id, source_audio_document_version_id, transcript_recovered_at, requested_transcript_start_offset_ms, voice_completion_attempts, voice_completion_failed_at, voice_completion_failure_code, staging_deleted_at, stop_requested_at, materialize_requested_at, materialize_attempts, materialize_retry_at, transcript_recovery_status, transcript_recovery_progress_ms, transcript_recovery_total_ms, transcript_recovery_failures, transcript_recovery_failure_code, transcript_recovery_retry_at, hidden_at FROM failed_capture
+SELECT id, tenant_id, room_id, created_by_actor_id, status, created_at, updated_at, transcript_start_offset_ms, transcript_end_offset_ms, document_id, document_version_id, transcript_document_id, transcript_document_version_id, voice_session_id, transcript_integrity_lost, source_audio_document_id, source_audio_document_version_id, transcript_recovered_at, requested_transcript_start_offset_ms, voice_completion_attempts, voice_completion_failed_at, voice_completion_failure_code, staging_deleted_at, stop_requested_at, materialize_requested_at, materialize_attempts, materialize_retry_at, transcript_recovery_status, transcript_recovery_progress_ms, transcript_recovery_total_ms, transcript_recovery_failures, transcript_recovery_failure_code, transcript_recovery_retry_at, hidden_at, quick_notes_state, quick_notes FROM failed_capture
 `
 
 type FailLiveKitCaptureTranscriptFinalizationRow struct {
@@ -871,6 +896,8 @@ type FailLiveKitCaptureTranscriptFinalizationRow struct {
 	TranscriptRecoveryFailureCode    pgtype.Text        `json:"transcript_recovery_failure_code"`
 	TranscriptRecoveryRetryAt        pgtype.Timestamptz `json:"transcript_recovery_retry_at"`
 	HiddenAt                         pgtype.Timestamptz `json:"hidden_at"`
+	QuickNotesState                  pgtype.Text        `json:"quick_notes_state"`
+	QuickNotes                       []byte             `json:"quick_notes"`
 }
 
 func (q *Queries) FailLiveKitCaptureTranscriptFinalization(ctx context.Context, captureSessionID string) (FailLiveKitCaptureTranscriptFinalizationRow, error) {
@@ -911,6 +938,8 @@ func (q *Queries) FailLiveKitCaptureTranscriptFinalization(ctx context.Context, 
 		&i.TranscriptRecoveryFailureCode,
 		&i.TranscriptRecoveryRetryAt,
 		&i.HiddenAt,
+		&i.QuickNotesState,
+		&i.QuickNotes,
 	)
 	return i, err
 }
@@ -974,7 +1003,7 @@ UPDATE capture_sessions
 SET status='finalized',document_id=$2,document_version_id=$3,updated_at=clock_timestamp()
 WHERE id=$1 AND status IN ('finalizing','recovering')
   AND (NOT transcript_integrity_lost OR transcript_recovered_at IS NOT NULL)
-RETURNING id, tenant_id, room_id, created_by_actor_id, status, created_at, updated_at, transcript_start_offset_ms, transcript_end_offset_ms, document_id, document_version_id, transcript_document_id, transcript_document_version_id, voice_session_id, transcript_integrity_lost, source_audio_document_id, source_audio_document_version_id, transcript_recovered_at, requested_transcript_start_offset_ms, voice_completion_attempts, voice_completion_failed_at, voice_completion_failure_code, staging_deleted_at, stop_requested_at, materialize_requested_at, materialize_attempts, materialize_retry_at, transcript_recovery_status, transcript_recovery_progress_ms, transcript_recovery_total_ms, transcript_recovery_failures, transcript_recovery_failure_code, transcript_recovery_retry_at, hidden_at
+RETURNING id, tenant_id, room_id, created_by_actor_id, status, created_at, updated_at, transcript_start_offset_ms, transcript_end_offset_ms, document_id, document_version_id, transcript_document_id, transcript_document_version_id, voice_session_id, transcript_integrity_lost, source_audio_document_id, source_audio_document_version_id, transcript_recovered_at, requested_transcript_start_offset_ms, voice_completion_attempts, voice_completion_failed_at, voice_completion_failure_code, staging_deleted_at, stop_requested_at, materialize_requested_at, materialize_attempts, materialize_retry_at, transcript_recovery_status, transcript_recovery_progress_ms, transcript_recovery_total_ms, transcript_recovery_failures, transcript_recovery_failure_code, transcript_recovery_retry_at, hidden_at, quick_notes_state, quick_notes
 `
 
 type FinalizeLiveKitCaptureParams struct {
@@ -1021,12 +1050,14 @@ func (q *Queries) FinalizeLiveKitCapture(ctx context.Context, arg FinalizeLiveKi
 		&i.TranscriptRecoveryFailureCode,
 		&i.TranscriptRecoveryRetryAt,
 		&i.HiddenAt,
+		&i.QuickNotesState,
+		&i.QuickNotes,
 	)
 	return i, err
 }
 
 const getActiveLiveKitCaptureForAccountRoom = `-- name: GetActiveLiveKitCaptureForAccountRoom :one
-SELECT capture.id, capture.tenant_id, capture.room_id, capture.created_by_actor_id, capture.status, capture.created_at, capture.updated_at, capture.transcript_start_offset_ms, capture.transcript_end_offset_ms, capture.document_id, capture.document_version_id, capture.transcript_document_id, capture.transcript_document_version_id, capture.voice_session_id, capture.transcript_integrity_lost, capture.source_audio_document_id, capture.source_audio_document_version_id, capture.transcript_recovered_at, capture.requested_transcript_start_offset_ms, capture.voice_completion_attempts, capture.voice_completion_failed_at, capture.voice_completion_failure_code, capture.staging_deleted_at, capture.stop_requested_at, capture.materialize_requested_at, capture.materialize_attempts, capture.materialize_retry_at, capture.transcript_recovery_status, capture.transcript_recovery_progress_ms, capture.transcript_recovery_total_ms, capture.transcript_recovery_failures, capture.transcript_recovery_failure_code, capture.transcript_recovery_retry_at, capture.hidden_at
+SELECT capture.id, capture.tenant_id, capture.room_id, capture.created_by_actor_id, capture.status, capture.created_at, capture.updated_at, capture.transcript_start_offset_ms, capture.transcript_end_offset_ms, capture.document_id, capture.document_version_id, capture.transcript_document_id, capture.transcript_document_version_id, capture.voice_session_id, capture.transcript_integrity_lost, capture.source_audio_document_id, capture.source_audio_document_version_id, capture.transcript_recovered_at, capture.requested_transcript_start_offset_ms, capture.voice_completion_attempts, capture.voice_completion_failed_at, capture.voice_completion_failure_code, capture.staging_deleted_at, capture.stop_requested_at, capture.materialize_requested_at, capture.materialize_attempts, capture.materialize_retry_at, capture.transcript_recovery_status, capture.transcript_recovery_progress_ms, capture.transcript_recovery_total_ms, capture.transcript_recovery_failures, capture.transcript_recovery_failure_code, capture.transcript_recovery_retry_at, capture.hidden_at, capture.quick_notes_state, capture.quick_notes
 FROM capture_sessions capture
 JOIN actors caller
   ON caller.id=capture.created_by_actor_id
@@ -1083,12 +1114,14 @@ func (q *Queries) GetActiveLiveKitCaptureForAccountRoom(ctx context.Context, arg
 		&i.TranscriptRecoveryFailureCode,
 		&i.TranscriptRecoveryRetryAt,
 		&i.HiddenAt,
+		&i.QuickNotesState,
+		&i.QuickNotes,
 	)
 	return i, err
 }
 
 const getActiveLiveKitCaptureForVoiceSession = `-- name: GetActiveLiveKitCaptureForVoiceSession :one
-SELECT id, tenant_id, room_id, created_by_actor_id, status, created_at, updated_at, transcript_start_offset_ms, transcript_end_offset_ms, document_id, document_version_id, transcript_document_id, transcript_document_version_id, voice_session_id, transcript_integrity_lost, source_audio_document_id, source_audio_document_version_id, transcript_recovered_at, requested_transcript_start_offset_ms, voice_completion_attempts, voice_completion_failed_at, voice_completion_failure_code, staging_deleted_at, stop_requested_at, materialize_requested_at, materialize_attempts, materialize_retry_at, transcript_recovery_status, transcript_recovery_progress_ms, transcript_recovery_total_ms, transcript_recovery_failures, transcript_recovery_failure_code, transcript_recovery_retry_at, hidden_at FROM capture_sessions
+SELECT id, tenant_id, room_id, created_by_actor_id, status, created_at, updated_at, transcript_start_offset_ms, transcript_end_offset_ms, document_id, document_version_id, transcript_document_id, transcript_document_version_id, voice_session_id, transcript_integrity_lost, source_audio_document_id, source_audio_document_version_id, transcript_recovered_at, requested_transcript_start_offset_ms, voice_completion_attempts, voice_completion_failed_at, voice_completion_failure_code, staging_deleted_at, stop_requested_at, materialize_requested_at, materialize_attempts, materialize_retry_at, transcript_recovery_status, transcript_recovery_progress_ms, transcript_recovery_total_ms, transcript_recovery_failures, transcript_recovery_failure_code, transcript_recovery_retry_at, hidden_at, quick_notes_state, quick_notes FROM capture_sessions
 WHERE voice_session_id=$1
   AND (status IN ('starting','recording','finalizing') OR (status='finalized' AND transcript_document_version_id IS NULL AND voice_completion_failed_at IS NULL))
 LIMIT 1
@@ -1132,12 +1165,14 @@ func (q *Queries) GetActiveLiveKitCaptureForVoiceSession(ctx context.Context, vo
 		&i.TranscriptRecoveryFailureCode,
 		&i.TranscriptRecoveryRetryAt,
 		&i.HiddenAt,
+		&i.QuickNotesState,
+		&i.QuickNotes,
 	)
 	return i, err
 }
 
 const getActiveRecordingSessionForAuthSessionRoom = `-- name: GetActiveRecordingSessionForAuthSessionRoom :one
-SELECT voice.id, voice.tenant_id, voice.room_id, voice.created_by_actor_id, voice.status, voice.provider_room_name, voice.participant_identity, voice.credential_generation, voice.last_failure_code, voice.created_at, voice.updated_at, voice.closed_at, voice.latest_partial_text, voice.latest_partial_start_offset_ms, voice.latest_partial_end_offset_ms, voice.latest_partial_updated_at, voice.last_input_started_ms, voice.last_input_ended_ms, voice.purpose, voice.auth_session_id, voice.live_agent_actor_id, voice.live_lease_until
+SELECT voice.id, voice.tenant_id, voice.room_id, voice.created_by_actor_id, voice.status, voice.provider_room_name, voice.participant_identity, voice.credential_generation, voice.last_failure_code, voice.created_at, voice.updated_at, voice.closed_at, voice.latest_partial_text, voice.latest_partial_start_offset_ms, voice.latest_partial_end_offset_ms, voice.latest_partial_updated_at, voice.last_input_started_ms, voice.last_input_ended_ms, voice.purpose, voice.auth_session_id, voice.live_agent_actor_id, voice.live_lease_until, voice.next_media_epoch
 FROM voice_sessions voice
 JOIN actors caller
   ON caller.id=voice.created_by_actor_id
@@ -1185,6 +1220,7 @@ func (q *Queries) GetActiveRecordingSessionForAuthSessionRoom(ctx context.Contex
 		&i.AuthSessionID,
 		&i.LiveAgentActorID,
 		&i.LiveLeaseUntil,
+		&i.NextMediaEpoch,
 	)
 	return i, err
 }
@@ -1505,7 +1541,7 @@ func (q *Queries) GetVoiceMediaPolicyForAccount(ctx context.Context, arg GetVoic
 }
 
 const getVoiceRuntimeSessionContext = `-- name: GetVoiceRuntimeSessionContext :one
-SELECT voice.id, voice.tenant_id, voice.room_id, voice.created_by_actor_id, voice.status, voice.provider_room_name, voice.participant_identity, voice.credential_generation, voice.last_failure_code, voice.created_at, voice.updated_at, voice.closed_at, voice.latest_partial_text, voice.latest_partial_start_offset_ms, voice.latest_partial_end_offset_ms, voice.latest_partial_updated_at, voice.last_input_started_ms, voice.last_input_ended_ms, voice.purpose, voice.auth_session_id, voice.live_agent_actor_id, voice.live_lease_until,actor.account_id
+SELECT voice.id, voice.tenant_id, voice.room_id, voice.created_by_actor_id, voice.status, voice.provider_room_name, voice.participant_identity, voice.credential_generation, voice.last_failure_code, voice.created_at, voice.updated_at, voice.closed_at, voice.latest_partial_text, voice.latest_partial_start_offset_ms, voice.latest_partial_end_offset_ms, voice.latest_partial_updated_at, voice.last_input_started_ms, voice.last_input_ended_ms, voice.purpose, voice.auth_session_id, voice.live_agent_actor_id, voice.live_lease_until, voice.next_media_epoch,actor.account_id
 FROM voice_sessions voice
 JOIN actors actor
   ON actor.id=voice.created_by_actor_id AND actor.tenant_id=voice.tenant_id AND actor.kind='human'
@@ -1542,6 +1578,7 @@ type GetVoiceRuntimeSessionContextRow struct {
 	AuthSessionID              pgtype.Text        `json:"auth_session_id"`
 	LiveAgentActorID           pgtype.Text        `json:"live_agent_actor_id"`
 	LiveLeaseUntil             pgtype.Timestamptz `json:"live_lease_until"`
+	NextMediaEpoch             int32              `json:"next_media_epoch"`
 	AccountID                  pgtype.Text        `json:"account_id"`
 }
 
@@ -1571,13 +1608,14 @@ func (q *Queries) GetVoiceRuntimeSessionContext(ctx context.Context, id string) 
 		&i.AuthSessionID,
 		&i.LiveAgentActorID,
 		&i.LiveLeaseUntil,
+		&i.NextMediaEpoch,
 		&i.AccountID,
 	)
 	return i, err
 }
 
 const getVoiceSessionForAccount = `-- name: GetVoiceSessionForAccount :one
-SELECT voice.id, voice.tenant_id, voice.room_id, voice.created_by_actor_id, voice.status, voice.provider_room_name, voice.participant_identity, voice.credential_generation, voice.last_failure_code, voice.created_at, voice.updated_at, voice.closed_at, voice.latest_partial_text, voice.latest_partial_start_offset_ms, voice.latest_partial_end_offset_ms, voice.latest_partial_updated_at, voice.last_input_started_ms, voice.last_input_ended_ms, voice.purpose, voice.auth_session_id, voice.live_agent_actor_id, voice.live_lease_until
+SELECT voice.id, voice.tenant_id, voice.room_id, voice.created_by_actor_id, voice.status, voice.provider_room_name, voice.participant_identity, voice.credential_generation, voice.last_failure_code, voice.created_at, voice.updated_at, voice.closed_at, voice.latest_partial_text, voice.latest_partial_start_offset_ms, voice.latest_partial_end_offset_ms, voice.latest_partial_updated_at, voice.last_input_started_ms, voice.last_input_ended_ms, voice.purpose, voice.auth_session_id, voice.live_agent_actor_id, voice.live_lease_until, voice.next_media_epoch
 FROM voice_sessions voice
 JOIN actors caller
   ON caller.id=voice.created_by_actor_id AND caller.tenant_id=voice.tenant_id
@@ -1625,6 +1663,7 @@ func (q *Queries) GetVoiceSessionForAccount(ctx context.Context, arg GetVoiceSes
 		&i.AuthSessionID,
 		&i.LiveAgentActorID,
 		&i.LiveLeaseUntil,
+		&i.NextMediaEpoch,
 	)
 	return i, err
 }
@@ -1708,7 +1747,7 @@ WITH revoked AS (
       WHERE member.room_id=voice.room_id AND member.actor_id=voice.created_by_actor_id
         AND actor.kind='human' AND actor.account_id IS NOT NULL
     )
-  RETURNING voice.id, voice.tenant_id, voice.room_id, voice.created_by_actor_id, voice.status, voice.provider_room_name, voice.participant_identity, voice.credential_generation, voice.last_failure_code, voice.created_at, voice.updated_at, voice.closed_at, voice.latest_partial_text, voice.latest_partial_start_offset_ms, voice.latest_partial_end_offset_ms, voice.latest_partial_updated_at, voice.last_input_started_ms, voice.last_input_ended_ms, voice.purpose, voice.auth_session_id, voice.live_agent_actor_id, voice.live_lease_until
+  RETURNING voice.id, voice.tenant_id, voice.room_id, voice.created_by_actor_id, voice.status, voice.provider_room_name, voice.participant_identity, voice.credential_generation, voice.last_failure_code, voice.created_at, voice.updated_at, voice.closed_at, voice.latest_partial_text, voice.latest_partial_start_offset_ms, voice.latest_partial_end_offset_ms, voice.latest_partial_updated_at, voice.last_input_started_ms, voice.last_input_ended_ms, voice.purpose, voice.auth_session_id, voice.live_agent_actor_id, voice.live_lease_until, voice.next_media_epoch
 ), failed_captures AS (
   UPDATE capture_sessions capture SET status='failed',updated_at=clock_timestamp()
   FROM revoked voice
@@ -2055,7 +2094,7 @@ func (q *Queries) ListVoiceTranscriptEventsForAccount(ctx context.Context, arg L
 }
 
 const lockVoiceSession = `-- name: LockVoiceSession :one
-SELECT id, tenant_id, room_id, created_by_actor_id, status, provider_room_name, participant_identity, credential_generation, last_failure_code, created_at, updated_at, closed_at, latest_partial_text, latest_partial_start_offset_ms, latest_partial_end_offset_ms, latest_partial_updated_at, last_input_started_ms, last_input_ended_ms, purpose, auth_session_id, live_agent_actor_id, live_lease_until FROM voice_sessions WHERE id=$1 FOR NO KEY UPDATE
+SELECT id, tenant_id, room_id, created_by_actor_id, status, provider_room_name, participant_identity, credential_generation, last_failure_code, created_at, updated_at, closed_at, latest_partial_text, latest_partial_start_offset_ms, latest_partial_end_offset_ms, latest_partial_updated_at, last_input_started_ms, last_input_ended_ms, purpose, auth_session_id, live_agent_actor_id, live_lease_until, next_media_epoch FROM voice_sessions WHERE id=$1 FOR NO KEY UPDATE
 `
 
 // NO KEY: commit-time foreign-key checks from children take KEY SHARE on
@@ -2087,6 +2126,7 @@ func (q *Queries) LockVoiceSession(ctx context.Context, id string) (VoiceSession
 		&i.AuthSessionID,
 		&i.LiveAgentActorID,
 		&i.LiveLeaseUntil,
+		&i.NextMediaEpoch,
 	)
 	return i, err
 }
@@ -2221,7 +2261,7 @@ const markVoiceSessionReconnecting = `-- name: MarkVoiceSessionReconnecting :one
 UPDATE voice_sessions
 SET status='reconnecting',last_failure_code=$2,updated_at=clock_timestamp()
 WHERE id=$1 AND status IN ('provisioning','connected','reconnecting')
-RETURNING id, tenant_id, room_id, created_by_actor_id, status, provider_room_name, participant_identity, credential_generation, last_failure_code, created_at, updated_at, closed_at, latest_partial_text, latest_partial_start_offset_ms, latest_partial_end_offset_ms, latest_partial_updated_at, last_input_started_ms, last_input_ended_ms, purpose, auth_session_id, live_agent_actor_id, live_lease_until
+RETURNING id, tenant_id, room_id, created_by_actor_id, status, provider_room_name, participant_identity, credential_generation, last_failure_code, created_at, updated_at, closed_at, latest_partial_text, latest_partial_start_offset_ms, latest_partial_end_offset_ms, latest_partial_updated_at, last_input_started_ms, last_input_ended_ms, purpose, auth_session_id, live_agent_actor_id, live_lease_until, next_media_epoch
 `
 
 type MarkVoiceSessionReconnectingParams struct {
@@ -2255,6 +2295,7 @@ func (q *Queries) MarkVoiceSessionReconnecting(ctx context.Context, arg MarkVoic
 		&i.AuthSessionID,
 		&i.LiveAgentActorID,
 		&i.LiveLeaseUntil,
+		&i.NextMediaEpoch,
 	)
 	return i, err
 }
@@ -2445,7 +2486,7 @@ func (q *Queries) RequestVoiceCaptureMaterialization(ctx context.Context, id str
 const requestVoiceCaptureStop = `-- name: RequestVoiceCaptureStop :one
 UPDATE capture_sessions SET stop_requested_at=clock_timestamp()
 WHERE id=$1 AND stop_requested_at IS NULL
-RETURNING id, tenant_id, room_id, created_by_actor_id, status, created_at, updated_at, transcript_start_offset_ms, transcript_end_offset_ms, document_id, document_version_id, transcript_document_id, transcript_document_version_id, voice_session_id, transcript_integrity_lost, source_audio_document_id, source_audio_document_version_id, transcript_recovered_at, requested_transcript_start_offset_ms, voice_completion_attempts, voice_completion_failed_at, voice_completion_failure_code, staging_deleted_at, stop_requested_at, materialize_requested_at, materialize_attempts, materialize_retry_at, transcript_recovery_status, transcript_recovery_progress_ms, transcript_recovery_total_ms, transcript_recovery_failures, transcript_recovery_failure_code, transcript_recovery_retry_at, hidden_at
+RETURNING id, tenant_id, room_id, created_by_actor_id, status, created_at, updated_at, transcript_start_offset_ms, transcript_end_offset_ms, document_id, document_version_id, transcript_document_id, transcript_document_version_id, voice_session_id, transcript_integrity_lost, source_audio_document_id, source_audio_document_version_id, transcript_recovered_at, requested_transcript_start_offset_ms, voice_completion_attempts, voice_completion_failed_at, voice_completion_failure_code, staging_deleted_at, stop_requested_at, materialize_requested_at, materialize_attempts, materialize_retry_at, transcript_recovery_status, transcript_recovery_progress_ms, transcript_recovery_total_ms, transcript_recovery_failures, transcript_recovery_failure_code, transcript_recovery_retry_at, hidden_at, quick_notes_state, quick_notes
 `
 
 // Records the first Stop's commit time: the stop intent the final media end
@@ -2488,6 +2529,8 @@ func (q *Queries) RequestVoiceCaptureStop(ctx context.Context, id string) (Captu
 		&i.TranscriptRecoveryFailureCode,
 		&i.TranscriptRecoveryRetryAt,
 		&i.HiddenAt,
+		&i.QuickNotesState,
+		&i.QuickNotes,
 	)
 	return i, err
 }
@@ -2495,7 +2538,7 @@ func (q *Queries) RequestVoiceCaptureStop(ctx context.Context, id string) (Captu
 const requestVoiceSessionClose = `-- name: RequestVoiceSessionClose :one
 UPDATE voice_sessions SET status='closing',updated_at=clock_timestamp()
 WHERE id=$1 AND status IN ('provisioning','connected','reconnecting','closing')
-RETURNING id, tenant_id, room_id, created_by_actor_id, status, provider_room_name, participant_identity, credential_generation, last_failure_code, created_at, updated_at, closed_at, latest_partial_text, latest_partial_start_offset_ms, latest_partial_end_offset_ms, latest_partial_updated_at, last_input_started_ms, last_input_ended_ms, purpose, auth_session_id, live_agent_actor_id, live_lease_until
+RETURNING id, tenant_id, room_id, created_by_actor_id, status, provider_room_name, participant_identity, credential_generation, last_failure_code, created_at, updated_at, closed_at, latest_partial_text, latest_partial_start_offset_ms, latest_partial_end_offset_ms, latest_partial_updated_at, last_input_started_ms, last_input_ended_ms, purpose, auth_session_id, live_agent_actor_id, live_lease_until, next_media_epoch
 `
 
 func (q *Queries) RequestVoiceSessionClose(ctx context.Context, id string) (VoiceSession, error) {
@@ -2524,6 +2567,7 @@ func (q *Queries) RequestVoiceSessionClose(ctx context.Context, id string) (Voic
 		&i.AuthSessionID,
 		&i.LiveAgentActorID,
 		&i.LiveLeaseUntil,
+		&i.NextMediaEpoch,
 	)
 	return i, err
 }
@@ -2639,7 +2683,7 @@ WHERE id=$2::text
     (status='finalizing' AND $1::text='failed') OR
     status=$1::text
   )
-RETURNING id, tenant_id, room_id, created_by_actor_id, status, created_at, updated_at, transcript_start_offset_ms, transcript_end_offset_ms, document_id, document_version_id, transcript_document_id, transcript_document_version_id, voice_session_id, transcript_integrity_lost, source_audio_document_id, source_audio_document_version_id, transcript_recovered_at, requested_transcript_start_offset_ms, voice_completion_attempts, voice_completion_failed_at, voice_completion_failure_code, staging_deleted_at, stop_requested_at, materialize_requested_at, materialize_attempts, materialize_retry_at, transcript_recovery_status, transcript_recovery_progress_ms, transcript_recovery_total_ms, transcript_recovery_failures, transcript_recovery_failure_code, transcript_recovery_retry_at, hidden_at
+RETURNING id, tenant_id, room_id, created_by_actor_id, status, created_at, updated_at, transcript_start_offset_ms, transcript_end_offset_ms, document_id, document_version_id, transcript_document_id, transcript_document_version_id, voice_session_id, transcript_integrity_lost, source_audio_document_id, source_audio_document_version_id, transcript_recovered_at, requested_transcript_start_offset_ms, voice_completion_attempts, voice_completion_failed_at, voice_completion_failure_code, staging_deleted_at, stop_requested_at, materialize_requested_at, materialize_attempts, materialize_retry_at, transcript_recovery_status, transcript_recovery_progress_ms, transcript_recovery_total_ms, transcript_recovery_failures, transcript_recovery_failure_code, transcript_recovery_retry_at, hidden_at, quick_notes_state, quick_notes
 `
 
 type TransitionLiveKitCaptureStatusParams struct {
@@ -2685,6 +2729,8 @@ func (q *Queries) TransitionLiveKitCaptureStatus(ctx context.Context, arg Transi
 		&i.TranscriptRecoveryFailureCode,
 		&i.TranscriptRecoveryRetryAt,
 		&i.HiddenAt,
+		&i.QuickNotesState,
+		&i.QuickNotes,
 	)
 	return i, err
 }
@@ -2694,7 +2740,7 @@ UPDATE voice_sessions
 SET latest_partial_text=$2,latest_partial_start_offset_ms=$3,
     latest_partial_end_offset_ms=$4,latest_partial_updated_at=clock_timestamp(),updated_at=clock_timestamp()
 WHERE id=$1 AND status IN ('provisioning','connected','reconnecting','closing')
-RETURNING id, tenant_id, room_id, created_by_actor_id, status, provider_room_name, participant_identity, credential_generation, last_failure_code, created_at, updated_at, closed_at, latest_partial_text, latest_partial_start_offset_ms, latest_partial_end_offset_ms, latest_partial_updated_at, last_input_started_ms, last_input_ended_ms, purpose, auth_session_id, live_agent_actor_id, live_lease_until
+RETURNING id, tenant_id, room_id, created_by_actor_id, status, provider_room_name, participant_identity, credential_generation, last_failure_code, created_at, updated_at, closed_at, latest_partial_text, latest_partial_start_offset_ms, latest_partial_end_offset_ms, latest_partial_updated_at, last_input_started_ms, last_input_ended_ms, purpose, auth_session_id, live_agent_actor_id, live_lease_until, next_media_epoch
 `
 
 type UpdateVoiceSessionPartialTranscriptParams struct {
@@ -2735,6 +2781,7 @@ func (q *Queries) UpdateVoiceSessionPartialTranscript(ctx context.Context, arg U
 		&i.AuthSessionID,
 		&i.LiveAgentActorID,
 		&i.LiveLeaseUntil,
+		&i.NextMediaEpoch,
 	)
 	return i, err
 }

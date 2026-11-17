@@ -53,7 +53,8 @@ import { loginShellEnvironment, withLoginShell } from "./shell-env.js";
 import { StatusModule } from "./status.js";
 import { SystemPermissions } from "./system-permissions.js";
 import { TrayModule } from "./tray.js";
-import { UpdaterModule, appBundleOf } from "./updater.js";
+import { updateNotice } from "./tray-menu.js";
+import { UpdaterModule, updateInstallFor } from "./updater.js";
 import { WindowManagerModule, registerAppScheme } from "./window-manager.js";
 import { WorkspaceGrantsModule } from "./workspace-grants.js";
 
@@ -191,6 +192,7 @@ async function main(): Promise<void> {
   const home = lingerHome();
   const localServer = new LocalServerModule({
     home,
+    macosVersion: () => process.getSystemVersion(),
     installerDirectory: path.join(here, "../installer"),
     ...(__SOURCE_ARCHIVE__ ? { sourceArchive: __SOURCE_ARCHIVE__ } : {}),
     ...(__SOURCE_DEPENDENCIES__
@@ -210,22 +212,20 @@ async function main(): Promise<void> {
   });
   // Set once the bundle was swapped, so quitting relaunches the new version.
   let relaunch = false;
+  // Set once the setup program of an update runs; it starts the new version.
+  let updating = false;
   const updater = new UpdaterModule({
     version: VERSION,
     platform: process.platform,
     arch: process.arch,
-    appBundle:
-      app.isPackaged && process.platform === "darwin"
-        ? appBundleOf(process.execPath)
-        : undefined,
+    install: app.isPackaged
+      ? updateInstallFor(process.platform, process.execPath, existsSync)
+      : undefined,
     downloadDirectory: path.join(userData, "updates"),
     services: localServer,
-    announceServices: () => {
+    announce: (state) => {
       if (!Notification.isSupported()) return;
-      const notice = new Notification({
-        title: "Update ready",
-        body: "Click to update Linger on this computer. It restarts in about a minute.",
-      });
+      const notice = new Notification(updateNotice(state));
       notice.on("click", () => void updater.install());
       notice.show();
     },
@@ -233,6 +233,11 @@ async function main(): Promise<void> {
       relaunch = true;
       app.quit();
     },
+    quit: async () => {
+      updating = true;
+      app.quit();
+    },
+    openExternal: (url) => shell.openExternal(url),
   });
   // The app's own macOS permissions, which the daemon asks about over stdio
   // and the page acts on over IPC.
@@ -312,6 +317,7 @@ async function main(): Promise<void> {
       output: () => app.getPath("downloads"),
       openFolder: (folder) => shell.openPath(folder),
       showFile: (file) => shell.showItemInFolder(file),
+      outbox: path.join(userData, "diagnostics-outbox"),
     }),
     setup,
     new QuickNoteModule({
@@ -346,7 +352,7 @@ async function main(): Promise<void> {
     if (quitting) return;
     quitting = true;
     event.preventDefault();
-    void host.stop(relaunch ? "update" : "quit").finally(() => {
+    void host.stop(relaunch || updating ? "update" : "quit").finally(() => {
       if (relaunch) app.relaunch();
       app.exit(0);
     });

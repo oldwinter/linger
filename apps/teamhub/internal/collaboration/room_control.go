@@ -161,6 +161,12 @@ func (s *Service) RoomBackgroundTasks(ctx context.Context, accountID, roomID str
 	}
 	items := make([]httpapi.RoomBackgroundTask, 0, len(rows))
 	for _, row := range rows {
+		// A Task started during a proactive wake or a Routine that serves a
+		// Tracking Item stays out of the indicator; it keeps its origin link
+		// for task check, send and stop.
+		if row.Quiet {
+			continue
+		}
 		items = append(items, httpapi.RoomBackgroundTask{Id: row.ID, Title: row.Title, Requirement: row.Description, CreatedAt: row.CreatedAt.Time})
 	}
 	return items, nil

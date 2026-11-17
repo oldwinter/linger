@@ -10,6 +10,9 @@ Only the authorized no-store login endpoint and explicit credentials view may
 show the user's password; redact events, diagnostics and persisted job snapshots.
 Browser closure never cancels installation. Repeated launches reuse the manager,
 instance mutations remain locked, and cancellation retains account/data/device.
+A start returns the instance's running or queued job; a job that finished its
+run and waits for the person (`waiting_user`, e.g. `LOCAL_MODELS_UNAVAILABLE`)
+is canceled and replaced, so Try Again checks the computer again.
 An idle desktop-owned manager steps aside when the desktop relaunches the same
 instance with another checkout. Every installation runs natively from the
 source checkout `--source-repo` names. Start failures print their real cause
@@ -19,7 +22,10 @@ on stderr for the desktop to show.
 stopped services headless, reusing its saved choices; the desktop client runs it
 after a reboot and reads the outcome from the single JSON line on stdout. It
 also restarts running services when the instance's `user.env` no longer
-matches the configuration they started with.
+matches the configuration they started with. With `--external-computer`, a
+successful outcome carries `runtime`, the same instance runtime as
+`GET /api/instances/{name}/runtime` (runtime and localmodels tool paths), so
+the desktop's Computer follows them.
 
 `--stop` (with `--instance`) is the desktop uninstall's and Windows setup's: it stops the
 manager the desktop started for that instance (its `/api/stop` cancels a
@@ -29,7 +35,12 @@ setup can run it from a copy on an earlier release's `Linger.exe`.
 
 Every other mode first converts an install from before the rename to Linger
 (`migrateLegacyInstallation`); `--migrate` does only that and exits, for the
-desktop client.
+desktop client. An instance it could not convert never stops the
+installer, and the next start tries again. Only `--migrate` reports them: a
+warning naming each and why on stderr, and one JSON line
+`{"skipped":[{instance,reason}]}` on stdout. Other modes stay silent, so a
+warning is never taken for the reason a start failed, and refuse a skipped
+instance when they open it.
 
 Run `make check-installer`; verify UI process behavior with an isolated
 browser context and retain masked evidence. Never stop a user's existing stack

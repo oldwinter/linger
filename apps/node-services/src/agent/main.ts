@@ -127,6 +127,7 @@ export async function startAgentService(
                 run_id: record.runId,
                 operation_id: record.operationId,
                 runtime_type: record.runtimeType,
+                ...(record.turnId ? { turn_id: record.turnId } : {}),
                 ...(record.usage ? { usage: [...record.usage] } : {}),
               });
             },

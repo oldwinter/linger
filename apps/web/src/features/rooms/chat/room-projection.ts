@@ -1,5 +1,6 @@
 import type { TeamHubRoom } from "@/features/teamhub/teamhub-types";
 import { refreshQueriesInBackground } from "@/features/teamhub/background-query-refresh";
+import { captureQuickNotesQueryKey } from "./message-meeting-notes";
 import { roomBackgroundTasksQueryKey } from "./use-room-background-tasks";
 import type {
   InfiniteData,
@@ -251,9 +252,15 @@ async function projectEvent(
         ),
       });
       return;
+    case "capture.session.changed":
+      // A recording's quick notes were written or given up.
+      await refreshActiveQuery(
+        queryClient,
+        captureQuickNotesQueryKey(payload.session_id),
+      );
+      return;
     // The Run status transport follows agent_run.status_changed itself.
     case "agent_run.status_changed":
-    case "capture.session.changed":
     case "room.history.compacted":
     case "message.hidden":
       return;

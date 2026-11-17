@@ -430,8 +430,8 @@ async function activateContextRuntime<TRuntimeSettings>(
         runtimeSessionStartsFresh(request.previousSession),
     });
     void featurePreparationPromise.catch(() => undefined);
-    const { executionResources, connectedApps } = await resolveActivationInputs(
-      {
+    const { executionResources, connectedApps, connectedAppKeys } =
+      await resolveActivationInputs({
         options,
         request,
         acquired,
@@ -442,8 +442,7 @@ async function activateContextRuntime<TRuntimeSettings>(
         runtimeInstanceKey,
         ordinaryMeta,
         contextResolutionRequired,
-      },
-    );
+      });
     signal.throwIfAborted();
     const featurePreparation = await featurePreparationPromise;
     enterStage("prepare_runtime_view");
@@ -454,6 +453,7 @@ async function activateContextRuntime<TRuntimeSettings>(
         request,
         featurePreparation.developerInstructions,
         connectedApps,
+        connectedAppKeys,
         compactInstructions,
       ),
       executionResources,
@@ -564,11 +564,13 @@ async function resolveActivationInputs<TRuntimeSettings>({
 }: ActivationInputsRequest<TRuntimeSettings>): Promise<{
   readonly executionResources: ExecutionResources | undefined;
   readonly connectedApps: boolean | undefined;
+  readonly connectedAppKeys: readonly string[];
 }> {
   const agentResourcesResolver = options.agentResourcesResolver;
   const mcpContextResolver = options.mcpContextResolver;
   // Read with the Agent's effective resources; renders the instructions.
   let connectedApps: boolean | undefined;
+  let connectedAppKeys: readonly string[] = [];
   const readAgentResources = async (resolveSignal: AbortSignal) => {
     const resourcesResolveStartedAt = performance.now();
     const current = await agentResourcesResolver!.resolve({
@@ -579,6 +581,7 @@ async function resolveActivationInputs<TRuntimeSettings>({
       durationMs: performance.now() - resourcesResolveStartedAt,
     });
     connectedApps = current.connectedApps;
+    connectedAppKeys = current.connectedAppKeys;
     return current;
   };
   let executionResources: ExecutionResources | undefined;
@@ -628,7 +631,7 @@ async function resolveActivationInputs<TRuntimeSettings>({
   if (pendingExecutionResources) {
     executionResources = await pendingExecutionResources;
   }
-  return { executionResources, connectedApps };
+  return { executionResources, connectedApps, connectedAppKeys };
 }
 
 const currentExecutionResources = (
@@ -661,6 +664,7 @@ const instructedAgent = <TRuntimeSettings>(
   request: ContextRuntimeActivationRequest<TRuntimeSettings>,
   featureInstructions: readonly string[],
   connectedApps: boolean | undefined,
+  connectedAppKeys: readonly string[],
   compactInstructions: boolean,
 ): AgentDefinition => {
   const instructed =
@@ -668,6 +672,7 @@ const instructedAgent = <TRuntimeSettings>(
     (connectedApps !== undefined || compactInstructions)
       ? request.renderDeveloperInstructions({
           connectedApps: connectedApps ?? true,
+          connectedAppKeys,
           compactInstructions,
         })
       : request.agent.developerInstructions;

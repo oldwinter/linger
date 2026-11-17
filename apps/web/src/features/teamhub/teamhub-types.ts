@@ -204,6 +204,8 @@ export type TeamHubMessageHtmlFragmentSegment =
   components["schemas"]["HtmlFragmentSegment"];
 export type TeamHubMessageDocumentSegment =
   components["schemas"]["DocumentSegment"];
+export type TeamHubMessageMeetingNotesSegment =
+  components["schemas"]["MeetingNotesSegment"];
 export type TeamHubMessageSegment = components["schemas"]["MessageSegment"];
 export type TeamHubMessagePage = components["schemas"]["MessagePage"];
 export type TeamHubMessagePinList = components["schemas"]["MessagePinList"];
@@ -378,7 +380,8 @@ export type TeamHubInvalidationResource =
   | "connections"
   | "work-items"
   | "document"
-  | "document-access";
+  | "document-access"
+  | "local-models";
 export interface TeamHubResourceInvalidation {
   id: string;
   resource: TeamHubInvalidationResource;

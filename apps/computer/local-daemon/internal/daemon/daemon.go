@@ -67,6 +67,9 @@ type Options struct {
 	// HerdrPanes answers blocked herdr agent panes; nil when herdr is not
 	// installed, and the herdr tool then reports herdr_unavailable.
 	HerdrPanes HerdrPanes
+	// LocalModels runs owner-chosen localmodels library actions; nil
+	// refuses each with TOOL_NOT_INSTALLED.
+	LocalModels LocalModelLibrary
 }
 
 // HerdrPanes types the owner's answer into a herdr agent pane that is still
@@ -129,18 +132,22 @@ type Daemon struct {
 	// what an accepted Operation may start with: Registration snapshots, Agent
 	// Runner commands and Context commands. A start whose revision is unchanged
 	// after its off-lock MCP preparation needs no second Resolve.
-	authorityRevision   uint64
-	activeOperations    map[string]*activeOperation
-	preparationMu       sync.Mutex
-	preparedOperations  map[string]*preparedOperation
-	providerPrepareMu   sync.Mutex
-	providerPrepares    map[string]*providerPrepare
-	sessionCompactMu    sync.Mutex
-	sessionCompacts     map[string]*sessionCompact
-	takeParkedSession   func(runtimeType, contextKey string) parkedSession
-	modelInvoker        ModelInvoker
-	modelInvokeMu       sync.Mutex
-	modelInvokes        map[string]*modelInvoke
+	authorityRevision  uint64
+	activeOperations   map[string]*activeOperation
+	preparationMu      sync.Mutex
+	preparedOperations map[string]*preparedOperation
+	providerPrepareMu  sync.Mutex
+	providerPrepares   map[string]*providerPrepare
+	sessionCompactMu   sync.Mutex
+	sessionCompacts    map[string]*sessionCompact
+	takeParkedSession  func(runtimeType, contextKey string) parkedSession
+	modelInvoker       ModelInvoker
+	modelInvokeMu      sync.Mutex
+	modelInvokes       map[string]*modelInvoke
+	localModels        LocalModelLibrary
+	// localModelsMu orders runner.local_models sends with their revision.
+	localModelsMu       sync.Mutex
+	localModelsRevision uint64
 	operationWG         sync.WaitGroup
 	inputWG             sync.WaitGroup
 	preparationWG       sync.WaitGroup
@@ -233,6 +240,7 @@ func New(options Options) (*Daemon, error) {
 		takeParkedSession:    takeNativeParkedSession,
 		modelInvoker:         options.ModelInvoker,
 		modelInvokes:         make(map[string]*modelInvoke),
+		localModels:          options.LocalModels,
 		contextDispatchLimit: defaultContextDispatchLimit,
 		retryDelay:           defaultRetryDelay(options.RetryDelay),
 		stableConnection:     stableGatewayConnection,

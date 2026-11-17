@@ -248,15 +248,6 @@ importers:
       '@linger/wire-contracts':
         specifier: workspace:*
         version: link:../../contracts/generated/typescript
-      '@napi-rs/canvas':
-        specifier: 1.0.5
-        version: 1.0.5
-      '@tesseract.js-data/chi_sim':
-        specifier: 1.0.0
-        version: 1.0.0
-      '@tesseract.js-data/eng':
-        specifier: 1.0.0
-        version: 1.0.0
       ajv:
         specifier: 8.17.1
         version: 8.17.1
@@ -287,12 +278,6 @@ importers:
       proper-lockfile:
         specifier: ^4.1.2
         version: 4.1.2
-      sharp:
-        specifier: 0.35.3
-        version: 0.35.3(@types/node@26.0.1)
-      tesseract.js-core:
-        specifier: 7.0.0
-        version: 7.0.0
       undici:
         specifier: 8.10.0
         version: 8.10.0
@@ -3031,12 +3016,6 @@ packages:
 
   '@tanstack/virtual-core@3.17.7':
     resolution: {integrity: sha512-bp+v10y65sp2H7WpWfIMyxTNfl8ZVfxFTLRjPIFRryi6FV/J33z4IS53WO4pTk36KlvJ4iLiQz+oaydDC1xbcA==}
-
-  '@tesseract.js-data/chi_sim@1.0.0':
-    resolution: {integrity: sha512-iuErURkPbECDUazgsLn/r3c+tU2y5o5S/w14d0A/YiagfsjYyZKgTo75RUpsGJ311qtu0dIX4hqnXAAjmqf2CA==}
-
-  '@tesseract.js-data/eng@1.0.0':
-    resolution: {integrity: sha512-mbTumm6KQPUHyzTPQaF3ObXYnx0SqqfV2nabqFVQBwD6Kl7PhGSLSzOlfFTWy0P3BjghaSKA2W9GB19Jk+ZcTg==}
 
   '@testing-library/dom@10.4.1':
     resolution: {integrity: sha512-o4PXJQidqJl82ckFaXUeoAW+XysPLauYI43Abki5hABd853iMhitooc6znOnczgbTYmEP6U6/y1ZyKAIsvMKGg==}
@@ -9353,6 +9332,7 @@ snapshots:
       '@napi-rs/canvas-linux-x64-musl': 1.0.5
       '@napi-rs/canvas-win32-arm64-msvc': 1.0.5
       '@napi-rs/canvas-win32-x64-msvc': 1.0.5
+    optional: true
 
   '@napi-rs/wasm-runtime@1.1.6(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)':
     dependencies:
@@ -10204,10 +10184,6 @@ snapshots:
   '@tanstack/store@0.7.7': {}
 
   '@tanstack/virtual-core@3.17.7': {}
-
-  '@tesseract.js-data/chi_sim@1.0.0': {}
-
-  '@tesseract.js-data/eng@1.0.0': {}
 
   '@testing-library/dom@10.4.1':
     dependencies:

@@ -198,7 +198,7 @@ SET task_worker_id=$1::text,
     task_next_reconcile_at=clock_timestamp()+make_interval(secs=>$3::int)
 FROM candidate
 WHERE item.id=candidate.id
-RETURNING item.id AS task_id,item.task_worker_id,item.task_lease_generation,item.task_lease_expires_at
+RETURNING item.id AS task_id,item.task_worker_id,item.task_lease_generation,item.task_lease_expires_at, item.quiet
 `
 
 type ClaimTaskExecutionForWorkerParams struct {
@@ -212,6 +212,7 @@ type ClaimTaskExecutionForWorkerRow struct {
 	TaskWorkerID        pgtype.Text        `json:"task_worker_id"`
 	TaskLeaseGeneration pgtype.Int8        `json:"task_lease_generation"`
 	TaskLeaseExpiresAt  pgtype.Timestamptz `json:"task_lease_expires_at"`
+	Quiet               bool               `json:"quiet"`
 }
 
 func (q *Queries) ClaimTaskExecutionForWorker(ctx context.Context, arg ClaimTaskExecutionForWorkerParams) (ClaimTaskExecutionForWorkerRow, error) {
@@ -222,6 +223,7 @@ func (q *Queries) ClaimTaskExecutionForWorker(ctx context.Context, arg ClaimTask
 		&i.TaskWorkerID,
 		&i.TaskLeaseGeneration,
 		&i.TaskLeaseExpiresAt,
+		&i.Quiet,
 	)
 	return i, err
 }
@@ -407,7 +409,7 @@ WHERE id=$2::text
   AND task_lease_token_hash=$5::bytea
   AND task_lease_expires_at>clock_timestamp()
   AND (SELECT count(*) FROM extended_effects)>=0
-RETURNING id AS task_id,task_worker_id,task_lease_generation,task_lease_expires_at
+RETURNING id AS task_id,task_worker_id,task_lease_generation,task_lease_expires_at, quiet
 `
 
 type ExtendTaskExecutionWorkerLeaseParams struct {
@@ -423,6 +425,7 @@ type ExtendTaskExecutionWorkerLeaseRow struct {
 	TaskWorkerID        pgtype.Text        `json:"task_worker_id"`
 	TaskLeaseGeneration pgtype.Int8        `json:"task_lease_generation"`
 	TaskLeaseExpiresAt  pgtype.Timestamptz `json:"task_lease_expires_at"`
+	Quiet               bool               `json:"quiet"`
 }
 
 // While a lease is held, the reconcile time falls due only when a writer such
@@ -444,12 +447,13 @@ func (q *Queries) ExtendTaskExecutionWorkerLease(ctx context.Context, arg Extend
 		&i.TaskWorkerID,
 		&i.TaskLeaseGeneration,
 		&i.TaskLeaseExpiresAt,
+		&i.Quiet,
 	)
 	return i, err
 }
 
 const getTaskExecutionWorkerLease = `-- name: GetTaskExecutionWorkerLease :one
-SELECT id AS task_id,task_worker_id,task_lease_generation,task_lease_expires_at
+SELECT id AS task_id,task_worker_id,task_lease_generation,task_lease_expires_at, quiet
 FROM work_items
 WHERE id=$1::text
   AND task_worker_id=$2::text
@@ -470,6 +474,7 @@ type GetTaskExecutionWorkerLeaseRow struct {
 	TaskWorkerID        pgtype.Text        `json:"task_worker_id"`
 	TaskLeaseGeneration pgtype.Int8        `json:"task_lease_generation"`
 	TaskLeaseExpiresAt  pgtype.Timestamptz `json:"task_lease_expires_at"`
+	Quiet               bool               `json:"quiet"`
 }
 
 func (q *Queries) GetTaskExecutionWorkerLease(ctx context.Context, arg GetTaskExecutionWorkerLeaseParams) (GetTaskExecutionWorkerLeaseRow, error) {
@@ -485,12 +490,13 @@ func (q *Queries) GetTaskExecutionWorkerLease(ctx context.Context, arg GetTaskEx
 		&i.TaskWorkerID,
 		&i.TaskLeaseGeneration,
 		&i.TaskLeaseExpiresAt,
+		&i.Quiet,
 	)
 	return i, err
 }
 
 const lockTaskExecutionWorkerLease = `-- name: LockTaskExecutionWorkerLease :one
-SELECT id, tenant_id, number, kind, title, description, priority, state, resolution, version, created_by_actor_id, updated_by_actor_id, archived_at, created_at, updated_at, task_source_key, task_execution_generation, task_execution_status, task_execution_revision, task_execution_reason_code, task_desired_control, task_control_revision, task_control_settled_revision, task_control_outcome, task_control_source_kind, task_control_source_id, task_control_requested_by_actor_id, task_control_requested_at, task_control_payload, task_execution_updated_at, task_next_reconcile_at, task_worker_id, task_lease_token_hash, task_lease_generation, task_lease_expires_at
+SELECT id, tenant_id, number, kind, title, description, priority, state, resolution, version, created_by_actor_id, updated_by_actor_id, archived_at, created_at, updated_at, task_source_key, task_execution_generation, task_execution_status, task_execution_revision, task_execution_reason_code, task_desired_control, task_control_revision, task_control_settled_revision, task_control_outcome, task_control_source_kind, task_control_source_id, task_control_requested_by_actor_id, task_control_requested_at, task_control_payload, task_execution_updated_at, task_next_reconcile_at, task_worker_id, task_lease_token_hash, task_lease_generation, task_lease_expires_at, quiet
 FROM work_items
 WHERE id=$1::text
   AND task_worker_id=$2::text
@@ -551,6 +557,7 @@ func (q *Queries) LockTaskExecutionWorkerLease(ctx context.Context, arg LockTask
 		&i.TaskLeaseTokenHash,
 		&i.TaskLeaseGeneration,
 		&i.TaskLeaseExpiresAt,
+		&i.Quiet,
 	)
 	return i, err
 }
@@ -715,7 +722,7 @@ WHERE id=$2::text
   AND task_lease_generation=$8::bigint
   AND task_lease_token_hash=$9::bytea
   AND task_lease_expires_at>clock_timestamp()
-RETURNING id, tenant_id, number, kind, title, description, priority, state, resolution, version, created_by_actor_id, updated_by_actor_id, archived_at, created_at, updated_at, task_source_key, task_execution_generation, task_execution_status, task_execution_revision, task_execution_reason_code, task_desired_control, task_control_revision, task_control_settled_revision, task_control_outcome, task_control_source_kind, task_control_source_id, task_control_requested_by_actor_id, task_control_requested_at, task_control_payload, task_execution_updated_at, task_next_reconcile_at, task_worker_id, task_lease_token_hash, task_lease_generation, task_lease_expires_at
+RETURNING id, tenant_id, number, kind, title, description, priority, state, resolution, version, created_by_actor_id, updated_by_actor_id, archived_at, created_at, updated_at, task_source_key, task_execution_generation, task_execution_status, task_execution_revision, task_execution_reason_code, task_desired_control, task_control_revision, task_control_settled_revision, task_control_outcome, task_control_source_kind, task_control_source_id, task_control_requested_by_actor_id, task_control_requested_at, task_control_payload, task_execution_updated_at, task_next_reconcile_at, task_worker_id, task_lease_token_hash, task_lease_generation, task_lease_expires_at, quiet
 `
 
 type ScheduleTaskExecutionReconcileParams struct {
@@ -785,6 +792,7 @@ func (q *Queries) ScheduleTaskExecutionReconcile(ctx context.Context, arg Schedu
 		&i.TaskLeaseTokenHash,
 		&i.TaskLeaseGeneration,
 		&i.TaskLeaseExpiresAt,
+		&i.Quiet,
 	)
 	return i, err
 }

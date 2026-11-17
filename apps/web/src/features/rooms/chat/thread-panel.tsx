@@ -18,6 +18,7 @@ import { Search01Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
+import { isRunWorking } from "@/features/teamhub/run-status";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { type TeamHubClient } from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
@@ -402,6 +403,7 @@ function ThreadPanelContent({
         </div>
       </header>
       <ThreadTimeline
+        agentWorking={conversation.streamingRunStatuses.some(isRunWorking)}
         canLoadEarlier={messagesQuery.hasNextPage}
         hasPending={conversation.pendingMessages.length > 0}
         loadingEarlier={messagesQuery.isFetchingNextPage}

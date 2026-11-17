@@ -21,6 +21,9 @@ export interface BusEvents {
   // The Gateway refused this computer's identity as another Computer's.
   "computer.identity_conflict": [conflict: boolean];
   "computer.renamed": [];
+  // The local server's installer reported new runtime or localmodels paths.
+  "computer.runtime": [];
+  "diagnostics.changed": [];
   "grants.changed": [];
   "local-server.changed": [];
   // Forget the installation the window used and set this computer up again.

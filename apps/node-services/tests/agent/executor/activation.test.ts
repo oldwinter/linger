@@ -946,6 +946,7 @@ describe("Context Runtime Activator", () => {
           effectiveSha256: "e".repeat(64),
           skills: [],
           connectedApps: true,
+          connectedAppKeys: [],
         })),
       };
       const harness = wired({
@@ -1000,6 +1001,7 @@ describe("Context Runtime Activator", () => {
             effectiveSha256: "e".repeat(64),
             skills: [],
             connectedApps,
+            connectedAppKeys: [],
           })),
         };
         const harness = wired({ agentResourcesResolver });
@@ -1037,6 +1039,7 @@ describe("Context Runtime Activator", () => {
               effectiveSha256: "e".repeat(64),
               skills: [],
               connectedApps: true,
+              connectedAppKeys: [],
             })),
           },
         });
@@ -1899,6 +1902,7 @@ describe("Skills of Contexts resolved by TeamHub", () => {
         effectiveSha256: "a".repeat(64),
         skills: [effectiveSkill],
         connectedApps: true,
+        connectedAppKeys: [],
       });
       resolution.resolve(mcpResolution());
       const active = await activation;

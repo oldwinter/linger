@@ -4,6 +4,8 @@ import path from "node:path";
 
 import { z } from "zod";
 
+import { isUploadUrl } from "./diagnostics-upload.js";
+
 const workspaceGrant = z.object({
   grantId: z.string().min(1),
   path: z.string().min(1),
@@ -41,6 +43,21 @@ const desktopConfig = z.object({
   // The runtime the person chose in that installation; the daemon marks it
   // so TeamHub places Another Me on it.
   preferredRuntime: z.enum(["codex", "claude", "pi"]).optional(),
+  // The backup of the earlier Simplex app's data that the local server
+  // already told about and enrolled this computer again for.
+  legacyBackup: z.string().optional(),
+  // Releases URL of the update feed, for a deployment that publishes its own
+  // releases (update-manifest.ts); GitHub's simplexai-labs/linger when unset.
+  // A value that is not a URL is dropped rather than resetting the file.
+  updateFeedUrl: z.string().url().optional().catch(undefined),
+  // Where Send Diagnostics uploads to (docs/diagnostics-upload.md); set by
+  // hand for a self-hosted receiver. An invalid value is dropped, not the
+  // whole file.
+  diagnosticsUploadUrl: z
+    .string()
+    .refine(isUploadUrl)
+    .optional()
+    .catch(undefined),
   window: z
     .object({
       x: z.number().int(),

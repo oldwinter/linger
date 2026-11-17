@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -58,14 +59,77 @@ func TestInstalledToolsRejectCorruptOrRedirectedAssets(t *testing.T) {
 	_ = os.WriteFile(asset, []byte("fixture"), 0o600)
 	extra := filepath.Join(toolRoot, "node_modules", "unexpected.js")
 	_ = os.WriteFile(extra, []byte("unlisted"), 0o600)
-	if _, err := Installed(executable); err == nil {
-		t.Fatal("unlisted tool asset accepted")
+	if _, err := Installed(executable); err == nil || !strings.HasSuffix(err.Error(), ": node_modules/unexpected.js") {
+		t.Fatalf("unlisted tool asset: %v", err)
 	}
 	_ = os.Remove(extra)
 	assets[0]["path"] = "../escape"
 	write()
 	if _, err := Installed(executable); err == nil {
 		t.Fatal("asset escaped its release directory")
+	}
+}
+
+// File managers write metadata such as Finder's .DS_Store into any directory a
+// user opens; only those regular files are tolerated beside the manifest.
+func TestInstalledToolsIgnoreFileManagerMetadata(t *testing.T) {
+	root := t.TempDir()
+	tools := filepath.Join(root, "cli", "computer-tools")
+	entries := []string{"node_modules/@playwright/mcp/cli.js", "extensions/pi-mcp.mjs"}
+	assets := make([]map[string]any, 0, len(entries))
+	for _, name := range entries {
+		file := filepath.Join(tools, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte("fixture"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		assets = append(assets, map[string]any{"path": name, "size_bytes": 7})
+	}
+	manifest, err := json.Marshal(map[string]any{"schema_version": 1, "versions": map[string]string{"playwright": "0.0.83", "pi": "1.2.0", "cua": "0.35.4"}, "playwright_entry": entries[0], "pi_extension": entries[1], "assets": assets})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tools, "manifest.json"), manifest, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(root, "daemon", "linger-computer-daemon")
+	node := filepath.Join(root, "runtime", "bin", "node")
+	if runtime.GOOS == "windows" {
+		executable += ".exe"
+		node += ".exe"
+	}
+	if err := os.MkdirAll(filepath.Dir(node), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(node, []byte("fixture"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{".DS_Store", "node_modules/.DS_Store", "extensions/._pi-mcp.mjs", "Thumbs.db", "node_modules/@playwright/Desktop.ini"} {
+		if err := os.WriteFile(filepath.Join(tools, filepath.FromSlash(name)), []byte("metadata"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if result, err := Installed(executable); err != nil || result == nil {
+		t.Fatalf("installation with file manager metadata: %+v %v", result, err)
+	}
+	for _, name := range []string{"node_modules/._", "extensions/DS_Store"} {
+		extra := filepath.Join(tools, filepath.FromSlash(name))
+		if err := os.WriteFile(extra, []byte("unlisted"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Installed(executable); err == nil || !strings.HasSuffix(err.Error(), ": "+name) {
+			t.Fatalf("unlisted %s: %v", name, err)
+		}
+		_ = os.Remove(extra)
+	}
+	link := filepath.Join(tools, "extensions", ".DS_Store")
+	if err := os.Symlink(node, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, err := Installed(executable); err == nil || !strings.HasSuffix(err.Error(), ": extensions/.DS_Store") {
+		t.Fatalf("linked .DS_Store: %v", err)
 	}
 }
 
@@ -159,5 +223,53 @@ func TestWindowsInstalledToolsUseExtractedBundle(t *testing.T) {
 	}
 	if _, err := Installed(executable); err == nil {
 		t.Fatal("unlisted tool asset accepted")
+	}
+}
+
+// The Desktop app runs the daemon from resources/computer/ and packages the
+// tools as resources/cli/computer-tools and resources/runtime.
+func TestInstalledToolsInTheDesktopLayout(t *testing.T) {
+	resources := t.TempDir()
+	executable := filepath.Join(resources, "computer", "linger-computer-daemon")
+	if got := ToolsDirectory(executable); got != filepath.Join(resources, "cli", "computer-tools") {
+		t.Fatalf("tools directory = %s", got)
+	}
+	if result, err := Installed(executable); result != nil || err != nil {
+		t.Fatalf("desktop without tools: %+v %v", result, err)
+	}
+	tools := ToolsDirectory(executable)
+	entries := []string{"node_modules/@playwright/mcp/cli.js", "extensions/pi-mcp.mjs"}
+	assets := make([]map[string]any, 0, len(entries))
+	for _, name := range entries {
+		file := filepath.Join(tools, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte("fixture"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		assets = append(assets, map[string]any{"path": name, "size_bytes": 7})
+	}
+	manifest, err := json.Marshal(map[string]any{"schema_version": 1, "versions": map[string]string{"playwright": "0.0.83", "pi": "1.2.0", "cua": "0.35.4"}, "playwright_entry": entries[0], "pi_extension": entries[1], "assets": assets})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tools, "manifest.json"), manifest, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	node := filepath.Join(resources, "runtime", "bin", "node")
+	if err := os.MkdirAll(filepath.Dir(node), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(node, []byte("fixture"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	resolvedTools, err := filepath.EvalSymlinks(tools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := Installed(executable)
+	if err != nil || result == nil || result.NodePath != node || result.PlaywrightEntry != filepath.Join(resolvedTools, filepath.FromSlash(entries[0])) {
+		t.Fatalf("desktop installation: %+v %v", result, err)
 	}
 }

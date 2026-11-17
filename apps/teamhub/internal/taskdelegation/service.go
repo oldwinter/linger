@@ -15,6 +15,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentauth"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/messagecreation"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/reminder"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/typedcard"
 )
@@ -168,11 +170,16 @@ func StartInTx(ctx context.Context, tx pgx.Tx, authorization agentauth.Authoriza
 	if err != nil {
 		return "", err
 	}
+	quiet, err := startedByProactiveWake(ctx, queries, authorization)
+	if err != nil {
+		return "", err
+	}
 	created, err := typedcard.CreateDelegatedTaskInTx(ctx, tx, queries, typedcard.DelegatedTaskInput{
 		TenantID: authorization.TenantID, OriginRoomID: authorization.RoomID,
 		Agent: agent, AgentManagementID: authorization.AgentID, Sponsor: sponsor,
 		Name: name, Requirement: requirement,
 		SourceKey: sourceKey,
+		Quiet:     quiet,
 	})
 	if errors.Is(err, typedcard.ErrInvalid) {
 		return "", ErrInvalid
@@ -181,6 +188,22 @@ func StartInTx(ctx context.Context, tx pgx.Tx, authorization agentauth.Authoriza
 		return "", err
 	}
 	return created.TaskID, nil
+}
+
+// startedByProactiveWake tells whether the Run creating the Task was started by
+// a proactive wake (a review, plan, event or a Routine serving a Tracking Item)
+// rather than by the Human, from the Run its request names. A plain Routine the
+// Human set up is the Human's own request, so its Tasks stay ordinary.
+func startedByProactiveWake(ctx context.Context, queries *store.Queries, authorization agentauth.Authorization) (bool, error) {
+	run, err := messagecreation.ResolveRunClaim(ctx, queries, authorization.TenantID, authorization.AgentActorID, authorization.RoomID)
+	if err != nil || !run.Valid {
+		return false, err
+	}
+	source, err := queries.GetRunProactiveWakeSource(ctx, store.GetRunProactiveWakeSourceParams{RunID: run.String, RoomID: authorization.RoomID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil && source != reminder.SourceScheduled, err
 }
 
 func hashRequest(input CreateInput) ([]byte, error) {

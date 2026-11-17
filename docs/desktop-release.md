@@ -68,17 +68,18 @@ folder, read only by the signing tools and removed after the build.
 Set these under Settings → Secrets and variables → Actions of the repository
 that runs the workflow:
 
-| Name                            | Kind                 | Required                                  | Purpose                                                                                                                                                 |
-| ------------------------------- | -------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `LINGER_NATIVE_DEPS_URL`        | secret (or variable) | no                                        | Folder serving the archives `apps/desktop/distribution/*.json` pins; the `native-deps` prerelease when unset. Each download is checked against its pin. |
-| `RELEASE_REPO`                  | variable             | no                                        | `owner/name` that receives the release; `simplexai-labs/linger` when unset.                                                                             |
-| `LINGER_RELEASE_TOKEN`          | secret               | when `RELEASE_REPO` is another repository | Fine-grained token for `RELEASE_REPO` only, with Contents: read and write. Not needed in simplexai-labs/linger itself.                                  |
-| `MACOS_DEVELOPER_ID_P12_BASE64` | secret               | no                                        | Base64 of the Developer ID `.p12`. Without it the app is signed ad hoc.                                                                                 |
-| `MACOS_DEVELOPER_ID_PASSWORD`   | secret               | with the `.p12`                           | Password of that `.p12`.                                                                                                                                |
-| `MACOS_NOTARY_KEY_JSON`         | secret               | no                                        | App Store Connect API key JSON; needs the Developer ID.                                                                                                 |
-| `DESKTOP_UPDATE_KEY_PEM`        | secret               | no                                        | Ed25519 private key (PEM) for the macOS update feed. Without it no feed is built.                                                                       |
-| `WINDOWS_SIGNING_P12_BASE64`    | secret               | no                                        | Base64 of an Authenticode `.p12`. Without it the setup program is unsigned.                                                                             |
-| `WINDOWS_SIGNING_PASSWORD`      | secret               | with the `.p12`                           | Password of that `.p12`.                                                                                                                                |
+| Name                            | Kind                 | Required                                  | Purpose                                                                                                                                                                                                                                           |
+| ------------------------------- | -------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LINGER_NATIVE_DEPS_URL`        | secret (or variable) | no                                        | Folder serving the archives `apps/desktop/distribution/*.json` pins; the `native-deps` prerelease when unset. Each download is checked against its pin.                                                                                           |
+| `LINGER_DIAGNOSTICS_UPLOAD_URL` | secret               | no                                        | https URL of the hosted diagnostics receiver ([diagnostics-upload.md](diagnostics-upload.md)) that the build carries. A secret, so the address stays masked in logs. Without it Send Diagnostics is hidden unless `config.json` names a receiver. |
+| `RELEASE_REPO`                  | variable             | no                                        | `owner/name` that receives the release; `simplexai-labs/linger` when unset.                                                                                                                                                                       |
+| `LINGER_RELEASE_TOKEN`          | secret               | when `RELEASE_REPO` is another repository | Fine-grained token for `RELEASE_REPO` only, with Contents: read and write. Not needed in simplexai-labs/linger itself.                                                                                                                            |
+| `MACOS_DEVELOPER_ID_P12_BASE64` | secret               | no                                        | Base64 of the Developer ID `.p12`. Without it the app is signed ad hoc.                                                                                                                                                                           |
+| `MACOS_DEVELOPER_ID_PASSWORD`   | secret               | with the `.p12`                           | Password of that `.p12`.                                                                                                                                                                                                                          |
+| `MACOS_NOTARY_KEY_JSON`         | secret               | no                                        | App Store Connect API key JSON; needs the Developer ID.                                                                                                                                                                                           |
+| `DESKTOP_UPDATE_KEY_PEM`        | secret               | for auto-update                           | Ed25519 private key (PEM) that signs `manifest.json`. Without it the release has no manifest and installed apps are not offered it.                                                                                                               |
+| `WINDOWS_SIGNING_P12_BASE64`    | secret               | no                                        | Base64 of an Authenticode `.p12`. Without it the setup program is unsigned.                                                                                                                                                                       |
+| `WINDOWS_SIGNING_PASSWORD`      | secret               | with the `.p12`                           | Password of that `.p12`.                                                                                                                                                                                                                          |
 
 ### Bundled archives
 
@@ -111,20 +112,96 @@ gh release upload native-deps <archive> --repo simplexai-labs/linger
 
 ## Release Files
 
-| File                                           | Contents                                                        |
-| ---------------------------------------------- | --------------------------------------------------------------- |
-| `Linger-<version>-macos-arm64.dmg`             | macOS, Apple silicon                                            |
-| `Linger-<version>-linux-x64.tar.gz`            | Linux x64 (glibc 2.35 or newer for the bundled Native services) |
-| `Linger-<version>-windows-x64-setup.exe`       | Windows x64 per-user installer                                  |
-| `Linger-<version>-windows-x64-portable.zip`    | Windows x64 folder to run without installing                    |
-| `Linger-<version>-macos-arm64-update-feed.tar` | only with the update key: the macOS self-update feed            |
-| `SHA256SUMS.txt`                               | SHA-256 of every file above                                     |
+| File                                        | Contents                                                        |
+| ------------------------------------------- | --------------------------------------------------------------- |
+| `Linger-<version>-macos-arm64.dmg`          | macOS 14.0 or later, Apple silicon                              |
+| `Linger-<version>-linux-x64.tar.gz`         | Linux x64 (glibc 2.35 or newer for the bundled Native services) |
+| `Linger-<version>-windows-x64-setup.exe`    | Windows x64 per-user installer                                  |
+| `Linger-<version>-windows-x64-portable.zip` | Windows x64 folder to run without installing                    |
+| `Linger-<version>-macos-arm64.app.tar.gz`   | macOS app the updater swaps in                                  |
+| `manifest.json`, `manifest.json.sig`        | only with the update key: the [auto-update](#auto-update) feed  |
+| `SHA256SUMS.txt`                            | SHA-256 of every file above                                     |
 
 Each package bundles the source package, PostgreSQL, voice tools, TeamHub and
 the Native services as described in
-[Packaging Details](#packaging-details). The update feed holds
-`manifest.json`, `manifest.json.sig` and the app archive; unpack it into the
-server's `install/desktop/stable/`.
+[Packaging Details](#packaging-details).
+
+## Auto-update
+
+Installed apps update from the GitHub Releases themselves
+(`apps/desktop/src/main/updater.ts`). Shortly after start and then every six
+hours, the app downloads
+`https://github.com/simplexai-labs/linger/releases/latest/download/manifest.json`
+and its `.sig`, checks the Ed25519 signature against `UPDATE_PUBLIC_KEY` in
+`update-manifest.ts` and compares the manifest's version with its own
+(semver; a prerelease is below its release). Only a newer version is offered,
+and a release without a manifest (404) is ignored. Since a prerelease never
+becomes the latest release, only stable releases reach installed apps.
+
+`manifest.json` (schema 2) names each platform's package of the same release
+with its size and SHA-256:
+
+```json
+{
+  "schema": 2,
+  "version": "0.16.36",
+  "packages": {
+    "darwin-arm64": {
+      "file": "Linger-0.16.36-macos-arm64.app.tar.gz",
+      "sha256": "…",
+      "size": 123
+    },
+    "linux-x64": {
+      "file": "Linger-0.16.36-linux-x64.tar.gz",
+      "sha256": "…",
+      "size": 123
+    },
+    "win32-x64": {
+      "file": "Linger-0.16.36-windows-x64-setup.exe",
+      "sha256": "…",
+      "size": 123
+    }
+  }
+}
+```
+
+The app downloads the package from `releases/download/desktop-v<version>/` and
+checks its size and SHA-256 while downloading. What happens next depends on
+how Linger was installed:
+
+| Install                 | Update                                                                                                                                                                                                          |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| macOS `Linger.app`      | The archive is unpacked beside the app. "Restart to Update" waits for running tasks, swaps the bundle and relaunches.                                                                                           |
+| Windows setup program   | The setup program is downloaded. "Restart to Update" waits for running tasks, checks the file again, starts it with `/S /relaunch` and quits; the installer stops the services, replaces the app and starts it. |
+| Windows portable folder | No download: the tray offers "Download Linger <version>…", which opens the release page.                                                                                                                        |
+| Linux                   | The same as the portable folder.                                                                                                                                                                                |
+
+A system notification announces each new version once, and the tray shows the
+state; after a failure "Try Updating Again" checks at once. Without a newer app, the tray
+still offers to update the local services when they have a newer source; a
+newer app replaces that offer, because it brings its own source.
+
+`updateFeedUrl` in the desktop config (`config.json` in the app's data
+folder) points the app at another releases URL with the same layout, such as
+`https://github.com/<owner>/<repo>/releases`; it must be https and its
+manifest must be signed by the same key.
+
+### Signing key
+
+The `release` job signs `manifest.json` with `DESKTOP_UPDATE_KEY_PEM`
+(`desktop-release.sh manifest`) after all three packages are built, and
+refuses a key whose public half is not `UPDATE_PUBLIC_KEY`, since installed
+apps would reject its signature. Without the secret the job logs a warning and
+publishes the release without a manifest. Make a new pair only when the key is
+lost, and ship the new public key in a release first:
+
+```sh
+openssl genpkey -algorithm ed25519 -out ed25519.pem
+openssl pkey -in ed25519.pem -pubout
+```
+
+Apps of 0.1.2 and older read their update feed from the connected server and
+are not offered GitHub releases; install one release by hand there.
 
 ## Local Build
 
@@ -133,13 +210,16 @@ On Linux x64 with Docker, Node, pnpm, Go and Python 3:
 ```sh
 DESKTOP_VERSION=0.16.36-rc.1 RCODESIGN=/path/to/rcodesign \
   scripts/ci/desktop-release.sh build darwin-arm64
+DESKTOP_UPDATE_KEY=/path/to/ed25519.pem \
+  scripts/ci/desktop-release.sh manifest .linger-runtime/desktop-release/assets 0.16.36-rc.1
 scripts/ci/desktop-release.sh checksums .linger-runtime/desktop-release/assets 0.16.36-rc.1
 ```
 
 With the archives already in `LINGER_NATIVE_POSTGRES_DIR` (default
 `~/.cache/linger-desktop`), `LINGER_NATIVE_DEPS_URL` is not needed.
-`checksums` refuses a folder without the DMG, the Linux archive and the setup
-program of that version.
+`manifest` needs the macOS app archive, the Linux archive and the setup program
+of that version; `checksums` refuses a folder without the DMG, the Linux
+archive and the setup program.
 
 ## Packaging Details
 
@@ -210,6 +290,37 @@ the setup page does not offer installing on this computer. `src/main/distributio
 target's PostgreSQL and the localmodels release `scripts/installs/stack.sh`
 pins.
 
+### Computer Tools
+
+The daemon offers Agents browser and computer-control tools only when it
+finds `cli/computer-tools/` (with its frozen `manifest.json`) and
+`runtime/bin/node` two folders above its executable
+(`localtools.Installed` in `apps/computer/local-daemon`). The app runs the
+daemon from `resources/computer/`, so every package carries them as
+`resources/cli/computer-tools/` and `resources/runtime/` (on macOS under
+`Contents/Resources/`). Without them the daemon still starts and logs
+`computer_tools.missing` in `computer-daemon.log`.
+
+`build.mjs` stages them for each daemon target into
+`dist/computer-tools/<target>/` (`scripts/stage-computer-tools.mjs`) with
+`scripts/computer-tool-bundle.mjs`, the code and pins of the Local Computer
+dependency package: the Node.js archive checksums in
+`scripts/local-computer-node-distributions.mjs`, the Cua driver checksums in
+`apps/computer/scripts/bundle-computer-tools.mjs` and the frozen pnpm
+lockfile. A source build keeps staged tools that still validate against the
+manifest and the Node.js pin recorded beside them, and links
+`dist/computer/cli` and `dist/computer/runtime` to this machine's tools; delete
+`dist/computer-tools/` to stage them again. `packaging/computer_tools.py`
+copies them into the app, checks them with the same validator and checks the
+finished `.tar.gz`, `.zip` or update archive for them; a package without them
+fails.
+On macOS the tools' Node.js is signed with `node-entitlements.plist`, and Cua's
+driver (`CuaDriver.app` and the standalone `cua-driver`) keeps Cua's own
+Developer ID signature, which macOS grants Accessibility and Screen Recording
+to. Compressed, they add about 66 MB to the Linux archive, 73 MB to the
+Windows zip, 46 MB to the Windows setup program and 115 MB to the macOS disk
+image, most of it Node.js and the universal Cua driver.
+
 ### Release
 
 Each desktop target (`darwin-arm64`, `linux-x64`) gets its own distribution
@@ -245,6 +356,18 @@ linger GitHub Release with `SHA256SUMS.txt`; see
 [How the workflow runs](#how-the-workflow-runs). The workflow
 fetches the bundled archives from the assets of the `native-deps` prerelease
 there, so upload a new pinned archive to it before tagging.
+
+The Mac app needs macOS 14.0 or later: the bundled PostgreSQL and the
+`@livekit/av-darwin-arm64` ffmpeg are built for 14.0 (their Mach-O
+`LC_BUILD_VERSION` minimum), the pinned Node.js 26 for 13.5 and Electron for
+13.0. `packaging/mac/package.py` writes it as `LSMinimumSystemVersion`, so an
+older macOS refuses to open the app, and `MIN_MACOS` in
+`apps/desktop/src/main/local-server.ts` keeps the same value: LocalServer
+refuses to fetch Node.js or run the installer on an older macOS and says
+"Linger needs macOS 14.0 or later" instead. `prepare-native-postgres.mjs`
+sets no `MACOSX_DEPLOYMENT_TARGET`, so PostgreSQL's minimum is the macOS of
+the host that built it. Check every Mach-O file of a new pinned binary
+(`otool -l`, `minos`) before raising or lowering the value in both places.
 
 Windows, Linux x64 and Apple silicon bundle PostgreSQL in the app instead
 (`file` in `distribution/<target>.json`; 35 MB on Windows, 10–12 MB
@@ -312,5 +435,5 @@ Node.js into its own folder, removing `com.apple.quarantine` on macOS;
 packages and needs no registry. On Linux the services need glibc 2.35
 (Ubuntu 22.04, Debian 12), like the PostgreSQL build; with an older glibc the
 desktop leaves them out and Native installs from the network. Model data
-(OCR, Voice) is not bundled: Node Services downloads it on first use.
+(Voice) is not bundled: Node Services downloads it on first use.
 Intel Macs have none of this and install from the network.

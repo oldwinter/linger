@@ -138,11 +138,11 @@ func TestWorkerSyncsNativeAndFileDocuments(t *testing.T) {
 	if got := byDocument["doc_native"]; got.Status != StatusReady || got.SourceID != "7" || got.SourceKind != "native_body" ||
 		got.SearchText != "Release checklist Freeze at 4pm" || got.Markdown != "# Release checklist\n\n- **Freeze** at 4pm" ||
 		got.MarkdownSha256.String != "a6ce43e2dd71ed3f67404923787edc472c04bdd102f2bdcc0aabb764ae8c8ba6" ||
-		got.LongestLineBytes != 19 || got.Scanned {
+		got.LongestLineBytes != 19 {
 		t.Fatalf("native upsert = %+v", got)
 	}
 	if got := byDocument["doc_file"]; got.Status != StatusReady || got.SourceID != "ver_1" ||
-		got.SearchText != "Invoice total: 1,200 USD item qty widget 3" || !got.MarkdownSha256.Valid || got.Scanned {
+		got.SearchText != "Invoice total: 1,200 USD item qty widget 3" || !got.MarkdownSha256.Valid {
 		t.Fatalf("file upsert = %+v", got)
 	}
 	if got := byDocument["doc_scan"]; got.Status != StatusNoText || got.SearchText != "" || got.Markdown != "" || got.MarkdownSha256.Valid {
@@ -216,31 +216,6 @@ func TestWorkerSkipsDocumentWithoutCurrentSource(t *testing.T) {
 		t.Fatalf("a Document without a current source has nothing to sync: %v", err)
 	}
 	if len(queries.upserts) != 0 {
-		t.Fatalf("upserts=%+v", queries.upserts)
-	}
-}
-
-// A PDF whose pages draw no text was read by OCR alone; its text says so.
-func TestWorkerMarksPDFTextsReadByOCRAlone(t *testing.T) {
-	t.Parallel()
-	scan := pdfFile("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>",
-		"q 200 0 0 200 0 0 cm /Im0 Do Q",
-		"<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8 /Length 1 >>\nstream\n\xff\nendstream")
-	queries := &fakeQueries{rows: 1, sources: map[string]store.GetCurrentDocumentTextSourceRow{
-		"doc_scan": {TenantID: "tenant_a", SourceKind: "file_version", SourceID: "ver_scan"},
-	}}
-	documents := fakeDocuments{versions: map[string]document.VersionContent{
-		"ver_scan": {Version: document.Version{ID: "ver_scan", Filename: "receipt.pdf", MediaType: "application/pdf", SizeBytes: int64(len(scan))}, ObjectKey: "obj_scan"},
-	}}
-	normalizer := newTestNormalizer(t, func(writer http.ResponseWriter, _ *http.Request) {
-		_, _ = writer.Write([]byte("RECEIPT total 12"))
-	})
-	worker := NewWorker(queries, documents, fakeObjects{"obj_scan": string(scan)}, normalizer, nil)
-	if err := worker.Work(context.Background(), syncJob("doc_scan", 1)); err != nil {
-		t.Fatal(err)
-	}
-	if len(queries.upserts) != 1 || queries.upserts[0].Status != StatusReady || !queries.upserts[0].Scanned ||
-		queries.upserts[0].LongestLineBytes != 16 {
 		t.Fatalf("upserts=%+v", queries.upserts)
 	}
 }

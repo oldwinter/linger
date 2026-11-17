@@ -95,14 +95,18 @@ describe("Memory chunk ranking", () => {
       });
     try {
       expect((await search({}))[0]).toMatchObject({ chunkId: "chunk-a" });
-      expect(queries).toHaveLength(1);
+      // One keyword query; the dated-source fragment is not a query.
+      expect(queries.filter((query) => query.includes("SELECT"))).toHaveLength(
+        1,
+      );
       expect(
         (await search({ event_from: "2026-06-01", event_to: "2026-06-30" }))[0],
       ).toMatchObject({ chunkId: "chunk-b", lexicalRank: 2 });
       const temporal = queries.find((query) => query.includes("BETWEEN"));
-      // Only chunks that match the query's keywords enter through the window.
+      // Only keyword matches enter, and only reports and Session pages.
       expect(temporal).toContain("search_tsv @@ to_tsquery");
       expect(temporal).toContain("ts_rank_cd");
+      expect(queries.join("\n")).toContain("period_summary");
     } finally {
       await index.close();
     }

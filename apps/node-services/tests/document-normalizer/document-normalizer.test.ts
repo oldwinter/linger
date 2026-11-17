@@ -123,7 +123,7 @@ describe("document normalization", () => {
     );
   });
 
-  it("extracts archive and SVG text without indexing image metadata as body", async () => {
+  it("extracts archive and SVG text and reads no raster image", async () => {
     await expect(
       normalizeDocumentContent({
         filename: "bundle.zip",
@@ -137,9 +137,7 @@ describe("document normalization", () => {
           },
         ]),
       }).then(decode),
-    ).resolves.toBe(
-      "## notes.md\n\n# From zip\n\n## photo.png\n\n# photo.png\n\n- Format: PNG\n",
-    );
+    ).resolves.toBe("## notes.md\n\n# From zip\n");
 
     await expect(
       normalizeDocumentContent({
@@ -157,29 +155,15 @@ describe("document normalization", () => {
       }).then(decode),
     ).resolves.toBe("# icon.svg\n\nIcon\n\nHello wiki\n");
 
-    await expect(
-      normalizeDocumentContent({
-        filename: "photo.png",
-        mediaType: PNG_MEDIA_TYPE,
-        source: pngFixture(),
-      }).then(decode),
-    ).resolves.toBe("# photo.png\n\n- Format: PNG\n");
-
-    await expect(
-      normalizeDocumentContent({
-        filename: "photo.png",
-        mediaType: PNG_MEDIA_TYPE,
-        source: pngFixture().subarray(0, 24),
-      }),
-    ).rejects.toMatchObject({ code: "DOCUMENT_SOURCE_INVALID" });
-
-    await expect(
-      normalizeDocumentContent({
-        filename: "photo.heic",
-        mediaType: "image/heic",
-        source: encode("not a real heic"),
-      }).then(decode),
-    ).rejects.toMatchObject({ code: "DOCUMENT_SOURCE_INVALID" });
+    for (const [filename, mediaType] of [
+      ["photo.png", PNG_MEDIA_TYPE],
+      ["photo.heic", "image/heic"],
+      ["photo.jpg", "application/octet-stream"],
+    ] as const) {
+      await expect(
+        normalizeDocumentContent({ filename, mediaType, source: pngFixture() }),
+      ).rejects.toMatchObject({ code: "DOCUMENT_SOURCE_UNSUPPORTED" });
+    }
   });
 
   it("rejects nested gzip instead of recursing through wrappers", async () => {
@@ -245,7 +229,7 @@ describe("document normalization", () => {
     );
   });
 
-  it("keeps SVG in-process and sends ZIP and raster images to the worker path", () => {
+  it("keeps SVG in-process and sends ZIP to the worker path", () => {
     expect(
       isInProcessDocumentSource({
         filename: "icon.svg",
@@ -256,12 +240,6 @@ describe("document normalization", () => {
       isInProcessDocumentSource({
         filename: "bundle.zip",
         mediaType: ZIP_MEDIA_TYPE,
-      }),
-    ).toBe(false);
-    expect(
-      isInProcessDocumentSource({
-        filename: "photo.png",
-        mediaType: PNG_MEDIA_TYPE,
       }),
     ).toBe(false);
   });
@@ -435,10 +413,9 @@ describe("document normalization", () => {
     expect(started).toEqual(["first.pdf", "third.pdf"]);
   });
 
-  it("rejects an already-aborted request before installing models or converting", async () => {
-    const installModels = vi.fn(async () => undefined);
+  it("rejects an already-aborted request before converting", async () => {
     const execute = vi.fn(async () => encode("ok\n"));
-    const normalizer = new WorkerDocumentNormalizer({ execute, installModels });
+    const normalizer = new WorkerDocumentNormalizer({ execute });
     const caller = new AbortController();
     caller.abort();
 
@@ -448,7 +425,6 @@ describe("document normalization", () => {
       code: "DOCUMENT_NORMALIZATION_UNAVAILABLE",
       disposition: "retryable",
     });
-    expect(installModels).not.toHaveBeenCalled();
     expect(execute).not.toHaveBeenCalled();
   });
 
@@ -494,29 +470,36 @@ describe("document normalization", () => {
     });
   });
 
-  it("cancels a request waiting for model installation and frees its admission", async () => {
-    let finishInstall!: () => void;
-    const installation = new Promise<void>((resolve) => {
-      finishInstall = resolve;
-    });
-    const installModels = vi.fn(() => installation);
+  it("cancels a request waiting for conversion and frees its admission", async () => {
+    let finish!: () => void;
     const started: string[] = [];
     const execute = vi.fn(async (input: { filename?: string }) => {
       started.push(input.filename ?? "");
+      if (input.filename === "held.pdf") {
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      }
       return encode("ok\n");
     });
     const normalizer = new WorkerDocumentNormalizer({
       execute,
-      installModels,
       maxAdmittedBytes: MAX_DOCUMENT_SOURCE_BYTES,
     });
+    const held = normalizer.normalizeDocument(sized(1, "held.pdf"));
+    await waitFor(() => started.length === 1);
     const caller = new AbortController();
     const cancelled = normalizer.normalizeDocument(
       sized(1, "cancelled.pdf"),
       caller.signal,
     );
-    await waitFor(() => installModels.mock.calls.length === 1);
-
+    await expect(
+      normalizer.normalizeDocument(
+        sized(MAX_DOCUMENT_SOURCE_BYTES - 1, "overflow.pdf"),
+      ),
+    ).rejects.toMatchObject({
+      code: "DOCUMENT_NORMALIZATION_UNAVAILABLE",
+    });
     caller.abort();
     await expect(cancelled).rejects.toMatchObject({
       code: "DOCUMENT_NORMALIZATION_UNAVAILABLE",
@@ -524,35 +507,13 @@ describe("document normalization", () => {
 
     // A leaked reservation would put the full budget past its limit.
     const admitted = normalizer.normalizeDocument(
-      sized(MAX_DOCUMENT_SOURCE_BYTES, "admitted.pdf"),
+      sized(MAX_DOCUMENT_SOURCE_BYTES - 1, "admitted.pdf"),
     );
-    await waitFor(() => installModels.mock.calls.length === 2);
-    finishInstall();
+    finish();
 
+    await held;
     await expect(admitted.then(decode)).resolves.toBe("ok\n");
-    expect(started).toEqual(["admitted.pdf"]);
-  });
-
-  it("keeps a cancelled install wait settled when installation later fails", async () => {
-    let failInstall!: (error: Error) => void;
-    const installation = new Promise<void>((_resolve, reject) => {
-      failInstall = reject;
-    });
-    const installModels = vi.fn(() => installation);
-    const execute = vi.fn(async () => encode("ok\n"));
-    const normalizer = new WorkerDocumentNormalizer({ execute, installModels });
-    const caller = new AbortController();
-    const cancelled = normalizer.normalizeDocument(pdf(), caller.signal);
-    await waitFor(() => installModels.mock.calls.length === 1);
-
-    caller.abort();
-    await expect(cancelled).rejects.toMatchObject({
-      code: "DOCUMENT_NORMALIZATION_UNAVAILABLE",
-    });
-
-    failInstall(new Error("models unavailable"));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(execute).not.toHaveBeenCalled();
+    expect(started).toEqual(["held.pdf", "admitted.pdf"]);
   });
 
   it("rejects a source past the byte budget until admitted sources settle", async () => {

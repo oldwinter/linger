@@ -3,6 +3,7 @@ import type {
   TeamHubMessageDocumentSegment,
   TeamHubMessageFileSegment,
   TeamHubMessageHtmlFragmentSegment,
+  TeamHubMessageMeetingNotesSegment,
   TeamHubMessageSegment,
 } from "@/features/teamhub/teamhub-types";
 import { isDocumentCardSegment } from "@/features/teamhub/teamhub-message-content";
@@ -12,6 +13,7 @@ export type MessageBodyBlock =
   | { kind: "document_card"; segment: TeamHubMessageDocumentSegment }
   | { kind: "file"; segment: TeamHubMessageFileSegment }
   | { kind: "html_fragment"; segment: TeamHubMessageHtmlFragmentSegment }
+  | { kind: "meeting_notes"; segment: TeamHubMessageMeetingNotesSegment }
   | { kind: "text"; body: string; segments?: TeamHubMessageSegment[] };
 
 export function messageBodyBlocks(
@@ -55,6 +57,11 @@ export function messageBodyBlocks(
     if (segment.type === "html_fragment") {
       flushText();
       blocks.push({ kind: "html_fragment", segment });
+      continue;
+    }
+    if (segment.type === "meeting_notes") {
+      flushText();
+      blocks.push({ kind: "meeting_notes", segment });
       continue;
     }
     text += segment.content;

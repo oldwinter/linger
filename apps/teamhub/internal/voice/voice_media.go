@@ -2,6 +2,7 @@ package voice
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/voicemedia"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/voicequicknotes"
 	httpapi "github.com/simplexai-labs/linger/contracts-go/teamhubpublic"
 )
 
@@ -56,6 +58,24 @@ func VoiceCaptureModel(value voicemedia.Capture) httpapi.VoiceCapture {
 	}
 	if value.SourceAudioDocumentVersionID != "" {
 		model.SourceAudioDocumentVersionId = &value.SourceAudioDocumentVersionID
+	}
+	if value.QuickNotesState != "" {
+		notes := httpapi.VoiceCaptureQuickNotes{State: httpapi.VoiceCaptureQuickNotesState(value.QuickNotesState)}
+		var written voicequicknotes.Notes
+		if value.QuickNotesState == "ready" && json.Unmarshal(value.QuickNotes, &written) == nil {
+			sections := make([]struct {
+				Bullets []string `json:"bullets"`
+				Heading string   `json:"heading"`
+			}, 0, len(written.Sections))
+			for _, section := range written.Sections {
+				sections = append(sections, struct {
+					Bullets []string `json:"bullets"`
+					Heading string   `json:"heading"`
+				}{Bullets: section.Bullets, Heading: section.Heading})
+			}
+			notes.Title, notes.Sections = &written.Title, &sections
+		}
+		model.QuickNotes = &notes
 	}
 	if value.TranscriptRecoveryStatus != "" {
 		status := httpapi.VoiceCaptureTranscriptRecoveryStatus(value.TranscriptRecoveryStatus)

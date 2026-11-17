@@ -53,7 +53,7 @@ var externalAppKinds = []string{
 	"external.mail_connection", "external.mail_import", "external.mail_sync", "external.mail_sync_sweep",
 	"external.reauthorization",
 	"listener.poll", "listener.sweep", "maintenance.proactive_listener_sweep",
-	"typedcard.connection_auth_reconcile", "typedcard.connection_auth_settle",
+	"typedcard.connection_auth_reconcile", "typedcard.connection_auth_settle", "typedcard.profile_setup_reminder",
 }
 
 var voiceRetentionTables = []string{

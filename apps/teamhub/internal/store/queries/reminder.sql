@@ -20,12 +20,6 @@ FROM room_reminders
 WHERE room_id=sqlc.arg(room_id)::text AND tenant_id=sqlc.arg(tenant_id)::text
   AND (cadence_kind<>'once' OR enabled);
 
--- name: CountEnabledOnceRoomReminders :one
-SELECT count(*)::bigint
-FROM room_reminders
-WHERE room_id=sqlc.arg(room_id)::text AND tenant_id=sqlc.arg(tenant_id)::text
-  AND cadence_kind='once' AND enabled;
-
 -- name: CreateRoomReminder :one
 INSERT INTO room_reminders (
     id, tenant_id, room_id, created_by_actor_id, name, instruction, mention_actor_id,

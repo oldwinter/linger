@@ -39,7 +39,7 @@ const upstream = (available = true) => ({
   },
   recommendation: available ? "local-models" : "pi",
 });
-const runner = (value = upstream()) =>
+const runner = (value: object = upstream()) =>
   vi.fn(async () => ({ code: 0, stdout: JSON.stringify(value), stderr: "" }));
 it("delegates all hardware policy, runtime detection, estimates and recommendation upstream", async () => {
   const localmodels = runner();
@@ -70,6 +70,7 @@ it("delegates all hardware policy, runtime detection, estimates and recommendati
   expect(report.hardware.totalMemoryBytes).toBe(7);
   expect(report.localModels).toMatchObject({
     eligible: true,
+    state: "ready",
     selectedGpuIndex: 4,
     estimate: {
       model: "upstream-model",
@@ -95,6 +96,7 @@ it("delegates all hardware policy, runtime detection, estimates and recommendati
 it("preserves upstream rejection and never substitutes downstream eligibility", async () => {
   const localmodels = runner(upstream(false));
   const report = await inspectSetup({ localmodels });
+  expect(report.localModels.state).toBe("unavailable");
   expect(report.localModels.reasons).toEqual(["upstream_policy"]);
   expect(report.localModels.reasonMessages).toEqual([
     "Upstream rejected this host",
@@ -104,6 +106,135 @@ it("preserves upstream rejection and never substitutes downstream eligibility", 
   await expect(assertLocalModelsEligible({ localmodels })).rejects.toThrow(
     "upstream_policy: Upstream rejected this host",
   );
+});
+it("recommends the next runtime while the local plan waits for free memory (tool without stack.state)", async () => {
+  const freeMemory = (installed: boolean) => {
+    const value = upstream();
+    return {
+      ...value,
+      stack: {
+        ...value.stack,
+        basis: "capacity",
+        reasons: [
+          {
+            code: "free-memory-required",
+            message: "Close other programs before installing.",
+          },
+        ],
+      },
+      harness: {
+        ...value.harness,
+        runtimes: value.harness.runtimes.map((row) => ({
+          ...row,
+          installed: installed && row.installed,
+        })),
+      },
+    };
+  };
+  const report = await inspectSetup({ localmodels: runner(freeMemory(true)) });
+  expect(report.localModels).toMatchObject({
+    eligible: false,
+    state: "blocked-now",
+    basis: "capacity",
+    reasons: ["free-memory-required"],
+    estimate: { model: "upstream-model" },
+  });
+  expect(report.localModels).not.toHaveProperty("memory");
+  expect(report.recommendation).toBe("pi");
+  await expect(
+    assertLocalModelsEligible({ localmodels: runner(freeMemory(true)) }),
+  ).rejects.toThrow("free-memory-required");
+  const bare = await inspectSetup({ localmodels: runner(freeMemory(false)) });
+  expect(bare.recommendation).toBe("codex");
+  // The reason code alone holds the plan too.
+  const { basis: _, ...stack } = freeMemory(true).stack;
+  const coded = await inspectSetup({
+    localmodels: runner({ ...freeMemory(true), stack }),
+  });
+  expect(coded.localModels).toMatchObject({
+    state: "blocked-now",
+    basis: "capacity",
+  });
+  expect(coded.recommendation).toBe("pi");
+  const ready = await inspectSetup({ localmodels: runner() });
+  expect(ready.localModels).not.toHaveProperty("basis");
+});
+it("reads the tool's blocked-now state, memory and recommendation", async () => {
+  const value = upstream();
+  const blocked = {
+    ...value,
+    stack: {
+      ...value.stack,
+      available: false,
+      state: "blocked-now",
+      hardwareCapable: true,
+      basis: "capacity",
+      reasons: [
+        {
+          code: "free-memory-required",
+          message: "Close other programs before installing.",
+        },
+      ],
+      memory: {
+        ramAvailableBytes: 2899102924,
+        ramRequiredBytes: 13689304433,
+        vramFreeBytes: 3,
+        vramRequiredBytes: 8,
+      },
+    },
+    recommendation: "codex",
+  };
+  const report = await inspectSetup({ localmodels: runner(blocked) });
+  expect(report.localModels).toMatchObject({
+    eligible: false,
+    state: "blocked-now",
+    hardwareCapable: true,
+    basis: "capacity",
+    memory: {
+      ramAvailableBytes: 2899102924,
+      ramRequiredBytes: 13689304433,
+      vramFreeBytes: 3,
+      vramRequiredBytes: 8,
+    },
+    estimate: { model: "upstream-model" },
+  });
+  // The tool's non-local pick stands, even with Pi installed.
+  expect(report.recommendation).toBe("codex");
+  // The tool's state wins over the older marks; null fields stay out.
+  const ready = await inspectSetup({
+    localmodels: runner({
+      ...value,
+      stack: {
+        ...value.stack,
+        state: "ready",
+        hardwareCapable: true,
+        basis: null,
+        memory: null,
+      },
+    }),
+  });
+  expect(ready.localModels).toMatchObject({
+    eligible: true,
+    state: "ready",
+    hardwareCapable: true,
+  });
+  expect(ready.localModels).not.toHaveProperty("basis");
+  expect(ready.localModels).not.toHaveProperty("memory");
+  const small = await inspectSetup({
+    localmodels: runner({
+      ...upstream(false),
+      stack: {
+        ...upstream(false).stack,
+        state: "unavailable",
+        hardwareCapable: false,
+      },
+    }),
+  });
+  expect(small.localModels).toMatchObject({
+    eligible: false,
+    state: "unavailable",
+    hardwareCapable: false,
+  });
 });
 it("fails explicitly and redacts tool output when upstream is unavailable or malformed", async () => {
   for (const response of [

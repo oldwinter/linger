@@ -143,6 +143,33 @@ func TestMemorySourceViewsCarryMemoryAuthorization(t *testing.T) {
 	assertMemorySourceRows(t, pool, `
 		SELECT memory_source.human_can_read_document('actor_me_a','tenant_document_a','document_memory_page')`,
 		[][]any{{false}})
+	// Files the Wiki cannot record stay out of Raw too, though their texts are
+	// ready: a spreadsheet and a PDF with a line over the Wiki's budget.
+	if _, err = pool.Exec(ctx, `
+		INSERT INTO documents(
+			id,tenant_id,title,format,owner_actor_id,owner_actor_kind,creator_actor_id,creator_actor_kind,status
+		) VALUES
+			('document_memory_sheet','tenant_document_a','Sheet','markdown','actor_human_a','human','actor_human_a','human','active'),
+			('document_memory_wide','tenant_document_a','Wide','markdown','actor_human_a','human','actor_human_a','human','active');
+		INSERT INTO document_versions(
+			id,tenant_id,document_id,version_number,filename,representation_format,media_type,
+			size_bytes,sha256,content_object_id,source,created_by_actor_id
+		) VALUES
+			('version_document_memory_sheet','tenant_document_a','document_memory_sheet',1,'sheet.csv','csv','text/csv',
+			 1,repeat('e',64),'object_document_memory_sheet','ordinary_upload','actor_human_a'),
+			('version_document_memory_wide','tenant_document_a','document_memory_wide',1,'wide.pdf','pdf','application/pdf',
+			 1,repeat('f',64),'object_document_memory_wide','ordinary_upload','actor_human_a');
+		UPDATE documents SET current_version_id='version_' || id
+		WHERE id IN ('document_memory_sheet','document_memory_wide');
+		INSERT INTO document_texts(document_id,tenant_id,source_kind,source_id,status,markdown,markdown_sha256,search_text,longest_line_bytes)
+		VALUES('document_memory_sheet','tenant_document_a','file_version','version_document_memory_sheet','ready','| a |',repeat('e',64),'a',5),
+			('document_memory_wide','tenant_document_a','file_version','version_document_memory_wide','ready',repeat('x',150000),repeat('f',64),'x',150000);
+		INSERT INTO document_placements(id,tenant_id,scope_kind,owner_human_actor_id,parent_id,node_kind,name,document_id,sort_key) VALUES
+			('placement_memory_sheet','tenant_document_a','personal','actor_human_a','placement_memory_folder','document',NULL,'document_memory_sheet','d'),
+			('placement_memory_wide','tenant_document_a','personal','actor_human_a','placement_memory_folder','document',NULL,'document_memory_wide','e');
+	`); err != nil {
+		t.Fatal(err)
+	}
 	// Every page is read through its normalized text: a native page by its
 	// body sequence, a file by its Version.
 	assertMemorySourceRows(t, pool, `

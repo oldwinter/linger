@@ -213,18 +213,13 @@ func (a *App) writeAgentRoutineError(c *gin.Context, err error) bool {
 			Path: "mention_actor_id", Code: "mention_unavailable",
 			Message: "Use self, or the actor id of an Agent who is still in this room.",
 		}})
-	case errors.Is(err, reminder.ErrPendingOnceLimit):
-		a.writeAgentAPIErrorWithIssues(c, http.StatusConflict, teamhubagentapi.AgentApiErrorCodeInvalidRequest, "This room already has 20 one-shot routines waiting", []teamhubagentapi.AgentApiErrorIssue{{
-			Path: "schedule.run_at", Code: "routine_once_limit",
-			Message: "Wait for a one-shot routine to fire, or delete one, before adding another.",
-		}})
 	case errors.Is(err, reminder.ErrAppListener):
 		a.writeAgentAPIErrorWithIssues(c, http.StatusConflict, teamhubagentapi.AgentApiErrorCodeInvalidRequest, "This routine listens to a connected app", []teamhubagentapi.AgentApiErrorIssue{{
 			Path: "routine_id", Code: "routine_app_listener",
 			Message: "An app listener can only be paused or enabled. It goes away when the Human revokes your access to that app.",
 		}})
 	case errors.Is(err, reminder.ErrLimitReached):
-		a.writeAgentAPIErrorWithIssues(c, http.StatusConflict, teamhubagentapi.AgentApiErrorCodeInvalidRequest, "This room already has 50 routines", []teamhubagentapi.AgentApiErrorIssue{{
+		a.writeAgentAPIErrorWithIssues(c, http.StatusConflict, teamhubagentapi.AgentApiErrorCodeInvalidRequest, "This room already has 100 routines", []teamhubagentapi.AgentApiErrorIssue{{
 			Path: "name", Code: "routine_limit",
 			Message: "Delete a routine in this room before creating another.",
 		}})

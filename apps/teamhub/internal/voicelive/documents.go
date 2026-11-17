@@ -37,7 +37,7 @@ var DocumentTools = []Tool{
 			"title is one line; content is the whole body in Markdown, written only from what the user said and this conversation; never invent facts, names or numbers. An empty content makes an empty document. " +
 			"To show an image from the user's computer, such as one a task made, write ![alt](./playground/<folder>/<file>) with its path as ls prints it; it is copied into the document. An error with image names the one to fix, and nothing was created. " +
 			"It returns document_id and revision_id. Then say in one short sentence what you wrote and that it is open beside the chat. Change it later with edit_document, replace_document_text or rename_document. " +
-			"An email is open_email_canvas; research and long reports are start_task.",
+			"An email is open_email_canvas; research, long reports, slide decks and designed pieces are start_task.",
 		Parameters: objectSchema([]string{"title"}, map[string]any{
 			"title":   stringProperty("The document title, one line"),
 			"content": stringProperty("The whole body in Markdown"),

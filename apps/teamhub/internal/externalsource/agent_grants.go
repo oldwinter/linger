@@ -3,6 +3,7 @@ package externalsource
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
@@ -164,9 +165,35 @@ func (s *Service) connectionActivatedTx(ctx context.Context, tx pgx.Tx, accountI
 					return err
 				}
 			}
+			if len(agents) > 0 {
+				if err := jobs.InsertTx(ctx, tx, ProfileSetupReminderArgs{ConnectionID: connectionID},
+					&river.InsertOpts{ScheduledAt: time.Now().Add(ProfileSetupReminderDelay)}); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return jobs.InsertTx(ctx, tx, ConnectionAuthorizationSettleArgs{ConnectionID: connectionID}, nil)
+}
+
+// ProfileSetupReminderDelay is how long after a Connection's first activation
+// AnotherMe is reminded about an unfinished Profile setup. It leaves a Human
+// who connected from the setup card time to finish the cards themselves.
+const ProfileSetupReminderDelay = 10 * time.Minute
+
+// ProfileSetupReminderArgs reminds the AnotherMe granted a newly active
+// Connection to offer the Human's Profile while setup is unfinished. The
+// transaction that first activates the Connection queues it.
+type ProfileSetupReminderArgs struct {
+	ConnectionID string `json:"connection_id"`
+}
+
+// Kind names the reminder job.
+func (ProfileSetupReminderArgs) Kind() string { return "typedcard.profile_setup_reminder" }
+
+// InsertOpts keeps one unfinished reminder per Connection.
+func (ProfileSetupReminderArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: jobs.QueueDefault, MaxAttempts: 5, UniqueOpts: jobs.UniqueUnfinished}
 }
 
 func (s *Service) setAgentConnectionAccessInTx(ctx context.Context, tx pgx.Tx, accountID, connectionID, agentActorID string, granted bool) (AgentConnectionAccess, error) {

@@ -52,7 +52,6 @@ interface CurrentVoiceTrack {
 }
 
 export class VoiceTrackWorker {
-  private nextEpoch = 0;
   private readonly active = new Set<Promise<void>>();
   private readonly shutdownController = new AbortController();
   private sessionCreatedAtMs = 0;
@@ -151,7 +150,6 @@ export class VoiceTrackWorker {
           this.consume(
             ctx,
             voiceSessionId,
-            this.nextEpoch++,
             track,
             input,
             participant,
@@ -279,7 +277,6 @@ export class VoiceTrackWorker {
   private async consume(
     ctx: JobContext,
     voiceSessionId: string,
-    epoch: number,
     track: RemoteAudioTrack,
     input: TrackAudioInput,
     participant: RemoteParticipant,
@@ -297,6 +294,12 @@ export class VoiceTrackWorker {
     );
     if (!Number.isSafeInteger(publisherGeneration) || publisherGeneration < 0)
       throw new Error("Voice publisher generation is invalid");
+    // Every attempt opens its own coverage stream. TeamHub hands out the
+    // number so a job restarted mid-session never reuses an earlier job's.
+    const epoch = await claimVoiceMediaEpochWithRetry(
+      this.client,
+      voiceSessionId,
+    );
     const epochStartMs = await this.startEpoch(
       voiceSessionId,
       epoch,
@@ -975,22 +978,42 @@ export const reportVoiceObservationWithRetry = async (
   observation: VoiceObservation,
   retryDelaysMs: readonly number[] = teamHubCallbackRetryDelaysMs,
 ) => {
+  // A newer snapshot replaces a partial or progress, so those never wait out
+  // a retry; finals retain their retry budget.
+  const snapshot =
+    observation.kind === "partial" || observation.kind === "progress";
+  try {
+    return await callTeamHubWithRetry(
+      (signal) => client.reportObservation(observation, signal),
+      snapshot ? [] : retryDelaysMs,
+    );
+  } catch (error) {
+    if (snapshot && isTransientObservationError(error)) return;
+    throw error;
+  }
+};
+
+/** Claims a fresh transcript epoch; a lost response only skips a number. */
+export const claimVoiceMediaEpochWithRetry = (
+  client: Pick<TeamHubVoiceRuntimeClient, "claimMediaEpoch">,
+  voiceSessionId: string,
+  retryDelaysMs: readonly number[] = teamHubCallbackRetryDelaysMs,
+) =>
+  callTeamHubWithRetry(
+    (signal) => client.claimMediaEpoch(voiceSessionId, signal),
+    retryDelaysMs,
+  );
+
+async function callTeamHubWithRetry<T>(
+  call: (signal: AbortSignal) => Promise<T>,
+  retryDelaysMs: readonly number[],
+): Promise<T> {
   const budget = AbortSignal.timeout(teamHubCallbackBudgetMs);
   for (let attempt = 0; ; attempt += 1) {
     try {
       budget.throwIfAborted();
-      return await client.reportObservation(
-        observation,
-        AbortSignal.any([budget, AbortSignal.timeout(2_000)]),
-      );
+      return await call(AbortSignal.any([budget, AbortSignal.timeout(2_000)]));
     } catch (error) {
-      if (
-        (observation.kind === "partial" || observation.kind === "progress") &&
-        isTransientObservationError(error)
-      ) {
-        // A newer snapshot replaces this one; finals retain their retry budget.
-        return;
-      }
       if (
         budget.aborted ||
         attempt >= retryDelaysMs.length ||
@@ -1001,7 +1024,7 @@ export const reportVoiceObservationWithRetry = async (
       await waitForAbortableDelay(retryDelaysMs[attempt] ?? 0, budget);
     }
   }
-};
+}
 
 const isTransientObservationError = (error: unknown) =>
   error instanceof TypeError ||

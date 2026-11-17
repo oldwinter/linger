@@ -35,7 +35,35 @@ func TestWindowsAncestorDeleteRightsRespectVolumeRoot(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = validateAncestorDescriptor(sd, test.volumeRoot)
+			err = validateAncestorDescriptor(sd, test.volumeRoot, func() map[string]bool { return nil })
+			if (err == nil) != test.allowed {
+				t.Fatalf("allowed = %v, error = %v", test.allowed, err)
+			}
+		})
+	}
+}
+
+func TestWindowsAncestorTrustsOnlyCodexSandboxSIDs(t *testing.T) {
+	sid, err := CurrentSID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const sandbox = "S-1-5-21-1158770811-2547671072-1736395728-810166692"
+	sandboxSIDs := func() map[string]bool { return map[string]bool{sandbox: true} }
+	for _, test := range []struct {
+		name    string
+		grantee string
+		allowed bool
+	}{
+		{"Codex sandbox modify", sandbox, true},
+		{"other account modify", "S-1-5-21-1-2-3-4", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sd, err := windows.SecurityDescriptorFromString("O:" + sid.String() + "D:P(A;;FA;;;" + sid.String() + ")(A;OICI;0x1301ff;;;" + test.grantee + ")")
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = validateAncestorDescriptor(sd, false, sandboxSIDs)
 			if (err == nil) != test.allowed {
 				t.Fatalf("allowed = %v, error = %v", test.allowed, err)
 			}

@@ -3,9 +3,13 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_FEED_URL,
   ManifestError,
   compareVersions,
+  feedUrls,
   packageFor,
+  packageUrl,
+  releasePageUrl,
   verifyManifest,
 } from "./update-manifest.js";
 
@@ -18,7 +22,7 @@ const keys = () => {
 };
 
 const manifest = {
-  schema: 1,
+  schema: 2,
   version: "0.16.1",
   packages: {
     "darwin-arm64": {
@@ -58,7 +62,15 @@ describe("update manifest", () => {
     ).toThrow(ManifestError);
   });
 
-  it("rejects package paths outside the feed", () => {
+  it("rejects the manifest of another schema", () => {
+    const { privateKey, publicPem } = keys();
+    const { bytes, signature } = signed({ ...manifest, schema: 1 }, privateKey);
+    expect(() => verifyManifest(bytes, signature, publicPem)).toThrow(
+      "Update manifest is invalid",
+    );
+  });
+
+  it("rejects package paths outside the release", () => {
     const { privateKey, publicPem } = keys();
     const bad = structuredClone(manifest);
     bad.packages["darwin-arm64"].file = "../Linger.tar.gz";
@@ -72,5 +84,38 @@ describe("update manifest", () => {
     expect(compareVersions("0.16.10", "0.16.9")).toBeGreaterThan(0);
     expect(compareVersions("0.16.0", "0.16.0")).toBe(0);
     expect(compareVersions("0.15.9", "0.16.0")).toBeLessThan(0);
+  });
+
+  it("orders a prerelease before its release", () => {
+    expect(compareVersions("0.17.0", "0.17.0-rc.1")).toBeGreaterThan(0);
+    expect(compareVersions("0.17.0-rc.1", "0.16.9")).toBeGreaterThan(0);
+    expect(compareVersions("0.17.0-rc.10", "0.17.0-rc.9")).toBeGreaterThan(0);
+    expect(compareVersions("0.17.0-rc.1", "0.17.0-rc.1.1")).toBeLessThan(0);
+    expect(compareVersions("0.17.0-alpha", "0.17.0-beta")).toBeLessThan(0);
+    expect(compareVersions("0.17.0-1", "0.17.0-alpha")).toBeLessThan(0);
+    expect(compareVersions("0.17.0-rc.1", "0.17.0-rc.1")).toBe(0);
+  });
+
+  it("finds the manifest in the latest release and packages in its own", () => {
+    expect(feedUrls(DEFAULT_FEED_URL)).toEqual({
+      manifest: new URL(
+        "https://github.com/simplexai-labs/linger/releases/latest/download/manifest.json",
+      ),
+      signature: new URL(
+        "https://github.com/simplexai-labs/linger/releases/latest/download/manifest.json.sig",
+      ),
+    });
+    expect(
+      packageUrl(
+        "https://releases.example.com/linger/",
+        "0.17.0",
+        "Linger-0.17.0-windows-x64-setup.exe",
+      ).toString(),
+    ).toBe(
+      "https://releases.example.com/linger/download/desktop-v0.17.0/Linger-0.17.0-windows-x64-setup.exe",
+    );
+    expect(releasePageUrl(DEFAULT_FEED_URL, "0.17.0")).toBe(
+      "https://github.com/simplexai-labs/linger/releases/tag/desktop-v0.17.0",
+    );
   });
 });

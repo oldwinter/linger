@@ -38,7 +38,7 @@ UPDATE capture_sessions
 SET source_audio_document_id=$2,source_audio_document_version_id=$3,updated_at=clock_timestamp()
 WHERE id=$1 AND status IN ('finalizing','recovering')
   AND (source_audio_document_version_id IS NULL OR source_audio_document_version_id=$3)
-RETURNING id, tenant_id, room_id, created_by_actor_id, status, created_at, updated_at, transcript_start_offset_ms, transcript_end_offset_ms, document_id, document_version_id, transcript_document_id, transcript_document_version_id, voice_session_id, transcript_integrity_lost, source_audio_document_id, source_audio_document_version_id, transcript_recovered_at, requested_transcript_start_offset_ms, voice_completion_attempts, voice_completion_failed_at, voice_completion_failure_code, staging_deleted_at, stop_requested_at, materialize_requested_at, materialize_attempts, materialize_retry_at, transcript_recovery_status, transcript_recovery_progress_ms, transcript_recovery_total_ms, transcript_recovery_failures, transcript_recovery_failure_code, transcript_recovery_retry_at, hidden_at
+RETURNING id, tenant_id, room_id, created_by_actor_id, status, created_at, updated_at, transcript_start_offset_ms, transcript_end_offset_ms, document_id, document_version_id, transcript_document_id, transcript_document_version_id, voice_session_id, transcript_integrity_lost, source_audio_document_id, source_audio_document_version_id, transcript_recovered_at, requested_transcript_start_offset_ms, voice_completion_attempts, voice_completion_failed_at, voice_completion_failure_code, staging_deleted_at, stop_requested_at, materialize_requested_at, materialize_attempts, materialize_retry_at, transcript_recovery_status, transcript_recovery_progress_ms, transcript_recovery_total_ms, transcript_recovery_failures, transcript_recovery_failure_code, transcript_recovery_retry_at, hidden_at, quick_notes_state, quick_notes
 `
 
 type AttachVoiceSourceAudioParams struct {
@@ -85,6 +85,8 @@ func (q *Queries) AttachVoiceSourceAudio(ctx context.Context, arg AttachVoiceSou
 		&i.TranscriptRecoveryFailureCode,
 		&i.TranscriptRecoveryRetryAt,
 		&i.HiddenAt,
+		&i.QuickNotesState,
+		&i.QuickNotes,
 	)
 	return i, err
 }
@@ -99,7 +101,7 @@ WHERE capture.id=$1::text
   AND capture.status='recovering' AND capture.transcript_recovered_at IS NULL
   AND (capture.transcript_recovery_status='running' OR (capture.transcript_recovery_status='pending'
        AND (capture.transcript_recovery_retry_at IS NULL OR capture.transcript_recovery_retry_at<=clock_timestamp())))
-RETURNING capture.id, capture.tenant_id, capture.room_id, capture.created_by_actor_id, capture.status, capture.created_at, capture.updated_at, capture.transcript_start_offset_ms, capture.transcript_end_offset_ms, capture.document_id, capture.document_version_id, capture.transcript_document_id, capture.transcript_document_version_id, capture.voice_session_id, capture.transcript_integrity_lost, capture.source_audio_document_id, capture.source_audio_document_version_id, capture.transcript_recovered_at, capture.requested_transcript_start_offset_ms, capture.voice_completion_attempts, capture.voice_completion_failed_at, capture.voice_completion_failure_code, capture.staging_deleted_at, capture.stop_requested_at, capture.materialize_requested_at, capture.materialize_attempts, capture.materialize_retry_at, capture.transcript_recovery_status, capture.transcript_recovery_progress_ms, capture.transcript_recovery_total_ms, capture.transcript_recovery_failures, capture.transcript_recovery_failure_code, capture.transcript_recovery_retry_at, capture.hidden_at
+RETURNING capture.id, capture.tenant_id, capture.room_id, capture.created_by_actor_id, capture.status, capture.created_at, capture.updated_at, capture.transcript_start_offset_ms, capture.transcript_end_offset_ms, capture.document_id, capture.document_version_id, capture.transcript_document_id, capture.transcript_document_version_id, capture.voice_session_id, capture.transcript_integrity_lost, capture.source_audio_document_id, capture.source_audio_document_version_id, capture.transcript_recovered_at, capture.requested_transcript_start_offset_ms, capture.voice_completion_attempts, capture.voice_completion_failed_at, capture.voice_completion_failure_code, capture.staging_deleted_at, capture.stop_requested_at, capture.materialize_requested_at, capture.materialize_attempts, capture.materialize_retry_at, capture.transcript_recovery_status, capture.transcript_recovery_progress_ms, capture.transcript_recovery_total_ms, capture.transcript_recovery_failures, capture.transcript_recovery_failure_code, capture.transcript_recovery_retry_at, capture.hidden_at, capture.quick_notes_state, capture.quick_notes
 `
 
 // Takes the Capture's queued recovery. Its River job is the only runner, so a
@@ -144,6 +146,8 @@ func (q *Queries) ClaimVoiceTranscriptRecovery(ctx context.Context, captureSessi
 		&i.TranscriptRecoveryFailureCode,
 		&i.TranscriptRecoveryRetryAt,
 		&i.HiddenAt,
+		&i.QuickNotesState,
+		&i.QuickNotes,
 	)
 	return i, err
 }
@@ -301,7 +305,7 @@ UPDATE capture_sessions SET transcript_recovered_at=clock_timestamp(),
 WHERE id=$2::text AND status='recovering' AND transcript_recovered_at IS NULL
   AND transcript_recovery_status='running' AND transcript_recovery_progress_ms=transcript_recovery_total_ms
   AND EXISTS(SELECT 1 FROM authority)
-RETURNING id, tenant_id, room_id, created_by_actor_id, status, created_at, updated_at, transcript_start_offset_ms, transcript_end_offset_ms, document_id, document_version_id, transcript_document_id, transcript_document_version_id, voice_session_id, transcript_integrity_lost, source_audio_document_id, source_audio_document_version_id, transcript_recovered_at, requested_transcript_start_offset_ms, voice_completion_attempts, voice_completion_failed_at, voice_completion_failure_code, staging_deleted_at, stop_requested_at, materialize_requested_at, materialize_attempts, materialize_retry_at, transcript_recovery_status, transcript_recovery_progress_ms, transcript_recovery_total_ms, transcript_recovery_failures, transcript_recovery_failure_code, transcript_recovery_retry_at, hidden_at
+RETURNING id, tenant_id, room_id, created_by_actor_id, status, created_at, updated_at, transcript_start_offset_ms, transcript_end_offset_ms, document_id, document_version_id, transcript_document_id, transcript_document_version_id, voice_session_id, transcript_integrity_lost, source_audio_document_id, source_audio_document_version_id, transcript_recovered_at, requested_transcript_start_offset_ms, voice_completion_attempts, voice_completion_failed_at, voice_completion_failure_code, staging_deleted_at, stop_requested_at, materialize_requested_at, materialize_attempts, materialize_retry_at, transcript_recovery_status, transcript_recovery_progress_ms, transcript_recovery_total_ms, transcript_recovery_failures, transcript_recovery_failure_code, transcript_recovery_retry_at, hidden_at, quick_notes_state, quick_notes
 `
 
 type MarkVoiceTranscriptRecoveredParams struct {
@@ -347,6 +351,8 @@ func (q *Queries) MarkVoiceTranscriptRecovered(ctx context.Context, arg MarkVoic
 		&i.TranscriptRecoveryFailureCode,
 		&i.TranscriptRecoveryRetryAt,
 		&i.HiddenAt,
+		&i.QuickNotesState,
+		&i.QuickNotes,
 	)
 	return i, err
 }
@@ -358,7 +364,7 @@ SET status='recovering',transcript_recovery_status=coalesce(transcript_recovery_
 WHERE id=$2::text AND status IN ('finalizing','recovering')
   AND source_audio_document_version_id IS NOT NULL AND transcript_recovered_at IS NULL
   AND (transcript_recovery_total_ms IS NULL OR transcript_recovery_total_ms=$1::bigint)
-RETURNING id, tenant_id, room_id, created_by_actor_id, status, created_at, updated_at, transcript_start_offset_ms, transcript_end_offset_ms, document_id, document_version_id, transcript_document_id, transcript_document_version_id, voice_session_id, transcript_integrity_lost, source_audio_document_id, source_audio_document_version_id, transcript_recovered_at, requested_transcript_start_offset_ms, voice_completion_attempts, voice_completion_failed_at, voice_completion_failure_code, staging_deleted_at, stop_requested_at, materialize_requested_at, materialize_attempts, materialize_retry_at, transcript_recovery_status, transcript_recovery_progress_ms, transcript_recovery_total_ms, transcript_recovery_failures, transcript_recovery_failure_code, transcript_recovery_retry_at, hidden_at
+RETURNING id, tenant_id, room_id, created_by_actor_id, status, created_at, updated_at, transcript_start_offset_ms, transcript_end_offset_ms, document_id, document_version_id, transcript_document_id, transcript_document_version_id, voice_session_id, transcript_integrity_lost, source_audio_document_id, source_audio_document_version_id, transcript_recovered_at, requested_transcript_start_offset_ms, voice_completion_attempts, voice_completion_failed_at, voice_completion_failure_code, staging_deleted_at, stop_requested_at, materialize_requested_at, materialize_attempts, materialize_retry_at, transcript_recovery_status, transcript_recovery_progress_ms, transcript_recovery_total_ms, transcript_recovery_failures, transcript_recovery_failure_code, transcript_recovery_retry_at, hidden_at, quick_notes_state, quick_notes
 `
 
 type QueueVoiceTranscriptRecoveryParams struct {
@@ -406,6 +412,8 @@ func (q *Queries) QueueVoiceTranscriptRecovery(ctx context.Context, arg QueueVoi
 		&i.TranscriptRecoveryFailureCode,
 		&i.TranscriptRecoveryRetryAt,
 		&i.HiddenAt,
+		&i.QuickNotesState,
+		&i.QuickNotes,
 	)
 	return i, err
 }

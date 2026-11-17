@@ -180,8 +180,6 @@ func voiceLiveRoutineError(err error) (string, bool) {
 		return "", false
 	case errors.Is(err, reminder.ErrAppListener):
 		code = "listener_routine"
-	case errors.Is(err, reminder.ErrPendingOnceLimit):
-		code = "once_limit"
 	case errors.Is(err, reminder.ErrLimitReached):
 		code = "routine_limit"
 	case errors.Is(err, reminder.ErrMentionInvalid), errors.Is(err, reminder.ErrTemplateAgentUnavailable):

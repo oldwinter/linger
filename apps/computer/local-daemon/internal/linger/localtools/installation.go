@@ -3,6 +3,7 @@ package localtools
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -18,13 +19,26 @@ func cuaEntry(executable string) string {
 	return "cua/cua-driver"
 }
 
+// osMetadataFile reports a file that a file manager writes into any directory it
+// opens, such as Finder's .DS_Store. It names no tool, so it is not an asset.
+func osMetadataFile(name string) bool {
+	return (strings.HasPrefix(name, "._") && len(name) > 2) || strings.EqualFold(name, ".DS_Store") || strings.EqualFold(name, "Thumbs.db") || strings.EqualFold(name, "desktop.ini")
+}
+
+// ToolsDirectory is where Installed looks for the tools: cli/computer-tools
+// two folders above the executable. The Desktop app's daemon runs from
+// resources/computer/, so its tools are resources/cli/computer-tools.
+func ToolsDirectory(executable string) string {
+	return filepath.Join(filepath.Dir(filepath.Dir(executable)), "cli", "computer-tools")
+}
+
 // Installed resolves only sibling release assets and verifies their frozen
 // manifest. An unbundled development daemon has no implicit PATH fallback.
 func Installed(executable string) (*Installation, error) {
 	root := filepath.Dir(filepath.Dir(executable))
 	// An installed bundle links cli/computer-tools to its verified deps
 	// directory; the checks below apply to the files it points at.
-	tools, err := filepath.EvalSymlinks(filepath.Join(root, "cli", "computer-tools"))
+	tools, err := filepath.EvalSymlinks(ToolsDirectory(executable))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -87,10 +101,14 @@ func Installed(executable string) (*Installation, error) {
 			return nil
 		}
 		relative, err := filepath.Rel(tools, path)
-		if err != nil || entry.Type()&os.ModeSymlink != 0 || (!seen[filepath.ToSlash(relative)] && relative != "manifest.json") {
-			return errors.New("managed Computer tools contain an unlisted asset")
+		if err != nil {
+			return err
 		}
-		return nil
+		relative = filepath.ToSlash(relative)
+		if entry.Type().IsRegular() && (seen[relative] || relative == "manifest.json" || osMetadataFile(entry.Name())) {
+			return nil
+		}
+		return fmt.Errorf("managed Computer tools contain an unlisted asset: %s", relative)
 	}); err != nil {
 		return nil, err
 	}

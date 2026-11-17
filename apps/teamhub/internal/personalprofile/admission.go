@@ -19,7 +19,7 @@ func (s *Service) fileAdmission(ctx context.Context, tenant, version string) (ad
 	err = s.pool.QueryRow(ctx, `SELECT
     t.source_id IS NOT NULL AND coalesce(d.native_import_status,'completed') IN ('completed','failed')
       AND source_rejection_reason(d.native_import_status, v.filename, v.representation_format,
-          t.source_kind, v.media_type, t.status, t.scanned, octet_length(t.markdown), t.longest_line_bytes) IS NULL,
+          t.source_kind, v.media_type, t.status, octet_length(t.markdown), t.longest_line_bytes) IS NULL,
     (t.source_id IS NULL OR coalesce(d.native_import_status,'completed') NOT IN ('completed','failed')) AND coalesce(d.native_import_status,'completed') <> 'failed'
  FROM document_versions v JOIN documents d ON d.id=v.document_id AND d.tenant_id=v.tenant_id
  LEFT JOIN document_texts t ON t.document_id=d.id AND t.source_kind='file_version' AND t.source_id=v.id
@@ -98,7 +98,7 @@ func (s *Service) transientAdmission(ctx context.Context, documents []composio.A
 		sizes[i] = int64(len(d.Markdown))
 		lines[i] = documenttext.LongestLineBytes(string(d.Markdown))
 	}
-	rows, err := s.pool.Query(ctx, `SELECT source_rejection_reason(NULL, name,'markdown','file_version','text/markdown','ready',false,size,longest) IS NULL
+	rows, err := s.pool.Query(ctx, `SELECT source_rejection_reason(NULL, name,'markdown','file_version','text/markdown','ready',size,longest) IS NULL
  FROM unnest($1::text[],$2::bigint[],$3::bigint[]) WITH ORDINALITY AS inputs(name,size,longest,n) ORDER BY n`, names, sizes, lines)
 	if err != nil {
 		return nil, err

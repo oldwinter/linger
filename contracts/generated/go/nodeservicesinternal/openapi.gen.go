@@ -731,6 +731,120 @@ func (e LocalComputerToolCallServer) Valid() bool {
 	}
 }
 
+// Defines values for LocalModelActionAckOutcome.
+const (
+	LocalModelActionAccepted LocalModelActionAckOutcome = "accepted"
+	LocalModelActionRefused  LocalModelActionAckOutcome = "refused"
+)
+
+// Valid indicates whether the value is a known member of the LocalModelActionAckOutcome enum.
+func (e LocalModelActionAckOutcome) Valid() bool {
+	switch e {
+	case LocalModelActionAccepted:
+		return true
+	case LocalModelActionRefused:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LocalModelActionKind.
+const (
+	LocalModelActionKindCancel   LocalModelActionKind = "cancel"
+	LocalModelActionKindDownload LocalModelActionKind = "download"
+	LocalModelActionKindLoad     LocalModelActionKind = "load"
+	LocalModelActionKindRefresh  LocalModelActionKind = "refresh"
+	LocalModelActionKindRemove   LocalModelActionKind = "remove"
+	LocalModelActionKindUnload   LocalModelActionKind = "unload"
+)
+
+// Valid indicates whether the value is a known member of the LocalModelActionKind enum.
+func (e LocalModelActionKind) Valid() bool {
+	switch e {
+	case LocalModelActionKindCancel:
+		return true
+	case LocalModelActionKindDownload:
+		return true
+	case LocalModelActionKindLoad:
+		return true
+	case LocalModelActionKindRefresh:
+		return true
+	case LocalModelActionKindRemove:
+		return true
+	case LocalModelActionKindUnload:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LocalModelActionRefusalCode.
+const (
+	CANCELLED                 LocalModelActionRefusalCode = "CANCELLED"
+	CHECKSUMMISMATCH          LocalModelActionRefusalCode = "CHECKSUM_MISMATCH"
+	DISKINSUFFICIENT          LocalModelActionRefusalCode = "DISK_INSUFFICIENT"
+	DOWNLOADFAILED            LocalModelActionRefusalCode = "DOWNLOAD_FAILED"
+	ENGINESTARTFAILED         LocalModelActionRefusalCode = "ENGINE_START_FAILED"
+	GATEWAYREGISTRATIONFAILED LocalModelActionRefusalCode = "GATEWAY_REGISTRATION_FAILED"
+	HEALTHCHECKFAILED         LocalModelActionRefusalCode = "HEALTH_CHECK_FAILED"
+	INVALIDSTATE              LocalModelActionRefusalCode = "INVALID_STATE"
+	JOBRUNNING                LocalModelActionRefusalCode = "JOB_RUNNING"
+	LOADNOROOM                LocalModelActionRefusalCode = "LOAD_NO_ROOM"
+	MEMORYINSUFFICIENT        LocalModelActionRefusalCode = "MEMORY_INSUFFICIENT"
+	MODELFILESMISSING         LocalModelActionRefusalCode = "MODEL_FILES_MISSING"
+	MODELUNKNOWN              LocalModelActionRefusalCode = "MODEL_UNKNOWN"
+	NETWORKUNAVAILABLE        LocalModelActionRefusalCode = "NETWORK_UNAVAILABLE"
+	OUTOFMEMORY               LocalModelActionRefusalCode = "OUT_OF_MEMORY"
+	PLATFORMUNSUPPORTED       LocalModelActionRefusalCode = "PLATFORM_UNSUPPORTED"
+	TOOLFAILED                LocalModelActionRefusalCode = "TOOL_FAILED"
+	TOOLNOTINSTALLED          LocalModelActionRefusalCode = "TOOL_NOT_INSTALLED"
+)
+
+// Valid indicates whether the value is a known member of the LocalModelActionRefusalCode enum.
+func (e LocalModelActionRefusalCode) Valid() bool {
+	switch e {
+	case CANCELLED:
+		return true
+	case CHECKSUMMISMATCH:
+		return true
+	case DISKINSUFFICIENT:
+		return true
+	case DOWNLOADFAILED:
+		return true
+	case ENGINESTARTFAILED:
+		return true
+	case GATEWAYREGISTRATIONFAILED:
+		return true
+	case HEALTHCHECKFAILED:
+		return true
+	case INVALIDSTATE:
+		return true
+	case JOBRUNNING:
+		return true
+	case LOADNOROOM:
+		return true
+	case MEMORYINSUFFICIENT:
+		return true
+	case MODELFILESMISSING:
+		return true
+	case MODELUNKNOWN:
+		return true
+	case NETWORKUNAVAILABLE:
+		return true
+	case OUTOFMEMORY:
+		return true
+	case PLATFORMUNSUPPORTED:
+		return true
+	case TOOLFAILED:
+		return true
+	case TOOLNOTINSTALLED:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for LocalSkillCandidateImportability.
 const (
 	LocalSkillCandidateReady       LocalSkillCandidateImportability = "ready"
@@ -889,13 +1003,14 @@ func (e ModelCallEffort) Valid() bool {
 
 // Defines values for ModelCallKind.
 const (
-	ModelCallKindAgentMemory ModelCallKind = "agent_memory"
-	ModelCallKindApproval    ModelCallKind = "approval"
-	ModelCallKindInsight     ModelCallKind = "insight"
-	ModelCallKindMemory      ModelCallKind = "memory"
-	ModelCallKindProfile     ModelCallKind = "profile"
-	ModelCallKindVoiceAsk    ModelCallKind = "voice_ask"
-	ModelCallKindWiki        ModelCallKind = "wiki"
+	ModelCallKindAgentMemory  ModelCallKind = "agent_memory"
+	ModelCallKindApproval     ModelCallKind = "approval"
+	ModelCallKindInsight      ModelCallKind = "insight"
+	ModelCallKindMeetingNotes ModelCallKind = "meeting_notes"
+	ModelCallKindMemory       ModelCallKind = "memory"
+	ModelCallKindProfile      ModelCallKind = "profile"
+	ModelCallKindVoiceAsk     ModelCallKind = "voice_ask"
+	ModelCallKindWiki         ModelCallKind = "wiki"
 )
 
 // Valid indicates whether the value is a known member of the ModelCallKind enum.
@@ -906,6 +1021,8 @@ func (e ModelCallKind) Valid() bool {
 	case ModelCallKindApproval:
 		return true
 	case ModelCallKindInsight:
+		return true
+	case ModelCallKindMeetingNotes:
 		return true
 	case ModelCallKindMemory:
 		return true
@@ -1648,6 +1765,60 @@ type LocalComputerToolResult struct {
 	Result map[string]interface{} `json:"result"`
 }
 
+// LocalModelActionAck The Computer's immediate answer. accepted means the job started (or a snapshot is coming for refresh); refused means nothing changed. Progress and outcomes arrive only as snapshots.
+type LocalModelActionAck struct {
+	Outcome LocalModelActionAckOutcome `json:"outcome"`
+	Refusal *LocalModelActionRefusal   `json:"refusal,omitempty"`
+
+	// RequestId Opaque, case-sensitive identifier. Clients must not infer type or time from it.
+	RequestId Id `json:"request_id"`
+}
+
+// LocalModelActionAckOutcome defines model for LocalModelActionAck.Outcome.
+type LocalModelActionAckOutcome string
+
+// LocalModelActionCommand TeamHub asks Agent Service to send one execute local_models frame to an owned Computer. model_id is required except for refresh; unload_first only with load.
+type LocalModelActionCommand struct {
+	// Action refresh asks the Computer to reread its library and send a snapshot; it names no model.
+	Action LocalModelActionKind `json:"action"`
+
+	// ExpiresAt UTC timestamp in RFC 3339 format with an explicit offset.
+	ExpiresAt Timestamp `json:"expires_at"`
+
+	// ModelId Stable localmodels library id: catalog id and variant, such as qwen3-4b:Q4_K_M.
+	ModelId *LocalModelId `json:"model_id,omitempty"`
+
+	// RequestId Opaque, case-sensitive identifier. Clients must not infer type or time from it.
+	RequestId   Id              `json:"request_id"`
+	UnloadFirst *[]LocalModelId `json:"unload_first,omitempty"`
+}
+
+// LocalModelActionKind refresh asks the Computer to reread its library and send a snapshot; it names no model.
+type LocalModelActionKind string
+
+// LocalModelActionRefusal defines model for LocalModelActionRefusal.
+type LocalModelActionRefusal struct {
+	// Code Why the Computer refused an action before starting it: a localmodels library error or a reason the library is unavailable.
+	Code LocalModelActionRefusalCode `json:"code"`
+
+	// Detail Diagnostic text for display; never matched on.
+	Detail    *string `json:"detail,omitempty"`
+	FreeBytes *int64  `json:"free_bytes,omitempty"`
+	NeedBytes *int64  `json:"need_bytes,omitempty"`
+
+	// Pool A place a model can live: gpu:<index>, system (RAM beside GPUs), or unified (RAM of a host without discrete GPUs).
+	Pool *LocalModelPoolId `json:"pool,omitempty"`
+}
+
+// LocalModelActionRefusalCode Why the Computer refused an action before starting it: a localmodels library error or a reason the library is unavailable.
+type LocalModelActionRefusalCode string
+
+// LocalModelId Stable localmodels library id: catalog id and variant, such as qwen3-4b:Q4_K_M.
+type LocalModelId = string
+
+// LocalModelPoolId A place a model can live: gpu:<index>, system (RAM beside GPUs), or unified (RAM of a host without discrete GPUs).
+type LocalModelPoolId = string
+
 // LocalSkillCandidate defines model for LocalSkillCandidate.
 type LocalSkillCandidate struct {
 	// CandidateRef Opaque, case-sensitive identifier. Clients must not infer type or time from it.
@@ -1819,10 +1990,16 @@ type MemoryFailureSummaryResponse struct {
 		PendingRetries      []MemoryCalendarFailure `json:"pending_retries"`
 		PendingRetriesTotal int                     `json:"pending_retries_total"`
 	} `json:"scheduler"`
+	SessionFacts MemoryFailureSummaryResponse_SessionFacts `json:"session_facts"`
 }
 
 // MemoryFailureSummaryResponse_RawChunkSources defines model for MemoryFailureSummaryResponse.RawChunkSources.
 type MemoryFailureSummaryResponse_RawChunkSources struct {
+	union json.RawMessage
+}
+
+// MemoryFailureSummaryResponse_SessionFacts defines model for MemoryFailureSummaryResponse.SessionFacts.
+type MemoryFailureSummaryResponse_SessionFacts struct {
 	union json.RawMessage
 }
 
@@ -1887,7 +2064,7 @@ type MemoryRebuildStatusPhase string
 // ModelCallEffort Reasoning effort for the Runtime's default model; omitted, low.
 type ModelCallEffort string
 
-// ModelCallKind What the call is for. It sets the call's place in the queue of the Runtime it runs on, where an approval goes first and Runs come next; voice_ask never queues. approval and voice_ask have a person waiting, so they stop once the request is gone and never answer pending.
+// ModelCallKind What the call is for. It sets the call's place in the queue of the Runtime it runs on, where an approval goes first and Runs come next; voice_ask and meeting_notes never queue. approval, voice_ask and meeting_notes have someone waiting, so they stop once the request is gone and never answer pending.
 type ModelCallKind string
 
 // ModelCallRequest defines model for ModelCallRequest.
@@ -1904,7 +2081,7 @@ type ModelCallRequest struct {
 	// Key Names the work, for example profile:<generation_id>. A request with the same key and the same content joins the running execution or receives its cached result; the same key with other content is a new request.
 	Key string `json:"key"`
 
-	// Kind What the call is for. It sets the call's place in the queue of the Runtime it runs on, where an approval goes first and Runs come next; voice_ask never queues. approval and voice_ask have a person waiting, so they stop once the request is gone and never answer pending.
+	// Kind What the call is for. It sets the call's place in the queue of the Runtime it runs on, where an approval goes first and Runs come next; voice_ask and meeting_notes never queue. approval, voice_ask and meeting_notes have someone waiting, so they stop once the request is gone and never answer pending.
 	Kind ModelCallKind `json:"kind"`
 
 	// Output Asks for one JSON object; omitted, the answer is text.
@@ -2025,10 +2202,13 @@ type PersonalKnowledgeQueryRequest struct {
 	// Alternates Synonyms and translations searched beside the query; each ranks keywords separately.
 	Alternates *[]string `json:"alternates,omitempty"`
 
-	// DateFrom Optional inclusive lower bound for evidence dates.
+	// AsOf Optional day a changing value or state is asked for, such as today for the current one. Among similarly relevant results, those recorded shortly before that day rank a little higher; later ones remain eligible.
+	AsOf *openapi_types.Date `json:"as_of,omitempty"`
+
+	// DateFrom Optional inclusive start of when the asked records were made, the source's local date. It ranks sources and facts recorded in that period higher and excludes none.
 	DateFrom *openapi_types.Date `json:"date_from,omitempty"`
 
-	// DateTo Optional inclusive upper bound for evidence dates.
+	// DateTo Optional inclusive end of when the asked records were made; see date_from.
 	DateTo *openapi_types.Date `json:"date_to,omitempty"`
 
 	// EventFrom Optional inclusive start of the time the asked event happened. It ranks Session facts in that period higher and never filters by source date, so later mentions of earlier events remain eligible.
@@ -2286,6 +2466,29 @@ type ServiceTokenErrorResponse struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
 	} `json:"error"`
+}
+
+// SessionFactFailure defines model for SessionFactFailure.
+type SessionFactFailure struct {
+	AgentId string `json:"agent_id"`
+
+	// FailedWindows Windows not extracted in the latest sync, or null if the sync aborted before a complete count.
+	FailedWindows *int `json:"failed_windows"`
+
+	// LastErrorKind Last structured ModelCallError kind, invalid_output for omitted windows, or unknown; never inferred from error prose.
+	LastErrorKind string    `json:"last_error_kind"`
+	LastFailureAt time.Time `json:"last_failure_at"`
+}
+
+// SessionFactFailures Latest failed Session fact sync per Agent observed by this process. A successful sync clears only that Agent. Resets on restart; zero does not establish that all persisted sources have facts.
+type SessionFactFailures struct {
+	Configured    bool                 `json:"configured"`
+	Items         []SessionFactFailure `json:"items"`
+	ObservedSince time.Time            `json:"observed_since"`
+	Scope         string               `json:"scope"`
+
+	// Total Number of Agents whose latest observed sync failed, before the list limit.
+	Total int `json:"total"`
 }
 
 // SetDocumentTitleSemanticOperation defines model for SetDocumentTitleSemanticOperation.
@@ -2598,6 +2801,9 @@ type JudgeProactiveEventJSONRequestBody = ProactiveEventJudgeRequest
 
 // ConfigureLocalComputerBrowserConnectionJSONRequestBody defines body for ConfigureLocalComputerBrowserConnection for application/json ContentType.
 type ConfigureLocalComputerBrowserConnectionJSONRequestBody = BrowserConnectionConfigureCommand
+
+// ActOnLocalComputerModelsJSONRequestBody defines body for ActOnLocalComputerModels for application/json ContentType.
+type ActOnLocalComputerModelsJSONRequestBody = LocalModelActionCommand
 
 // ActOnLocalComputerPermissionJSONRequestBody defines body for ActOnLocalComputerPermission for application/json ContentType.
 type ActOnLocalComputerPermissionJSONRequestBody = ComputerPermissionAction
@@ -3318,6 +3524,94 @@ func (t *MemoryFailureSummaryResponse_RawChunkSources) UnmarshalJSON(b []byte) e
 	return err
 }
 
+// AsMemoryFailureSectionNotConfigured returns the union data inside the MemoryFailureSummaryResponse_SessionFacts as a MemoryFailureSectionNotConfigured
+func (t MemoryFailureSummaryResponse_SessionFacts) AsMemoryFailureSectionNotConfigured() (MemoryFailureSectionNotConfigured, error) {
+	var body MemoryFailureSectionNotConfigured
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMemoryFailureSectionNotConfigured overwrites any union data inside the MemoryFailureSummaryResponse_SessionFacts as the provided MemoryFailureSectionNotConfigured
+func (t *MemoryFailureSummaryResponse_SessionFacts) FromMemoryFailureSectionNotConfigured(v MemoryFailureSectionNotConfigured) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMemoryFailureSectionNotConfigured performs a merge with any union data inside the MemoryFailureSummaryResponse_SessionFacts, using the provided MemoryFailureSectionNotConfigured
+func (t *MemoryFailureSummaryResponse_SessionFacts) MergeMemoryFailureSectionNotConfigured(v MemoryFailureSectionNotConfigured) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsMemoryFailureSectionUnavailable returns the union data inside the MemoryFailureSummaryResponse_SessionFacts as a MemoryFailureSectionUnavailable
+func (t MemoryFailureSummaryResponse_SessionFacts) AsMemoryFailureSectionUnavailable() (MemoryFailureSectionUnavailable, error) {
+	var body MemoryFailureSectionUnavailable
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMemoryFailureSectionUnavailable overwrites any union data inside the MemoryFailureSummaryResponse_SessionFacts as the provided MemoryFailureSectionUnavailable
+func (t *MemoryFailureSummaryResponse_SessionFacts) FromMemoryFailureSectionUnavailable(v MemoryFailureSectionUnavailable) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMemoryFailureSectionUnavailable performs a merge with any union data inside the MemoryFailureSummaryResponse_SessionFacts, using the provided MemoryFailureSectionUnavailable
+func (t *MemoryFailureSummaryResponse_SessionFacts) MergeMemoryFailureSectionUnavailable(v MemoryFailureSectionUnavailable) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsSessionFactFailures returns the union data inside the MemoryFailureSummaryResponse_SessionFacts as a SessionFactFailures
+func (t MemoryFailureSummaryResponse_SessionFacts) AsSessionFactFailures() (SessionFactFailures, error) {
+	var body SessionFactFailures
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromSessionFactFailures overwrites any union data inside the MemoryFailureSummaryResponse_SessionFacts as the provided SessionFactFailures
+func (t *MemoryFailureSummaryResponse_SessionFacts) FromSessionFactFailures(v SessionFactFailures) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeSessionFactFailures performs a merge with any union data inside the MemoryFailureSummaryResponse_SessionFacts, using the provided SessionFactFailures
+func (t *MemoryFailureSummaryResponse_SessionFacts) MergeSessionFactFailures(v SessionFactFailures) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t MemoryFailureSummaryResponse_SessionFacts) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *MemoryFailureSummaryResponse_SessionFacts) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // RequestEditorFn  is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
 
@@ -3518,6 +3812,11 @@ type ClientInterface interface {
 	ConfigureLocalComputerBrowserConnectionWithBody(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	ConfigureLocalComputerBrowserConnection(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ConfigureLocalComputerBrowserConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ActOnLocalComputerModelsWithBody request with any body
+	ActOnLocalComputerModelsWithBody(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ActOnLocalComputerModels(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ActOnLocalComputerModelsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetLocalComputerPermissions request
 	GetLocalComputerPermissions(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -4114,6 +4413,30 @@ func (c *Client) ConfigureLocalComputerBrowserConnectionWithBody(ctx context.Con
 
 func (c *Client) ConfigureLocalComputerBrowserConnection(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ConfigureLocalComputerBrowserConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewConfigureLocalComputerBrowserConnectionRequest(c.Server, tenantId, ownerActorId, computerId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ActOnLocalComputerModelsWithBody(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewActOnLocalComputerModelsRequestWithBody(c.Server, tenantId, ownerActorId, computerId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ActOnLocalComputerModels(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ActOnLocalComputerModelsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewActOnLocalComputerModelsRequest(c.Server, tenantId, ownerActorId, computerId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -5551,6 +5874,67 @@ func NewConfigureLocalComputerBrowserConnectionRequestWithBody(server string, te
 	return req, nil
 }
 
+// NewActOnLocalComputerModelsRequest calls the generic ActOnLocalComputerModels builder with application/json body
+func NewActOnLocalComputerModelsRequest(server string, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ActOnLocalComputerModelsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewActOnLocalComputerModelsRequestWithBody(server, tenantId, ownerActorId, computerId, "application/json", bodyReader)
+}
+
+// NewActOnLocalComputerModelsRequestWithBody generates requests for ActOnLocalComputerModels with any type of body
+func NewActOnLocalComputerModelsRequestWithBody(server string, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "ownerActorId", ownerActorId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "computerId", computerId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/owners/%s/local-computers/%s/local-model-actions", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetLocalComputerPermissionsRequest generates requests for GetLocalComputerPermissions
 func NewGetLocalComputerPermissionsRequest(server string, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId) (*http.Request, error) {
 	var err error
@@ -5918,6 +6302,11 @@ type ClientWithResponsesInterface interface {
 	ConfigureLocalComputerBrowserConnectionWithBodyWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ConfigureLocalComputerBrowserConnectionResponse, error)
 
 	ConfigureLocalComputerBrowserConnectionWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ConfigureLocalComputerBrowserConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*ConfigureLocalComputerBrowserConnectionResponse, error)
+
+	// ActOnLocalComputerModelsWithBodyWithResponse request with any body
+	ActOnLocalComputerModelsWithBodyWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ActOnLocalComputerModelsResponse, error)
+
+	ActOnLocalComputerModelsWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ActOnLocalComputerModelsJSONRequestBody, reqEditors ...RequestEditorFn) (*ActOnLocalComputerModelsResponse, error)
 
 	// GetLocalComputerPermissionsWithResponse request
 	GetLocalComputerPermissionsWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, reqEditors ...RequestEditorFn) (*GetLocalComputerPermissionsResponse, error)
@@ -6935,6 +7324,42 @@ func (r ConfigureLocalComputerBrowserConnectionResponse) ContentType() string {
 	return ""
 }
 
+type ActOnLocalComputerModelsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *LocalModelActionAck
+	JSON400      *BadRequest
+	JSON401      *Unauthenticated
+	JSON404      *NotFound
+	JSON409      *Conflict
+	JSON502      *BadGateway
+	JSON503      *ServiceUnavailable
+}
+
+// Status returns HTTPResponse.Status
+func (r ActOnLocalComputerModelsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ActOnLocalComputerModelsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ActOnLocalComputerModelsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type GetLocalComputerPermissionsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -7492,6 +7917,23 @@ func (c *ClientWithResponses) ConfigureLocalComputerBrowserConnectionWithRespons
 		return nil, err
 	}
 	return ParseConfigureLocalComputerBrowserConnectionResponse(rsp)
+}
+
+// ActOnLocalComputerModelsWithBodyWithResponse request with arbitrary body returning *ActOnLocalComputerModelsResponse
+func (c *ClientWithResponses) ActOnLocalComputerModelsWithBodyWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ActOnLocalComputerModelsResponse, error) {
+	rsp, err := c.ActOnLocalComputerModelsWithBody(ctx, tenantId, ownerActorId, computerId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseActOnLocalComputerModelsResponse(rsp)
+}
+
+func (c *ClientWithResponses) ActOnLocalComputerModelsWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ActOnLocalComputerModelsJSONRequestBody, reqEditors ...RequestEditorFn) (*ActOnLocalComputerModelsResponse, error) {
+	rsp, err := c.ActOnLocalComputerModels(ctx, tenantId, ownerActorId, computerId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseActOnLocalComputerModelsResponse(rsp)
 }
 
 // GetLocalComputerPermissionsWithResponse request returning *GetLocalComputerPermissionsResponse
@@ -8928,6 +9370,74 @@ func ParseConfigureLocalComputerBrowserConnectionResponse(rsp *http.Response) (*
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest BrowserConnectionStatus
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthenticated
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest BadGateway
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseActOnLocalComputerModelsResponse parses an HTTP response from a ActOnLocalComputerModelsWithResponse call
+func ParseActOnLocalComputerModelsResponse(rsp *http.Response) (*ActOnLocalComputerModelsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ActOnLocalComputerModelsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest LocalModelActionAck
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

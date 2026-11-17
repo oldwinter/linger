@@ -35,8 +35,8 @@ Settings → My Rules; see [Proactive Another Me](proactive.md#acting-under-your
 Each `task` step in the Meta's activity is one line with the Task's name and
 state. Open it, or a Task under _tasks running in the background_, to read the
 Task like a chat: the brief and follow-ups the Meta sent, every step the
-AlterEgo took with the command, file or search it acted on, and the approval
-cards it raised. A card is answered there or in your chat, where it also
+AlterEgo took with the command, file or search it acted on, its replies, and
+the approval cards it raised. A card is answered there or in your chat, where it also
 appears, and a running Task can be canceled from the same view. Steps are read
 from the AlterEgo's session on your computer each time it takes a new one.
 

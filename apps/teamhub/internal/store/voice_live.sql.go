@@ -433,7 +433,7 @@ func (q *Queries) GetVoiceLiveReplyAgent(ctx context.Context, arg GetVoiceLiveRe
 }
 
 const getVoiceLiveReplySessionContext = `-- name: GetVoiceLiveReplySessionContext :one
-SELECT voice.id, voice.tenant_id, voice.room_id, voice.created_by_actor_id, voice.status, voice.provider_room_name, voice.participant_identity, voice.credential_generation, voice.last_failure_code, voice.created_at, voice.updated_at, voice.closed_at, voice.latest_partial_text, voice.latest_partial_start_offset_ms, voice.latest_partial_end_offset_ms, voice.latest_partial_updated_at, voice.last_input_started_ms, voice.last_input_ended_ms, voice.purpose, voice.auth_session_id, voice.live_agent_actor_id, voice.live_lease_until,actor.account_id
+SELECT voice.id, voice.tenant_id, voice.room_id, voice.created_by_actor_id, voice.status, voice.provider_room_name, voice.participant_identity, voice.credential_generation, voice.last_failure_code, voice.created_at, voice.updated_at, voice.closed_at, voice.latest_partial_text, voice.latest_partial_start_offset_ms, voice.latest_partial_end_offset_ms, voice.latest_partial_updated_at, voice.last_input_started_ms, voice.last_input_ended_ms, voice.purpose, voice.auth_session_id, voice.live_agent_actor_id, voice.live_lease_until, voice.next_media_epoch,actor.account_id
 FROM voice_sessions voice
 JOIN actors actor
   ON actor.id=voice.created_by_actor_id AND actor.tenant_id=voice.tenant_id AND actor.kind='human'
@@ -467,6 +467,7 @@ type GetVoiceLiveReplySessionContextRow struct {
 	AuthSessionID              pgtype.Text        `json:"auth_session_id"`
 	LiveAgentActorID           pgtype.Text        `json:"live_agent_actor_id"`
 	LiveLeaseUntil             pgtype.Timestamptz `json:"live_lease_until"`
+	NextMediaEpoch             int32              `json:"next_media_epoch"`
 	AccountID                  pgtype.Text        `json:"account_id"`
 }
 
@@ -498,6 +499,7 @@ func (q *Queries) GetVoiceLiveReplySessionContext(ctx context.Context, voiceSess
 		&i.AuthSessionID,
 		&i.LiveAgentActorID,
 		&i.LiveLeaseUntil,
+		&i.NextMediaEpoch,
 		&i.AccountID,
 	)
 	return i, err

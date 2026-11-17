@@ -217,6 +217,7 @@ func inspect(ctx context.Context, request Request) (Page, error) {
 	if len(records) == 0 || stringValue(records[0].original, "type", 256) != "session_meta" || stringValue(objectValue(records[0].original["payload"]), "id", 256) != request.ThreadID {
 		return Page{}, fail("rollout_session_mismatch")
 	}
+	stampCodexTurns(records)
 	capturedAt := ""
 	end := len(records)
 	if cursor != nil {
@@ -332,6 +333,25 @@ func findRollout(ctx context.Context, home, threadID string) (string, string, er
 		return "", canonicalHome, nil
 	}
 	return matches[0], canonicalHome, nil
+}
+
+// stampCodexTurns gives every record of a Codex turn that turn's ID. Codex
+// writes turn_id only on its lifecycle and usage records, so the tool calls
+// and replies between a turn's start and its end carry it forward.
+func stampCodexTurns(records []parsedRecord) {
+	turn := ""
+	for i := range records {
+		history := &records[i].history
+		if history.TurnID != "" {
+			turn = history.TurnID
+		} else {
+			history.TurnID = turn
+		}
+		switch stringValue(objectValue(records[i].original["payload"]), "type", 256) {
+		case "task_complete", "turn_aborted":
+			turn = ""
+		}
+	}
 }
 
 func readFrozen(path string, frozenBytes int) ([]byte, error) {

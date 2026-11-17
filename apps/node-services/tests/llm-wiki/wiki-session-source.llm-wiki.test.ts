@@ -97,6 +97,8 @@ describe("Session source citations", () => {
     expect(renderSessionSource("Launch", raw, room).routing.citations).toEqual([
       "teamhub://rooms/room_launch/messages/message_a",
     ]);
+    // Message times are local with their offset (tests run in Asia/Shanghai).
+    expect(raw.startsWith("## 2026-11-04T17:00:00+08:00 · Ada\n")).toBe(true);
   });
 
   it("cites a recording's transcript Document version", () => {

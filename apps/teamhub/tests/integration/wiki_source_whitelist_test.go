@@ -153,17 +153,15 @@ func TestWikiSourceWhitelistAdmitsAndSkipsWithReasons(t *testing.T) {
 	if listed != len(skipped) {
 		t.Fatalf("whitelist kept out %d sources, want %d", listed, len(skipped))
 	}
-	// Search and Memory still read every text the Wiki leaves out; the empty
-	// file has none.
-	var withText []string
-	for id, reason := range skipped {
-		if reason != "no_text" {
-			withText = append(withText, id)
-		}
+	// Memory indexes only what the Wiki can record, so every source the
+	// whitelist keeps out is missing from its inventory as well.
+	var ids []string
+	for id := range skipped {
+		ids = append(ids, id)
 	}
-	var searchable int
+	var indexed int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM memory_source.personal_documents('tenant_document_a','actor_human_a')
-		WHERE document_id = ANY($1)`, withText).Scan(&searchable); err != nil || searchable != len(withText) {
-		t.Fatalf("searchable skipped sources=%d want %d err=%v", searchable, len(withText), err)
+		WHERE document_id = ANY($1)`, ids).Scan(&indexed); err != nil || indexed != 0 {
+		t.Fatalf("Memory lists %d whitelist-skipped sources, want 0 err=%v", indexed, err)
 	}
 }

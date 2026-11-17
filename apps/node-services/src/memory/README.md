@@ -250,24 +250,35 @@ projection. Raw is checked by Tenant, Human, Agent and content hash; publishing 
 original-text queries do not depend on the graph. `memory-state/raw/` is the current original-text storage path, not
 old graph data; cleaning old graphs must keep it and all Memory and Wiki bodies.
 
-A Raw Chunk query deduplicates by immutable Raw source and returns at most 20 items; `dateFrom/dateTo` compare the
-source's business date, not the date of the events the text describes. For "the chats of some month" use the source
-date filter; for "what was done in some month" search by entity and action and verify the event time from the
-original text, which lets later records recount past events. Relative event times resolve against the date of the
-source they appear in, and an explicit historical cutoff still applies.
-A query may also pass `event_from/event_to` (the time range of interest): following Hindsight's temporal window, it
-is one weighted recall channel and filters no source. A fact matches when its event interval overlaps the window or
-its mention time falls inside it; an original Chunk matches by source date; both must also match the query keywords.
-The channel takes at most 60 by `ts_rank_cd`, then picks 10 round-robin over 8 time buckets so no single day fills
-it. TeamHub merges the Agent's `dateFrom/dateTo` and `eventFrom/eventTo` into this one soft window (the event range
-first) and sends Memory no hard filter; `date_from/date_to` remain for other callers.
-The Agent's time parameters only weight and never exclude: in LongMemEval the model writes the current date into the
-source filter almost every time, and a hard filter would exclude the earlier conversation that holds the answer.
-The soft window also requires the query itself to mention time (as Hindsight extracts time from the question text):
-when the query has no time expression such as "last week", "last month", "2023" or "October 3", Memory ignores
-`event_from/event_to` and uses only the keyword channels. The model often fills in the current date or
-`0001-01-01~9999-12-31` on every search, and this check does not rely on the model behaving; the tool description
-asks it to keep time words in the query when the question mentions time.
+A Raw Chunk query deduplicates by immutable Raw source and returns at most 20 items. Three kinds of time can come
+with a query, and none filters a source. The two windows are each one more recall channel (following Hindsight's
+temporal window) that also requires the query keywords; `as_of` only reorders the fused list:
+
+- `event_from/event_to`, when the asked event happened, for an event that may have been told later: a fact votes when
+  its event interval overlaps the window, or, with no interval (something said rather than an event), when its source
+  date falls inside it; a mention in the window does not count for an event elsewhere, unlike Hindsight. A period
+  report or a Session page is about its own day and votes by that date. A conversation, transcript, note or mail Chunk
+  only knows when it was recorded, so it takes no event vote: its events reach the Agent through the facts list, as in
+  Hindsight, where time is judged on facts only. In a benchmark of events told later, a vote through facts gave
+  original Chunks no better rank than none.
+- `date_from/date_to`, when the asked records were made (mail received in January, Monday's meeting): a Chunk or a
+  fact votes when its source's local date falls inside the window.
+- `as_of`, the day a changing value or state is asked for (today for the current one): Hindsight's recency boost
+  without a cross-encoder. Each fused candidate's rank maps to a base score from 1.0 down to 0.1, multiplied by
+  `1 + 0.2 * (recency - 0.5)`; recency is 1.0 on that day and falls linearly to 0.1 sixty days before it (Hindsight
+  uses a year; a changing value is restated within weeks), a source after that day takes the 0.1 floor, and an
+  undated source is neutral (0.5). Close matches move toward the record nearest before the day; a
+  weak match is never lifted over a strong one.
+
+A window channel takes at most 60 by `ts_rank_cd`, then picks 10 round-robin over 8 time buckets so no single day
+fills it. Each wording (the query and each alternate) runs its own time channels. A Wiki page other than a Session
+page is dated by the Wiki's publication, not by what it is about, so no time channel takes it; a Session page
+(`sessions/<date>/<session>.md`) is dated by its Session. TeamHub forwards the Agent's `dateFrom/dateTo`,
+`eventFrom/eventTo` and `asOf` unchanged. None of them excludes a source: in LongMemEval the model writes the current
+date into a time parameter almost every time, and a filter would exclude the earlier conversation that holds the
+answer. For "what was done in some month" search by entity and action and verify the event time from the original
+text, which lets later records recount past events. Relative event times resolve against the date of the source they
+appear in, and an explicit historical cutoff still applies.
 
 Raw and Wiki queries may also pass `alternates`: at most 6 synonymous wordings or translations, each at most 200
 characters. Each wording runs its own keyword search in parallel with the query and votes as its own RRF list, so a
@@ -357,8 +368,10 @@ because it is also in My Pages. On the next reconciliation My Pages deletes sour
 list, cascading their versions, chunks and Session facts; a new version replaces only that source's chunks. The Daily/Weekly reports are derived
 summaries, indexed as their own `period_summary` sources and never as Raw again. When a current safe Wiki page
 references an exact historical Version of a Document, that Version enters Raw/Chunk ahead of the Document's current
-head, so a Wiki reference never points at the uploaded original while the Chunk indexes a later export. Archives and
-audio or video without a transcript do not enter the index.
+head, so a Wiki reference never points at the uploaded original while the Chunk indexes a later export. My Pages
+and imported mail enter only when the Wiki whitelist would admit them (TeamHub's `source_rejection_reason` is empty):
+images, scanned PDFs, spreadsheets, data, log and code files, archives, and audio or video stay out of the index,
+because the Wiki never records them.
 Memory does not normalize Documents: it reads My pages and imported mail as the Markdown TeamHub stored in
 `document_texts` (one River job per version), through `memory_source.personal_documents` and, for
 Documents whose indexed hash differs, `personal_document_markdown`. A My pages Document is dated by its Version; an
@@ -366,17 +379,15 @@ imported mail message by the send time in its `- Timestamp:` header and named by
 stores every message at the time of the import (the Version time and file name are used only when the header has no
 readable time or subject). The normalizer TeamHub's job calls is
 `apps/node-services/src/document-normalizer`, served by LLM Wiki in a restricted worker thread of this process. It
-converts PDF, DOC/DOCX, PPTX, XLSX, ODT/ODS/ODP, EPUB, EML/MHTML, Office templates and images into canonical Markdown.
-Scanned PDFs and raster images use the Chinese and English OCR bundled with the dependencies; conversion needs no
-network, Docling, system OCR, LibreOffice, extra API key or separate service. After installing the repository's locked
-dependencies, `pnpm dev` uses this path; CI and the production image carry the same parsers, WASM and language models.
+converts PDF, DOC/DOCX, PPTX, XLSX, ODT/ODS/ODP, EPUB, EML/MHTML, Office templates and SVG into canonical Markdown.
+There is no OCR: a PDF gives only its text layer, so a scanned PDF has no text, and raster images are unsupported.
+Conversion needs no network, Docling, LibreOffice, extra API key or separate service. After installing the
+repository's locked dependencies, `pnpm dev` uses this path; CI and the production image carry the same parsers.
 The index excludes generic ZIP/gzip, audio/video and legacy XLS/PPT through `document_wiki_source_heads`, without mistaking ZIP-based Office/EPUB for archives.
 There are no backends for macro-enabled Office (PPTM/XLSM/XLTM), Box Notes, Outlook MSG, Apple Pages, AFP/EBCDIC or
 DocLang. AsciiDoc and LaTeX uploaded as UTF-8 `text/*` can be read as text but have no dedicated parser; `.adoc` with
-`application/octet-stream` and `.tex` with `application/x-tex` are refused. Local OCR may still return no text for a
-skewed scanned page, and complex layouts and scan quality need their own acceptance. A raster image with no
-recognized text is retried once with the sparse-text layout; with still no text it yields only the file name heading
-and format line, without reporting an empty source.
+`application/octet-stream` and `.tex` with `application/x-tex` are refused. Complex PDF layouts need their own
+acceptance.
 A version the normalizer cannot read has no ready text in TeamHub and is simply not indexed; Memory keeps no failure record of its own, and the next version is indexed once its text is ready.
 Markdown is split into Chunks by heading level and paragraph boundaries; consecutive timestamped turns merge into a
 conversation Chunk with context, so one sentence never takes a whole result. Ordinary blocks do not overlap; only
@@ -427,7 +438,9 @@ UTC date: `memory-state/raw/<YYYY>/<MM>/<DD>/<roomId>/` holds the current `manif
 hash. The raw collection input is still written before the summary to
 `updates/sessionly/<date>/<subjectKey>/<tenantId>/<roomId>/collection.json`; the Raw search snapshot is saved after
 the Session summary is written and holds message times, authors, text and the text of attachments read successfully,
-without the Provider transcript. A standalone recording replaces the `<roomId>` subpath with `recordings/<captureId>`;
+without the Provider transcript. Each message heading is `## <local time with offset> · <author>`, such as
+`## 2026-11-11T11:45:38+08:00 · Ada`, in the process time zone, so Agents and fact extraction read the time the Web
+client shows. Snapshots of earlier days keep the UTC headings they were written with; both forms carry an offset. A standalone recording replaces the `<roomId>` subpath with `recordings/<captureId>`;
 its Raw is the full original transcript without uploader speaker labels. The formal audio is still managed by
 TeamHub's object storage.
 
@@ -769,10 +782,20 @@ The two kinds of automatic retry each have a final or persistent failure state, 
 Wiki indexing has no Memory queue: TeamHub's publication job retries until Memory indexes the published Wiki,
 and the Memory scheduler reconciles Daily and Weekly reports every minute.
 
-`GET /internal/v1/health/failures` returns `scheduler` (`exhausted`, `pending_retries` and their totals) and
-`raw_chunk_sources` (failed sources and counts per owner). Each list holds at most 200 items, error summaries are cut
+`GET /internal/v1/health/failures` returns `scheduler` (`exhausted`, `pending_retries` and their totals),
+`raw_chunk_sources` (failed sources and counts per owner), and `session_facts` (latest failed fact sync per Agent).
+Each list holds at most 200 items, error summaries are cut
 to 300 characters, and no text is included. An unconfigured store returns `{"configured": false}`, a failed query
 returns `{"error": "unavailable"}`, and the other parts still return 200.
+
+Session fact diagnostics are process-local (`scope: "process"`, `observed_since`) and reset on restart;
+zero means no observed failed syncs, not that all persisted sources have facts. Each failed Agent reports
+`failed_windows`, `last_failure_at`, and `last_error_kind` from its latest finished sync. A sync that aborts
+before a complete count reports `failed_windows: null`. Only a successful sync for the same Agent clears
+its failure; partial extraction keeps it visible. Existing sync triggers retry the unfinished windows.
+The `memory.session_fact_extraction_failed` log includes `error_kind`, `agent_id`, `tenant_id`, `owner_id`,
+and the batch's `windows` count. Error kinds use structured model-call errors (or `unknown`), never text
+matching; these added fields contain no source text or model output.
 
 `POST /internal/v1/health/failures:retry` accepts only `scheduler.task_keys` (all tasks when omitted);
 any other field returns 400. Calendar tasks and the dependents they stopped go back to pending with

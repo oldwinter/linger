@@ -396,6 +396,10 @@ export function createTeamHubAgentRuntimeStateClient(options: {
     ) => post("local-computers/remove", body, signal),
     reportHerdrEvent: (body: HerdrAgentEventReport, signal?: AbortSignal) =>
       post("local-computers/herdr-events", body, signal),
+    recordLocalModels: (
+      body: Schemas["RecordLocalModelsRequest"],
+      signal?: AbortSignal,
+    ) => post("local-computers/local-models", body, signal),
     recordRunOperation: (
       body: RecordAgentLocalRunOperationRequest,
       signal?: AbortSignal,
@@ -744,6 +748,8 @@ export type VoiceDictationCommitRequest =
 export type VoiceSessionPurpose = components["schemas"]["VoiceSessionPurpose"];
 export type VoiceObservationReceipt =
   components["schemas"]["VoiceObservationReceipt"];
+export type VoiceMediaEpochClaim =
+  components["schemas"]["VoiceMediaEpochClaim"];
 export type VoiceMediaObjectKey = components["schemas"]["VoiceMediaObjectKey"];
 export type VoiceRecordingReport =
   components["schemas"]["VoiceRecordingReport"];
@@ -772,6 +778,19 @@ export class TeamHubVoiceRuntimeClient {
       observation,
       signal,
     );
+  }
+
+  async claimMediaEpoch(
+    voiceSessionId: string,
+    signal?: AbortSignal,
+  ): Promise<number> {
+    const claim = await this.request<VoiceMediaEpochClaim>(
+      "POST",
+      `/internal/v1/voice/sessions/${encodeURIComponent(voiceSessionId)}/media-epochs`,
+      undefined,
+      signal,
+    );
+    return claim.media_epoch;
   }
 
   async putMediaObject(

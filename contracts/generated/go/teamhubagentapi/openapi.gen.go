@@ -1936,13 +1936,16 @@ type AgentKnowledgeSearchRequest struct {
 	// Alternates Up to six synonyms, translations or related terms the evidence may use instead of the query's words. Each is searched separately beside the query; always pass some when the query is a single wording.
 	Alternates *[]string `json:"alternates,omitempty"`
 
-	// DateFrom Start of the period the sources were recorded in; ranks matching sources higher and excludes none.
+	// AsOf Day a changing value or state is asked for, today for the current one; among similarly relevant results, those said shortly before that day rank a little higher and later ones remain.
+	AsOf *openapi_types.Date `json:"asOf,omitempty"`
+
+	// DateFrom Start of the period the asked records were made in, such as mail received in January; ranks sources and facts recorded then higher and excludes none.
 	DateFrom *openapi_types.Date `json:"dateFrom,omitempty"`
 
 	// DateTo End of the period the sources were recorded in; pair with dateFrom.
 	DateTo *openapi_types.Date `json:"dateTo,omitempty"`
 
-	// EventFrom Inclusive start of when the asked event happened; takes precedence over dateFrom and dateTo and excludes none.
+	// EventFrom Inclusive start of when the asked event happened, whenever it was recorded; ranks facts and sources from that period higher and excludes none.
 	EventFrom *openapi_types.Date `json:"eventFrom,omitempty"`
 
 	// EventTo Inclusive end of when the asked event happened; pair with eventFrom.
@@ -2880,6 +2883,16 @@ type Id = string
 
 // ManifestVersion Immutable strict Semantic Version for a Skill Manifest.
 type ManifestVersion = string
+
+// MeetingNotesSegment A finished recording's quick notes, which TeamHub writes from its transcript after posting the recording and transcript. Clients read them from the Capture's quick_notes. Only TeamHub creates it.
+type MeetingNotesSegment struct {
+	// CaptureId Opaque, case-sensitive identifier. Clients must not infer type or time from it.
+	CaptureId Id `json:"capture_id"`
+
+	// Content User-visible label included in raw_message.
+	Content string `json:"content"`
+	Type    string `json:"type"`
+}
 
 // MessageReactionId Stable emoji ID in the official Reaction library shared by Humans and Agents: the emoji IDs of @emoji-mart/data 1.2.1 set 15 (Unicode Emoji 15). TeamHub rejects IDs outside that library.
 type MessageReactionId = string
@@ -4658,6 +4671,34 @@ func (t *MessageSegment) MergeArtifactTreeSegment(v ArtifactTreeSegment) error {
 	return err
 }
 
+// AsMeetingNotesSegment returns the union data inside the MessageSegment as a MeetingNotesSegment
+func (t MessageSegment) AsMeetingNotesSegment() (MeetingNotesSegment, error) {
+	var body MeetingNotesSegment
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMeetingNotesSegment overwrites any union data inside the MessageSegment as the provided MeetingNotesSegment
+func (t *MessageSegment) FromMeetingNotesSegment(v MeetingNotesSegment) error {
+	v.Type = "meeting_notes"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMeetingNotesSegment performs a merge with any union data inside the MessageSegment, using the provided MeetingNotesSegment
+func (t *MessageSegment) MergeMeetingNotesSegment(v MeetingNotesSegment) error {
+	v.Type = "meeting_notes"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t MessageSegment) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"type"`
@@ -4680,6 +4721,8 @@ func (t MessageSegment) ValueByDiscriminator() (interface{}, error) {
 		return t.AsFileSegment()
 	case "html_fragment":
 		return t.AsHtmlFragmentSegment()
+	case "meeting_notes":
+		return t.AsMeetingNotesSegment()
 	case "reference":
 		return t.AsReferenceSegment()
 	case "skill":

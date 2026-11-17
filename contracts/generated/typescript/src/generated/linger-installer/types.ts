@@ -601,7 +601,7 @@ export interface components {
     SetupChoice: "local-models" | "codex" | "claude" | "pi";
     InstanceRuntime: {
       setupChoice?: components["schemas"]["SetupChoice"];
-      /** @description Absolute paths only, never credentials. LINGER_CODEX_PATH, LINGER_CLAUDE_PATH and LINGER_PI_PATH name the executable; CODEX_HOME, CLAUDE_CONFIG_DIR and PI_CODING_AGENT_DIR its profile when it is not the user's default. */
+      /** @description Absolute paths only, never credentials. LINGER_CODEX_PATH, LINGER_CLAUDE_PATH and LINGER_PI_PATH name the executable; CODEX_HOME, CLAUDE_CONFIG_DIR and PI_CODING_AGENT_DIR its profile when it is not the user's default. LINGER_LOCALMODELS_PYTHON, LINGER_LOCALMODELS_MODULE_DIR, LINGER_LOCALMODELS_STATE and LINGER_LOCALMODELS_BASE_DIR, all four or none, name the localmodels tool the Computer runs for its model library. */
       environment: {
         [key: string]: string;
       };
@@ -623,9 +623,28 @@ export interface components {
       choices: components["schemas"]["SetupChoice"][];
       localModels: {
         eligible: boolean;
+        /**
+         * @description Upstream stack.state. blocked-now means the hardware can run the plan, but installing now would stop until other programs free memory; a tool without stack.state reports that case as basis capacity or reason free-memory-required.
+         * @enum {string}
+         */
+        state: "ready" | "blocked-now" | "unavailable";
+        /** @description Upstream stack.hardwareCapable, separate from whether local models can install now; null when the tool cannot read the facts. */
+        hardwareCapable?: boolean | null;
+        /** @description Upstream stack.memory, present on a capacity basis; memory free now against what the plan needs. */
+        memory?: {
+          ramAvailableBytes: number;
+          ramRequiredBytes: number;
+          vramFreeBytes?: number;
+          vramRequiredBytes?: number;
+        };
         reasons: string[];
         /** @description Human-readable upstream explanations in the same order as reasons; model eligibility remains upstream-owned. */
         reasonMessages?: string[];
+        /**
+         * @description Present when the upstream plan fits this computer's hardware only once other programs release the memory they hold now (reason free-memory-required); installing plans again against the memory free then.
+         * @enum {string}
+         */
+        basis?: "capacity";
         selectedGpuIndex: number | null;
         estimate: {
           downloadBytes: number | null;

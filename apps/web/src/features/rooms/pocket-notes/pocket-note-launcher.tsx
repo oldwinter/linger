@@ -58,6 +58,7 @@ export function PocketNoteLauncher({
       type="button"
     >
       <Icon icon={noteWriteIcon} size={16} />
+      <span className="xs-nav-btn-label">Pocket Notes</span>
     </button>
   );
 }

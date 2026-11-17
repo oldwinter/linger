@@ -22,6 +22,7 @@ import (
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/typedcard"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/voicecaptureqa"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/voicemedia"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/voicequicknotes"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/workitem"
 	httpapi "github.com/simplexai-labs/linger/contracts-go/teamhubpublic"
 )
@@ -44,6 +45,9 @@ type Deps struct {
 	LocalComputers roomagent.LocalComputerManagement
 	// Answerer answers recording questions; nil when no model is configured.
 	Answerer voicecaptureqa.Answerer
+	// QuickNotes writes a finished recording's quick notes; nil when no model
+	// is configured.
+	QuickNotes voicequicknotes.Writer
 	// VoiceMedia is nil when no voice media provider is configured.
 	VoiceMedia voicemedia.Plane
 	Logger     *slog.Logger
@@ -66,6 +70,7 @@ type Service struct {
 	memory             *memoryclient.Client
 	localComputers     roomagent.LocalComputerManagement
 	answerer           voicecaptureqa.Answerer
+	quickNotes         voicequicknotes.Writer
 	voiceMedia         voicemedia.Plane
 	logger             *slog.Logger
 	// slackSelfDMs keeps each Slack connection's DM with its own user;
@@ -111,7 +116,7 @@ func New(deps Deps) *Service {
 		pool: deps.Pool, queries: store.New(deps.Pool), artifacts: deps.Artifacts,
 		documents: deps.Documents, documentComments: deps.DocumentComments, collaboration: deps.Collaboration, canvas: deps.Canvas,
 		agentConnectedApps: deps.AgentConnectedApps, agents: deps.Agents, reminders: deps.Reminders, workItems: deps.WorkItems, typedCards: deps.TypedCards,
-		memory: deps.Memory, localComputers: deps.LocalComputers, answerer: deps.Answerer, voiceMedia: deps.VoiceMedia, logger: deps.Logger,
+		memory: deps.Memory, localComputers: deps.LocalComputers, answerer: deps.Answerer, quickNotes: deps.QuickNotes, voiceMedia: deps.VoiceMedia, logger: deps.Logger,
 	}
 }
 

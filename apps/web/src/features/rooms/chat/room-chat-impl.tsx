@@ -18,9 +18,8 @@ import { RoomChatTimelineSection } from "./room-chat-timeline-section";
 import { RoomChatComposerSection } from "./room-chat-composer-section";
 
 const TaskConversationDialog = lazy(async () => {
-  const module = await import(
-    "../task-sidebar/adapters/task-conversation-dialog"
-  );
+  const module =
+    await import("../task-sidebar/adapters/task-conversation-dialog");
   return { default: module.TaskConversationDialog };
 });
 

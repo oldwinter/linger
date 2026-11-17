@@ -371,4 +371,5 @@ describe("WorkItemStoryPage", () => {
         "Codex is assigned and is not in the room doing this work.",
       ),
     ).toBeVisible();
-  });});
+  });
+});

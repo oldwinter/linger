@@ -538,3 +538,24 @@ test("forwards safe extraction and verification stages after Harness downloads f
   });
   expect(JSON.stringify(onEvent.mock.calls)).not.toContain("private-secret");
 });
+test("uses a configured development localmodels checkout without downloading a kit", async () => {
+  const f = await fixture();
+  vi.stubEnv("LINGER_LOCALMODELS_TOOL_JSON", "");
+  vi.stubEnv(
+    "LINGER_LOCALMODELS_DEV_PYTHON",
+    path.join(f.directory, "python/python"),
+  );
+  vi.stubEnv(
+    "LINGER_LOCALMODELS_DEV_MODULE_DIR",
+    path.join(f.directory, "modules"),
+  );
+  const run = vi.fn(async () => ({ code: 0, stdout: "{}", stderr: "" }));
+  await runLocalmodels(f.home, ["debug", "status", "--json"], {}, { run });
+  expect(run).toHaveBeenCalledWith(
+    path.join(f.directory, "python/python"),
+    ["-P", "-s", "-m", "localmodels", "debug", "status", "--json"],
+    expect.objectContaining({
+      cwd: path.join(f.directory, "modules"),
+    }),
+  );
+});

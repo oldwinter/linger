@@ -47,31 +47,17 @@
     "order": []
   },
   {
-    "name": "ocr-en.png",
-    "mediaType": "image/png",
-    "facts": ["SCAN-ORCHID", "9876", "Daniel Lee", "2026-12-01"],
-    "note": "",
-    "order": []
-  },
-  {
-    "name": "ocr-sparse.png",
-    "mediaType": "image/png",
-    "facts": ["9876"],
-    "note": "UI-like screenshot whose default page layout finds no text; sparse-text layout must recover the label.",
-    "order": []
-  },
-  {
     "name": "scan-en.pdf",
     "mediaType": "application/pdf",
-    "facts": ["SCAN-ORCHID", "9876", "Daniel Lee", "2026-12-01"],
-    "note": "",
+    "facts": [],
+    "note": "Negative control: a scanned page has no text layer and gives no body.",
     "order": []
   },
   {
     "name": "mixed.pdf",
     "mediaType": "application/pdf",
-    "facts": ["COVER-ALPHA", "SCAN-ORCHID", "9876", "Daniel Lee"],
-    "note": "Same page has native text and a scanned region.",
+    "facts": ["COVER-ALPHA"],
+    "note": "Same page has native text and a scanned region; only the text layer is read.",
     "order": []
   },
   {
@@ -93,7 +79,7 @@
       "2400",
       "Validate search"
     ],
-    "note": "Embedded image OCR is tracked separately, not assumed for either converter.",
+    "note": "Embedded images give no text.",
     "order": []
   },
   {

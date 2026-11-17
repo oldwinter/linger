@@ -72,6 +72,7 @@ export function useRoomTimelineScroll({
   const [initialScrollReady, setInitialScrollReady] = useState(false);
   const unreadDividerRef = useRef<HTMLDivElement | null>(null);
   const [unreadDividerVisible, setUnreadDividerVisible] = useState(true);
+  const [awayFromLatest, setAwayFromLatest] = useState(false);
   const shouldAutoFollowRef = useRef(true);
   const pendingPrependRef = useRef<PendingPrepend | null>(null);
   const readingAnchorRef = useRef<ReadingAnchor | null>(null);
@@ -126,6 +127,7 @@ export function useRoomTimelineScroll({
       pendingPrependRef.current = null;
       shouldAutoFollowRef.current = isNearTimelineBottom(timeline);
       setInitialScrollReady(true);
+      setAwayFromLatest(!isNearTimelineBottom(timeline));
       setUnreadDividerVisible(
         unreadDividerIsInView(timeline, unreadDividerRef.current),
       );
@@ -144,6 +146,7 @@ export function useRoomTimelineScroll({
       anchoredRef.current = true;
       shouldAutoFollowRef.current = false;
       setInitialScrollReady(true);
+      setAwayFromLatest(!isNearTimelineBottom(timeline));
       setUnreadDividerVisible(
         unreadDividerIsInView(timeline, unreadDividerRef.current),
       );
@@ -160,6 +163,7 @@ export function useRoomTimelineScroll({
 
     shouldAutoFollowRef.current = isNearTimelineBottom(timeline);
     setInitialScrollReady(true);
+    setAwayFromLatest(!isNearTimelineBottom(timeline));
     setUnreadDividerVisible(
       unreadDividerIsInView(timeline, unreadDividerRef.current),
     );
@@ -194,11 +198,13 @@ export function useRoomTimelineScroll({
     const correct = (scrollTop: number) => {
       const before = timeline.scrollTop;
       timeline.scrollTop = scrollTop;
+      setAwayFromLatest(!isNearTimelineBottom(timeline));
       if (timeline.scrollTop !== before) {
         correctedScrollTopRef.current = timeline.scrollTop;
       }
     };
     const observer = new ResizeObserver((entries) => {
+      setAwayFromLatest(!isNearTimelineBottom(timeline));
       if (!shouldAutoFollowRef.current) {
         // A reader above the newest Message keeps the Message they were
         // reading in place while the lane narrows or widens and its text
@@ -287,6 +293,7 @@ export function useRoomTimelineScroll({
   function recordTimelineScroll(timeline: HTMLDivElement) {
     const corrected = correctedScrollTopRef.current === timeline.scrollTop;
     correctedScrollTopRef.current = null;
+    setAwayFromLatest(!isNearTimelineBottom(timeline));
     if (!corrected) {
       shouldAutoFollowRef.current = isNearTimelineBottom(timeline);
       readingAnchorRef.current = shouldAutoFollowRef.current
@@ -323,6 +330,18 @@ export function useRoomTimelineScroll({
     divider.scrollIntoView({ block: "center", inline: "nearest" });
   }
 
+  function scrollToLatest() {
+    const timeline = timelineElement;
+    if (!timeline) {
+      return;
+    }
+    // An instant jump: a smooth scroll's intermediate scroll events would
+    // switch following off and aim at a bottom that streaming has moved.
+    shouldAutoFollowRef.current = true;
+    timeline.scrollTop = timeline.scrollHeight;
+    setAwayFromLatest(false);
+  }
+
   /** Whether the reader follows the newest Message rather than history. */
   function isFollowingLatest() {
     return (
@@ -333,6 +352,7 @@ export function useRoomTimelineScroll({
   }
 
   return {
+    awayFromLatest,
     cancelOlderMessagesIfUnchanged,
     initialScrollReady,
     isFollowingLatest,
@@ -340,6 +360,7 @@ export function useRoomTimelineScroll({
     pinToLatest,
     prepareForOlderMessages,
     recordTimelineScroll,
+    scrollToLatest,
     timelineElement,
     timelineRef: setTimelineElement,
     unreadDividerRef,

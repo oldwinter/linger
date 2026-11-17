@@ -77,9 +77,7 @@ export function RuntimeTrajectoryView({
           </li>
         ) : item.kind === "reply" ? (
           <li className="py-2" key={item.key}>
-            <div className="room-message-bubble text-[15px] leading-[22px] text-app-ink">
-              <MessageMarkdown authorKind="agent" body={item.text} />
-            </div>
+            <MessageMarkdown authorKind="agent" body={item.text} />
           </li>
         ) : (
           <TrajectoryCallRow call={item.call} key={item.key} />

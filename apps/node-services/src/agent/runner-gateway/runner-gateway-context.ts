@@ -43,6 +43,7 @@ import {
 import type { RunnerOperations } from "./runner-operations.js";
 import { operationMCPPrepareIdentity } from "./runner-operations.js";
 import type { RunnerComputerTools } from "./runner-computer-tools.js";
+import type { RunnerLocalModels } from "./runner-local-models.js";
 import type { ModelQueue } from "./model-queue.js";
 import type { RunnerModelInvocation } from "./runner-model-invocation.js";
 import type { RunnerSessionCompaction } from "./runner-session-compaction.js";
@@ -152,6 +153,8 @@ export interface RunnerRunOperationRecord {
   readonly runId: string;
   readonly operationId: string;
   readonly runtimeType: "codex" | "claude" | "pi";
+  /** The Runtime turn the Operation started, once the Daemon reported it. */
+  readonly turnId?: string;
   readonly usage?: readonly Record<string, unknown>[];
 }
 
@@ -219,7 +222,14 @@ export interface ConnectedRunner {
   phase: "reconciling" | "ready";
   operationReconciled: boolean;
   runtimeDiagnosticsRevision: number;
-  registrationSnapshotCommandId?: string;
+  /**
+   * Registration snapshots sent on this connection whose receipt has not
+   * arrived. A diagnostics change can send a new snapshot before the Daemon
+   * acknowledges the previous one, so every unacknowledged one is valid.
+   */
+  pendingRegistrationSnapshots?: Set<string>;
+  /** The last runner.local_models revision; 0 until the connection sends one. */
+  localModelsRevision: number;
 }
 
 export interface AgentRunnerStateWaiter {
@@ -325,6 +335,7 @@ export interface RunnerGatewayControllers {
   readonly modelInvocation: () => RunnerModelInvocation;
   readonly queue: () => ModelQueue;
   readonly computerTools: () => RunnerComputerTools;
+  readonly localModels: () => RunnerLocalModels;
   readonly contextViewContent: () => ContextViewContent | undefined;
 }
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 5_000;

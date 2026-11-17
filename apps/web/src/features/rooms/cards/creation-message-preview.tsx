@@ -44,6 +44,8 @@ function structuredSegmentFingerprint(
         segment.publication_group_id,
         segment.root_path,
       ]);
+    case "meeting_notes":
+      return JSON.stringify([segment.type, segment.capture_id]);
   }
 }
 
@@ -96,6 +98,8 @@ export function CreationMessagePreview({
                 <span>File: {segment.content}</span>
               ) : segment.type === "html_fragment" ? (
                 <span>{segment.content}</span>
+              ) : segment.type === "meeting_notes" ? (
+                <span>Quick notes</span>
               ) : segment.type === "document" ? (
                 <span>Document: {segment.content}</span>
               ) : segment.type === "artifact_tree" ? (

@@ -21,6 +21,8 @@ export interface AgentEffectiveResources {
   readonly skills: ExecutionResources["skills"];
   /** TeamHub has a Composio API key now. */
   readonly connectedApps: boolean;
+  /** Sorted keys of the apps with an account granted to this Agent. */
+  readonly connectedAppKeys: readonly string[];
 }
 
 export interface AgentResourcesResolver {
@@ -65,7 +67,9 @@ export const parseAgentEffectiveResources = (
   if (
     !isRecord(value) ||
     !Array.isArray(value.skills) ||
-    typeof value.connected_apps !== "boolean"
+    typeof value.connected_apps !== "boolean" ||
+    !Array.isArray(value.connected_app_keys) ||
+    !value.connected_app_keys.every((key: unknown) => typeof key === "string")
   )
     throw new TypeError("Invalid Agent effective resources");
   const resources = parseExecutionResources({
@@ -90,6 +94,7 @@ export const parseAgentEffectiveResources = (
     effectiveSha256: resources.effectiveSha256,
     skills: resources.skills,
     connectedApps: value.connected_apps,
+    connectedAppKeys: Object.freeze([...value.connected_app_keys]),
   });
 };
 

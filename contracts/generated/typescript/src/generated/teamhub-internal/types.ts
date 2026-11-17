@@ -742,6 +742,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v0/agent-runtime/local-computers/local-models": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Store the latest model library snapshot a Computer reported.
+     * @description Agent Service forwards every runner.local_models snapshot. TeamHub replaces the Computer's stored snapshot, keeps it while the Computer is offline, and publishes a local-models invalidation hint with the Computer ID.
+     */
+    post: operations["recordAgentRuntimeLocalModels"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v0/agents/{agentId}/identity": {
     parameters: {
       query?: never;
@@ -1257,6 +1277,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/internal/v1/voice/sessions/{voiceSessionId}/media-epochs": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Claim the next transcript media epoch for one open VoiceSession.
+     * @description Every claim returns a number no earlier claim for the session returned, including claims made by a runtime job that has since restarted. Observations of a track carry the epoch claimed for it.
+     */
+    post: operations["claimVoiceMediaEpoch"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/internal/v1/voice/sessions/{voiceSessionId}/live-context": {
     parameters: {
       query?: never;
@@ -1396,6 +1436,9 @@ export interface components {
       event_id: components["schemas"]["VoiceId"];
       /** @enum {string} */
       status: "accepted" | "ignored";
+    };
+    VoiceMediaEpochClaim: {
+      media_epoch: number;
     };
     VoiceMediaObjectKey: string;
     VoiceRecordingReport: {
@@ -2187,6 +2230,8 @@ export interface components {
       run_id: string;
       operation_id: string;
       runtime_type: components["schemas"]["LocalRuntimeType"];
+      /** @description The Runtime turn the Operation started. Message activities read the native records stamped with it, so a turn that a Runtime records under the same ID links even when no tool call does. */
+      turn_id?: string;
       /** @description The usage the Operation's terminal reported; absent when the Operation starts. */
       usage?: {
         [key: string]: unknown;
@@ -2482,6 +2527,249 @@ export interface components {
       tail?: string;
     };
     /**
+     * @description Why a Computer reports no model library. TOOL_NOT_INSTALLED: its Computer config names no localmodels tool. TOOL_FAILED: the tool did not answer library status.
+     * @enum {string}
+     */
+    LocalModelsUnavailableCode: "TOOL_NOT_INSTALLED" | "TOOL_FAILED";
+    LocalModelsUnavailableReason: {
+      code: components["schemas"]["LocalModelsUnavailableCode"];
+      /** @description Diagnostic text for display; never matched on. */
+      detail?: string;
+    };
+    /**
+     * Format: date-time
+     * @description UTC timestamp in RFC 3339 format with an explicit offset.
+     * @example 2026-07-21T10:15:30Z
+     */
+    Timestamp: string;
+    LocalModelGpu: {
+      index: number;
+      uuid?: string;
+      name: string;
+      /** Format: int64 */
+      total_bytes: number;
+      /** Format: int64 */
+      free_bytes: number;
+    };
+    /** @description Hardware and software of the Computer as localmodels reports it. */
+    LocalModelHost: {
+      /** @enum {string} */
+      platform: "linux" | "darwin" | "windows";
+      /** @enum {string} */
+      arch: "x86_64" | "arm64";
+      /** @description Display only, such as Ubuntu 24.04. */
+      os_label: string;
+      /** @description Display only, such as llama.cpp b11370 with CUDA. */
+      engine_label: string;
+      /** Format: int64 */
+      ram_total_bytes: number;
+      /** Format: int64 */
+      disk_free_bytes: number;
+      gpus: components["schemas"]["LocalModelGpu"][];
+    };
+    /** @description A place a model can live: gpu:<index>, system (RAM beside GPUs), or unified (RAM of a host without discrete GPUs). */
+    LocalModelPoolId: string;
+    /** @description Something holding pool memory. A component is a foundation service such as an embedding, reranker, or speech model; it is never a model row. */
+    LocalModelPoolHolder: {
+      /** @enum {string} */
+      kind: "model" | "component";
+      id: string;
+      name: string;
+      /** Format: int64 */
+      bytes: number;
+    };
+    /** @description One place models load into. The system and unified budgets are 80% of RAM, as localmodels computes them. */
+    LocalModelPool: {
+      id: components["schemas"]["LocalModelPoolId"];
+      /** @enum {string} */
+      kind: "gpu" | "system" | "unified";
+      /** @description Present only for kind gpu; matches LocalModelGpu.index. */
+      gpu_index?: number;
+      /** Format: int64 */
+      total_bytes: number;
+      /** Format: int64 */
+      used_bytes: number;
+      holders: components["schemas"]["LocalModelPoolHolder"][];
+    };
+    /** @description Stable localmodels library id: catalog id and variant, such as qwen3-4b:Q4_K_M. */
+    LocalModelId: string;
+    /**
+     * @description Where the model can live, judged on total capacity so it stays stable across loads. system means localmodels can run it from RAM, slower.
+     * @enum {string}
+     */
+    LocalModelFit: "gpu" | "unified" | "system" | "none";
+    LocalModelAvailabilityReason: {
+      /** @enum {string} */
+      code:
+        | "MEMORY_INSUFFICIENT"
+        | "DISK_INSUFFICIENT"
+        | "PLATFORM_UNSUPPORTED";
+      /** Format: int64 */
+      need_bytes?: number;
+      /** Format: int64 */
+      have_bytes?: number;
+    };
+    LocalModelAvailability: {
+      downloadable: boolean;
+      /** @description Present only when downloadable is false. */
+      reason?: components["schemas"]["LocalModelAvailabilityReason"];
+    };
+    /**
+     * @description absent: not on disk. idle: on disk, holding no memory. loading reserves its memory before it finishes; loaded is registered with the local gateway and Pi.
+     * @enum {string}
+     */
+    LocalModelState:
+      | "absent"
+      | "downloading"
+      | "idle"
+      | "loading"
+      | "loaded"
+      | "failed";
+    LocalModelDownloadProgress: {
+      /** @enum {string} */
+      step: "download" | "verify";
+      /** Format: int64 */
+      done_bytes: number;
+      /** Format: int64 */
+      total_bytes: number;
+      /** Format: int64 */
+      bytes_per_second?: number;
+    };
+    LocalModelEndpoint: {
+      base_url: string;
+    };
+    /**
+     * @description Closed localmodels library error set. It is extended only together with the localmodels library contract.
+     * @enum {string}
+     */
+    LocalModelErrorCode:
+      | "MODEL_UNKNOWN"
+      | "INVALID_STATE"
+      | "JOB_RUNNING"
+      | "MEMORY_INSUFFICIENT"
+      | "DISK_INSUFFICIENT"
+      | "PLATFORM_UNSUPPORTED"
+      | "LOAD_NO_ROOM"
+      | "DOWNLOAD_FAILED"
+      | "CHECKSUM_MISMATCH"
+      | "NETWORK_UNAVAILABLE"
+      | "ENGINE_START_FAILED"
+      | "HEALTH_CHECK_FAILED"
+      | "OUT_OF_MEMORY"
+      | "MODEL_FILES_MISSING"
+      | "GATEWAY_REGISTRATION_FAILED"
+      | "CANCELLED";
+    LocalModelError: {
+      code: components["schemas"]["LocalModelErrorCode"];
+      /** @description Diagnostic text for display; never matched on. */
+      detail?: string;
+    };
+    LocalModelNote: {
+      /** @enum {string} */
+      code: "NO_ROOM_TO_LOAD";
+    };
+    /**
+     * @description Model family for brand presentation; never inferred from name.
+     * @enum {string}
+     */
+    LocalModelFamily:
+      | "qwen"
+      | "gemma"
+      | "llama"
+      | "openai"
+      | "deepseek"
+      | "mistral"
+      | "phi"
+      | "glm"
+      | "kimi"
+      | "claude"
+      | "grok"
+      | "other";
+    /**
+     * @description Weight activation topology: dense activates all parameters per token; moe activates a subset.
+     * @enum {string}
+     */
+    LocalModelArchitecture: "dense" | "moe";
+    /**
+     * @description Model capability verified by localmodels on this platform.
+     * @enum {string}
+     */
+    LocalModelCapability:
+      | "vision"
+      | "tool_use"
+      | "reasoning"
+      | "coding"
+      | "multilingual";
+    /** @description One validated chat model of the catalog on this platform and its state on this Computer. Sizes are bytes; readers format them. */
+    LocalModel: {
+      id: components["schemas"]["LocalModelId"];
+      name: string;
+      description: string;
+      quant: string;
+      /** Format: int64 */
+      context_tokens: number;
+      vision: boolean;
+      /** Format: int64 */
+      download_bytes: number;
+      /**
+       * Format: int64
+       * @description Footprint when loaded at its context policy, from the localmodels estimator.
+       */
+      memory_bytes: number;
+      fit: components["schemas"]["LocalModelFit"];
+      /** @description True on at most one model, an absent downloadable one. */
+      recommended: boolean;
+      availability: components["schemas"]["LocalModelAvailability"];
+      /** @description Planned placement while absent, actual placement afterwards; absent when fit is none. */
+      pool?: components["schemas"]["LocalModelPoolId"];
+      state: components["schemas"]["LocalModelState"];
+      /** @description Present only while downloading. */
+      download?: components["schemas"]["LocalModelDownloadProgress"];
+      /** @description Present only while loaded. */
+      endpoint?: components["schemas"]["LocalModelEndpoint"];
+      /** @description The runtime_model an Agent on runtime pi stores for this model, <pi provider>/<pi model id>; present while the model is on the Computer. */
+      pi_model?: string;
+      /** @description Warm speed measured at the last load; absent when unknown. */
+      tokens_per_second?: number;
+      /** @description Present only when failed. */
+      error?: components["schemas"]["LocalModelError"];
+      /** @description Present only when idle and the automatic load after download was skipped. */
+      note?: components["schemas"]["LocalModelNote"];
+      family?: components["schemas"]["LocalModelFamily"];
+      /** @description Organization or author that published the weights. */
+      publisher?: string;
+      architecture?: components["schemas"]["LocalModelArchitecture"];
+      /** @description Total parameter scale for display, such as 30B or 4B. */
+      parameters?: string;
+      /** @description Parameters active per token on an moe model, such as 3B. */
+      active_parameters?: string;
+      /** @description Capabilities verified by localmodels on this platform. */
+      capabilities?: components["schemas"]["LocalModelCapability"][];
+      /** @description SPDX identifier or license name, such as Apache-2.0 or Gemma Terms of Use. */
+      license?: string;
+      /** @description HTTPS model card or repository URL. */
+      source_url?: string;
+      /** @description Warm prompt-processing speed in tokens/s measured at the last load; absent when unknown. */
+      prompt_tokens_per_second?: number;
+    };
+    /** @description A Computer's model library as its Daemon reported it in runner.local_models, mapped from localmodels.library-status/v1. When available is false only reason and observed_at carry meaning and the lists are empty. */
+    LocalModelsSnapshot: {
+      available: boolean;
+      /** @description Present only when available is false. */
+      reason?: components["schemas"]["LocalModelsUnavailableReason"];
+      observed_at: components["schemas"]["Timestamp"];
+      tool_version?: string;
+      /** @description Present when available. */
+      host?: components["schemas"]["LocalModelHost"];
+      pools: components["schemas"]["LocalModelPool"][];
+      models: components["schemas"]["LocalModel"][];
+    };
+    /** @description The latest runner.local_models snapshot of one Computer. TeamHub keeps only the latest per Computer, so an offline Computer still shows what it last reported. */
+    RecordLocalModelsRequest: {
+      computer_id: components["schemas"]["Id"];
+      snapshot: components["schemas"]["LocalModelsSnapshot"];
+    };
+    /**
      * @description Persisted Agent runtime type.
      * @enum {string}
      */
@@ -2537,10 +2825,12 @@ export interface components {
       };
     };
     AgentEffectiveResources: {
-      /** @description Deterministic digest of the effective Skill set and connected_apps; Agent Service compares it at Run boundaries. */
+      /** @description Deterministic digest of the effective Skill set, connected_apps and connected_app_keys; Agent Service compares it at Run boundaries. */
       effective_sha256: string;
       /** @description TeamHub currently has a Composio API key, from the environment or saved on the Apps page, so the Agent is taught and allowed the connected app commands. */
       connected_apps: boolean;
+      /** @description Sorted keys of the apps with an account granted to this Agent, such as gmail or google_calendar, so its instructions name only sources it can query. Empty without connected_apps. Agent Service requires this field, so TeamHub ships before Agent Service. */
+      connected_app_keys: string[];
       skills: components["schemas"]["AgentEffectiveSkill"][];
     };
     ProactiveWindowMessage: {
@@ -2647,12 +2937,6 @@ export interface components {
     WorkItemPriority: "low" | "medium" | "high" | "urgent";
     /** @enum {string} */
     WorkItemResolution: "completed" | "failed" | "not_planned" | "duplicate";
-    /**
-     * Format: date-time
-     * @description UTC timestamp in RFC 3339 format with an explicit offset.
-     * @example 2026-07-21T10:15:30Z
-     */
-    Timestamp: string;
     AgentWorkItemAssignment: {
       actor: components["schemas"]["AgentActorRef"];
       assigned_by: components["schemas"]["AgentActorRef"];
@@ -4470,6 +4754,32 @@ export interface operations {
       404: components["responses"]["NotFound"];
     };
   };
+  recordAgentRuntimeLocalModels: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RecordLocalModelsRequest"];
+      };
+    };
+    responses: {
+      /** @description Stored. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+      500: components["responses"]["InternalError"];
+    };
+  };
   getAgentIdentity: {
     parameters: {
       query?: never;
@@ -5348,6 +5658,30 @@ export interface operations {
         content?: never;
       };
       400: components["responses"]["VoiceBadRequest"];
+      401: components["responses"]["VoiceUnauthenticated"];
+      404: components["responses"]["VoiceNotFound"];
+    };
+  };
+  claimVoiceMediaEpoch: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        voiceSessionId: components["schemas"]["VoiceId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The claimed epoch. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VoiceMediaEpochClaim"];
+        };
+      };
       401: components["responses"]["VoiceUnauthenticated"];
       404: components["responses"]["VoiceNotFound"];
     };

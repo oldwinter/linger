@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { DecisionCard, type DecisionMessageCard } from "./decision-card";
@@ -368,19 +374,41 @@ describe("DecisionCard", () => {
     expect(values).toHaveClass("font-mono", "whitespace-pre-wrap");
   });
 
-  it("shows the tool and full input under Details", () => {
+  it("leaves the raw tool call out when the message or fields show the write", () => {
     renderCard(connectorCard());
     openSummary();
-    fireEvent.click(screen.getByRole("button", { name: "Details" }));
     expect(
-      screen.getByText("Full call · GMAIL_SEND_EMAIL"),
+      screen.queryByRole("button", { name: "Details" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Full call/)).not.toBeInTheDocument();
+
+    cleanup();
+    renderCard(connectorCard(changeDetail));
+    openSummary();
+    expect(screen.queryByText(/Full call/)).not.toBeInTheDocument();
+  });
+
+  it("shows the full call at once for a tool without its own layout", () => {
+    renderCard(
+      connectorCard({
+        account: "octo",
+        app: "github",
+        input: '{\n  "owner": "linger",\n  "repo": "app"\n}',
+        kind: "change",
+        title: "Run GITHUB_STAR_A_REPOSITORY_FOR_THE_AUTHENTICATED_USER",
+        tool: "GITHUB_STAR_A_REPOSITORY_FOR_THE_AUTHENTICATED_USER",
+      }),
+    );
+    openSummary();
+    expect(
+      screen.getByText(
+        "Full call · GITHUB_STAR_A_REPOSITORY_FOR_THE_AUTHENTICATED_USER",
+      ),
     ).toBeInTheDocument();
+    expect(screen.getByText(/"repo": "app"/)).toBeInTheDocument();
     expect(
-      screen.getByText(/"recipient_email": "bob@example.com"/),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Hide details" }),
-    ).toHaveAttribute("aria-expanded", "true");
+      screen.queryByRole("button", { name: "Details" }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows a new Agent's name, description, and collapsed instructions", () => {

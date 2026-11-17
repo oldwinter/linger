@@ -373,7 +373,8 @@ const buildBundle = async (outputDirectory) => {
   );
 };
 
-const stagePinnedNodeRuntime = async (bundle, target) => {
+// The desktop app stages the same runtime (scripts/computer-tool-bundle.mjs).
+export const stagePinnedNodeRuntime = async (bundle, target) => {
   const release = NODE_RUNTIME_RELEASES[target];
   if (!release) {
     throw new Error(`Missing pinned Node runtime for ${target}.`);

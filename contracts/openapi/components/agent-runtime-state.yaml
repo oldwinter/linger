@@ -1594,6 +1594,14 @@ components:
           maxLength: 256
         runtime_type:
           $ref: "./domain.yaml#/components/schemas/LocalRuntimeType"
+        turn_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: >-
+            The Runtime turn the Operation started. Message activities read the
+            native records stamped with it, so a turn that a Runtime records
+            under the same ID links even when no tool call does.
         usage:
           type: array
           minItems: 1

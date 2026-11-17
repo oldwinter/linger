@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { trayMenu } from "./tray-menu.js";
+import { trayMenu, updateNotice } from "./tray-menu.js";
 
 describe("trayMenu", () => {
   it("leads with the status and ends with quit", () => {
@@ -42,6 +42,20 @@ describe("trayMenu", () => {
       action: "quick-note",
       label: "New Note",
     });
+  });
+
+  it("offers Send Diagnostics only while a receiver is set up", () => {
+    const actions = (canSendDiagnostics: boolean) =>
+      trayMenu({
+        status: { tone: "error", label: "Offline" },
+        preventSleep: false,
+        enrolled: true,
+        canSendDiagnostics,
+      }).flatMap((i) => (i.kind === "action" ? i.action : []));
+    expect(actions(false)).not.toContain("send-diagnostics");
+    expect(actions(true)).toEqual(
+      expect.arrayContaining(["save-diagnostics", "send-diagnostics"]),
+    );
   });
 
   it("connects an unenrolled computer and reconnects an enrolled one", () => {
@@ -152,5 +166,43 @@ describe("trayMenu", () => {
       action: "resolve-identity-conflict",
       label: "Set Up Again…",
     });
+  });
+
+  it("links a release this installation cannot apply itself", () => {
+    const item = trayMenu({
+      status: { tone: "online", label: "Online" },
+      preventSleep: false,
+      enrolled: true,
+      update: {
+        kind: "available",
+        version: "0.17.0",
+        url: "https://github.com/simplexai-labs/linger/releases/tag/desktop-v0.17.0",
+      },
+    })[1];
+    expect(item).toEqual({
+      kind: "action",
+      action: "install-update",
+      label: "Download Linger 0.17.0…",
+    });
+  });
+});
+
+describe("updateNotice", () => {
+  it("names what clicking it does", () => {
+    expect(updateNotice({ kind: "ready", version: "0.17.0" })).toEqual({
+      title: "Update ready",
+      body: "Linger 0.17.0 is downloaded. Click to restart Linger and update.",
+    });
+    expect(
+      updateNotice({ kind: "available", version: "0.17.0", url: "https://x" }),
+    ).toEqual({
+      title: "Update available",
+      body: "Linger 0.17.0 is available. Click to open its download page.",
+    });
+    expect(
+      updateNotice({ kind: "ready", version: "0.16.7", services: true }).body,
+    ).toBe(
+      "Click to update Linger on this computer. It restarts in about a minute.",
+    );
   });
 });

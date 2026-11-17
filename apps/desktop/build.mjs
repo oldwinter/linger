@@ -10,6 +10,8 @@ import path from "node:path";
 import { build } from "esbuild";
 
 import { buildDaemon } from "./scripts/build-daemon.mjs";
+import { stageDesktopComputerTools } from "./scripts/stage-computer-tools.mjs";
+import { hostedDiagnosticsUploadUrl } from "./scripts/diagnostics-upload-url.mjs";
 import { buildTeamhub, TEAMHUB_TARGETS } from "./scripts/build-teamhub.mjs";
 import {
   buildRuntime,
@@ -89,6 +91,9 @@ const common = {
     __DESKTOP_VERSION__: JSON.stringify(version),
     __SOURCE_ARCHIVE__: JSON.stringify(sourceArchive),
     __SOURCE_DEPENDENCIES__: JSON.stringify(sourceDependencies),
+    __HOSTED_DIAGNOSTICS_UPLOAD_URL__: JSON.stringify(
+      hostedDiagnosticsUploadUrl(process.env.LINGER_DIAGNOSTICS_UPLOAD_URL),
+    ),
   },
   logLevel: "warning",
 };
@@ -316,5 +321,8 @@ set ELECTRON_RUN_AS_NODE=1\r
 );
 
 // The Go Local Computer daemon (dist/computer/<platform>-<arch>/) for each
-// target.
+// target, and the browser and computer-control tools it loads
+// (dist/computer-tools/<platform>-<arch>/). Without the tools the daemon runs
+// but offers Agents no browser or computer use.
 await buildDaemon(daemonTargets);
+await stageDesktopComputerTools(daemonTargets);

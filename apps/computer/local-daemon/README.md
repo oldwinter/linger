@@ -100,6 +100,63 @@ structured call and one workspace call with the locally signed-in Codex (checkin
 that it writes the file and cannot read files outside the working directory). It
 spends model quota and is not part of the default tests.
 
+## Local models
+
+The Daemon runs the model library of the installer's `localmodels` tool for
+the Local models page. The Computer config's `local_models` section names the
+tool: `python`, `module_directory` (the sealed kit, used as `PYTHONPATH` and
+working directory), `state_directory` (`LOCALMODELS_STATE`) and
+`base_directory` (`--base-dir`). `packages/local-installation` writes it for
+the CLI Computer and the Desktop app for its own; a Computer without it, or
+whose interpreter is gone, reports `available: false` with
+`TOOL_NOT_INSTALLED`. `internal/localmodels` owns the tool calls; the Daemon
+only routes `execute` (kind `local_models`) to it and sends what it publishes.
+The Daemon executes the actions the Computer owner chose; it never picks a
+model.
+
+- Answer. Every action is answered `accepted` or `refused` with a
+  `LocalModelActionRefusal`. `localmodels` checks every precondition before
+  it starts work, so a download or load runs as a child process whose first
+  event line decides the answer: a progress or result line accepts it, and an
+  error line before any progress refuses it with the tool's code and its
+  `pool`, `need_bytes` and `free_bytes` (`have_bytes` for download
+  refusals). A job that exits without an event is `TOOL_FAILED`. `unload`,
+  `remove` and `cancel` are answered when the tool finishes; `refresh` after a
+  status read. If the command's `expires_at` passes before the tool decides,
+  the Daemon sends no answer (the Gateway, waiting for the same deadline,
+  reports the action as unconfirmed) and the outcome reaches the owner only
+  through snapshots: an accepted job publishes its progress, and a late
+  refusal publishes a fresh status read. Command handling runs off the
+  connection loop.
+- Jobs. A download or load runs in its own process group and writes its event
+  lines to a file under `state/local-models/jobs`, which the Daemon tails, so
+  a Daemon restart neither signals the job nor breaks its output. `cancel` is
+  `library cancel <model>`; the Daemon never signals a job. Calls that print
+  one document also write to files and a timeout kills only the tool process:
+  a call may start or restart the local model gateway, which must survive.
+- Restart. `localmodels` keeps job records on disk, so a restarted Daemon
+  trusts `library status` and rereads it every 2 seconds while a download or
+  load it did not start is running. A failed status read (including the first
+  one after connecting) is retried with backoff up to one minute until a read
+  succeeds, so a transient failure never ends the watch.
+- Snapshots. `runner.local_models` carries `library-status/v1` mapped to
+  `LocalModelsSnapshot` (pools gain `kind` and `gpu_index`; a value outside
+  the contract's closed sets makes the read `TOOL_FAILED`). Optional model-card
+  fields (`family`, `publisher`, `architecture`, `parameters`,
+  `active_parameters`, `capabilities`, `license`, HTTPS `source_url`,
+  `prompt_tokens_per_second`) follow the same closed-set validation and
+  display-string clipping. It is sent after
+  every welcome, after every action or job end, and at most every 2 seconds
+  for progress. When a job enters a phase (download, verify, load, warm) the
+  Daemon rereads the status, which carries what the phase reserved or freed
+  (pool use, placement, models unloaded first), and applies the job's line on
+  top; later lines of the phase update that snapshot without another read.
+- Pi. When the loaded models change, the Daemon asks the Runtime monitor for a
+  full discovery, so TeamHub sees Pi's new model list. Each model's
+  `pi_model` (`<provider>/<id>`, as an Agent's `runtime_model` stores it) is
+  passed through as `localmodels` reports it; the endpoint keeps only the
+  loaded engine's `base_url`.
+
 ## Codex models cache
 
 Signed in with ChatGPT, Codex blocks its first `thread/start` on a 4–5 s
@@ -116,6 +173,26 @@ background as soon as it starts, so the stamp only saves the blocking fetch.
 API-key and signed-out homes have no account identity and are not seeded;
 Codex does not fetch the catalog for them.
 
+## Personal instructions
+
+An Agent run follows only the instructions the Daemon gives it, never the
+Computer user's own instruction files:
+
+- Claude loads the Context's Skills through the `project` setting source,
+  which would also load every `CLAUDE.md`, `AGENTS.md` and `.claude/rules`
+  from the workspace up to the root, including the user's home. The Claude
+  settings set `CLAUDE_CODE_DISABLE_CLAUDE_MDS`, so none is read.
+- A Codex Context home takes the user's provider configuration but not their
+  `AGENTS.md`, `AGENTS.override.md` or `instructions.md`; a copy an earlier
+  projection left is removed. `instructions`, `developer_instructions`,
+  `model_instructions_file` and `experimental_instructions_file` are dropped
+  from the projected `config.toml` and its profiles.
+- Pi runs with `--no-context-files` and an empty `--system-prompt`, so it keeps
+  its built-in prompt instead of the user's `SYSTEM.md`.
+
+The user's own Claude Skills and the Skills of plugins they installed are still
+offered to Agents (`internal/workspace/claude_skills.go`).
+
 ## Frozen source
 
 The daemon implementation is intentionally maintained as a frozen in-repository
@@ -129,6 +206,14 @@ interface. The pipe name comes from the state directory's absolute path, with
 forward slashes, as a lowercase SHA-256 digest. Private files are checked against
 the current SID and ACL, not POSIX permission bits. Writing a separate credential
 does not change the permissions of an existing parent directory.
+
+The installer and the Daemon refuse a private path when another account can
+replace one of its parent directories. One exception applies: the Codex Windows
+sandbox may hold that right on a parent, such as AppData. The sandbox acts
+through the `CodexSandboxUsers` group and the capability SIDs in
+`%USERPROFILE%\.codex\cap_sid`. A sandboxed Codex command can therefore replace
+such a parent; Linger accepts this so it installs beside Codex. Private paths
+themselves still grant access only to the current user and SYSTEM.
 
 Process recovery uses the creation time and a held process handle, so a reused
 process ID is never mistaken for the original. Ordinary tasks are held by a Job

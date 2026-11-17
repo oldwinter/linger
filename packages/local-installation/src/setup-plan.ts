@@ -27,6 +27,15 @@ export function setupSelection(
     : { runtime: choice, modelSource: "runtime" };
 }
 export type SetupReason = string;
+/** Whether local models can install now, as the localmodels tool says. */
+export type LocalModelsState = "ready" | "blocked-now" | "unavailable";
+/** Memory free now against what the plan needs, from the localmodels tool. */
+export interface SetupMemory {
+  ramAvailableBytes: number;
+  ramRequiredBytes: number;
+  vramFreeBytes?: number;
+  vramRequiredBytes?: number;
+}
 export interface SetupGpu {
   index: number;
   name: string;
@@ -52,8 +61,26 @@ export interface SetupReport {
   choices: SetupChoice[];
   localModels: {
     eligible: boolean;
+    /**
+     * Upstream `stack.state`. "blocked-now": the hardware can run the plan,
+     * but installing now would stop until other programs free memory (or quit
+     * another inference app). A tool without the field reports the same case
+     * with basis "capacity" or reason free-memory-required.
+     */
+    state: LocalModelsState;
+    /** Upstream `stack.hardwareCapable`, when the tool reports it. */
+    hardwareCapable?: boolean | null;
+    /** Upstream `stack.memory`, when the tool reports it. */
+    memory?: SetupMemory;
     reasons: SetupReason[];
     reasonMessages?: string[];
+    /**
+     * "capacity": the plan fits this computer's hardware only once other
+     * programs release memory (upstream basis "capacity" or reason
+     * free-memory-required); the install plans again against the memory free
+     * then.
+     */
+    basis?: "capacity";
     selectedGpuIndex: number | null;
     estimate: SetupEstimate & { model: string };
   };
@@ -91,6 +118,10 @@ interface UpstreamReport {
   };
   stack: {
     available: boolean;
+    state?: LocalModelsState;
+    hardwareCapable?: boolean | null;
+    basis?: "capacity" | null;
+    memory?: SetupMemory | null;
     reasons: { code: string; message: string }[];
     plan: {
       llm: { model: { id: string }; placement: { gpus: { index: number }[] } };
@@ -118,7 +149,13 @@ export const setupChoices: readonly SetupChoice[] = [
   "claude",
   "pi",
 ];
-/** Presentation adapter only. Host probes, admission, recommendation and budgets belong upstream. */
+/**
+ * Presentation adapter only. Host probes, admission, recommendation and
+ * budgets belong upstream, with one exception: when local models are blocked
+ * now, a tool before setup-report `stack.state` still picks "local-models",
+ * which its own install-time plan refuses; the adapter replaces that pick.
+ * Remove the override and the fallbacks once the pinned tool reports `state`.
+ */
 export async function inspectSetup(
   options: SetupOptions = {},
 ): Promise<SetupReport> {
@@ -184,6 +221,52 @@ export async function inspectSetup(
         budget?.assumption ??
         "Resource estimates are unavailable from localmodels.",
     });
+    // Either structured mark means the plan needs memory other programs
+    // hold now, which the install-time plan refuses.
+    const capacity =
+      value.stack.basis === "capacity" ||
+      value.stack.reasons.some(
+        (reason) => reason.code === "free-memory-required",
+      );
+    // The tool's own state when it reports one; an older tool marks the
+    // blocked case only by the capacity basis or reason.
+    const states: readonly string[] = ["ready", "blocked-now", "unavailable"];
+    const state: LocalModelsState =
+      value.stack.state && states.includes(value.stack.state)
+        ? value.stack.state
+        : capacity
+          ? "blocked-now"
+          : value.stack.available
+            ? "ready"
+            : "unavailable";
+    const counts = (memory: SetupMemory) => {
+      const ok = (bytes: unknown) =>
+        typeof bytes === "number" && Number.isFinite(bytes) && bytes >= 0;
+      if (!ok(memory.ramAvailableBytes) || !ok(memory.ramRequiredBytes))
+        return undefined;
+      return {
+        ramAvailableBytes: memory.ramAvailableBytes,
+        ramRequiredBytes: memory.ramRequiredBytes,
+        ...(ok(memory.vramFreeBytes) && ok(memory.vramRequiredBytes)
+          ? {
+              vramFreeBytes: memory.vramFreeBytes,
+              vramRequiredBytes: memory.vramRequiredBytes,
+            }
+          : {}),
+      };
+    };
+    const memory = value.stack.memory ? counts(value.stack.memory) : undefined;
+    const runtimes = value.harness.runtimes;
+    const installed = runtimes.filter((row) => row.installed);
+    // A tool before `stack.state` recommends local models whenever they fit
+    // the hardware, even when they cannot be installed until memory is
+    // freed. Then the adapter picks as upstream does for unavailable local
+    // models: an installed (signed-in first) runtime, else Codex.
+    const recommendation =
+      state === "blocked-now" && value.recommendation === "local-models"
+        ? ((installed.find((row) => row.authenticated) ?? installed[0])
+            ?.runtime ?? "codex")
+        : value.recommendation;
     return {
       hardware: {
         platform: value.facts.platform,
@@ -203,9 +286,16 @@ export async function inspectSetup(
       },
       choices: [...setupChoices],
       localModels: {
-        eligible: value.stack.available,
+        eligible: state === "ready" && value.stack.available,
+        state,
+        ...(typeof value.stack.hardwareCapable === "boolean" ||
+        value.stack.hardwareCapable === null
+          ? { hardwareCapable: value.stack.hardwareCapable }
+          : {}),
+        ...(memory ? { memory } : {}),
         reasons: value.stack.reasons.map((reason) => reason.code),
         reasonMessages: value.stack.reasons.map((reason) => reason.message),
+        ...(capacity ? { basis: "capacity" as const } : {}),
         selectedGpuIndex: plan?.llm.placement.gpus[0]?.index ?? null,
         estimate: {
           ...estimate(
@@ -223,7 +313,7 @@ export async function inspectSetup(
           model: plan?.llm.model.id ?? "",
         },
       },
-      runtimes: value.harness.runtimes.map((row) => ({
+      runtimes: runtimes.map((row) => ({
         choice: row.runtime,
         installed: row.installed,
         auth:
@@ -234,7 +324,7 @@ export async function inspectSetup(
               : "unauthenticated",
         estimate: estimate(row.estimate),
       })),
-      recommendation: value.recommendation,
+      recommendation,
     };
   } catch {
     options.signal?.throwIfAborted();

@@ -1,4 +1,5 @@
 import {
+  AiChipIcon,
   Idea01Icon,
   Key01Icon,
   KeyboardIcon,
@@ -52,9 +53,14 @@ export function SettingsLayout() {
             label="Computers"
             to="computers"
           />
+          <SettingsLink
+            icon={<Icon icon={AiChipIcon} size={14} />}
+            label="Local models"
+            to="local-models"
+          />
         </nav>
       </aside>
-      <div className="workspace-content-viewport workspace-scrollbar flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-6 py-6 md:px-8">
+      <div className="workspace-content-viewport workspace-scrollbar flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-6 py-6 [scrollbar-gutter:stable] md:px-8">
         <Suspense
           fallback={
             <SettingsSectionLoading

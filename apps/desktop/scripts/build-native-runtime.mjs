@@ -79,19 +79,12 @@ const PLATFORMS = {
 
 // Packages the services load at runtime by a name esbuild cannot see:
 // createRequire, require.resolve of data files, or a native binding.
-const RUNTIME_PACKAGES = [
-  "@livekit/local-inference",
-  "@tesseract.js-data/chi_sim",
-  "@tesseract.js-data/eng",
-  "tesseract.js-core",
-  "word-extractor",
-];
+const RUNTIME_PACKAGES = ["@livekit/local-inference", "word-extractor"];
 // Packages that are model data rather than code: the installer leaves them
 // out and Node Services downloads them when a feature first needs them
 // (apps/node-services/src/model-packages.ts). Local models install
 // separately as before.
 export const MODEL_PACKAGE_GROUPS = [
-  [/^@tesseract\.js-data\//, "ocr"],
   // Silero VAD and the turn detector, embedded in the binding.
   [/^@livekit\/local-inference-/, "voice"],
 ];

@@ -163,6 +163,26 @@ components:
           description: >-
             Widget HTML or SVG markup inlined by show_fragment. This is message content,
             not a published Document. Ordinary delivered Documents use presentation=card.
+    MeetingNotesSegment:
+      type: object
+      additionalProperties: false
+      required: [type, content, capture_id]
+      description: >-
+        A finished recording's quick notes, which TeamHub writes from its transcript after posting
+        the recording and transcript. Clients read them from the Capture's quick_notes. Only TeamHub
+        creates it.
+      properties:
+        type:
+          type: string
+          const: meeting_notes
+        content:
+          type: string
+          minLength: 1
+          maxLength: 50000
+          description: User-visible label included in raw_message.
+        capture_id:
+          $ref: "#/components/schemas/Id"
+          description: The recording's Capture Session; its meeting in Library carries the full notes.
     DocumentSegment:
       type: object
       additionalProperties: false
@@ -266,6 +286,7 @@ components:
         - $ref: "#/components/schemas/DocumentSegment"
         - $ref: "#/components/schemas/SkillSegment"
         - $ref: "#/components/schemas/ArtifactTreeSegment"
+        - $ref: "#/components/schemas/MeetingNotesSegment"
       discriminator:
         propertyName: type
         mapping:
@@ -276,6 +297,7 @@ components:
           document: "#/components/schemas/DocumentSegment"
           skill: "#/components/schemas/SkillSegment"
           artifact_tree: "#/components/schemas/ArtifactTreeSegment"
+          meeting_notes: "#/components/schemas/MeetingNotesSegment"
     ArtifactVersionRef:
       type: object
       additionalProperties: false

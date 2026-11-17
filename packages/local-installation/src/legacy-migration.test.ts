@@ -2,13 +2,46 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { inspectComputer, stopIdleComputer } from "./computer.js";
 import { loadInstance, withInstanceLock, type Instance } from "./instance.js";
 import { migrateLegacyInstallation } from "./legacy-migration.js";
 import { legacyMigrationPending } from "./home.js";
+import { stopModelGateway } from "./model-gateway.js";
+import {
+  NATIVE_PROCESS_REPLACED,
+  stopNativeProcess,
+} from "./native-process.js";
+
+vi.mock("./computer.js", async (original) => ({
+  ...(await original<typeof import("./computer.js")>()),
+  inspectComputer: vi.fn(),
+  stopIdleComputer: vi.fn(),
+}));
+vi.mock("./native-process.js", async (original) => ({
+  ...(await original<typeof import("./native-process.js")>()),
+  stopNativeProcess: vi.fn(),
+}));
+vi.mock("./model-gateway.js", async (original) => ({
+  ...(await original<typeof import("./model-gateway.js")>()),
+  stopModelGateway: vi.fn(),
+}));
 
 const roots: string[] = [];
+beforeEach(() => {
+  vi.mocked(inspectComputer).mockResolvedValue({
+    state: "offline",
+    detail: "",
+    runtimes: [],
+    activeOperations: 0,
+    connected: false,
+  });
+  vi.mocked(stopIdleComputer).mockResolvedValue(undefined);
+  vi.mocked(stopNativeProcess).mockResolvedValue(undefined);
+  vi.mocked(stopModelGateway).mockResolvedValue(undefined);
+});
 afterEach(async () => {
+  vi.clearAllMocks();
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
@@ -118,6 +151,9 @@ describe("migrateLegacyInstallation", () => {
   it("still names an instance whose live Computer refuses to stop", async () => {
     const home = await temporary();
     const instance = await legacyInstance(home, "stuck");
+    const computer =
+      await vi.importActual<typeof import("./computer.js")>("./computer.js");
+    vi.mocked(inspectComputer).mockImplementationOnce(computer.inspectComputer);
     await mkdir(path.dirname(instance.computerExecutable), {
       recursive: true,
     });
@@ -127,9 +163,22 @@ describe("migrateLegacyInstallation", () => {
       { mode: 0o700 },
     );
 
-    await expect(migrateLegacyInstallation({ home })).rejects.toThrow(
-      /stuck: Instance busy/,
-    );
+    expect(await migrateLegacyInstallation({ home })).toEqual([
+      {
+        instance: "stuck",
+        reason:
+          "Its Computer is running 1 task(s). Let them finish or stop them, then start Linger again.",
+      },
+    ]);
+    expect(stopIdleComputer).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(
+        await readFile(path.join(instance.root, "instance.json"), "utf8"),
+      ).project,
+    ).toBe(instance.project);
+    expect(
+      await readFile(path.join(instance.root, "services.env"), "utf8"),
+    ).toContain("SIMPLEX_");
     expect(await legacyMigrationPending(home)).toBe(true);
   });
 
@@ -147,7 +196,7 @@ describe("migrateLegacyInstallation", () => {
     );
   });
 
-  it("converts the other instances when one fails, then names it", async () => {
+  it("converts the other instances when one fails, names it and retries it later", async () => {
     const home = await temporary();
     await legacyInstance(home, "alpha");
     await legacyInstance(home, "beta");
@@ -156,9 +205,12 @@ describe("migrateLegacyInstallation", () => {
         throw new Error("Instance busy: active operations are running");
     });
 
-    await expect(
-      migrateLegacyInstallation({ home, stopInstance }),
-    ).rejects.toThrow(/alpha: Instance busy: active operations are running/);
+    expect(await migrateLegacyInstallation({ home, stopInstance })).toEqual([
+      {
+        instance: "alpha",
+        reason: "Instance busy: active operations are running",
+      },
+    ]);
 
     expect(stopInstance).toHaveBeenCalledTimes(2);
     expect((await loadInstance({ name: "beta", home }))!.project).toMatch(
@@ -179,11 +231,16 @@ describe("migrateLegacyInstallation", () => {
     const instance = await legacyInstance(home, "desktop");
     const stopInstance = vi.fn(async () => {});
 
-    await withInstanceLock(instance, () =>
-      expect(migrateLegacyInstallation({ home, stopInstance })).rejects.toThrow(
-        /desktop: Instance busy/,
-      ),
+    const skipped = await withInstanceLock(instance, () =>
+      migrateLegacyInstallation({ home, stopInstance }),
     );
+
+    expect(skipped).toEqual([
+      {
+        instance: "desktop",
+        reason: expect.stringMatching(/^Another Linger installer is using it/),
+      },
+    ]);
 
     expect(stopInstance).not.toHaveBeenCalled();
     expect(await legacyMigrationPending(home)).toBe(true);
@@ -220,5 +277,152 @@ describe("migrateLegacyInstallation", () => {
     const home = await temporary();
     await put(path.join(home, "instances", "broken", "instance.json"), "{");
     expect(await legacyMigrationPending(home)).toBe(false);
+  });
+
+  it("explains an instance it has not converted when the installer loads it", async () => {
+    const home = await temporary();
+    await legacyInstance(home, "desktop");
+    await expect(loadInstance({ name: "desktop", home })).rejects.toThrow(
+      /still has its names from the earlier Simplex app.*--migrate to see why/,
+    );
+  });
+});
+
+describe("stopping a legacy instance", () => {
+  it("converts an instance whose Computer status cannot be read", async () => {
+    const home = await temporary();
+    await legacyInstance(home, "default");
+    vi.mocked(inspectComputer).mockResolvedValueOnce({
+      state: "action_required",
+      detail: "Computer status could not be inspected.",
+      runtimes: [],
+      activeOperations: -1,
+      connected: false,
+    });
+
+    expect(await migrateLegacyInstallation({ home })).toEqual([]);
+
+    expect(stopIdleComputer).not.toHaveBeenCalled();
+    expect((await loadInstance({ name: "default", home }))!.project).toMatch(
+      /^linger-default-/,
+    );
+  });
+
+  it("stops an idle Computer, and leaves one running tasks as it was", async () => {
+    const home = await temporary();
+    await legacyInstance(home, "default");
+    const status = {
+      state: "offline" as const,
+      detail: "",
+      runtimes: [],
+      connected: false,
+    };
+    vi.mocked(inspectComputer).mockResolvedValueOnce({
+      ...status,
+      activeOperations: 2,
+    });
+
+    expect(await migrateLegacyInstallation({ home })).toEqual([
+      {
+        instance: "default",
+        reason:
+          "Its Computer is running 2 task(s). Let them finish or stop them, then start Linger again.",
+      },
+    ]);
+    expect(stopIdleComputer).not.toHaveBeenCalled();
+
+    vi.mocked(inspectComputer).mockResolvedValueOnce({
+      ...status,
+      activeOperations: 0,
+    });
+    expect(await migrateLegacyInstallation({ home })).toEqual([]);
+    expect(stopIdleComputer).toHaveBeenCalledTimes(1);
+    expect(await legacyMigrationPending(home)).toBe(false);
+  });
+
+  it("converts an instance whose Computer runtime is gone", async () => {
+    const home = await temporary();
+    await legacyInstance(home, "default");
+    vi.mocked(inspectComputer).mockRejectedValueOnce(
+      new Error("Managed runtime is not installed"),
+    );
+
+    expect(await migrateLegacyInstallation({ home })).toEqual([]);
+    expect(stopIdleComputer).not.toHaveBeenCalled();
+    expect(await legacyMigrationPending(home)).toBe(false);
+  });
+
+  it("converts an idle instance whose stops find nothing to stop", async () => {
+    const home = await temporary();
+    await legacyInstance(home, "default-current");
+    vi.mocked(inspectComputer).mockResolvedValueOnce({
+      state: "offline",
+      detail: "",
+      runtimes: [],
+      activeOperations: 0,
+      connected: false,
+    });
+    vi.mocked(stopIdleComputer).mockRejectedValueOnce(
+      new Error("Could not stop instance Computer; run linger-computer doctor"),
+    );
+    vi.mocked(stopNativeProcess).mockRejectedValueOnce(
+      Object.assign(new Error("Native postgres process identity changed"), {
+        code: NATIVE_PROCESS_REPLACED,
+      }),
+    );
+    vi.mocked(stopModelGateway).mockRejectedValueOnce(
+      new Error("The owned model gateway could not be stopped."),
+    );
+
+    expect(await migrateLegacyInstallation({ home })).toEqual([]);
+    expect(await legacyMigrationPending(home)).toBe(false);
+  });
+
+  it("skips an instance whose service is still running, saying so", async () => {
+    const home = await temporary();
+    await legacyInstance(home, "default");
+    await legacyInstance(home, "desktop");
+    vi.mocked(stopNativeProcess).mockImplementation(async (root, name) => {
+      if (root.endsWith(`${path.sep}default`) && name === "postgres")
+        throw new Error(
+          "Native postgres did not stop; identity record retained.",
+        );
+    });
+
+    const skipped = await migrateLegacyInstallation({ home });
+
+    expect(skipped).toEqual([
+      {
+        instance: "default",
+        reason:
+          "Its postgres service is still running and could not be stopped (Native postgres did not stop; identity record retained.). Restart this computer, then start Linger again.",
+      },
+    ]);
+    expect(skipped[0]!.reason).not.toMatch(/stop any task/i);
+    expect((await loadInstance({ name: "desktop", home }))!.project).toMatch(
+      /^linger-desktop-/,
+    );
+  });
+
+  it("leaves an install from the Docker era as it was", async () => {
+    const home = await temporary();
+    const root = path.join(home, "instances", "default");
+    const record = JSON.stringify({
+      name: "default",
+      mode: "release",
+      root,
+      project: "simplex-default-0123456789ab",
+    });
+    await put(path.join(root, "instance.json"), record);
+
+    expect(await legacyMigrationPending(home)).toBe(false);
+    expect(await migrateLegacyInstallation({ home })).toEqual([]);
+    expect(inspectComputer).not.toHaveBeenCalled();
+    expect(await readFile(path.join(root, "instance.json"), "utf8")).toBe(
+      record,
+    );
+    await expect(loadInstance({ name: "default", home })).rejects.toThrow(
+      /ran in Docker/,
+    );
   });
 });

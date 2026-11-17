@@ -1,17 +1,34 @@
 import { runProcess } from "./process.js";
 vi.mock("./process.js", () => ({ runProcess: vi.fn() }));
-import { inspectNativeProcess, startNativeProcess } from "./native-process.js";
+import {
+  inspectNativeProcess,
+  startNativeProcess,
+  stopNativeProcess,
+} from "./native-process.js";
 vi.mock("./native-process.js", () => ({
   inspectNativeProcess: vi.fn(async () => ({ running: true })),
   startNativeProcess: vi.fn(async () => {}),
+  stopNativeProcess: vi.fn(async () => {}),
+}));
+import { setAsideLegacyData } from "./legacy-database.js";
+vi.mock("./legacy-database.js", async (original) => ({
+  ...(await original<typeof import("./legacy-database.js")>()),
+  setAsideLegacyData: vi.fn(),
+}));
+import { removeRetrying, renameRetrying } from "./fs-retry.js";
+vi.mock("./fs-retry.js", () => ({
+  removeRetrying: vi.fn(async () => {}),
+  renameRetrying: vi.fn(async () => {}),
 }));
 vi.mock("./instance.js", () => ({
   privateDirectory: vi.fn(async () => {}),
   atomicPrivate: vi.fn(async () => {}),
   readPrivate: vi.fn(async () => "LINGER_POSTGRES_PASSWORD=secret\n"),
 }));
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   postgresProgram,
   prepareNativeDatabase,
@@ -103,6 +120,7 @@ describe("prepareNativeDatabase on Windows", () => {
       "pg_isready.exe",
       "psql.exe",
       "createdb.exe",
+      "psql.exe",
     ]);
     expect(vi.mocked(startNativeProcess).mock.calls[0]![0]).toMatchObject({
       executable: path.join(options.postgresBin, "postgres.exe"),
@@ -120,5 +138,136 @@ describe("prepareNativeDatabase on Windows", () => {
     );
     expect(run).toHaveBeenCalledTimes(1);
     expect(startNativeProcess).not.toHaveBeenCalled();
+  });
+});
+
+describe("prepareNativeDatabase initdb", () => {
+  // The root guard refuses initdb, and CI containers often run as root.
+  beforeEach(() => {
+    Object.defineProperty(process, "getuid", { ...getuid, value: () => 1000 });
+  });
+  const data = path.join(instance.root, "native/postgres-data");
+  const pending = `${data}.partial`;
+  const pgdata = () =>
+    run.mock.calls
+      .filter(([command]) => path.basename(command) === "initdb")
+      .map(([, args]) => args[args.indexOf("--pgdata") + 1]);
+
+  it("builds the data directory aside and moves it in once initdb succeeds", async () => {
+    run.mockResolvedValue(ok());
+    await prepareNativeDatabase(options);
+    expect(pgdata()).toEqual([pending]);
+    expect(vi.mocked(removeRetrying).mock.calls).toEqual([[pending], [data]]);
+    expect(vi.mocked(renameRetrying)).toHaveBeenCalledWith(pending, data, {
+      signal: options.signal,
+    });
+    const initdb = run.mock.calls.findIndex(
+      ([command]) => path.basename(command) === "initdb",
+    );
+    expect(
+      vi.mocked(removeRetrying).mock.invocationCallOrder[1],
+    ).toBeGreaterThan(run.mock.invocationCallOrder[initdb]!);
+  });
+
+  // A killed initdb has already written PG_VERSION; publishing it would make
+  // every later attempt skip initdb and fail on an incomplete cluster.
+  it("leaves the data directory alone when initdb fails", async () => {
+    run.mockImplementation(async (command) =>
+      path.basename(command) === "initdb"
+        ? { code: 1, stdout: "", stderr: "" }
+        : ok(),
+    );
+    await expect(prepareNativeDatabase(options)).rejects.toThrow(
+      /initdb failed/,
+    );
+    expect(vi.mocked(removeRetrying).mock.calls).toEqual([[pending]]);
+    expect(renameRetrying).not.toHaveBeenCalled();
+    expect(startNativeProcess).not.toHaveBeenCalled();
+  });
+
+  describe("with a PG_VERSION already present", () => {
+    let root: string;
+    beforeEach(async () => {
+      root = await mkdtemp(path.join(tmpdir(), "native-database-"));
+      await mkdir(path.join(root, "native/postgres-data"), { recursive: true });
+      await writeFile(
+        path.join(root, "native/postgres-data/PG_VERSION"),
+        "17\n",
+      );
+      run.mockResolvedValue(ok());
+    });
+    afterEach(() => rm(root, { recursive: true, force: true }));
+    const prepare = () =>
+      prepareNativeDatabase({ ...options, instance: { ...instance, root } });
+
+    it("keeps a cluster that has served", async () => {
+      await writeFile(
+        path.join(root, "native/postgres-data/postmaster.opts"),
+        "",
+      );
+      await prepare();
+      expect(pgdata()).toEqual([]);
+      expect(renameRetrying).not.toHaveBeenCalled();
+    });
+
+    // A cluster no postmaster ever started holds no data, and one left by a
+    // killed initdb would otherwise fail every start.
+    it("makes again one that never started", async () => {
+      await prepare();
+      expect(pgdata()).toEqual([
+        path.join(root, "native/postgres-data.partial"),
+      ]);
+      expect(renameRetrying).toHaveBeenCalled();
+    });
+  });
+});
+
+describe("prepareNativeDatabase with an existing TeamHub schema", () => {
+  const backup = path.join(instance.root, "simplex-backup-x");
+  const programs = () =>
+    run.mock.calls.map(([command]) => path.basename(command));
+  // psql answers the schema check from `schema` and the baseline check
+  // from `baseline`.
+  const answer = (schema: () => string, baseline: string) =>
+    run.mockImplementation(async (command, args) =>
+      path.basename(command) !== "psql" || !args.includes("simplexai")
+        ? ok()
+        : ok(
+            args.some((arg) => arg.includes("to_regclass"))
+              ? schema()
+              : args.some((arg) => arg.includes("goose_db_version"))
+                ? baseline
+                : "1",
+          ),
+    );
+
+  it("sets a database from before Linger aside and opens a fresh one", async () => {
+    let fresh = false;
+    answer(() => (fresh ? "f|f\n" : "t|t\n"), "f\n");
+    vi.mocked(setAsideLegacyData).mockImplementation(async () => {
+      fresh = true;
+      return backup;
+    });
+    expect(await prepareNativeDatabase(options)).toEqual({
+      legacyBackup: backup,
+    });
+    expect(stopNativeProcess).toHaveBeenCalledWith(instance.root, "postgres");
+    expect(setAsideLegacyData).toHaveBeenCalledWith(
+      instance.root,
+      options.signal,
+    );
+    expect(
+      vi.mocked(stopNativeProcess).mock.invocationCallOrder[0],
+    ).toBeLessThan(vi.mocked(setAsideLegacyData).mock.invocationCallOrder[0]!);
+    expect(programs().filter((name) => name === "initdb")).toHaveLength(2);
+    expect(startNativeProcess).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves a database that Linger migrated alone", async () => {
+    answer(() => "t|t\n", "t\n");
+    expect(await prepareNativeDatabase(options)).toEqual({});
+    expect(stopNativeProcess).not.toHaveBeenCalled();
+    expect(setAsideLegacyData).not.toHaveBeenCalled();
+    expect(startNativeProcess).toHaveBeenCalledTimes(1);
   });
 });

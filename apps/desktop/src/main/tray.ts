@@ -12,6 +12,8 @@ import mark32 from "../../resources/tray/mark-32.png";
 import tile16 from "../../resources/tray/tile-16.png";
 import tile32 from "../../resources/tray/tile-32.png";
 import type { DiagnosticsModule } from "./diagnostics.js";
+import { diagnosticsDialogs } from "./diagnostics-dialogs.js";
+import { sendWithPrompts } from "./diagnostics-upload.js";
 import { EnrollmentError, type EnrollmentModule } from "./enrollment.js";
 import { headlessDisplay } from "./headless.js";
 import type { Module, ModuleContext } from "./modules.js";
@@ -175,6 +177,8 @@ export class TrayModule implements Module, DesktopTrayHost {
       enrolled: !!config.computerId,
       identityConflict: !!config.identityConflict,
       update,
+      canSendDiagnostics:
+        !!this.#ctx!.get<DiagnosticsModule>("Diagnostics").uploadUrl(),
     });
     return Menu.buildFromTemplate(items.map((item) => this.#item(item)));
   }
@@ -229,6 +233,14 @@ export class TrayModule implements Module, DesktopTrayHost {
         );
         break;
       }
+      case "send-diagnostics":
+        void sendWithPrompts(
+          ctx.get<DiagnosticsModule>("Diagnostics").sender,
+          diagnosticsDialogs(() =>
+            ctx.get<WindowManagerModule>("WindowManager").window(),
+          ),
+        );
+        break;
       case "quit":
         this.#options.quit();
         break;

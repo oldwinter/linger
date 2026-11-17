@@ -75,8 +75,12 @@ type Capture struct {
 	GapCount                     int64
 	GapDurationMS                int64
 	LastFailureCode              string
-	CreatedAt                    time.Time
-	UpdatedAt                    time.Time
+	// QuickNotesState is pending, ready or failed once the completion
+	// Message promised quick notes; QuickNotes holds them when ready.
+	QuickNotesState string
+	QuickNotes      []byte
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type BeginCaptureRequest struct {

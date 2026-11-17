@@ -10,6 +10,7 @@ import {
   type Instance,
 } from "./instance.js";
 import type { InstallOutcome, InstallerEvent } from "./events.js";
+import { localmodelsFailure } from "./localmodels-failure.js";
 import { runLocalmodels } from "./localmodels-tool.js";
 import {
   readSetupChoice,
@@ -279,12 +280,31 @@ export async function prepareLocalModels(
       (await readGpuSharing(instance)) ??
       DEFAULT_GPU_SHARING;
     const invoke = dependencies.localmodels ?? runLocalmodels;
+    // Says why localmodels refused: its cause in the outcome, its redacted
+    // output in the installer log.
+    const refused = (
+      code: string,
+      text: string,
+      args: string[],
+      result: { code: number; stdout: string; stderr: string },
+    ) => {
+      const { cause, log } = localmodelsFailure(args, result);
+      for (const message of log)
+        options.onEvent({ kind: "log", stage: "runtime", message });
+      return action(
+        code,
+        `${text}${cause ? `: ${cause}` : "."} Existing resources were preserved.`,
+      );
+    };
     const command = async (args: string[]) => {
       let buffer = "";
-      return invoke(home, args, {
+      // The end of an uncaptured run's output, without its byte counters.
+      let tail = "";
+      const captured = !(args[0] === "stack" && args[1] === "apply");
+      const result = await invoke(home, args, {
         signal: options.signal,
         timeoutMs: args[1] === "apply" ? undefined : 120000,
-        capture: !(args[0] === "stack" && args[1] === "apply"),
+        capture: captured,
         onEvent: options.onEvent,
         onOutput: (chunk) => {
           buffer += chunk;
@@ -298,13 +318,20 @@ export async function prepareLocalModels(
             try {
               event = JSON.parse(line);
             } catch {
+              if (!captured) tail = `${tail}${line}\n`.slice(-8000);
               continue;
             }
+            if (
+              !captured &&
+              (event as { event?: unknown } | null)?.event !== "progress"
+            )
+              tail = `${tail}${line}\n`.slice(-8000);
             const progress = stackProgress(event);
             if (progress) options.onEvent(progress);
           }
         },
       });
+      return captured ? result : { ...result, stderr: tail };
     };
     if (!saved && options.localModelsApproval)
       return action(
@@ -328,9 +355,11 @@ export async function prepareLocalModels(
           "--json",
         ]);
         if (result.code !== 0)
-          return action(
+          return refused(
             "LOCAL_MODELS_UNAVAILABLE",
-            "The upstream planner could not create a local model plan. Existing resources were preserved.",
+            "The upstream planner could not create a local model plan",
+            ["stack", "plan"],
+            result,
           );
         const generated = await readPrivate(temporary);
         if (!generated)
@@ -423,9 +452,11 @@ export async function prepareLocalModels(
       "--jsonl",
     ]);
     if (applied.code !== 0)
-      return action(
+      return refused(
         "LOCAL_MODELS_RECOVERY_REQUIRED",
-        "Local model installation or verification did not finish. Existing resources were preserved.",
+        "Local model installation or verification did not finish",
+        ["stack", "apply"],
+        applied,
       );
     const observed = await observe();
     if (!observed?.ready)

@@ -6,6 +6,10 @@ import path from "node:path";
 // the rest, so they never make a migration pending.
 export const INSTANCE_NAME = /^[a-z][a-z0-9-]{0,39}$/;
 
+// The project name prefix of instances installed while the product was named
+// Simplex; it marks an instance legacy-migration.ts has not converted yet.
+export const LEGACY_PROJECT_PREFIX = "simplex-";
+
 /** The installation home: LINGER_HOME, else ~/.simplexai. */
 export function lingerHome(
   environment: NodeJS.ProcessEnv = process.env,
@@ -16,6 +20,24 @@ export function lingerHome(
   );
 }
 
+/**
+ * An instance record from before the rename that Linger converts. One from a
+ * Docker-mode install (mode "source" or "release") is left as it is: Linger
+ * no longer runs it, says so when it is opened, and its compose project
+ * name is what removes its containers.
+ */
+export function convertibleLegacyRecord(value: unknown): boolean {
+  const { project, mode } = (value ?? {}) as {
+    project?: unknown;
+    mode?: unknown;
+  };
+  return (
+    typeof project === "string" &&
+    project.startsWith(LEGACY_PROJECT_PREFIX) &&
+    mode !== "source" &&
+    mode !== "release"
+  );
+}
 /**
  * Whether an instance under `home` still carries the project name of an
  * install from before the rename, so legacy-migration.ts has work to do.
@@ -37,16 +59,15 @@ export async function legacyMigrationPending(home: string): Promise<boolean> {
       "utf8",
     ).catch(() => undefined);
     if (record === undefined) continue;
-    let project: unknown;
+    let value: unknown;
     try {
-      project = (JSON.parse(record) as { project?: unknown }).project;
+      value = JSON.parse(record);
     } catch {
       // A damaged record is not the migration's to judge; the installer
       // reports it when it reads the instance.
       continue;
     }
-    if (typeof project === "string" && project.startsWith("simplex-"))
-      return true;
+    if (convertibleLegacyRecord(value)) return true;
   }
   return false;
 }

@@ -21,6 +21,8 @@ import {
   type TitlebarState,
 } from "../shared/shell.js";
 import type { DiagnosticsModule } from "./diagnostics.js";
+import { diagnosticsDialogs } from "./diagnostics-dialogs.js";
+import { sendWithPrompts } from "./diagnostics-upload.js";
 import type { Module, ModuleContext } from "./modules.js";
 import {
   OFFLINE_ORIGIN,
@@ -280,6 +282,12 @@ export class WindowManagerModule implements Module {
   #loadLocal(mode: "updating" | "starting" | "failed", value: string): void {
     const url = new URL(`${OFFLINE_ORIGIN}/`);
     url.searchParams.set(mode, value);
+    // Send Diagnostics shows only while a diagnostics server is set up.
+    if (
+      mode === "failed" &&
+      this.#ctx!.get<DiagnosticsModule>("Diagnostics").uploadUrl()
+    )
+      url.searchParams.set("send", "1");
     void this.#content?.webContents
       .loadURL(url.toString())
       .catch(() => undefined);
@@ -466,6 +474,13 @@ export class WindowManagerModule implements Module {
         this.#ctx?.log.warn("window.diagnostics_failed", {
           error: String(error),
         }),
+      );
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname === "/send") {
+      void sendWithPrompts(
+        this.#ctx!.get<DiagnosticsModule>("Diagnostics").sender,
+        diagnosticsDialogs(() => this.#window),
       );
       return new Response(null, { status: 204 });
     }

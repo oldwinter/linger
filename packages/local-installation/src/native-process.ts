@@ -327,6 +327,11 @@ export async function startNativeProcess(options: {
   }
 }
 
+/**
+ * Marks a stop refused because the recorded PID now belongs to another
+ * program: none of the service's own processes are left.
+ */
+export const NATIVE_PROCESS_REPLACED = "NATIVE_PROCESS_REPLACED";
 export async function stopNativeProcess(
   root: string,
   name: NativeService,
@@ -337,8 +342,11 @@ export async function stopNativeProcess(
   let owned = await nativeLeaseProcesses(record.lease);
   if (current !== record.birth && !owned.length) {
     if ((await stillLive(record.pid)) || (await groupLive(record.pid)))
-      throw new Error(
-        `Native ${name} process identity changed; refusing to signal this PID.`,
+      throw Object.assign(
+        new Error(
+          `Native ${name} process identity changed; refusing to signal this PID.`,
+        ),
+        { code: NATIVE_PROCESS_REPLACED },
       );
     await rm(paths(root, name).record, { force: true });
     return;

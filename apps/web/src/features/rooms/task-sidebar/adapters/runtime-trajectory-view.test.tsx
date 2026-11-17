@@ -64,6 +64,10 @@ describe("RuntimeTrajectoryView", () => {
       "town-shimmer-text",
     );
     expect(screen.getByText("green").tagName).toBe("STRONG");
+    // The reply reads as the turn's prose, not a chat bubble among its steps.
+    expect(
+      screen.getByText("green").closest(".room-message-bubble"),
+    ).toBeNull();
     fireEvent.click(ran);
     expect(ran.closest("details")).not.toHaveAttribute("open");
   });

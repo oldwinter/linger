@@ -53,7 +53,7 @@ func agentSkillRegistrationsByID(bindings []agentSkillRegistrationResponse) map[
 }
 
 func hasOfficeDefaultSkillRegistrations(bindings map[string]agentSkillRegistrationResponse) bool {
-	for name, version := range map[string]string{"docx": "1.0.0", "pdf": "1.0.0", "pptx": "1.0.2", "xlsx": "1.0.0"} {
+	for name, version := range map[string]string{"docx": "1.0.0", "pdf": "1.0.0", "pptx": "1.0.4", "xlsx": "1.0.0"} {
 		binding := bindings["simplexai_builtin_"+name]
 		if binding.Name != name || binding.ManifestVersion != version {
 			return false

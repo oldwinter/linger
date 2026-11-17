@@ -11,17 +11,13 @@ export function Field({
   id,
   inputClassName = "",
   label,
-  labelClassName = "",
-  prefix,
   suffix,
   ...props
-}: Omit<InputHTMLAttributes<HTMLInputElement>, "prefix" | "size"> & {
+}: Omit<InputHTMLAttributes<HTMLInputElement>, "size"> & {
   error?: string | null;
   hint?: string;
   inputClassName?: string;
   label: string;
-  labelClassName?: string;
-  prefix?: ReactNode;
   suffix?: ReactNode;
 }) {
   const generatedId = useId();
@@ -33,7 +29,7 @@ export function Field({
   return (
     <div className={`ui-field ${className}`}>
       <label
-        className={`mb-1.5 block text-sm font-medium text-foreground ${labelClassName}`}
+        className="mb-1.5 block text-sm font-medium text-foreground"
         htmlFor={inputId}
       >
         {label}
@@ -42,15 +38,10 @@ export function Field({
         <input
           aria-describedby={describedBy}
           aria-invalid={error ? true : undefined}
-          className={`${fieldControlClassName} ${prefix ? "pl-12" : ""} ${suffix ? "pr-11" : ""} ${inputClassName}`}
+          className={`${fieldControlClassName} ${suffix ? "pr-11" : ""} ${inputClassName}`}
           id={inputId}
           {...props}
         />
-        {prefix ? (
-          <span className="pointer-events-none absolute inset-y-0 left-0 flex w-12 items-center justify-center text-muted-foreground">
-            {prefix}
-          </span>
-        ) : null}
         {suffix ? (
           <span className="absolute inset-y-0 right-0 flex w-11 items-center justify-center">
             {suffix}

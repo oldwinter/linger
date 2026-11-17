@@ -188,6 +188,7 @@ type AgentLocalRun struct {
 	Usage                      []byte             `json:"usage"`
 	StatusRoomID               pgtype.Text        `json:"status_room_id"`
 	ClaimProfileRevision       pgtype.Int8        `json:"claim_profile_revision"`
+	TurnIds                    []string           `json:"turn_ids"`
 }
 
 type AgentLocalRunInput struct {
@@ -409,6 +410,8 @@ type CaptureSession struct {
 	TranscriptRecoveryFailureCode    pgtype.Text        `json:"transcript_recovery_failure_code"`
 	TranscriptRecoveryRetryAt        pgtype.Timestamptz `json:"transcript_recovery_retry_at"`
 	HiddenAt                         pgtype.Timestamptz `json:"hidden_at"`
+	QuickNotesState                  pgtype.Text        `json:"quick_notes_state"`
+	QuickNotes                       []byte             `json:"quick_notes"`
 }
 
 type CaptureTranscriptCoverage struct {
@@ -657,7 +660,6 @@ type DocumentText struct {
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 	Markdown         string             `json:"markdown"`
 	MarkdownSha256   pgtype.Text        `json:"markdown_sha256"`
-	Scanned          bool               `json:"scanned"`
 	LongestLineBytes int64              `json:"longest_line_bytes"`
 }
 
@@ -854,6 +856,14 @@ type LocalComputerEnrollment struct {
 	ExchangedAt            pgtype.Timestamptz `json:"exchanged_at"`
 	ExchangedGeneration    pgtype.Int8        `json:"exchanged_generation"`
 	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+}
+
+type LocalComputerModelSnapshot struct {
+	ComputerID string             `json:"computer_id"`
+	Snapshot   []byte             `json:"snapshot"`
+	Host       []byte             `json:"host"`
+	ObservedAt pgtype.Timestamptz `json:"observed_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 }
 
 type MemoryIndexChunk struct {
@@ -1903,6 +1913,7 @@ type VoiceSession struct {
 	AuthSessionID              pgtype.Text        `json:"auth_session_id"`
 	LiveAgentActorID           pgtype.Text        `json:"live_agent_actor_id"`
 	LiveLeaseUntil             pgtype.Timestamptz `json:"live_lease_until"`
+	NextMediaEpoch             int32              `json:"next_media_epoch"`
 }
 
 type VoiceTranscriptSegment struct {
@@ -2008,6 +2019,7 @@ type WorkItem struct {
 	TaskLeaseTokenHash            []byte             `json:"task_lease_token_hash"`
 	TaskLeaseGeneration           pgtype.Int8        `json:"task_lease_generation"`
 	TaskLeaseExpiresAt            pgtype.Timestamptz `json:"task_lease_expires_at"`
+	Quiet                         bool               `json:"quiet"`
 }
 
 type WorkItemAccessGrant struct {

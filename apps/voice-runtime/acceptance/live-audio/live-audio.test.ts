@@ -27,7 +27,7 @@ const rtc = vi.hoisted(() => {
       this.controller.enqueue({
         data,
         samplesPerChannel: data.length,
-        sampleRate: 16_000,
+        sampleRate: 24_000,
         channels: 1,
       });
     }
@@ -129,7 +129,7 @@ const publisher = { identity: `publisher-${sessionId}` };
 
 const ttsDir = mkdtempSync(join(tmpdir(), "live-audio-"));
 const ttsCache = new Map<string, Int16Array>();
-/** The words as 16 kHz mono PCM, spoken by a Mandarin system voice. */
+/** The words as 24 kHz mono PCM, the rate the worker reads the track at. */
 function speech(text: string) {
   let pcm = ttsCache.get(text);
   if (!pcm) {
@@ -147,7 +147,7 @@ function speech(text: string) {
         "-ac",
         "1",
         "-ar",
-        "16000",
+        "24000",
         "-",
       ],
       { maxBuffer: 1 << 26 },
@@ -157,6 +157,66 @@ function speech(text: string) {
   }
   return pcm;
 }
+
+/** RMS of the 32 ms windows that carry speech. */
+function speechLevel(pcm: Int16Array) {
+  let sum = 0;
+  let count = 0;
+  for (let start = 0; start + 512 <= pcm.length; start += 512) {
+    let window = 0;
+    for (let index = start; index < start + 512; index++)
+      window += pcm[index]! * pcm[index]!;
+    if (window / 512 < 100 * 100) continue;
+    sum += window;
+    count += 512;
+  }
+  return Math.sqrt(sum / Math.max(1, count));
+}
+
+const distantCache = new Map<string, Int16Array>();
+/**
+ * Another person in the room: another voice, duller and with reflections as
+ * from across it, `belowDb` quieter than the user's own words.
+ */
+function distantSpeech(text: string, belowDb: number) {
+  const key = `${belowDb}:${text}`;
+  let pcm = distantCache.get(key);
+  if (!pcm) {
+    const aiff = join(ttsDir, `distant-${distantCache.size}.aiff`);
+    execFileSync("say", ["-v", "Daniel", "-o", aiff, text]);
+    const raw = execFileSync(
+      "ffmpeg",
+      [
+        "-loglevel",
+        "error",
+        "-i",
+        aiff,
+        "-af",
+        "lowpass=f=3200,aecho=0.8:0.6:35|70:0.35|0.25",
+        "-f",
+        "s16le",
+        "-ac",
+        "1",
+        "-ar",
+        "24000",
+        "-",
+      ],
+      { maxBuffer: 1 << 26 },
+    );
+    const far = new Int16Array(raw.buffer, raw.byteOffset, raw.length / 2);
+    const gain =
+      (speechLevel(speech(userReference)) / speechLevel(far)) *
+      10 ** (-belowDb / 20);
+    pcm = far.map((sample) =>
+      Math.max(-32_768, Math.min(32_767, Math.round(sample * gain))),
+    );
+    distantCache.set(key, pcm);
+  }
+  return pcm;
+}
+const userReference = "Research pricing for Notion, Linear and Feishu for me";
+/** How much quieter than the user another person in the room is. */
+const distantDb = Number(env.LIVE_AUDIO_DISTANT_DB || 15);
 
 interface Task {
   task_id: string;
@@ -363,7 +423,7 @@ class Call {
     this.pump = setInterval(() => {
       const due = Math.floor((rtc.now() - start) / 20);
       for (; sent < due; sent++)
-        track.push(this.mic.shift() ?? new Int16Array(320));
+        track.push(this.mic.shift() ?? new Int16Array(480));
     }, 10);
     await running;
     await this.wait(
@@ -457,18 +517,25 @@ class Call {
   }
 
   /** Speaks the segments (text, or a silent gap in ms) and resolves when done. */
-  async say(...segments: Array<string | number>) {
+  async say(
+    ...segments: Array<string | number | { distant: string; belowDb: number }>
+  ) {
     this.note("mic_start", {
-      text: segments.filter((s) => typeof s === "string").join(" … "),
+      text: segments
+        .map((s) => (typeof s === "object" ? `(distant) ${s.distant}` : s))
+        .filter((s) => typeof s === "string")
+        .join(" … "),
     });
     for (const segment of segments) {
       const pcm =
         typeof segment === "number"
-          ? new Int16Array(segment * 16)
-          : speech(segment);
-      for (let offset = 0; offset < pcm.length; offset += 320) {
-        const frame = new Int16Array(320);
-        frame.set(pcm.subarray(offset, offset + 320));
+          ? new Int16Array(segment * 24)
+          : typeof segment === "object"
+            ? distantSpeech(segment.distant, segment.belowDb)
+            : speech(segment);
+      for (let offset = 0; offset < pcm.length; offset += 480) {
+        const frame = new Int16Array(480);
+        frame.set(pcm.subarray(offset, offset + 480));
         this.mic.push(frame);
       }
     }
@@ -502,6 +569,12 @@ class Call {
   }
   playing() {
     return (this.source?.queuedDuration ?? 0) > 0;
+  }
+  /** When the reply was first cleared from the output after `from`. */
+  firstClearAfter(from: number) {
+    return (this.source?.clears ?? [])
+      .map((at) => at - this.t0)
+      .find((at) => at >= from);
   }
   /** Waits until the line has been quiet for `quietMs` (output and replies). */
   async settle(quietMs = 2_500, limitMs = 60_000) {
@@ -690,6 +763,7 @@ const scenarios: Record<
     await call.wait(() => call.firstSoundAfter(asked) !== undefined, 20_000);
     await sleep(3_000);
     const start = call.at();
+    const playingAtStart = call.playing();
     await call.say("Wait, stop for a moment");
     const end = call.at();
     await call.settle();
@@ -702,7 +776,63 @@ const scenarios: Record<
       stopAfterSpeechMs: lastOld
         ? Math.max(0, Math.round(lastOld.end - start))
         : null,
+      clearedAfterMs: (() => {
+        const cleared = call.firstClearAfter(start);
+        return cleared === undefined ? null : Math.round(cleared - start);
+      })(),
+      playingAtStart,
       responded: call.firstSoundAfter(end) !== undefined,
+    };
+  },
+  // Someone else in the room talks while the live voice replies; the reply
+  // goes on.
+  async backgroundTalk(call) {
+    await call.say(
+      "Explain in detail why so many SaaS products charge per seat",
+    );
+    const asked = call.at();
+    await call.wait(() => call.firstSoundAfter(asked) !== undefined, 20_000);
+    await sleep(2_000);
+    const start = call.at();
+    await call.say({
+      distant:
+        "Did anyone see where I left the charger, I think it was on the desk next to the window",
+      belowDb: distantDb,
+    });
+    const end = call.at();
+    await call.settle();
+    return {
+      interrupted: call.entries("reply_interrupted", start).length > 0,
+      providerHeard: call
+        .entries("xai", start)
+        .some((entry) => entry.event === "input_audio_buffer.speech_started"),
+      playedShare: +(
+        call.soundBetween(start, end) /
+        ((end - start) / 1000)
+      ).toFixed(2),
+    };
+  },
+  // A short aside nearby while the live voice replies.
+  async backgroundAside(call) {
+    await call.say(
+      "Explain in detail why so many SaaS products charge per seat",
+    );
+    const asked = call.at();
+    await call.wait(() => call.firstSoundAfter(asked) !== undefined, 20_000);
+    await sleep(2_000);
+    const start = call.at();
+    await call.say({ distant: "Yeah, okay, sure", belowDb: distantDb });
+    const end = call.at();
+    await call.settle();
+    return {
+      interrupted: call.entries("reply_interrupted", start).length > 0,
+      providerHeard: call
+        .entries("xai", start)
+        .some((entry) => entry.event === "input_audio_buffer.speech_started"),
+      playedShare: +(
+        call.soundBetween(start, end + 1_000) /
+        ((end + 1_000 - start) / 1000)
+      ).toFixed(2),
     };
   },
   // An event from the user's apps is said, then acted on when asked.

@@ -23,6 +23,7 @@ import {
 } from "../../../../src/runtime-model-call.js";
 import { stubModelCall } from "../../../model-call-stub.js";
 import { createTestRunnerGateway } from "../../test-support/runner-gateway.js";
+import { startHttpHost } from "../../../../src/http-host.js";
 
 interface TestRuntimeSettings {
   type: "codex";
@@ -986,6 +987,83 @@ describe("AgentManager HTTP adapter", () => {
     await expect(server.close()).resolves.toBeUndefined();
     await expect(starting).rejects.toMatchObject({ name: "AbortError" });
     await expect(fetch(`${address.url}/healthz`)).rejects.toThrow();
+  });
+
+  it("unmounts from a shared host on close without stopping other roles", async () => {
+    const http = await startHttpHost({ host: "127.0.0.1", port: 0 });
+    http.mount({
+      prefixes: ["/internal/v1/"],
+      fetch: () => new Response("other"),
+    });
+    const createServer = () =>
+      createAgentManagerHttpServer({
+        api: new RecordingApi(),
+        serviceToken,
+        httpHost: http,
+      });
+    const management = () =>
+      fetch(`${http.url}/v1/model-calls`, { method: "POST" });
+    try {
+      const server = createServer();
+      await server.start();
+      http.finishStartup();
+      expect((await management()).status).toBe(401);
+      await server.close();
+      await server.close();
+      expect((await management()).status).toBe(404);
+      expect(await (await fetch(`${http.url}/internal/v1/x`)).text()).toBe(
+        "other",
+      );
+      const replacement = createServer();
+      try {
+        await replacement.start();
+        // Closing the previous instance again must not remove its replacement.
+        await server.close();
+        expect((await management()).status).toBe(401);
+      } finally {
+        await replacement.close();
+      }
+    } finally {
+      await http.close();
+    }
+  });
+
+  it("unmounts from a shared host when restoration fails", async () => {
+    const http = await startHttpHost({ host: "127.0.0.1", port: 0 });
+    http.mount({
+      prefixes: ["/internal/v1/"],
+      fetch: () => new Response("other"),
+    });
+    http.finishStartup();
+    try {
+      const server = createAgentManagerHttpServer({
+        api: new RecordingApi(),
+        serviceToken,
+        httpHost: http,
+        beforeReady: async () => {
+          throw new Error("restore failed");
+        },
+      });
+      await expect(server.start()).rejects.toThrow("restore failed");
+      expect(
+        (await fetch(`${http.url}/v1/model-calls`, { method: "POST" })).status,
+      ).toBe(404);
+      expect(await (await fetch(`${http.url}/internal/v1/x`)).text()).toBe(
+        "other",
+      );
+      const replacement = createAgentManagerHttpServer({
+        api: new RecordingApi(),
+        serviceToken,
+        httpHost: http,
+      });
+      try {
+        await replacement.start();
+      } finally {
+        await replacement.close();
+      }
+    } finally {
+      await http.close();
+    }
   });
 
   it("closes the listener and becomes terminal when restoration fails", async () => {

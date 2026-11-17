@@ -125,13 +125,15 @@
       }
       .actions {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
-        gap: 12px;
+        gap: 4px 12px;
         margin-top: 24px;
       }
       button,
       .link {
         height: 36px;
+        white-space: nowrap;
         padding: 0 16px;
         border-radius: 8px;
         font: inherit;
@@ -237,6 +239,9 @@
         <button class="link failed-only" id="diagnostics" type="button">
           Save Diagnostics
         </button>
+        <button class="link failed-only" id="send" type="button" hidden>
+          Send Diagnostics
+        </button>
         <button class="link failed-only" id="reset" type="button">
           Set Up Again
         </button>
@@ -313,6 +318,11 @@
       });
       $("diagnostics").addEventListener("click", () => {
         location.href = "app://offline/diagnostics";
+      });
+      // Asks before sending, in a dialog of the main process.
+      $("send").hidden = !params.has("send");
+      $("send").addEventListener("click", () => {
+        location.href = "app://offline/send";
       });
       $("edit").addEventListener("click", () => {
         document.body.classList.add("editing");

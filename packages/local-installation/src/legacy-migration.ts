@@ -1,17 +1,23 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
-import { stopComputer } from "./computer.js";
-import { INSTANCE_NAME, lingerHome } from "./home.js";
-import { composeProject, withInstanceLock, type Instance } from "./instance.js";
+import { inspectComputer, stopIdleComputer } from "./computer.js";
+import { INSTANCE_NAME, convertibleLegacyRecord, lingerHome } from "./home.js";
+import {
+  composeProject,
+  INSTANCE_BUSY,
+  withInstanceLock,
+  type Instance,
+} from "./instance.js";
 import { stopModelGateway } from "./model-gateway.js";
-import { stopNativeProcess } from "./native-process.js";
+import {
+  NATIVE_PROCESS_REPLACED,
+  stopNativeProcess,
+} from "./native-process.js";
 import { nativeServices } from "./native-source.js";
 import { atomicPrivate, readPrivate } from "./private-files.js";
 
-// Names that installs made while the product was named Simplex still carry.
-// They identify what this one-time migration converts; nothing reads them
-// after it.
-const LEGACY_PROJECT_PREFIX = "simplex-";
+// Environment keys that installs made while the product was named Simplex
+// still carry; nothing reads them after this one-time migration.
 const LEGACY_ENVIRONMENT_PREFIX = /^SIMPLEX_/gm;
 // Generated instance files whose keys carried the legacy prefix. user.env is
 // the person's own file and never held them.
@@ -24,19 +30,26 @@ export interface LegacyMigrationOptions {
   readonly stopInstance?: (instance: Instance) => Promise<void>;
 }
 
+/** An instance this run left with its legacy names, and why. */
+export interface LegacyInstanceSkipped {
+  readonly instance: string;
+  readonly reason: string;
+}
+
 /**
  * Converts an installation made while the product was named Simplex, once:
  * each instance gets its Linger project name and LINGER_* environment keys.
- * An instance that fails does not hold back the others; one error at the end
- * names every instance that is still legacy and why.
+ * An instance that fails keeps its legacy names, does not hold back the
+ * others or Linger's start, and is tried again on the next run; the result
+ * names each one and why.
  */
 export async function migrateLegacyInstallation(
   options: LegacyMigrationOptions = {},
-): Promise<void> {
+): Promise<LegacyInstanceSkipped[]> {
   const home = path.resolve(options.home ?? lingerHome());
   const stop = options.stopInstance ?? stopLegacyInstance;
   const directory = path.join(home, "instances");
-  const failures: string[] = [];
+  const skipped: LegacyInstanceSkipped[] = [];
   for (const name of await children(directory)) {
     if (!INSTANCE_NAME.test(name)) continue;
     const root = path.join(directory, name);
@@ -48,15 +61,18 @@ export async function migrateLegacyInstallation(
         migrateInstance(root, name, stop),
       );
     } catch (error) {
-      failures.push(
-        `${name}: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      skipped.push({
+        instance: name,
+        reason:
+          (error as { code?: unknown }).code === INSTANCE_BUSY
+            ? "Another Linger installer is using it. Close other Linger windows and installer pages, then start Linger again."
+            : error instanceof Error
+              ? error.message
+              : String(error),
+      });
     }
   }
-  if (failures.length > 0)
-    throw new Error(
-      `Could not convert these instances to Linger names. Stop any task running in them and start Linger again.\n${failures.join("\n")}`,
-    );
+  return skipped;
 }
 
 async function children(directory: string): Promise<string[]> {
@@ -79,15 +95,38 @@ async function readInstance(root: string): Promise<Instance | undefined> {
 }
 
 function isLegacy(instance: Instance | undefined): instance is Instance {
-  return instance?.project?.startsWith(LEGACY_PROJECT_PREFIX) ?? false;
+  return convertibleLegacyRecord(instance);
 }
 
-/** Stops what an instance runs from its folder, using its stored settings. */
+/**
+ * Stops what an instance runs from its folder, using its stored settings.
+ * Only something still running holds the conversion back: a stop that fails
+ * because the program or runtime that would do it left with the earlier app
+ * finds nothing to stop, and nothing that keeps running reads the names
+ * that change here.
+ */
 async function stopLegacyInstance(instance: Instance): Promise<void> {
-  await stopComputer(instance);
+  // A Computer whose status cannot be read takes no stop request either.
+  const activeOperations = await inspectComputer(instance).then(
+    (status) => status.activeOperations,
+    () => -1,
+  );
+  if (activeOperations > 0)
+    throw new Error(
+      `Its Computer is running ${activeOperations} task(s). Let them finish or stop them, then start Linger again.`,
+    );
+  if (activeOperations === 0)
+    await stopIdleComputer(instance).catch(() => undefined);
   for (const name of nativeServices)
-    await stopNativeProcess(instance.root, name);
-  await stopModelGateway(instance, undefined);
+    await stopNativeProcess(instance.root, name).catch((error: unknown) => {
+      if ((error as { code?: unknown }).code === NATIVE_PROCESS_REPLACED)
+        return;
+      throw new Error(
+        `Its ${name} service is still running and could not be stopped (${error instanceof Error ? error.message : String(error)}). Restart this computer, then start Linger again.`,
+      );
+    });
+  // Only earlier releases started this gateway, with tools that may be gone.
+  await stopModelGateway(instance, undefined).catch(() => undefined);
 }
 
 async function migrateInstance(

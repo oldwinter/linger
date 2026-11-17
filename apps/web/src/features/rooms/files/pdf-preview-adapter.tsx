@@ -6,7 +6,13 @@ import {
 } from "@hugeicons/core-free-icons";
 import { Spinner } from "@/components/ui/spinner";
 import { Icon } from "@/components/ui/icon";
-import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+} from "react";
 import {
   GlobalWorkerOptions,
   TextLayer,

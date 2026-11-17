@@ -770,13 +770,19 @@ async function runNativeSource(
         // Mark before startup so a failed init/readiness step can stop a process
         // it managed to create without touching a previously running cluster.
         if (!postgresWasRunning) started.push("postgres");
-        await prepareNativeDatabase({
+        const { legacyBackup } = await prepareNativeDatabase({
           instance: current,
           postgresBin: tools.postgresBin,
           env,
           signal,
           onOutput: (chunk) => output.write(chunk),
         });
+        if (legacyBackup)
+          emit({
+            kind: "log",
+            stage,
+            message: `The data from the earlier Simplex app can't be upgraded to Linger, so Linger starts with a fresh workspace. The earlier data was moved, not deleted, to ${legacyBackup}.\n`,
+          });
         await command("migrate");
         await runtime;
         signal.throwIfAborted();

@@ -6,6 +6,8 @@ let prewarmed: Promise<SpeechActivityDetector> | undefined;
 export interface SpeechActivity {
   throughSample: number;
   speech: boolean;
+  /** The window's RMS level in dBFS. */
+  levelDb: number;
 }
 
 // The detector receives the same mono 16 kHz samples as ASR. Its clock advances
@@ -103,6 +105,7 @@ export class SileroSpeechActivityDetector implements SpeechActivityDetector {
       observations.push({
         throughSample: this.throughSample,
         speech: this.speech,
+        levelDb: levelDb(this.window),
       });
       this.pending = 0;
     }
@@ -115,4 +118,10 @@ export class SileroSpeechActivityDetector implements SpeechActivityDetector {
     this.window.fill(0);
     this.model.reset();
   }
+}
+
+function levelDb(window: Int16Array) {
+  let sum = 0;
+  for (const sample of window) sum += sample * sample;
+  return 10 * Math.log10(Math.max(sum / window.length, 1) / 32_768 ** 2);
 }

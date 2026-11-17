@@ -129,6 +129,35 @@ func TestInspectCategorizesCompactionRecords(t *testing.T) {
 	}
 }
 
+func TestInspectCarriesTurnIDToEveryRecordOfItsTurn(t *testing.T) {
+	turnContext := record("turn_context", "", map[string]any{"turn_id": "turn-2"})
+	delete(turnContext["payload"].(map[string]any), "type")
+	home, _ := writeRollout(t, "thread-turns", []map[string]any{
+		sessionMeta("thread-turns", ""),
+		record("event_msg", "task_started", map[string]any{"turn_id": "turn-1"}),
+		record("response_item", "custom_tool_call", map[string]any{"call_id": "call-1", "name": "exec"}),
+		record("response_item", "custom_tool_call_output", map[string]any{"call_id": "call-1"}),
+		record("response_item", "message", map[string]any{"role": "assistant"}),
+		record("event_msg", "task_complete", map[string]any{"turn_id": "turn-1"}),
+		record("event_msg", "thread_settings_applied", nil),
+		turnContext,
+		record("event_msg", "agent_message", map[string]any{"message": "reply only"}),
+		record("event_msg", "turn_aborted", map[string]any{"turn_id": "turn-2"}),
+	}, false, "")
+	page := Inspect(context.Background(), Request{CodexHome: home, ThreadID: "thread-turns"})
+	if page.Status != "available" {
+		t.Fatalf("page = %#v", page)
+	}
+	var got []string
+	for _, item := range page.Records {
+		got = append(got, item.TurnID)
+	}
+	want := []string{"", "turn-1", "turn-1", "turn-1", "turn-1", "turn-1", "", "turn-2", "turn-2", "turn-2"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("turn IDs = %q, want %q", got, want)
+	}
+}
+
 func TestInspectRejectsMismatchedAndAmbiguousRollouts(t *testing.T) {
 	home, rollout := writeRollout(t, "thread-target", []map[string]any{sessionMeta("thread-wrong", "")}, false, "")
 	mismatch := Inspect(context.Background(), Request{CodexHome: home, ThreadID: "thread-target"})

@@ -94,6 +94,81 @@ describe("RunnerGateway", () => {
     await expect(operation.result).resolves.toMatchObject({ type: "run" });
   });
 
+  it("records the Runtime turn a Run's Operation started as soon as it starts", async () => {
+    const recordRunOperation = vi.fn(async () => {});
+    const gateway = createTestRunnerGateway({
+      heartbeatIntervalMs: 1_000,
+      createId: sequenceIds(),
+      recordRunOperation,
+    });
+    const peer = new RecordingPeer();
+    const connection = await acceptReadyConnection(
+      gateway,
+      peer,
+      contextHello(),
+      defaultAgentPlacement({ workspaceGrantId: "grant-owner" }),
+    );
+    const operation = await gateway.startOperation({
+      ...contextRunTarget(localContextViewIdentity()),
+      executionEpoch: "epoch-1",
+    });
+    const start = peer.sent
+      .filter((command) => command.type === "operation.start")
+      .at(-1);
+    if (start?.type !== "operation.start") {
+      throw new Error("Expected operation.start");
+    }
+    const identity = {
+      contextKey: start.execution_context_key,
+      epoch: "epoch-1",
+      runId: "local-run-context-1",
+      operationId: start.operation_id,
+      runtimeType: "codex",
+    };
+    expect(recordRunOperation).toHaveBeenLastCalledWith(identity);
+    await connection.receive(
+      event(start, 1, {
+        type: "operation.accepted",
+        command_id: start.command_id,
+        runner_pid: 100,
+      }),
+    );
+    await connection.receive(
+      event(start, 2, {
+        type: "operation.event",
+        event: { type: "run.started", turn_id: "turn-1" },
+      }),
+    );
+    expect(recordRunOperation).toHaveBeenLastCalledWith({
+      ...identity,
+      turnId: "turn-1",
+    });
+    const usage = [
+      {
+        model: "gpt-test",
+        provider: "openai",
+        input: 1,
+        cache_read: 0,
+        cache_write: 0,
+        output: 1,
+      },
+    ];
+    await connection.receive(
+      event(start, 3, {
+        type: "operation.completed",
+        result: {
+          type: "run",
+          final_response: "done",
+          session: { thread_id: "thread-1" },
+          usage,
+        },
+      }),
+    );
+    await expect(operation.result).resolves.toMatchObject({ type: "run" });
+    expect(recordRunOperation).toHaveBeenLastCalledWith({ ...identity, usage });
+    expect(recordRunOperation).toHaveBeenCalledTimes(3);
+  });
+
   it("reserves capacity atomically and cancels waiters", async () => {
     const gateway = createTestRunnerGateway({ createId: sequenceIds() });
     await gateway.acceptConnection(

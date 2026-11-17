@@ -52,7 +52,7 @@ async function setup() {
   });
   const provider = new SonioxASRProvider({
     apiKey: "test-only",
-    model: "stt-rt-v5",
+    model: "stt-rt-v6",
     dictation: true,
     webSocketUrl: `ws://127.0.0.1:${address.port}`,
   });

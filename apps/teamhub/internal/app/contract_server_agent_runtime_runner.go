@@ -144,9 +144,13 @@ func (a *App) recordAgentLocalRunOperation(c *gin.Context) {
 		}
 		usage = encoded
 	}
+	var turnID string
+	if request.TurnId != nil {
+		turnID = *request.TurnId
+	}
 	err := a.agentRuntimeState.RecordRunOperation(c.Request.Context(), agentruntimestate.RecordRunOperationInput{
 		ContextKey: request.ContextKey, Epoch: request.Epoch, RunID: request.RunId,
-		OperationID: request.OperationId, RuntimeType: string(request.RuntimeType), Usage: usage,
+		OperationID: request.OperationId, RuntimeType: string(request.RuntimeType), TurnID: turnID, Usage: usage,
 	})
 	if a.writeAgentRuntimeStateError(c, "record Runner Operation", err) {
 		return

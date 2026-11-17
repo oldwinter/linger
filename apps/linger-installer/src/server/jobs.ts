@@ -277,7 +277,16 @@ export class JobManager {
         record.job.preparation === input.preparation &&
         active(record.job),
     );
-    if (existing) return structuredClone(existing.job);
+    // A job that ran to the end and now waits for the person mutates
+    // nothing; a new start is their answer, so it replaces that job and
+    // checks the computer again instead of returning the stale outcome.
+    // cancel() marks it canceled before its first await and the new record
+    // is set in the same step, so a concurrent start gets the new job back.
+    const replaced =
+      existing?.job.state === "waiting_user" && !existing.executing
+        ? this.cancel(existing.job.id)
+        : undefined;
+    if (existing && !replaced) return structuredClone(existing.job);
     const id = randomUUID(),
       // Preserve successor order even when jobs are created within one clock tick.
       at = new Date(
@@ -328,6 +337,7 @@ export class JobManager {
     };
     this.records.set(id, record);
     try {
+      await replaced;
       await privateWrite(path.join(this.directory, `${id}.input.json`), input);
       await this.persist(id);
     } catch (error) {

@@ -24,11 +24,13 @@ import {
   LOCAL_INSTANCE,
   LOCAL_STEPS,
   LocalServerModule,
+  MIN_MACOS,
   anotherMeMissing,
   checkLocation,
   followHttps,
   hasNativePostgres,
   installLocation,
+  legacyMigrationResult,
   parseSetCookie,
   LocalServerUnverifiedError,
   localIdentityProof,
@@ -99,15 +101,24 @@ if (args.includes("--inspect")) {
     process.exit(1);
   }
   process.stderr.write("Checked this computer in 1.5s.\n");
-  const reasons = eligible ? [] : ["facts-unavailable"];
-  const reasonMessages = eligible ? [] : ["nvidia-smi was not found"];
-  const recommendation = eligible ? "local-models" : "codex";
-  process.stdout.write(JSON.stringify({ hardware, localModels: { eligible, reasons, reasonMessages, estimate }, recommendation }) + "\n");
+  const lowMemory = eligible && fs.existsSync(path.join(home, "low-memory"));
+  const reasons = eligible ? (lowMemory ? ["free-memory-required"] : []) : ["facts-unavailable"];
+  const reasonMessages = eligible ? (lowMemory ? ["Close other programs before installing."] : []) : ["nvidia-smi was not found"];
+  // With the plan priced on capacity, the installer recommends a runtime.
+  const recommendation = eligible && !lowMemory ? "local-models" : "codex";
+  const local = {
+    eligible: eligible && !lowMemory,
+    state: lowMemory ? "blocked-now" : eligible ? "ready" : "unavailable",
+    ...(lowMemory ? { basis: "capacity", memory: { ramAvailableBytes: 2899102924, ramRequiredBytes: 13689304433 } } : {}),
+  };
+  process.stdout.write(JSON.stringify({ hardware, localModels: { ...local, reasons, reasonMessages, estimate }, recommendation }) + "\n");
   process.exit(0);
 }
 if (args.includes("--resume")) {
   const code = fs.existsSync(path.join(home, "resume-fails")) ? 1 : 0;
-  process.stdout.write("noise\n" + JSON.stringify({ code, message: code ? "Native teamhub stopped" : "ok" }) + "\n");
+  const runtimeFile = path.join(home, "resume-runtime.json");
+  const runtime = fs.existsSync(runtimeFile) ? JSON.parse(fs.readFileSync(runtimeFile, "utf8")) : undefined;
+  process.stdout.write("noise\n" + JSON.stringify({ code, message: code ? "Native teamhub stopped" : "ok", ...(runtime ? { runtime } : {}) }) + "\n");
   process.exit(code);
 }
 const origin = "http://127.0.0.1:4321";
@@ -159,6 +170,7 @@ const installerApi = (
   const updates = [running].flat();
   const created: unknown[] = [];
   const retried: unknown[] = [];
+  const canceled: string[] = [];
   // The runtime the installation set up and its sign-in; tests change them.
   const runtime: {
     setupChoice: string;
@@ -204,6 +216,10 @@ const installerApi = (
       return Response.json(job({ state: "queued" }), { status: 202 });
     }
     if (url.pathname === "/api/jobs") return Response.json({ items: jobs });
+    if (url.pathname === "/api/jobs/job/cancel" && init.method === "POST") {
+      canceled.push("job");
+      return Response.json(job({ state: "canceled" }), { status: 202 });
+    }
     if (url.pathname === "/api/jobs/job/retry" && init.method === "POST") {
       retried.push(JSON.parse(String(init.body)));
       polls = 0;
@@ -253,7 +269,7 @@ const installerApi = (
     }
     return new Response(null, { status: 404 });
   };
-  return { handle, created, retried, runtime };
+  return { handle, created, retried, canceled, runtime };
 };
 
 const TEAMHUB = "http://127.0.0.1:4100";
@@ -396,6 +412,19 @@ const checkout = (home: string) => {
   writeFileSync(path.join(home, "src", "scripts/source-native.mjs"), "");
 };
 
+// A Mac checkout install; the fixture's distribution is for Linux.
+const macCheckout = (home: string) => {
+  checkout(home);
+  writeFileSync(
+    path.join(path.dirname(home), "installer", "distribution.json"),
+    JSON.stringify({
+      platform: "darwin",
+      arch: "arm64",
+      nativeSources: [{ target: "darwin-arm64" }],
+    }),
+  );
+};
+
 describe("LocalServerModule", () => {
   it("is offered only where native source mode runs", () => {
     const { module } = fixture({
@@ -480,6 +509,54 @@ describe("LocalServerModule", () => {
     await expect(f.module.begin()).rejects.toThrow(/not supported/);
     expect(existsSync(path.join(f.home, "installer", "args.json"))).toBe(false);
     await f.host.stop("quit");
+  });
+
+  it("refuses an older macOS before it runs the installer", async () => {
+    const f = fixture(
+      (home) => ({
+        ...withCheckout(home),
+        platform: "darwin",
+        arch: "arm64",
+        macosVersion: () => "13.2",
+      }),
+      {},
+      macCheckout,
+    );
+    await f.host.start();
+    expect(f.module.status().available).toBe(true);
+    await expect(f.module.begin()).rejects.toThrow(
+      "Linger needs macOS 14.0 or later. This Mac runs macOS 13.2. Update macOS in System Settings > General > Software Update, then try again.",
+    );
+    expect(f.module.status()).toMatchObject({
+      phase: "failed",
+      step: "prepare",
+    });
+    expect(existsSync(path.join(f.home, "installer", "args.json"))).toBe(false);
+    await f.host.stop("quit");
+    // From the minimum on, the installer runs.
+    const current = fixture(
+      (home) => ({
+        ...withCheckout(home),
+        platform: "darwin",
+        arch: "arm64",
+        macosVersion: () => "14.0",
+      }),
+      {},
+      macCheckout,
+    );
+    await current.host.start();
+    await current.module.begin().catch(() => undefined);
+    expect(existsSync(path.join(current.home, "installer", "args.json"))).toBe(
+      true,
+    );
+    await current.host.stop("quit");
+    // macOS refuses to open the app on an older system too.
+    const packaging = readFileSync(
+      path.join(import.meta.dirname, "../../packaging/mac/package.py"),
+      "utf8",
+    );
+    expect(packaging).toContain(`MINIMUM_MACOS = "${MIN_MACOS}"`);
+    expect(packaging).toContain("LSMinimumSystemVersion=MINIMUM_MACOS");
   });
 
   it("installs from the pinned source, signs in and connects this computer", async () => {
@@ -1431,6 +1508,53 @@ describe("LocalServerModule", () => {
     info.mockRestore();
   });
 
+  it("holds a local model that needs free memory until a check finds it", async () => {
+    const info = vi.spyOn(silentLog, "info");
+    const f = fixture({ checkout: "/src" }, {}, (home) => {
+      mkdirSync(home, { recursive: true });
+      writeFileSync(path.join(home, "low-memory"), "");
+    });
+    await f.host.start();
+    f.module.inspect();
+    await vi.waitFor(() =>
+      expect(f.module.status().localModels).toMatchObject({
+        state: "checked",
+        eligible: false,
+        blockedNow: true,
+        freeMemory: {
+          ramAvailableBytes: 2899102924,
+          ramRequiredBytes: 13689304433,
+        },
+        model: { name: "qwen3-8b" },
+        reasons: [
+          {
+            code: "free-memory-required",
+            message: "Close other programs before installing.",
+          },
+        ],
+        recommendation: "codex",
+      }),
+    );
+    expect(info).toHaveBeenCalledWith(
+      "local_server.inspected",
+      expect.objectContaining({ eligible: false, blocked_now: true }),
+    );
+    // The person closed other programs and checks again.
+    rmSync(path.join(f.home, "low-memory"));
+    f.module.recheck();
+    expect(f.module.status().localModels).toEqual({ state: "checking" });
+    await vi.waitFor(() =>
+      expect(f.module.status().localModels).toMatchObject({
+        state: "checked",
+        eligible: true,
+        recommendation: "local-models",
+      }),
+    );
+    expect(f.module.status().localModels).not.toHaveProperty("blockedNow");
+    expect(f.module.status().localModels).not.toHaveProperty("freeMemory");
+    info.mockRestore();
+  });
+
   it("approves the deployment of the chosen local model", async () => {
     const api = installerApi([], {
       state: "waiting_user",
@@ -1470,6 +1594,49 @@ describe("LocalServerModule", () => {
     await f.host.stop("quit");
   });
 
+  it("asks to free memory only when no local model fits", async () => {
+    const f = fixture(
+      withCheckout,
+      {},
+      checkout,
+      installerApi([], {
+        state: "waiting_user",
+        errorCode: "LOCAL_MODELS_UNAVAILABLE",
+      }),
+    );
+    await f.host.start();
+    await expect(f.module.begin({ runtime: "local" })).rejects.toThrow(
+      "Close other programs to free memory",
+    );
+    await f.host.stop("quit");
+  });
+
+  it("starts again past an attempt that stopped waiting for the person", async () => {
+    const f = fixture(
+      withCheckout,
+      {},
+      checkout,
+      installerApi([
+        {
+          id: "job",
+          instance: LOCAL_INSTANCE,
+          createdAt: "2026-11-03T00:00:00Z",
+          state: "waiting_user",
+          errorCode: "LOCAL_MODELS_UNAVAILABLE",
+        },
+      ]),
+    );
+    await f.host.start();
+    await f.module.begin({ runtime: "local" });
+    // The stopped attempt is closed first, or the installer hands it back.
+    expect(f.api.canceled).toEqual(["job"]);
+    expect(f.api.created).toEqual([
+      { instance: LOCAL_INSTANCE, setupChoice: "local-models" },
+    ]);
+    expect(f.module.status().phase).toBe("ready");
+    await f.host.stop("quit");
+  });
+
   it("approves no local model the person did not choose", async () => {
     const f = fixture(
       withCheckout,
@@ -1479,11 +1646,16 @@ describe("LocalServerModule", () => {
         state: "waiting_user",
         errorCode: "LOCAL_MODELS_APPROVAL_REQUIRED",
         localModelsPlan: { planId: "a".repeat(64) },
+        message: "Review the plan before installing.",
       }),
     );
     await f.host.start();
-    await expect(f.module.begin({ runtime: "pi" })).rejects.toThrow(
-      "can't run the local model",
+    const failure = f.module.begin({ runtime: "pi" });
+    await expect(failure).rejects.toThrow("can't run the local model");
+    await expect(failure).rejects.not.toThrow("free memory");
+    // The installer's own reason follows the advice.
+    await expect(failure).rejects.toThrow(
+      "Choose another AI runtime and try again. (Review the plan before installing.)",
     );
     expect(f.api.retried).toEqual([]);
     expect(f.module.status().phase).toBe("failed");
@@ -1513,6 +1685,43 @@ describe("LocalServerModule", () => {
     // A checkout downloads nothing.
     expect(f.module.status().steps).not.toContain("download");
     await f.host.stop("quit");
+  });
+
+  it("enrolls this computer again, once, after the installer set the earlier Simplex data aside", async () => {
+    const backup = (home: string) =>
+      path.join(
+        home,
+        "instances",
+        LOCAL_INSTANCE,
+        "simplex-backup-2026-11-17T03-04-05-678Z",
+      );
+    const prepare = (home: string) => {
+      checkout(home);
+      mkdirSync(backup(home), { recursive: true });
+    };
+    const f = fixture(withCheckout, {}, prepare);
+    await f.host.start();
+    await f.module.begin();
+    expect(f.unenroll).toHaveBeenCalledOnce();
+    expect(f.unenroll.mock.invocationCallOrder[0]).toBeLessThan(
+      f.enroll.mock.invocationCallOrder[0]!,
+    );
+    expect(f.config().legacyBackup).toBe(backup(f.home));
+    expect(f.module.status()).toMatchObject({
+      phase: "ready",
+      legacyBackup: backup(f.home),
+    });
+    await f.host.stop("quit");
+
+    // Told about already: the enrollment of the fresh database stays.
+    const again = fixture(withCheckout, {}, prepare);
+    again.host.ctx.config.update({ legacyBackup: backup(again.home) });
+    await again.host.start();
+    await again.module.begin();
+    expect(again.unenroll).not.toHaveBeenCalled();
+    expect(again.enroll).toHaveBeenCalled();
+    expect(again.module.status().legacyBackup).toBeUndefined();
+    await again.host.stop("quit");
   });
 
   it("shows no download step when nothing is downloaded", async () => {
@@ -2039,6 +2248,46 @@ describe("LocalServerModule after a restart", () => {
     expect(
       existsSync(path.join(f.home, "instances", LOCAL_INSTANCE, "user.env")),
     ).toBe(false);
+    await f.host.stop("quit");
+  });
+
+  it("takes the runtime and localmodels paths a resume reports, restarting the Computer once", async () => {
+    const tool = {
+      LINGER_LOCALMODELS_PYTHON:
+        "/home/u/.linger/tools/localmodels/kit/python3",
+      LINGER_LOCALMODELS_MODULE_DIR: "/home/u/.linger/tools/localmodels/kit",
+      LINGER_LOCALMODELS_STATE: "/home/u/.linger/runtime/localmodels/state",
+      LINGER_LOCALMODELS_BASE_DIR: "/home/u/.linger/runtime/localmodels/models",
+    };
+    const environment = { LINGER_PI_PATH: "/home/u/.linger/pi", ...tool };
+    const f = fixture(
+      {},
+      {
+        ...enrolled,
+        runtimeEnvironment: { LINGER_PI_PATH: "/home/u/.linger/pi" },
+      },
+      (home) => {
+        mkdirSync(path.join(home, "desktop"), { recursive: true });
+        writeFileSync(
+          path.join(home, "desktop", "local-server.json"),
+          JSON.stringify({
+            home,
+            repo: "/source",
+            origin: "http://localhost:3000",
+          }),
+        );
+        writeFileSync(
+          path.join(home, "resume-runtime.json"),
+          JSON.stringify({ setupChoice: "local-models", environment }),
+        );
+      },
+    );
+    const restarts = vi.fn();
+    f.bus.on("computer.runtime", restarts);
+    await f.host.start();
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
+    expect(f.host.ctx.config.get().runtimeEnvironment).toEqual(environment);
+    expect(restarts).toHaveBeenCalledTimes(1);
     await f.host.stop("quit");
   });
 
@@ -2892,4 +3141,57 @@ describe("LocalServerModule owner account", () => {
       await f.host.stop("quit");
     },
   );
+});
+
+describe("legacyMigrationResult", () => {
+  const skipped = [
+    { instance: "default", reason: "Its Computer is running 2 task(s)." },
+  ];
+
+  it("only logs instances this app does not use", () => {
+    expect(
+      legacyMigrationResult(
+        { code: 0, output: `${JSON.stringify({ skipped })}\n`, error: "" },
+        LOCAL_INSTANCE,
+      ),
+    ).toEqual({ skipped });
+  });
+
+  it("fails with the reason when this app's instance stayed unconverted", () => {
+    const own = [
+      {
+        instance: LOCAL_INSTANCE,
+        reason: "Another Linger installer is using it.",
+      },
+    ];
+    expect(
+      legacyMigrationResult(
+        { code: 0, output: JSON.stringify({ skipped: own }), error: "" },
+        LOCAL_INSTANCE,
+      ),
+    ).toEqual({
+      skipped: own,
+      failure:
+        "Linger could not convert this computer's installation from the earlier Simplex app. Another Linger installer is using it.",
+    });
+  });
+
+  it("shows every line of an installer that could not start", () => {
+    expect(
+      legacyMigrationResult(
+        { code: 1, output: "", error: "Installer could not start: a\nb: c\n" },
+        LOCAL_INSTANCE,
+      ),
+    ).toEqual({ skipped: [], failure: "Installer could not start: a\nb: c" });
+    expect(
+      legacyMigrationResult({ code: 0, output: "", error: "" }, LOCAL_INSTANCE),
+    ).toEqual({ skipped: [] });
+  });
+
+  it("preserves the full captured migration failure", () => {
+    const error = `The first instance failed.\n${"x".repeat(1900)}\nThe last instance failed.`;
+    expect(
+      legacyMigrationResult({ code: 1, output: "", error }, LOCAL_INSTANCE),
+    ).toEqual({ skipped: [], failure: error });
+  });
 });

@@ -33,7 +33,7 @@ var RoutineTools = []Tool{
 			"instruction is what it says or does, in the user's language: for a reminder, the reminder itself; with agent_does_it=true it wakes the Agent to do the work, so write the work to do. " +
 			"When it fires it posts in this chat; there is no phone or desktop notification, so never promise one. " +
 			"This is a write: first call without confirmed; it returns needs_confirmation with when and what: say that and ask. Only after the user says yes in their next turn, call again with the same arguments and confirmed=true. " +
-			"invalid_schedule: a time is missing, past or malformed; ask or fix it. routine_limit or once_limit: too many routines here; offer to delete one.",
+			"invalid_schedule: a time is missing, past or malformed; ask or fix it. routine_limit: too many routines here; offer to delete one.",
 		Parameters: objectSchema([]string{"name", "instruction", "kind", "confirmed"}, map[string]any{
 			"name":           stringProperty("Short name, one line"),
 			"instruction":    stringProperty("What it says or does when it fires"),

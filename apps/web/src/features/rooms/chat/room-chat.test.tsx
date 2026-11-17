@@ -117,6 +117,37 @@ describe("Room Chat", () => {
     await browserRoomMessageOutbox.clearAccount("account-jenny");
   });
 
+  it("returns from an earlier conversation to live messages through the latest button", async () => {
+    const runtime = createTestTeamHubRuntime();
+    runtime.server.on("GET", "/v0/rooms/{roomId}/messages", () => ({
+      items: [
+        message("earlier-message", "The earlier conversation"),
+        {
+          ...message("latest-message", "The live conversation"),
+          created_at: "2026-07-23T10:10:00Z",
+        },
+      ],
+      page: { has_more: false },
+      snapshot_room_seq: 2,
+    }));
+    renderRoomChat(withoutRealtime(runtime), testQueryClient());
+    await screen.findByText("The live conversation");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Earlier conversation" }),
+    );
+    expect(screen.getByText("The earlier conversation")).toBeVisible();
+    expect(screen.queryByText("The live conversation")).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Jump to latest messages" }),
+    );
+
+    expect(await screen.findByText("The live conversation")).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Back to now" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders existing messages while the tenant actor directory is pending", async () => {
     const runtime = createTestTeamHubRuntime();
 
