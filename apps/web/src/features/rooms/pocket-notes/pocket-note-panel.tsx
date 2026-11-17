@@ -151,7 +151,11 @@ export default function PocketNotePanel({
   useEffect(() => {
     function closeOnOutside(event: PointerEvent) {
       const target = event.target as Node;
-      if (panelRef.current?.contains(target) || anchor?.contains(target)) {
+      if (
+        document.querySelector("dialog[open]") ||
+        panelRef.current?.contains(target) ||
+        anchor?.contains(target)
+      ) {
         return;
       }
       void latestClose.current();

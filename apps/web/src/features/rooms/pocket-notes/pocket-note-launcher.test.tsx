@@ -540,6 +540,41 @@ describe("PocketNoteLauncher", () => {
       return screen.getByRole("textbox", { name: "Today’s note" });
     };
 
+    it("keeps the note open while its voice key dialog handles pointer events", async () => {
+      renderLauncher(
+        {
+          ...dictationClient(savedNote(), false),
+          getVoiceMediaPolicy: async () => ({
+            voice_available: true,
+            voice_media_supported: false,
+          }),
+        },
+        "room-another-me",
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Pocket Notes" }));
+      const note = await screen.findByRole("dialog", { name: "Pocket notes" });
+      fireEvent.click(await screen.findByRole("button", { name: "Dictate" }));
+      const dialog = await screen.findByRole("dialog", { name: "Soniox key" });
+      const apiKey = screen.getByLabelText("Soniox API key");
+
+      fireEvent.pointerDown(apiKey);
+      expect(dialog).toBeInTheDocument();
+      expect(note).toBeInTheDocument();
+      fireEvent.change(apiKey, { target: { value: "test-soniox-key" } });
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Save key" }));
+      expect(apiKey).toHaveValue("test-soniox-key");
+      expect(dialog).toBeInTheDocument();
+
+      const close = screen.getByRole("button", { name: "Close" });
+      fireEvent.pointerDown(close);
+      fireEvent.click(close);
+      expect(dialog).not.toBeInTheDocument();
+      expect(note).toBeInTheDocument();
+
+      fireEvent.pointerDown(document.body);
+      expect(note).not.toBeInTheDocument();
+    });
+
     it("shows listening once the microphone is live, before transcription is ready", async () => {
       let ready!: () => void;
       voice.open.mockImplementation(
