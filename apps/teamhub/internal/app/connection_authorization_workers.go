@@ -24,3 +24,24 @@ func (*connectionAuthorizationSettleWorker) Timeout(*river.Job[externalsource.Co
 func (w *connectionAuthorizationSettleWorker) Work(ctx context.Context, job *river.Job[externalsource.ConnectionAuthorizationSettleArgs]) error {
 	return w.app.typedCards.SettleConnectionAuthorizations(ctx, job.Args.ConnectionID)
 }
+
+// profileSetupReminderWorker reminds AnotherMe about a Profile setup left
+// unfinished after a Connection's first activation, once the Room is quiet.
+type profileSetupReminderWorker struct {
+	river.WorkerDefaults[externalsource.ProfileSetupReminderArgs]
+	app *App
+}
+
+func (*profileSetupReminderWorker) Timeout(*river.Job[externalsource.ProfileSetupReminderArgs]) time.Duration {
+	return time.Minute
+}
+
+// A Room still in conversation snoozes the job until it has been quiet; a
+// snooze spends no attempt.
+func (w *profileSetupReminderWorker) Work(ctx context.Context, job *river.Job[externalsource.ProfileSetupReminderArgs]) error {
+	wait, err := w.app.typedCards.RemindProfileSetup(ctx, job.Args.ConnectionID, time.Now())
+	if err != nil || wait == 0 {
+		return err
+	}
+	return river.JobSnooze(wait)
+}

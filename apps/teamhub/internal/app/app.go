@@ -67,6 +67,7 @@ import (
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/voicecaptureqa"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/voicekey"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/voicemedia"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/voicequicknotes"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/workitem"
 	httpapi "github.com/simplexai-labs/linger/contracts-go/teamhubpublic"
 )
@@ -133,6 +134,7 @@ type App struct {
 	permissionReviews              *permissionreview.Service
 	proactive                      *proactive.Service
 	voiceCaptureAnswerer           voicecaptureqa.Answerer
+	voiceQuickNotes                voicequicknotes.Writer
 	agentRuntimeState              *agentruntimestate.Service
 	presentationSequences          *agentsendmessage.PresentationSequenceService
 	typedCards                     *typedcard.Service
@@ -604,6 +606,7 @@ func (a *App) registerProactive(cfg config.Config, deps Deps) error {
 func (a *App) registerVoiceCaptureAnswerer(models *roomagent.ModelCallClient) {
 	if models != nil {
 		a.voiceCaptureAnswerer = voicecaptureqa.NewAnswerer(models, voice.VoiceCaptureQuestionTimeout)
+		a.voiceQuickNotes = voicequicknotes.NewWriter(models)
 	}
 }
 
@@ -658,7 +661,7 @@ func (a *App) registerVoiceService() {
 	a.voice = voice.New(voice.Deps{
 		Pool: a.pool, Artifacts: a.artifacts, Documents: a.documents, DocumentComments: a.documentComments, Collaboration: a.collaboration,
 		Canvas: a.canvas, AgentConnectedApps: a.agentConnectedApps, Agents: a.agents, Reminders: a.reminders, WorkItems: a.workItems, TypedCards: a.typedCards,
-		Memory: a.memory, LocalComputers: a.localComputers, Answerer: a.voiceCaptureAnswerer, VoiceMedia: a.voiceMedia, Logger: a.logger,
+		Memory: a.memory, LocalComputers: a.localComputers, Answerer: a.voiceCaptureAnswerer, QuickNotes: a.voiceQuickNotes, VoiceMedia: a.voiceMedia, Logger: a.logger,
 	})
 }
 
@@ -741,6 +744,7 @@ func (a *App) startJobs(ctx context.Context, runs func(Worker) bool) error {
 	riverWorkers := features.workers
 	document.AddJobWorkers(riverWorkers, a.documents, a.publishedWikiGraphUpdater())
 	voice.AddPocketNoteTrackingWorker(riverWorkers, a.queries, a.pocketNoteTrackingRefresher())
+	a.voice.AddCaptureQuickNotesWorker(riverWorkers)
 	personalprofile.AddMemorySyncWorker(riverWorkers, a.personalProfile, a.profileMemorySyncer())
 	if a.wikiDispatch != nil && runs(PersonalWikiJobs) {
 		document.AddWikiRefreshDispatchWorker(riverWorkers, a.wikiDispatch)

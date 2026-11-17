@@ -155,6 +155,33 @@ function Write-LingerNote([string]$Text) {
 # seconds. Only a fully successful walk is remembered.
 $LingerTrustedDirectories = @{}
 
+# The Codex Windows sandbox grants its sandbox users group and the capability
+# SIDs recorded in its default home write access to its writable roots, which
+# can include AppData. Linger accepts that a sandboxed Codex command may replace
+# such an ancestor; product paths themselves stay private to the user.
+function Get-LingerCodexSandboxSids {
+    $sids = @()
+    try { $sids += (New-Object Security.Principal.NTAccount('CodexSandboxUsers')).Translate([Security.Principal.SecurityIdentifier]).Value } catch {}
+    $capFile = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.codex\cap_sid'
+    try { $caps = [IO.File]::ReadAllText($capFile) | ConvertFrom-Json } catch { return $sids }
+    $values = @([string]$caps.workspace)
+    foreach ($roots in @($caps.workspace_by_cwd, $caps.writable_root_by_path)) {
+        if ($roots) { $values += @($roots.PSObject.Properties | ForEach-Object { [string]$_.Value }) }
+    }
+    # Keep only the S-1-5-21 form with four 32-bit values that Codex generates,
+    # so a corrupted file cannot make a well-known SID such as Everyone trusted.
+    # A last value below 1000 is a well-known domain RID such as Domain Users.
+    foreach ($value in $values) {
+        $parts = $value -split '-'
+        if ($parts.Count -ne 8 -or ($parts[0..3] -join '-') -cne 'S-1-5-21') { continue }
+        $valid = $true
+        foreach ($part in $parts[4..7]) { $number = [uint32]0; if (-not [uint32]::TryParse($part, [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$number)) { $valid = $false } }
+        if ($valid -and $number -ge 1000) { $sids += $value }
+    }
+    return $sids
+}
+$LingerCodexSandboxSids = @(Get-LingerCodexSandboxSids)
+
 function Assert-LingerAncestors([string]$Path) {
     $cursor = Get-LingerFullPath $Path
     $walked = @()
@@ -176,8 +203,9 @@ function Assert-LingerAncestors([string]$Path) {
             # remain protected by the FILE_DELETE_CHILD and ACL-change checks.
             if ($cursor -eq [IO.Path]::GetPathRoot($cursor)) { $replaceRights = $replaceRights -band (-bnot 0x00010000) }
             if (-not $inheritOnly -and $access.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
-                $access.IdentityReference.Value -notin $trustedOwners -and ([int]$access.FileSystemRights -band $replaceRights) -ne 0) {
-                throw "Install ancestor can be replaced by another user: $cursor"
+                $access.IdentityReference.Value -notin $trustedOwners -and $access.IdentityReference.Value -notin $LingerCodexSandboxSids -and
+                ([int]$access.FileSystemRights -band $replaceRights) -ne 0) {
+                throw "Install ancestor can be replaced by another user ($($access.IdentityReference.Value)): $cursor"
             }
         }
         $parent = [IO.Path]::GetDirectoryName($cursor)

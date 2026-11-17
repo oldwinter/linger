@@ -66,6 +66,27 @@ func (q *Queries) RecordAgentLocalRunOperation(ctx context.Context, arg RecordAg
 	return err
 }
 
+const recordAgentLocalRunTurn = `-- name: RecordAgentLocalRunTurn :exec
+UPDATE agent_local_runs
+SET turn_ids=array_append(turn_ids,$1::text),
+    updated_at=clock_timestamp()
+WHERE run_id=$2::text
+  AND NOT $1::text=ANY(turn_ids)
+  AND cardinality(turn_ids)<64
+`
+
+type RecordAgentLocalRunTurnParams struct {
+	TurnID string `json:"turn_id"`
+	RunID  string `json:"run_id"`
+}
+
+// A Run keeps each Runtime turn its Operations started once; a Run runs a
+// handful of Operations, so the cap only bounds a misbehaving Runtime.
+func (q *Queries) RecordAgentLocalRunTurn(ctx context.Context, arg RecordAgentLocalRunTurnParams) error {
+	_, err := q.db.Exec(ctx, recordAgentLocalRunTurn, arg.TurnID, arg.RunID)
+	return err
+}
+
 const recordAgentLocalRunUsage = `-- name: RecordAgentLocalRunUsage :execrows
 UPDATE agent_local_runs
 SET usage=coalesce(usage,'{}'::jsonb)||jsonb_build_object($1::text,$2::jsonb),

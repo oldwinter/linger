@@ -252,8 +252,10 @@ func TestCodexProjectionDigestsFollowDeliveredInputs(t *testing.T) {
 	if disabled := project(); disabled.SkillDigest == added.SkillDigest {
 		t.Fatal("disabling a Skill kept the digest")
 	}
+	// The user's AGENTS.md never reaches the home, so editing it changes nothing.
+	before := project()
 	write(filepath.Join(shared, "AGENTS.md"), "Be brief.")
-	if got := project(); got.ConfigDigest == base.ConfigDigest {
-		t.Fatal("an AGENTS.md edit kept the configuration digest")
+	if got := project(); got.ConfigDigest != before.ConfigDigest {
+		t.Fatal("an AGENTS.md edit changed the configuration digest")
 	}
 }

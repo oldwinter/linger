@@ -55,6 +55,19 @@ func (a *App) reportVoiceObservationRoute(c *gin.Context) {
 	a.reportVoiceObservation(c, request)
 }
 
+func (a *App) claimVoiceMediaEpoch(c *gin.Context) {
+	epoch, err := a.voice.ClaimMediaEpoch(c.Request.Context(), c.Param("voiceSessionId"))
+	switch {
+	case errors.Is(err, voice.ErrVoiceSessionNotFound):
+		c.JSON(http.StatusNotFound, teamhubinternal.VoiceError{Code: "NOT_FOUND", Message: "VoiceSession was not found"})
+		return
+	case err != nil:
+		a.internalVoiceRuntimeError(c, "claim Voice media epoch", err)
+		return
+	}
+	c.JSON(http.StatusOK, teamhubinternal.VoiceMediaEpochClaim{MediaEpoch: epoch})
+}
+
 // reportVoiceObservation applies one Voice Runtime observation. Every write is
 // keyed by the event ID, the transcript window or a monotonic offset, so a
 // retried observation applies again without a receipt table.

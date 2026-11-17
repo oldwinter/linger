@@ -28,8 +28,8 @@ afterEach(() => {
 
 function shownNudge() {
   return (
-    document.querySelector('.auth-art-nudge[data-state="shown"]')
-      ?.textContent ?? null
+    document.querySelector('.auth-art-moment[data-state="now"]')?.textContent ??
+    null
   );
 }
 

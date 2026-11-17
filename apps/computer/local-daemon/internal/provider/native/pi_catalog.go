@@ -14,8 +14,10 @@ var errPiNoModels = errors.New("Pi returned no available models")
 
 // PiRPCResourceArgs is the resource policy shared by managed execution,
 // managed catalog discovery and the protocol probe. It returns a new slice.
+// An empty --system-prompt keeps Pi's built-in prompt: without it, Pi
+// replaces that prompt with the user's own SYSTEM.md from its agent folder.
 func PiRPCResourceArgs() []string {
-	return []string{"--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-approve"}
+	return []string{"--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-approve", "--system-prompt", ""}
 }
 
 type piCatalogState struct {
@@ -28,6 +30,7 @@ type piCatalogState struct {
 
 type piCatalogModel struct {
 	ID               string                     `json:"id"`
+	Name             string                     `json:"name"`
 	Provider         string                     `json:"provider"`
 	Reasoning        bool                       `json:"reasoning"`
 	ThinkingLevelMap map[string]json.RawMessage `json:"thinkingLevelMap"`
@@ -121,6 +124,12 @@ func piCatalogList(state piCatalogState, entries []json.RawMessage) (ModelList, 
 		}
 		key := provider + "/" + id
 		option := ModelOption{ID: key, Label: key, Provider: provider, Default: key == defaultKey}
+		// A model ID can be a routing alias (localmodels serves its model as
+		// "localmodels-agent"); the label leads with the name Pi gives it,
+		// while the ID keeps selecting the same entry.
+		if name := strings.TrimSpace(entry.Name); name != "" && name != id && name != key {
+			option.Label = name + " (" + key + ")"
+		}
 		// A window that is not a whole token count stays unknown.
 		if window, err := strconv.Atoi(strings.TrimSpace(string(entry.ContextWindow))); err == nil && window > 0 {
 			option.ContextWindow = window

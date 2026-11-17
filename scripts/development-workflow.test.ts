@@ -266,13 +266,7 @@ describe("active product development commands", () => {
     const manifest = JSON.parse(
       await readRepositoryFile("apps/node-services/package.json"),
     );
-    for (const name of [
-      "tesseract.js-core",
-      "@tesseract.js-data/eng",
-      "@tesseract.js-data/chi_sim",
-      "@napi-rs/canvas",
-      "sharp",
-    ]) {
+    for (const name of ["pdfjs-dist", "officeparser", "word-extractor"]) {
       expect(manifest.dependencies[name]).toMatch(/^\d+\.\d+\.\d+$/);
     }
     const dockerfile = await readRepositoryFile(
@@ -309,14 +303,11 @@ describe("active product development commands", () => {
     expect(nodeServicesPackage.dependencies).toEqual({
       "@hocuspocus/server": "^4.3.0",
       "@hono/node-server": "^1.19.14",
-      "@napi-rs/canvas": "1.0.5",
       "@linger/document-files": "workspace:*",
       "@linger/document-model": "workspace:*",
       "@linger/knowledge-format": "workspace:*",
       "@linger/service-kit": "workspace:*",
       "@linger/voice-runtime": "workspace:*",
-      "@tesseract.js-data/chi_sim": "1.0.0",
-      "@tesseract.js-data/eng": "1.0.0",
       "@linger/wire-contracts": "workspace:*",
       ajv: "8.17.1",
       hono: "^4.12.31",
@@ -327,8 +318,6 @@ describe("active product development commands", () => {
       "pdfjs-dist": "6.2.108",
       openwiki: "0.4.3",
       postgres: "3.4.9",
-      sharp: "0.35.3",
-      "tesseract.js-core": "7.0.0",
       "proper-lockfile": "^4.1.2",
       "word-extractor": "1.0.4",
       undici: "8.10.0",

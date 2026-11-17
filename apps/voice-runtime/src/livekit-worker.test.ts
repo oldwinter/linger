@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ASREvent, ASRStream } from "./asr.js";
 import {
+  claimVoiceMediaEpochWithRetry,
   eventId,
   publisherAbsence,
   reportVoiceObservationWithRetry,
@@ -17,6 +18,12 @@ import {
 } from "./livekit-worker.js";
 import { VoiceFailure } from "./voice-failure.js";
 import { TeamHubVoiceRuntimeError } from "@linger/wire-contracts/teamhub-internal/client";
+
+// Hands out media epochs the way TeamHub does: every claim takes a new number.
+function claimEpochs() {
+  let next = 0;
+  return async (_voiceSessionId: string) => next++;
+}
 
 describe("VoiceTrackWorker identities", () => {
   it("reports the code carried by a typed failure", () => {
@@ -102,6 +109,7 @@ describe("VoiceTrackWorker identities", () => {
         end_offset_ms: number;
       }> = [];
       const client = {
+        claimMediaEpoch: claimEpochs(),
         reportObservation: async (event: (typeof observations)[number]) => {
           observations.push(event);
           return { status: "accepted" };
@@ -151,22 +159,21 @@ describe("VoiceTrackWorker identities", () => {
       const controller = new AbortController();
       const current = { input, controller, track: {}, commits: [] };
       // Exercise the real consumer, including callback ordering and ASR cleanup.
-      const consume = (epoch: number) =>
+      const consume = () =>
         (
           worker as unknown as { consume(...args: unknown[]): Promise<void> }
         ).consume(
           { room: {} },
           "voice_session_retry",
-          epoch,
           {},
           input,
           { attributes: {} },
           controller.signal,
           current,
         );
-      await expect(consume(0)).rejects.toThrow("ASR connection timed out");
+      await expect(consume()).rejects.toThrow("ASR connection timed out");
       if (lost) oldest = 1200;
-      await consume(1);
+      await consume();
       expect(
         observations.filter((event) => event.kind === "track_started"),
       ).toHaveLength(1);
@@ -483,5 +490,105 @@ describe("VoiceTrackWorker identities", () => {
         [0, 0],
       ),
     ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("retries a transient epoch claim and gives up on a missing session", async () => {
+    let calls = 0;
+    const flaky = {
+      claimMediaEpoch: async () => {
+        if (++calls < 3) throw new TeamHubVoiceRuntimeError(503);
+        return 7;
+      },
+    };
+    await expect(
+      claimVoiceMediaEpochWithRetry(flaky, "voice_session_1", [0, 0]),
+    ).resolves.toBe(7);
+    expect(calls).toBe(3);
+
+    let missingCalls = 0;
+    const missing = {
+      claimMediaEpoch: async () => {
+        missingCalls += 1;
+        throw new TeamHubVoiceRuntimeError(404);
+      },
+    };
+    await expect(
+      claimVoiceMediaEpochWithRetry(missing, "voice_session_1", [0, 0]),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(missingCalls).toBe(1);
+  });
+
+  it("gives a restarted job a fresh epoch for the same session", async () => {
+    // One TeamHub counter outlives both worker instances, as PostgreSQL does.
+    const teamHubClaims = claimEpochs();
+    const observations: Array<{ kind: string; media_epoch: number }> = [];
+    const client = {
+      claimMediaEpoch: teamHubClaims,
+      reportObservation: async (event: (typeof observations)[number]) => {
+        observations.push(event);
+        return { status: "accepted" };
+      },
+    };
+    const provider = {
+      open: async () => {
+        let end!: () => void;
+        const done = new Promise<void>((resolve) => {
+          end = resolve;
+        });
+        return {
+          sendPCM: async () => undefined,
+          finish: async () => end(),
+          close: async () => end(),
+          async *events() {
+            await done;
+            yield* [];
+          },
+        };
+      },
+    };
+    const consumeOneTrack = async (worker: VoiceTrackWorker) => {
+      let sent = false;
+      const input = {
+        waitForFirstFrame: async () => undefined,
+        oldestRetainedAtMs: () => 1000,
+        firstFrameAtMs: () => 1000,
+        takeDroppedSamples: () => 0,
+        next: async () => {
+          if (sent) return undefined;
+          sent = true;
+          return {
+            data: new Int16Array(1600),
+            samplesPerChannel: 1600,
+            sampleRate: 16000,
+          };
+        },
+        stop: () => undefined,
+      };
+      const controller = new AbortController();
+      await (
+        worker as unknown as { consume(...args: unknown[]): Promise<void> }
+      ).consume(
+        { room: {} },
+        "voice_session_restart",
+        {},
+        input,
+        { attributes: {} },
+        controller.signal,
+        { input, controller, track: {}, commits: [] },
+      );
+    };
+
+    await consumeOneTrack(new VoiceTrackWorker(client as never, provider));
+    const beforeRestart = observations.length;
+    await consumeOneTrack(new VoiceTrackWorker(client as never, provider));
+
+    expect(
+      observations
+        .filter((event) => event.kind === "track_started")
+        .map((event) => event.media_epoch),
+    ).toEqual([0, 1]);
+    expect(
+      observations.slice(beforeRestart).map((event) => event.media_epoch),
+    ).toEqual(observations.slice(beforeRestart).map(() => 1));
   });
 });

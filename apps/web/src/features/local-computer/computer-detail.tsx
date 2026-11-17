@@ -1,6 +1,7 @@
 import {
   Activity01Icon,
   Add01Icon,
+  AiChipIcon,
   ArrowDown01Icon,
   ArrowRight01Icon,
   Delete02Icon,
@@ -70,6 +71,7 @@ export function ComputerDetail({
   browserConnection,
   canDoHref,
   computer: latestComputer,
+  localModelsHref,
   onConnect,
   onOpenAgent,
   onRemove,
@@ -81,6 +83,8 @@ export function ComputerDetail({
   /** Where the owner asks macOS what this computer may do. */
   canDoHref?: string;
   computer: LocalComputer;
+  /** Where this Computer's Local models page is; the page owns the route. */
+  localModelsHref?: string;
   onConnect?: () => void;
   onOpenAgent: (actorId: string) => void;
   onRemove?: () => void;
@@ -167,6 +171,31 @@ export function ComputerDetail({
           />
         ))}
       </Group>
+      {localModelsHref ? (
+        <Group title="Local models">
+          <Link
+            className="flex min-h-14 w-full items-center gap-3 rounded-lg py-2 pr-2.5 pl-2 transition-colors duration-150 hover:bg-sidebar-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none"
+            to={localModelsHref}
+          >
+            <RowMark>
+              <Icon icon={AiChipIcon} size={20} />
+            </RowMark>
+            <span className="min-w-0 flex-1 text-left">
+              <span className="block truncate text-sm text-foreground">
+                Manage local models
+              </span>
+              <span className="block truncate text-sm text-muted-foreground">
+                Download and load models that run on this computer
+              </span>
+            </span>
+            <Icon
+              className="text-muted-foreground/60"
+              icon={ArrowRight01Icon}
+              size={16}
+            />
+          </Link>
+        </Group>
+      ) : null}
       {displayStatus === "offline" ? null : (
         <Group defaultOpen={false} title="Access">
           {browserConnection?.("row")}

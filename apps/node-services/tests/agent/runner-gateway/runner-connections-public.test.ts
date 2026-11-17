@@ -320,6 +320,52 @@ describe("RunnerGateway", () => {
     connection.disconnect();
   });
 
+  it("accepts a receipt for a snapshot that a newer snapshot overtook", async () => {
+    const gateway = createTestRunnerGateway({ heartbeatIntervalMs: 1_000 });
+    const peer = new RecordingPeer();
+    const connection = await gateway.acceptConnection(
+      authenticatedPrincipal(),
+      hello(),
+      peer,
+    );
+    await connection.receive({
+      type: "runner.runtime_diagnostics",
+      protocol_version: "2",
+      runner_id: "runner-local",
+      sent_at: "2026-07-29T00:00:15.000Z",
+      revision: 2,
+      runtime_diagnostics: runtimeDiagnostics({
+        authenticationRequired: ["codex"],
+        ready: [],
+      }),
+    });
+    expect(peer.registrationSnapshots).toHaveLength(2);
+    const receipt = (snapshot: (typeof peer.registrationSnapshots)[number]) =>
+      connection.receive({
+        type: "runtime.registration.observed",
+        protocol_version: snapshot.protocol_version,
+        command_id: snapshot.command_id,
+        runner_id: snapshot.runner_id,
+        connection_epoch: snapshot.connection_epoch,
+        observed_count: 1,
+      });
+    // The Daemon acknowledges the first snapshot after the second was sent.
+    await expect(
+      receipt(peer.registrationSnapshots[0]!),
+    ).resolves.toBeUndefined();
+    await expect(
+      receipt(peer.registrationSnapshots[1]!),
+    ).resolves.toBeUndefined();
+    // A receipt for a snapshot never sent, or sent twice, is still a violation.
+    await expect(receipt(peer.registrationSnapshots[0]!)).rejects.toThrow(
+      "Local Runtime Registration receipt identity mismatch",
+    );
+    expect(peer.closed).toContainEqual({
+      code: 1002,
+      reason: "Runner protocol violation",
+    });
+  });
+
   it("omits target_release when this image ships no Computer release", async () => {
     const gateway = createTestRunnerGateway({
       heartbeatIntervalMs: 1_000,

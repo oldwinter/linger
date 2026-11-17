@@ -183,6 +183,7 @@ describe("createBuiltinAgentFeatures", () => {
     expect(
       composed.contextInstructions({
         connectedApps: true,
+        connectedAppKeys: [],
         compactInstructions: false,
       }),
     ).not.toContain("<tool-approval-protocol>");
@@ -206,6 +207,7 @@ describe("createBuiltinAgentFeatures", () => {
         text:
           composed.contextInstructions({
             connectedApps: true,
+            connectedAppKeys: [],
             compactInstructions: false,
           }) ?? "",
       };
@@ -289,12 +291,14 @@ describe("createBuiltinAgentFeatures", () => {
     expect(
       composed.contextInstructions({
         connectedApps: true,
+        connectedAppKeys: [],
         compactInstructions: false,
       }),
     ).toContain("## Who you are");
     expect(
       composed.contextInstructions({
         connectedApps: true,
+        connectedAppKeys: [],
         compactInstructions: false,
       }),
     ).toContain("teamhub message emoji <message-id> <emoji>");

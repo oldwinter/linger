@@ -59,25 +59,6 @@ func (q *Queries) AdvanceRoomReminderSchedule(ctx context.Context, arg AdvanceRo
 	return i, err
 }
 
-const countEnabledOnceRoomReminders = `-- name: CountEnabledOnceRoomReminders :one
-SELECT count(*)::bigint
-FROM room_reminders
-WHERE room_id=$1::text AND tenant_id=$2::text
-  AND cadence_kind='once' AND enabled
-`
-
-type CountEnabledOnceRoomRemindersParams struct {
-	RoomID   string `json:"room_id"`
-	TenantID string `json:"tenant_id"`
-}
-
-func (q *Queries) CountEnabledOnceRoomReminders(ctx context.Context, arg CountEnabledOnceRoomRemindersParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countEnabledOnceRoomReminders, arg.RoomID, arg.TenantID)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const countRoomReminders = `-- name: CountRoomReminders :one
 SELECT count(*)::bigint
 FROM room_reminders

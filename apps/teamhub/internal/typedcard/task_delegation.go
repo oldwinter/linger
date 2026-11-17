@@ -26,6 +26,9 @@ type DelegatedTaskInput struct {
 	Requirement string
 	SourceKey   string
 	Hidden      bool
+	// Quiet marks a Task started during a proactive wake or a Routine that
+	// serves a Tracking Item.
+	Quiet bool
 }
 
 type DelegatedTaskResult struct {
@@ -95,7 +98,7 @@ func CreateDelegatedTaskInTx(
 	}
 	if _, err := taskexecution.CreateManagedGeneration(ctx, tx, queries, taskexecution.CreateManagedGenerationInput{
 		TaskID: item.ID, TenantID: input.TenantID, WorkItemVersion: item.Version,
-		SourceKey: input.SourceKey,
+		SourceKey: input.SourceKey, Quiet: input.Quiet,
 		RunSpec: taskexecution.RunSpecV1{
 			SchemaVersion: 1, ResultAgentActorID: input.Agent.ID,
 			AttemptPolicy: taskexecution.DelegatedAttemptPolicyV1(),

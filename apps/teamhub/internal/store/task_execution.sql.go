@@ -26,7 +26,7 @@ WHERE id=$5::text
   AND task_execution_revision=$8::bigint
   AND task_control_revision=$9::bigint
   AND task_execution_status=$10::text
-RETURNING id, tenant_id, number, kind, title, description, priority, state, resolution, version, created_by_actor_id, updated_by_actor_id, archived_at, created_at, updated_at, task_source_key, task_execution_generation, task_execution_status, task_execution_revision, task_execution_reason_code, task_desired_control, task_control_revision, task_control_settled_revision, task_control_outcome, task_control_source_kind, task_control_source_id, task_control_requested_by_actor_id, task_control_requested_at, task_control_payload, task_execution_updated_at, task_next_reconcile_at, task_worker_id, task_lease_token_hash, task_lease_generation, task_lease_expires_at
+RETURNING id, tenant_id, number, kind, title, description, priority, state, resolution, version, created_by_actor_id, updated_by_actor_id, archived_at, created_at, updated_at, task_source_key, task_execution_generation, task_execution_status, task_execution_revision, task_execution_reason_code, task_desired_control, task_control_revision, task_control_settled_revision, task_control_outcome, task_control_source_kind, task_control_source_id, task_control_requested_by_actor_id, task_control_requested_at, task_control_payload, task_execution_updated_at, task_next_reconcile_at, task_worker_id, task_lease_token_hash, task_lease_generation, task_lease_expires_at, quiet
 `
 
 type AdvanceTaskExecutionStatusParams struct {
@@ -92,6 +92,7 @@ func (q *Queries) AdvanceTaskExecutionStatus(ctx context.Context, arg AdvanceTas
 		&i.TaskLeaseTokenHash,
 		&i.TaskLeaseGeneration,
 		&i.TaskLeaseExpiresAt,
+		&i.Quiet,
 	)
 	return i, err
 }
@@ -1038,7 +1039,7 @@ func (q *Queries) LockHumanTaskInputTargetByWorkRoom(ctx context.Context, arg Lo
 
 const lockTaskExecutionSnapshot = `-- name: LockTaskExecutionSnapshot :one
 SELECT item.id AS task_id,item.tenant_id,item.title,item.state AS work_item_state,item.resolution,item.version,
-       item.task_source_key,item.task_execution_generation,
+       item.quiet,item.task_source_key,item.task_execution_generation,
        item.task_execution_status,item.task_execution_revision,item.task_execution_reason_code,
        item.task_desired_control,item.task_control_revision,item.task_control_settled_revision,
        item.task_control_outcome,item.task_control_payload,item.task_execution_updated_at,
@@ -1063,6 +1064,7 @@ type LockTaskExecutionSnapshotRow struct {
 	WorkItemState              string             `json:"work_item_state"`
 	Resolution                 pgtype.Text        `json:"resolution"`
 	Version                    int64              `json:"version"`
+	Quiet                      bool               `json:"quiet"`
 	TaskSourceKey              pgtype.Text        `json:"task_source_key"`
 	TaskExecutionGeneration    pgtype.Int8        `json:"task_execution_generation"`
 	TaskExecutionStatus        pgtype.Text        `json:"task_execution_status"`
@@ -1090,6 +1092,7 @@ func (q *Queries) LockTaskExecutionSnapshot(ctx context.Context, taskID string) 
 		&i.WorkItemState,
 		&i.Resolution,
 		&i.Version,
+		&i.Quiet,
 		&i.TaskSourceKey,
 		&i.TaskExecutionGeneration,
 		&i.TaskExecutionStatus,
@@ -1160,9 +1163,10 @@ UPDATE work_items
 SET state=$1::text,
     resolution=NULL,
     task_source_key=$2::text,
-    task_execution_generation=$3::bigint,
-    task_execution_status=$4::text,
-    task_execution_revision=$5::bigint,
+    quiet=$3::boolean,
+    task_execution_generation=$4::bigint,
+    task_execution_status=$5::text,
+    task_execution_revision=$6::bigint,
     task_execution_reason_code=NULL,
     task_desired_control='run',
     task_control_revision=0,
@@ -1171,16 +1175,17 @@ SET state=$1::text,
     task_execution_updated_at=clock_timestamp(),
     task_next_reconcile_at=clock_timestamp(),
     task_lease_generation=0
-WHERE id=$6::text
-  AND tenant_id=$7::text
+WHERE id=$7::text
+  AND tenant_id=$8::text
   AND kind='task'
   AND task_execution_generation IS NULL
-RETURNING id, tenant_id, number, kind, title, description, priority, state, resolution, version, created_by_actor_id, updated_by_actor_id, archived_at, created_at, updated_at, task_source_key, task_execution_generation, task_execution_status, task_execution_revision, task_execution_reason_code, task_desired_control, task_control_revision, task_control_settled_revision, task_control_outcome, task_control_source_kind, task_control_source_id, task_control_requested_by_actor_id, task_control_requested_at, task_control_payload, task_execution_updated_at, task_next_reconcile_at, task_worker_id, task_lease_token_hash, task_lease_generation, task_lease_expires_at
+RETURNING id, tenant_id, number, kind, title, description, priority, state, resolution, version, created_by_actor_id, updated_by_actor_id, archived_at, created_at, updated_at, task_source_key, task_execution_generation, task_execution_status, task_execution_revision, task_execution_reason_code, task_desired_control, task_control_revision, task_control_settled_revision, task_control_outcome, task_control_source_kind, task_control_source_id, task_control_requested_by_actor_id, task_control_requested_at, task_control_payload, task_execution_updated_at, task_next_reconcile_at, task_worker_id, task_lease_token_hash, task_lease_generation, task_lease_expires_at, quiet
 `
 
 type PromoteTaskToManagedExecutionParams struct {
 	WorkItemState     string      `json:"work_item_state"`
 	SourceKey         pgtype.Text `json:"source_key"`
+	Quiet             bool        `json:"quiet"`
 	Generation        int64       `json:"generation"`
 	ExecutionStatus   string      `json:"execution_status"`
 	ExecutionRevision int64       `json:"execution_revision"`
@@ -1192,6 +1197,7 @@ func (q *Queries) PromoteTaskToManagedExecution(ctx context.Context, arg Promote
 	row := q.db.QueryRow(ctx, promoteTaskToManagedExecution,
 		arg.WorkItemState,
 		arg.SourceKey,
+		arg.Quiet,
 		arg.Generation,
 		arg.ExecutionStatus,
 		arg.ExecutionRevision,
@@ -1235,6 +1241,7 @@ func (q *Queries) PromoteTaskToManagedExecution(ctx context.Context, arg Promote
 		&i.TaskLeaseTokenHash,
 		&i.TaskLeaseGeneration,
 		&i.TaskLeaseExpiresAt,
+		&i.Quiet,
 	)
 	return i, err
 }

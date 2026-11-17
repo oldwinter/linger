@@ -1,25 +1,42 @@
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
+import { EventEmitter } from "node:events";
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 import type { ComputerDaemonModule } from "./computer-daemon.js";
+import type { DesktopConfig } from "./config.js";
 import { stubModule, tempDirectory, testHost } from "./test-support.js";
-import { type UpdaterOptions, UpdaterModule, appBundleOf } from "./updater.js";
+import {
+  type SpawnSetup,
+  type UpdateState,
+  type UpdaterOptions,
+  UpdaterModule,
+  appBundleOf,
+  updateInstallFor,
+} from "./updater.js";
 
-const SERVER = "https://linger.example.com";
+const RELEASES = "https://github.com/simplexai-labs/linger/releases";
 const PACKAGE = Buffer.from("new app archive");
 
-const release = (version: string, body = PACKAGE) => {
+const release = (
+  version: string,
+  {
+    body = PACKAGE,
+    target = "darwin-arm64",
+    file = `Linger-${version}-macos-arm64.app.tar.gz`,
+    feed = RELEASES,
+  } = {},
+) => {
   const { privateKey, publicKey } = generateKeyPairSync("ed25519");
   const manifest = Buffer.from(
     JSON.stringify({
-      schema: 1,
+      schema: 2,
       version,
       packages: {
-        "darwin-arm64": {
-          file: `Linger-${version}-arm64.tar.gz`,
+        [target]: {
+          file,
           sha256: createHash("sha256").update(PACKAGE).digest("hex"),
           size: PACKAGE.length,
         },
@@ -27,23 +44,23 @@ const release = (version: string, body = PACKAGE) => {
     }),
   );
   const files: Record<string, Buffer> = {
-    "manifest.json": manifest,
-    "manifest.json.sig": Buffer.from(
+    [`${feed}/latest/download/manifest.json`]: manifest,
+    [`${feed}/latest/download/manifest.json.sig`]: Buffer.from(
       sign(null, manifest, privateKey).toString("base64"),
     ),
-    [`Linger-${version}-arm64.tar.gz`]: body,
+    [`${feed}/download/desktop-v${version}/${file}`]: body,
   };
   const requested: string[] = [];
   const fetch = (async (url: URL) => {
-    requested.push(url.pathname);
-    const name = url.pathname.replace("/install/desktop/stable/", "");
-    const file = files[name];
-    return file
-      ? new Response(new Uint8Array(file))
+    requested.push(url.toString());
+    const content = files[url.toString()];
+    return content
+      ? new Response(new Uint8Array(content))
       : new Response("missing", { status: 404 });
   }) as unknown as typeof globalThis.fetch;
   return {
     fetch,
+    files,
     requested,
     publicKey: publicKey.export({ type: "spki", format: "pem" }).toString(),
   };
@@ -52,6 +69,7 @@ const release = (version: string, body = PACKAGE) => {
 const setup = async (
   feed: ReturnType<typeof release>,
   options: Partial<UpdaterOptions> = {},
+  config: Partial<DesktopConfig> = {},
 ) => {
   const root = tempDirectory();
   const applications = path.join(root, "Applications");
@@ -61,6 +79,9 @@ const setup = async (
   const downloads = path.join(root, "updates");
   let running = 0;
   let restarts = 0;
+  let quits = 0;
+  const opened: string[] = [];
+  const announced: UpdateState[] = [];
   const runtime = {
     ...stubModule("ComputerDaemon"),
     running: () => running,
@@ -69,11 +90,18 @@ const setup = async (
     version: "0.16.7",
     platform: "darwin",
     arch: "arm64",
-    appBundle: bundle,
+    install: { kind: "app-bundle", appBundle: bundle },
     downloadDirectory: downloads,
     restart: async () => {
       restarts += 1;
     },
+    quit: async () => {
+      quits += 1;
+    },
+    openExternal: async (url) => {
+      opened.push(url);
+    },
+    announce: (state) => announced.push(state),
     fetch: feed.fetch,
     publicKey: feed.publicKey,
     checkDelayMs: 60 * 60_000,
@@ -85,9 +113,7 @@ const setup = async (
     },
     ...options,
   });
-  const host = testHost([stubModule("Config"), runtime, updater], {
-    serverUrl: SERVER,
-  });
+  const host = testHost([stubModule("Config"), runtime, updater], config);
   await host.start();
   const setRunning = (n: number) => {
     running = n;
@@ -100,17 +126,35 @@ const setup = async (
     applications,
     downloads,
     setRunning,
+    opened,
+    announced,
     restarts: () => restarts,
+    quits: () => quits,
   };
 };
 
 describe("UpdaterModule", () => {
-  it("installs a verified update once running tasks finish", async () => {
+  it("installs a verified update from the latest release once running tasks finish", async () => {
     const feed = release("0.17.0");
-    const { updater, bundle, applications, setRunning, restarts, host } =
-      await setup(feed);
+    const {
+      updater,
+      bundle,
+      applications,
+      setRunning,
+      restarts,
+      host,
+      announced,
+    } = await setup(feed);
     await updater.check();
     expect(updater.state()).toEqual({ kind: "ready", version: "0.17.0" });
+    expect(feed.requested).toEqual([
+      `${RELEASES}/latest/download/manifest.json`,
+      `${RELEASES}/latest/download/manifest.json.sig`,
+      // From the release the signed manifest names, not whatever is latest
+      // by the time of the download.
+      `${RELEASES}/download/desktop-v0.17.0/Linger-0.17.0-macos-arm64.app.tar.gz`,
+    ]);
+    expect(announced).toEqual([{ kind: "ready", version: "0.17.0" }]);
     expect(readFileSync(path.join(bundle, "version"), "utf8")).toBe("0.16.7");
 
     setRunning(1);
@@ -133,9 +177,11 @@ describe("UpdaterModule", () => {
       version: "0.17.0",
       platform: "darwin",
       arch: "arm64",
-      appBundle: bundle,
+      install: { kind: "app-bundle", appBundle: bundle },
       downloadDirectory: tempDirectory(),
       restart: async () => {},
+      quit: async () => {},
+      openExternal: async () => {},
       checkDelayMs: 60 * 60_000,
     });
     await testHost([stubModule("Config"), stubModule("ComputerDaemon"), next])
@@ -155,13 +201,11 @@ describe("UpdaterModule", () => {
       kind: "failed",
       error: "Update signature does not match",
     });
-    expect(feed.requested).not.toContain(
-      "/install/desktop/stable/Linger-0.17.0-arm64.tar.gz",
-    );
+    expect(feed.requested).toHaveLength(2);
   });
 
   it("refuses a package that does not match its checksum", async () => {
-    const feed = release("0.17.0", Buffer.from("new app archivX"));
+    const feed = release("0.17.0", { body: Buffer.from("new app archivX") });
     const { updater, downloads, applications } = await setup(feed);
     await updater.check();
     expect(updater.state()).toEqual({
@@ -193,52 +237,247 @@ describe("UpdaterModule", () => {
     await host.stop("quit");
   });
 
-  it("stays idle when the server has nothing newer", async () => {
+  it("stays idle when the latest release is not newer", async () => {
     const feed = release("0.16.7");
     const { updater } = await setup(feed);
     await updater.check();
     expect(updater.state()).toEqual({ kind: "idle" });
     expect(feed.requested).toHaveLength(2);
   });
+
+  it("updates a prerelease to its release", async () => {
+    const feed = release("0.16.7");
+    const { updater } = await setup(feed, { version: "0.16.7-rc.2" });
+    await updater.check();
+    expect(updater.state()).toEqual({ kind: "ready", version: "0.16.7" });
+  });
+
+  it("stays idle when the latest release has no manifest", async () => {
+    const feed = release("0.17.0");
+    delete feed.files[`${RELEASES}/latest/download/manifest.json.sig`];
+    const { updater, announced } = await setup(feed);
+    await updater.check();
+    expect(updater.state()).toEqual({ kind: "idle" });
+    expect(announced).toEqual([]);
+  });
+
+  it("reads the feed the config names and refuses one without https", async () => {
+    const own = "https://releases.example.com/linger";
+    const feed = release("0.17.0", { feed: own });
+    const { updater } = await setup(feed, {}, { updateFeedUrl: own });
+    await updater.check();
+    expect(updater.state()).toEqual({ kind: "ready", version: "0.17.0" });
+    expect(feed.requested[0]).toBe(`${own}/latest/download/manifest.json`);
+
+    const plain = await setup(
+      release("0.17.0"),
+      {},
+      { updateFeedUrl: "http://releases.example.com/linger" },
+    );
+    await plain.updater.check();
+    expect(plain.updater.state()).toEqual({
+      kind: "failed",
+      error: "The update feed must use https",
+    });
+  });
+});
+
+describe("UpdaterModule with the Windows setup program", () => {
+  const SETUP = "Linger-0.17.0-windows-x64-setup.exe";
+  const windows = async (spawn: SpawnSetup) => {
+    const feed = release("0.17.0", { target: "win32-x64", file: SETUP });
+    return {
+      feed,
+      ...(await setup(feed, {
+        platform: "win32",
+        arch: "x64",
+        install: { kind: "windows-setup" },
+        spawn,
+      })),
+    };
+  };
+  const recorder = () => {
+    const calls: { file: string; args: readonly string[]; options: object }[] =
+      [];
+    const spawn: SpawnSetup = (file, args, options) => {
+      calls.push({ file, args, options });
+      const child = Object.assign(new EventEmitter(), { unref: () => {} });
+      queueMicrotask(() => child.emit("spawn"));
+      return child;
+    };
+    return { calls, spawn };
+  };
+
+  it("runs the verified setup program silently once tasks finish, then quits", async () => {
+    const { calls, spawn } = recorder();
+    const { updater, downloads, feed, setRunning, quits, restarts } =
+      await windows(spawn);
+    await updater.check();
+    expect(feed.requested.at(-1)).toBe(
+      `${RELEASES}/download/desktop-v0.17.0/${SETUP}`,
+    );
+    expect(updater.state()).toEqual({ kind: "ready", version: "0.17.0" });
+    expect(readdirSync(downloads)).toEqual([SETUP]);
+
+    setRunning(2);
+    await updater.install();
+    expect(updater.state()).toEqual({ kind: "waiting", version: "0.17.0" });
+    expect(calls).toEqual([]);
+
+    setRunning(0);
+    await waitFor(() => quits() === 1);
+    expect(calls).toEqual([
+      {
+        file: path.join(downloads, SETUP),
+        args: ["/S", "/relaunch"],
+        options: { detached: true, stdio: "ignore" },
+      },
+    ]);
+    expect(restarts()).toBe(0);
+  });
+
+  it("does not run a setup program that changed after its download", async () => {
+    const { calls, spawn } = recorder();
+    const { updater, downloads, quits } = await windows(spawn);
+    await updater.check();
+    writeFileSync(path.join(downloads, SETUP), "something else");
+    await updater.install();
+    expect(updater.state()).toEqual({
+      kind: "failed",
+      error: "Update package does not match its checksum",
+    });
+    expect(calls).toEqual([]);
+    expect(quits()).toBe(0);
+  });
+
+  it("stays when the setup program cannot start", async () => {
+    const spawn: SpawnSetup = () => {
+      const child = Object.assign(new EventEmitter(), { unref: () => {} });
+      queueMicrotask(() => child.emit("error", new Error("spawn EACCES")));
+      return child;
+    };
+    const { updater, quits } = await windows(spawn);
+    await updater.check();
+    await updater.install();
+    expect(updater.state()).toEqual({
+      kind: "failed",
+      error: "Error: spawn EACCES",
+    });
+    expect(quits()).toBe(0);
+  });
+});
+
+describe("UpdaterModule for a download", () => {
+  it("links a newer release without downloading it", async () => {
+    const feed = release("0.17.0", {
+      target: "linux-x64",
+      file: "Linger-0.17.0-linux-x64.tar.gz",
+    });
+    const { updater, opened, announced, downloads } = await setup(feed, {
+      platform: "linux",
+      arch: "x64",
+      install: { kind: "download" },
+    });
+    await updater.check();
+    const available = {
+      kind: "available",
+      version: "0.17.0",
+      url: `${RELEASES}/tag/desktop-v0.17.0`,
+    };
+    expect(updater.state()).toEqual(available);
+    expect(feed.requested).toHaveLength(2);
+    expect(() => readdirSync(downloads)).toThrow();
+
+    await updater.check();
+    expect(announced).toEqual([available]);
+    await updater.install();
+    expect(opened).toEqual([available.url]);
+    expect(updater.state()).toEqual(available);
+  });
+
+  it("stays idle when the release has nothing for this platform", async () => {
+    const feed = release("0.17.0");
+    const { updater } = await setup(feed, {
+      platform: "linux",
+      arch: "x64",
+      install: { kind: "download" },
+    });
+    await updater.check();
+    expect(updater.state()).toEqual({ kind: "idle" });
+  });
 });
 
 describe("UpdaterModule with services on this computer", () => {
-  it("updates them from the app on request instead of asking the server", async () => {
-    const feed = release("0.17.0");
+  it("offers the services update the app brings and still checks for a newer app", async () => {
+    const feed = release("0.16.7");
     let available = false;
     let updates = 0;
-    let announced = 0;
-    const { updater, host } = await setup(feed, {
+    const { updater, host, announced } = await setup(feed, {
       services: {
-        serving: (serverUrl) => serverUrl === SERVER,
         sourceUpdateAvailable: () => available,
         updateSource: async () => {
           updates += 1;
           available = false;
         },
       },
-      announceServices: () => {
-        announced += 1;
-      },
     });
-    await updater.check();
-    expect(feed.requested).toEqual([]);
-    expect(updater.state()).toEqual({ kind: "idle" });
-
     available = true;
     host.ctx.bus.emit("local-server.changed");
-    expect(updater.state()).toEqual({
-      kind: "ready",
-      version: "0.16.7",
-      services: true,
-    });
-    expect(announced).toBe(1);
-    expect(updates).toBe(0);
+    const services = { kind: "ready", version: "0.16.7", services: true };
+    expect(updater.state()).toEqual(services);
+    expect(announced).toEqual([services]);
+
+    await updater.check();
+    expect(feed.requested).toHaveLength(2);
+    expect(updater.state()).toEqual(services);
+    expect(announced).toHaveLength(1);
 
     await updater.install();
     expect(updates).toBe(1);
     expect(updater.state()).toEqual({ kind: "idle" });
     await host.stop("quit");
+  });
+
+  it("replaces the services update with a newer app, which brings its own", async () => {
+    const feed = release("0.17.0");
+    const { updater, host } = await setup(feed, {
+      services: {
+        sourceUpdateAvailable: () => true,
+        updateSource: async () => {},
+      },
+    });
+    expect(updater.state()).toMatchObject({ services: true });
+    await updater.check();
+    expect(updater.state()).toEqual({ kind: "ready", version: "0.17.0" });
+    await host.stop("quit");
+  });
+});
+
+describe("updateInstallFor", () => {
+  it("swaps the macOS bundle, runs the Windows setup and links elsewhere", () => {
+    const none = () => false;
+    expect(
+      updateInstallFor(
+        "darwin",
+        "/Applications/Linger.app/Contents/MacOS/Linger",
+        none,
+      ),
+    ).toEqual({ kind: "app-bundle", appBundle: "/Applications/Linger.app" });
+    const installed = "C:\\Users\\a\\AppData\\Local\\Programs\\Linger";
+    expect(
+      updateInstallFor(
+        "win32",
+        `${installed}\\Linger.exe`,
+        (file) => file === `${installed}\\Uninstall Linger.exe`,
+      ),
+    ).toEqual({ kind: "windows-setup" });
+    // The portable folder has no uninstaller.
+    expect(updateInstallFor("win32", "D:\\Linger\\Linger.exe", none)).toEqual({
+      kind: "download",
+    });
+    expect(updateInstallFor("linux", "/opt/linger/linger", none)).toEqual({
+      kind: "download",
+    });
   });
 });
 

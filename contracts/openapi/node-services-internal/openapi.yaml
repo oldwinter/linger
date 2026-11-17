@@ -204,6 +204,46 @@ paths:
           $ref: ../components/common.yaml#/components/responses/ServiceUnavailable
       security:
         - agentManagementBearer: []
+  /v1/tenants/{tenantId}/owners/{ownerActorId}/local-computers/{computerId}/local-model-actions:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/OwnerActorId"
+      - $ref: "#/components/parameters/ComputerId"
+    post:
+      summary: Send one local-models action to an owned Local Computer
+      description:
+        Agent Service sends execute with kind local_models and returns the
+        Computer's immediate accepted or refused answer. The Computer
+        supervises the job and reports progress only through runner.local_models
+        snapshots, which Agent Service records in TeamHub.
+      operationId: actOnLocalComputerModels
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ../components/local-models.yaml#/components/schemas/LocalModelActionCommand
+      responses:
+        "200":
+          description: The Computer's answer.
+          content:
+            application/json:
+              schema:
+                $ref: ../components/local-models.yaml#/components/schemas/LocalModelActionAck
+        "400":
+          $ref: ../components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ../components/common.yaml#/components/responses/Unauthenticated
+        "404":
+          $ref: ../components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ../components/common.yaml#/components/responses/Conflict
+        "502":
+          $ref: ../components/common.yaml#/components/responses/BadGateway
+        "503":
+          $ref: ../components/common.yaml#/components/responses/ServiceUnavailable
+      security:
+        - agentManagementBearer: []
   /v1/tenants/{tenantId}/owners/{ownerActorId}/local-computers/{computerId}/browser-connection:
     parameters:
       - $ref: "#/components/parameters/TenantId"
@@ -832,13 +872,13 @@ paths:
         disconnects leaves the line and stops its conversion. Supported
         sources include UTF-8 Markdown, plain text, HTML, CSV/TSV, JSON, XML,
         YAML and other text, plus PDF, DOC, DOCX, XLSX, PPTX, ZIP/gzip
-        archives of those types, SVG, and raster images. ZIP and gzip unwrap
-        at most one archive layer; nested ZIP or gzip is unsupported. ZIP
-        members of supported non-archive types are extracted within
-        archive-safety limits. PDF pages keep their text layer, and pages
-        with raster images are also recognized with English and Simplified
-        Chinese OCR; raster images are recognized the same way. Audio, video,
-        RAR/7z/tar, and legacy Excel/PowerPoint binaries remain unsupported.
+        archives of those types, and SVG. ZIP and gzip unwrap at most one
+        archive layer; nested ZIP or gzip is unsupported. ZIP members of
+        supported non-archive types are extracted within archive-safety
+        limits. PDF pages give only their text layer; no text is recognized
+        from images, so a PDF without one has no text. Raster images, audio,
+        video, RAR/7z/tar, and legacy Excel/PowerPoint binaries are
+        unsupported.
         The media type picks the extractor first; when it is generic, the
         filename and then the representation format do. Both the
         request and response are bounded raw byte streams; source bytes are
@@ -873,8 +913,6 @@ paths:
               value: application/vnd.openxmlformats-officedocument.presentationml.presentation
             zip:
               value: application/zip
-            png:
-              value: image/png
             svg:
               value: image/svg+xml
         - name: X-Source-Filename
@@ -1383,6 +1421,7 @@ components:
       enum:
         - approval
         - voice_ask
+        - meeting_notes
         - memory
         - agent_memory
         - wiki
@@ -1391,6 +1430,7 @@ components:
       x-enum-varnames:
         - ModelCallKindApproval
         - ModelCallKindVoiceAsk
+        - ModelCallKindMeetingNotes
         - ModelCallKindMemory
         - ModelCallKindAgentMemory
         - ModelCallKindWiki
@@ -1399,7 +1439,7 @@ components:
       description: >-
         What the call is for. It sets the call's place in the queue of the
         Runtime it runs on, where an approval goes first and Runs come next;
-        voice_ask never queues. approval and voice_ask have a person waiting,
+        voice_ask and meeting_notes never queue. approval, voice_ask and meeting_notes have someone waiting,
         so they stop once the request is gone and never answer pending.
     ModelCallErrorCode:
       type: string
@@ -1668,11 +1708,14 @@ components:
         date_from:
           type: string
           format: date
-          description: Optional inclusive lower bound for evidence dates.
+          description:
+            Optional inclusive start of when the asked records were made, the
+            source's local date. It ranks sources and facts recorded in that
+            period higher and excludes none.
         date_to:
           type: string
           format: date
-          description: Optional inclusive upper bound for evidence dates.
+          description: Optional inclusive end of when the asked records were made; see date_from.
         event_from:
           type: string
           format: date
@@ -1684,6 +1727,14 @@ components:
           type: string
           format: date
           description: Optional inclusive end of the asked event time; see event_from.
+        as_of:
+          type: string
+          format: date
+          description:
+            Optional day a changing value or state is asked for, such as today
+            for the current one. Among similarly relevant results, those
+            recorded shortly before that day rank a little higher; later ones
+            remain eligible.
         scope:
           type: string
           enum:
@@ -2316,6 +2367,7 @@ components:
       required:
         - scheduler
         - raw_chunk_sources
+        - session_facts
       properties:
         scheduler:
           type: object
@@ -2347,6 +2399,64 @@ components:
             - $ref: "#/components/schemas/MemoryFailureSectionNotConfigured"
             - $ref: "#/components/schemas/MemoryFailureSectionUnavailable"
             - $ref: "#/components/schemas/RawChunkSourceFailures"
+        session_facts:
+          oneOf:
+            - $ref: "#/components/schemas/MemoryFailureSectionNotConfigured"
+            - $ref: "#/components/schemas/MemoryFailureSectionUnavailable"
+            - $ref: "#/components/schemas/SessionFactFailures"
+    SessionFactFailures:
+      type: object
+      additionalProperties: false
+      description: >-
+        Latest failed Session fact sync per Agent observed by this process. A successful sync clears
+        only that Agent. Resets on restart; zero does not establish that all persisted sources have facts.
+      required:
+        - configured
+        - scope
+        - observed_since
+        - total
+        - items
+      properties:
+        configured:
+          type: boolean
+          const: true
+        scope:
+          type: string
+          const: process
+        observed_since:
+          type: string
+          format: date-time
+        total:
+          type: integer
+          minimum: 0
+          description: Number of Agents whose latest observed sync failed, before the list limit.
+        items:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/SessionFactFailure"
+    SessionFactFailure:
+      type: object
+      additionalProperties: false
+      required:
+        - agent_id
+        - failed_windows
+        - last_failure_at
+        - last_error_kind
+      properties:
+        agent_id:
+          type: string
+        failed_windows:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: Windows not extracted in the latest sync, or null if the sync aborted before a complete count.
+        last_failure_at:
+          type: string
+          format: date-time
+        last_error_kind:
+          type: string
+          description: Last structured ModelCallError kind, invalid_output for omitted windows, or unknown; never inferred from error prose.
     RawChunkSourceFailures:
       type: object
       additionalProperties: false

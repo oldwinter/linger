@@ -27,7 +27,7 @@ if (!Number.isInteger(healthPort) || healthPort < 1024 || healthPort > 65535)
   throw new Error("VOICE_WORKER_PORT is invalid");
 export const maxSessions = 16;
 const initializeProcessTimeoutMs = 60_000;
-export const sonioxRealtimeModel = "stt-rt-v5";
+export const sonioxRealtimeModel = "stt-rt-v6";
 // Hints bias short openings that sound alike across languages (a Mandarin
 // greeting vs. "Hallo") without excluding other languages.
 export const sonioxLanguageHints = ["zh", "en"];

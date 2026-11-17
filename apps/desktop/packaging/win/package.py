@@ -15,10 +15,13 @@ menu shortcut and an entry under Installed apps. The zip holds the same
 folder for running without installing.
 
 Neither is Authenticode-signed yet, so SmartScreen asks the user to confirm
-the first start. There is no self-update on Windows; a new setup program
-replaces the installed version.
+the first start. The desktop updater runs a newer setup program with
+/S /relaunch: it stops Linger, replaces the installed version and starts it
+again. The zip has no self-update.
 
-The Go daemon goes to resources/computer/. With a bundled source package, the
+The Go daemon goes to resources/computer/ and the browser and computer-control
+tools it loads to resources/cli/ and resources/runtime/ (../computer_tools.py);
+the finished zip is checked for them. With a bundled source package, the
 TeamHub binaries and the Native runtime build.mjs built from it must be there
 and match their manifests and that package (../native_bundle.py).
 """
@@ -36,6 +39,7 @@ import zipfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 DESKTOP = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.dirname(HERE))
+import computer_tools  # noqa: E402
 from native_bundle import check_runtime, check_teamhub  # noqa: E402
 DAEMON = os.path.join(DESKTOP, "dist", "computer", "win32-x64", "linger-computer-daemon.exe")
 
@@ -91,13 +95,14 @@ def stage_app(version, electron_version, workdir, cache):
     dist = os.path.join(DESKTOP, "dist")
     app_dir = os.path.join(resources, "app")
     shutil.copytree(dist, os.path.join(app_dir, "dist"),
-                    ignore=shutil.ignore_patterns("*.map", "computer"))
+                    ignore=shutil.ignore_patterns("*.map", "computer", "computer-tools"))
     with open(os.path.join(app_dir, "package.json"), "w") as out:
         json.dump({"name": "linger-desktop", "productName": "Linger", "version": version,
                    "type": "module", "main": "dist/main/index.mjs"}, out, indent=2)
     computer = os.path.join(resources, "computer")
     os.makedirs(computer)
     shutil.copy2(DAEMON, computer)
+    computer_tools.copy(resources, "win32-x64")
 
     write_icon(os.path.join(resources, "linger.ico"))
     os.rename(os.path.join(stage, "electron.exe"), os.path.join(stage, "Linger.exe"))
@@ -154,6 +159,7 @@ def main():
         report(setup)
         archive = os.path.join(args.out, f"Linger-{version}-x64.zip")
         build_zip(stage, archive)
+        computer_tools.check_archive(archive, "Linger/resources/", "win32-x64")
         report(archive)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)

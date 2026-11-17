@@ -103,6 +103,30 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/tenants/{tenantId}/owners/{ownerActorId}/local-computers/{computerId}/local-model-actions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ownerActorId: components["parameters"]["OwnerActorId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Send one local-models action to an owned Local Computer
+     * @description Agent Service sends execute with kind local_models and returns the Computer's immediate accepted or refused answer. The Computer supervises the job and reports progress only through runner.local_models snapshots, which Agent Service records in TeamHub.
+     */
+    post: operations["actOnLocalComputerModels"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/tenants/{tenantId}/owners/{ownerActorId}/local-computers/{computerId}/browser-connection": {
     parameters: {
       query?: never;
@@ -441,13 +465,13 @@ export interface paths {
      *     disconnects leaves the line and stops its conversion. Supported
      *     sources include UTF-8 Markdown, plain text, HTML, CSV/TSV, JSON, XML,
      *     YAML and other text, plus PDF, DOC, DOCX, XLSX, PPTX, ZIP/gzip
-     *     archives of those types, SVG, and raster images. ZIP and gzip unwrap
-     *     at most one archive layer; nested ZIP or gzip is unsupported. ZIP
-     *     members of supported non-archive types are extracted within
-     *     archive-safety limits. PDF pages keep their text layer, and pages
-     *     with raster images are also recognized with English and Simplified
-     *     Chinese OCR; raster images are recognized the same way. Audio, video,
-     *     RAR/7z/tar, and legacy Excel/PowerPoint binaries remain unsupported.
+     *     archives of those types, and SVG. ZIP and gzip unwrap at most one
+     *     archive layer; nested ZIP or gzip is unsupported. ZIP members of
+     *     supported non-archive types are extracted within archive-safety
+     *     limits. PDF pages give only their text layer; no text is recognized
+     *     from images, so a PDF without one has no text. Raster images, audio,
+     *     video, RAR/7z/tar, and legacy Excel/PowerPoint binaries are
+     *     unsupported.
      *     The media type picks the extractor first; when it is generic, the
      *     filename and then the representation format do. Both the
      *     request and response are bounded raw byte streams; source bytes are
@@ -652,12 +676,13 @@ export interface components {
      */
     ModelCallEffort: "low" | "medium" | "high";
     /**
-     * @description What the call is for. It sets the call's place in the queue of the Runtime it runs on, where an approval goes first and Runs come next; voice_ask never queues. approval and voice_ask have a person waiting, so they stop once the request is gone and never answer pending.
+     * @description What the call is for. It sets the call's place in the queue of the Runtime it runs on, where an approval goes first and Runs come next; voice_ask and meeting_notes never queue. approval, voice_ask and meeting_notes have someone waiting, so they stop once the request is gone and never answer pending.
      * @enum {string}
      */
     ModelCallKind:
       | "approval"
       | "voice_ask"
+      | "meeting_notes"
       | "memory"
       | "agent_memory"
       | "wiki"
@@ -781,12 +806,12 @@ export interface components {
       alternates?: string[];
       /**
        * Format: date
-       * @description Optional inclusive lower bound for evidence dates.
+       * @description Optional inclusive start of when the asked records were made, the source's local date. It ranks sources and facts recorded in that period higher and excludes none.
        */
       date_from?: string;
       /**
        * Format: date
-       * @description Optional inclusive upper bound for evidence dates.
+       * @description Optional inclusive end of when the asked records were made; see date_from.
        */
       date_to?: string;
       /**
@@ -799,6 +824,11 @@ export interface components {
        * @description Optional inclusive end of the asked event time; see event_from.
        */
       event_to?: string;
+      /**
+       * Format: date
+       * @description Optional day a changing value or state is asked for, such as today for the current one. Among similarly relevant results, those recorded shortly before that day rank a little higher; later ones remain eligible.
+       */
+      as_of?: string;
       /**
        * @description Search only one list and give it the whole result size; omitted returns both lists.
        * @enum {string}
@@ -1039,6 +1069,31 @@ export interface components {
         | components["schemas"]["MemoryFailureSectionNotConfigured"]
         | components["schemas"]["MemoryFailureSectionUnavailable"]
         | components["schemas"]["RawChunkSourceFailures"];
+      session_facts:
+        | components["schemas"]["MemoryFailureSectionNotConfigured"]
+        | components["schemas"]["MemoryFailureSectionUnavailable"]
+        | components["schemas"]["SessionFactFailures"];
+    };
+    /** @description Latest failed Session fact sync per Agent observed by this process. A successful sync clears only that Agent. Resets on restart; zero does not establish that all persisted sources have facts. */
+    SessionFactFailures: {
+      /** @constant */
+      configured: true;
+      /** @constant */
+      scope: "process";
+      /** Format: date-time */
+      observed_since: string;
+      /** @description Number of Agents whose latest observed sync failed, before the list limit. */
+      total: number;
+      items: components["schemas"]["SessionFactFailure"][];
+    };
+    SessionFactFailure: {
+      agent_id: string;
+      /** @description Windows not extracted in the latest sync, or null if the sync aborted before a complete count. */
+      failed_windows: number | null;
+      /** Format: date-time */
+      last_failure_at: string;
+      /** @description Last structured ModelCallError kind, invalid_output for omitted windows, or unknown; never inferred from error prose. */
+      last_error_kind: string;
     };
     RawChunkSourceFailures: {
       /** @constant */
@@ -1391,6 +1446,71 @@ export interface components {
       runtime_type: "codex" | "claude";
       expires_at: components["schemas"]["Timestamp"];
       items: components["schemas"]["LocalSkillCandidate"][];
+    };
+    /**
+     * @description refresh asks the Computer to reread its library and send a snapshot; it names no model.
+     * @enum {string}
+     */
+    LocalModelActionKind:
+      | "download"
+      | "cancel"
+      | "load"
+      | "unload"
+      | "remove"
+      | "refresh";
+    /** @description Stable localmodels library id: catalog id and variant, such as qwen3-4b:Q4_K_M. */
+    LocalModelId: string;
+    /** @description TeamHub asks Agent Service to send one execute local_models frame to an owned Computer. model_id is required except for refresh; unload_first only with load. */
+    LocalModelActionCommand: {
+      request_id: components["schemas"]["Id"];
+      action: components["schemas"]["LocalModelActionKind"];
+      model_id?: components["schemas"]["LocalModelId"];
+      unload_first?: components["schemas"]["LocalModelId"][];
+      expires_at: components["schemas"]["Timestamp"];
+    };
+    /**
+     * @description Why the Computer refused an action before starting it: a localmodels library error or a reason the library is unavailable.
+     * @enum {string}
+     */
+    LocalModelActionRefusalCode:
+      | "MODEL_UNKNOWN"
+      | "INVALID_STATE"
+      | "JOB_RUNNING"
+      | "MEMORY_INSUFFICIENT"
+      | "DISK_INSUFFICIENT"
+      | "PLATFORM_UNSUPPORTED"
+      | "LOAD_NO_ROOM"
+      | "DOWNLOAD_FAILED"
+      | "CHECKSUM_MISMATCH"
+      | "NETWORK_UNAVAILABLE"
+      | "ENGINE_START_FAILED"
+      | "HEALTH_CHECK_FAILED"
+      | "OUT_OF_MEMORY"
+      | "MODEL_FILES_MISSING"
+      | "GATEWAY_REGISTRATION_FAILED"
+      | "CANCELLED"
+      | "TOOL_NOT_INSTALLED"
+      | "TOOL_FAILED";
+    /** @description A place a model can live: gpu:<index>, system (RAM beside GPUs), or unified (RAM of a host without discrete GPUs). */
+    LocalModelPoolId: string;
+    LocalModelActionRefusal: {
+      code: components["schemas"]["LocalModelActionRefusalCode"];
+      /** @description Diagnostic text for display; never matched on. */
+      detail?: string;
+      /** @description With LOAD_NO_ROOM. */
+      pool?: components["schemas"]["LocalModelPoolId"];
+      /** Format: int64 */
+      need_bytes?: number;
+      /** Format: int64 */
+      free_bytes?: number;
+    };
+    /** @description The Computer's immediate answer. accepted means the job started (or a snapshot is coming for refresh); refused means nothing changed. Progress and outcomes arrive only as snapshots. */
+    LocalModelActionAck: {
+      request_id: components["schemas"]["Id"];
+      /** @enum {string} */
+      outcome: "accepted" | "refused";
+      /** @description Present only when refused. */
+      refusal?: components["schemas"]["LocalModelActionRefusal"];
     };
     /** @description A Chrome profile directory name inside the user's Chrome data directory. */
     BrowserProfile: string;
@@ -2094,6 +2214,40 @@ export interface operations {
       401: components["responses"]["Unauthenticated"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  actOnLocalComputerModels: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ownerActorId: components["parameters"]["OwnerActorId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["LocalModelActionCommand"];
+      };
+    };
+    responses: {
+      /** @description The Computer's answer. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LocalModelActionAck"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
       503: components["responses"]["ServiceUnavailable"];
     };
   };

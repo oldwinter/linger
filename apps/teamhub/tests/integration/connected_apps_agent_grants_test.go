@@ -146,6 +146,11 @@ func TestConnectedAppsAgentGrantIsExplicitAccountScopedAndRevokedOnDisconnect(t 
 	if got := countRows(t, env, `SELECT count(*) FROM river_job WHERE kind='typedcard.connection_auth_settle' AND args->>'connection_id'=$1`, pendingConnectionID); got != 1 {
 		t.Fatalf("activation queued %d card settlements", got)
 	}
+	// The first activation also queues one Profile setup reminder, due after
+	// the Human has had time to finish the setup cards.
+	if got := countRows(t, env, `SELECT count(*) FROM river_job WHERE kind='typedcard.profile_setup_reminder' AND args->>'connection_id'=$1 AND scheduled_at>now()+interval '9 minutes'`, pendingConnectionID); got != 1 {
+		t.Fatalf("activation queued %d Profile setup reminders", got)
+	}
 	if status, _, body = env.request(
 		alice,
 		http.MethodPut,

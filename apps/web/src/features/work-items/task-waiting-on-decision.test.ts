@@ -37,16 +37,16 @@ describe("task waiting on a decision", () => {
     );
 
     await expect(
-      taskWaitingOnDecision(runtime.client, "tenant-northstar", "decision-room"),
+      taskWaitingOnDecision(
+        runtime.client,
+        "tenant-northstar",
+        "decision-room",
+      ),
     ).resolves.toBeUndefined();
   });
 });
 
-function task(
-  id: string,
-  title: string,
-  decisionId: string,
-): TeamHubWorkItem {
+function task(id: string, title: string, decisionId: string): TeamHubWorkItem {
   return {
     assignees: [],
     created_at: "2026-11-16T01:00:00Z",

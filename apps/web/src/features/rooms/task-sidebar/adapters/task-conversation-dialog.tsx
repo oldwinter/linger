@@ -12,7 +12,6 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubRunStatus } from "@/features/teamhub/teamhub-types";
 
 import { CancelTaskButton } from "../../chat/cancel-task-button";
-import { MessageMarkdown } from "../../chat/message-markdown";
 import { useCancelRoomBackgroundTask } from "../../chat/use-room-background-tasks";
 import { createRoomCardDecisionController } from "../../cards/room-card-decision-controller";
 import {
@@ -30,6 +29,7 @@ import { useTaskActivityEvents } from "../../runtime-status/use-task-activity-ev
 import { PanelLoading } from "../panel-loading";
 import { RunningDots } from "../running-dots";
 import { RuntimeTrajectoryView } from "./runtime-trajectory-view";
+import { TaskInputBubble } from "./task-input-bubble";
 
 /** Lets the task blocks in an activity log open their Task's conversation. */
 export function TaskConversationProvider({
@@ -171,18 +171,11 @@ export function TaskConversationDialog({
                   {entry.input.body}
                 </p>
               ) : (
-                <div
-                  className="room-message-card pl-12"
-                  data-current-actor="true"
+                <TaskInputBubble
+                  authorKind={entry.input.author.kind}
+                  body={entry.input.body}
                   key={entry.key}
-                >
-                  <div className="room-message-bubble max-w-[85%]">
-                    <MessageMarkdown
-                      authorKind={entry.input.author.kind}
-                      body={entry.input.body}
-                    />
-                  </div>
-                </div>
+                />
               )
             ) : entry.kind === "run" ? (
               <TaskConversationRun

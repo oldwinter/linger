@@ -282,7 +282,7 @@ func cloneRoutineMap(source map[string]any) map[string]any {
 
 // TestAgentOnceRoutine drives the Agent HTTP surface for one-shot checks: a
 // one-shot check is created and listed with its time, and a past time and the
-// pending one-shot limit are refused.
+// room limit are refused.
 func TestAgentOnceRoutine(t *testing.T) {
 	allowParallelIntegrationTest(t)
 	env, alice := newAgentRoutineEnv(t)
@@ -317,10 +317,13 @@ func TestAgentOnceRoutine(t *testing.T) {
 	}
 	if _, err := env.pool.Exec(t.Context(), `INSERT INTO room_reminders (id, tenant_id, room_id, created_by_actor_id, name, instruction, cadence_kind, timezone, run_at, enabled, next_run_at)
 		SELECT 'routine_pending_'||n, $1, $2, 'actor_acme_official', 'Pending '||n, 'x', 'once', 'UTC', now()+interval '1 day', true, now()+interval '1 day'
-		FROM generate_series(1,19) n`, acmeTenant, roomID); err != nil {
+		FROM generate_series(1,98) n`, acmeTenant, roomID); err != nil {
 		t.Fatal(err)
 	}
-	if status, body := once("12", runAt.Format(time.RFC3339)); status != http.StatusConflict || !strings.Contains(string(body), "routine_once_limit") {
-		t.Fatalf("pending one-shot limit: %d %s", status, body)
+	if status, body := once("12", runAt.Format(time.RFC3339)); status != http.StatusOK {
+		t.Fatalf("100th Routine: %d %s", status, body)
+	}
+	if status, body := once("14", runAt.Format(time.RFC3339)); status != http.StatusConflict || !strings.Contains(string(body), "routine_limit") {
+		t.Fatalf("room Routine limit: %d %s", status, body)
 	}
 }

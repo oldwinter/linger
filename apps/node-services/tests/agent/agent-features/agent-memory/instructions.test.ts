@@ -14,6 +14,7 @@ const common = {
   developerInstructions: undefined,
   sponsor: { actorId: "actor:sponsor", displayName: "Test Sponsor" },
   connectedApps: true,
+  connectedAppKeys: [],
   compactInstructions: false,
 } as const;
 

@@ -1,5 +1,5 @@
 import DOMPurify from "dompurify";
-import { ArrowDown01Icon, Attachment01Icon } from "@hugeicons/core-free-icons";
+import { Attachment01Icon } from "@hugeicons/core-free-icons";
 import { Fragment, useMemo, useState } from "react";
 
 import { Icon } from "@/components/ui/icon";
@@ -14,34 +14,22 @@ type ConnectorWriteMessage = NonNullable<ConnectorWriteView["message"]>;
 type ConnectorWriteField = NonNullable<ConnectorWriteView["fields"]>[number];
 
 /**
- * The full view of one connected app write that TeamHub holds: what will be
- * sent or changed, and the full call under Details. The app and account it
- * acts as read in the card's summary row.
+ * The full view of one connected app write that TeamHub holds: the message or
+ * changed fields for a tool with its own layout, and otherwise the full call,
+ * which is then all there is to see. The app and account it acts as read in
+ * the card's summary row.
  */
 export function ConnectorWriteDecisionView({
   view,
 }: {
   view: ConnectorWriteView;
 }) {
-  const [detailsOpen, setDetailsOpen] = useState(false);
+  const fields = view.fields?.length ? view.fields : undefined;
   return (
     <>
       {view.message ? <MessagePreview message={view.message} /> : null}
-      {view.fields?.length ? <ChangeFields fields={view.fields} /> : null}
-      <button
-        aria-expanded={detailsOpen}
-        className="typed-card-tone inline-flex items-center gap-1 self-start text-xs font-medium [border-radius:var(--app-control-radius)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app-focus"
-        onClick={() => setDetailsOpen((open) => !open)}
-        type="button"
-      >
-        <Icon
-          className={`transition-transform duration-[var(--app-floating-duration)] motion-reduce:transition-none ${detailsOpen ? "rotate-180" : ""}`}
-          icon={ArrowDown01Icon}
-          size={14}
-        />
-        {detailsOpen ? "Hide details" : "Details"}
-      </button>
-      {detailsOpen ? (
+      {fields ? <ChangeFields fields={fields} /> : null}
+      {!view.message && !fields ? (
         <FullCallBlock input={view.input} tool={view.tool} />
       ) : null}
     </>

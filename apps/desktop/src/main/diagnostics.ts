@@ -8,6 +8,12 @@ import { redact } from "@linger/local-installation/redaction";
 import { ZipFile } from "yazl";
 
 import type { ComputerDaemonModule } from "./computer-daemon.js";
+import {
+  DiagnosticsSender,
+  diagnosticsUploadUrl,
+  uploadDiagnostics,
+  type PreparedDiagnostics,
+} from "./diagnostics-upload.js";
 import type { LocalServerModule } from "./local-server.js";
 import { LOCAL_INSTANCE } from "./local-server.js";
 import type { Module, ModuleContext } from "./modules.js";
@@ -72,6 +78,33 @@ const SECRET_KEY =
 
 export const redactDiagnostics = (text: string): string =>
   redact(text.replace(SECRET_KEY, '$1"[REDACTED]"'));
+
+const escapeRegExp = (text: string): string =>
+  text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Replaces the home folder with ~ as logs print it: native separators,
+// forward slashes, and doubled backslashes inside JSON. Windows paths
+// compare case-insensitively. The account name in it often names the
+// person.
+export const homeRedactor = (home: string): ((text: string) => string) => {
+  const trimmed = home.replace(/[\\/]+$/, "");
+  // A home at the root would turn every path into ~.
+  if (trimmed.split(/[\\/]/).filter(Boolean).length < 2) return (text) => text;
+  const windows = /^[A-Za-z]:\\/.test(trimmed) || trimmed.includes("\\");
+  const forms = new Set([
+    trimmed,
+    trimmed.replaceAll("\\", "/"),
+    trimmed.replaceAll("\\", "\\\\"),
+  ]);
+  const pattern = new RegExp(
+    `(?:${[...forms]
+      .sort((a, b) => b.length - a.length)
+      .map(escapeRegExp)
+      .join("|")})(?![\\w.-])`,
+    windows ? "gi" : "g",
+  );
+  return (text) => text.replace(pattern, "~");
+};
 
 // Logs keep their newest part; the bundle stays small enough to send.
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
@@ -186,23 +219,29 @@ export interface DiagnosticsOptions {
   // Shown first in the bundle: version, platform and the setup state.
   readonly summary: Record<string, unknown>;
   readonly now?: Date;
+  // The person's home folder, replaced with ~ everywhere.
+  readonly userHome?: string;
 }
 
 // Writes linger-diagnostics-<time>.zip with every text redacted and
-// returns its path.
+// returns its path, entries and size.
 export const collectDiagnostics = async (
   options: DiagnosticsOptions,
-): Promise<string> => {
+): Promise<PreparedDiagnostics> => {
   const zip = new ZipFile();
   const added = new Set<string>();
   const homes = [...new Set(options.homes.map((home) => path.resolve(home)))];
   // The saved keys themselves, wherever a service printed them.
   const keys = homes.flatMap((home) => savedSecretValues(home, LOCAL_INSTANCE));
+  const withoutHome = homeRedactor(options.userHome ?? os.homedir());
   const addText = (entry: string, text: string) => {
     if (added.has(entry)) return;
     added.add(entry);
     for (const key of keys) text = text.replaceAll(key, "[REDACTED]");
-    zip.addBuffer(Buffer.from(redactDiagnostics(text), "utf8"), entry);
+    zip.addBuffer(
+      Buffer.from(withoutHome(redactDiagnostics(text)), "utf8"),
+      entry,
+    );
   };
   const files = [...(await desktopFiles(options.userData))];
   for (const [index, home] of homes.entries()) {
@@ -247,7 +286,11 @@ export const collectDiagnostics = async (
   } finally {
     await rm(partial, { force: true });
   }
-  return target;
+  return {
+    file: target,
+    entries: [...added],
+    bytes: (await stat(target)).size,
+  };
 };
 
 export interface DiagnosticsModuleOptions {
@@ -260,23 +303,65 @@ export interface DiagnosticsModuleOptions {
   readonly output: () => string;
   readonly openFolder: (folder: string) => Promise<string>;
   readonly showFile: (file: string) => void;
+  // Where a bundle waits for consent; deleted once sent or declined.
+  readonly outbox: string;
 }
 
-// "Show Logs" and "Save Diagnostics" for the setup page, the start failure
-// page and the tray.
+// "Show Logs", "Save Diagnostics" and "Send Diagnostics" for the setup
+// page, the start failure page and the tray.
 export class DiagnosticsModule implements Module {
   readonly name = "Diagnostics";
   readonly dependsOn = ["LocalServer", "ComputerDaemon", "Status"];
   readonly #options: DiagnosticsModuleOptions;
   #ctx: ModuleContext | undefined;
   #saving: Promise<string> | undefined;
+  readonly sender: DiagnosticsSender;
 
   constructor(options: DiagnosticsModuleOptions) {
     this.#options = options;
+    this.sender = new DiagnosticsSender({
+      endpoint: () => this.uploadUrl(),
+      prepare: async () => {
+        await mkdir(options.outbox, { recursive: true, mode: 0o700 });
+        return this.#collect(options.outbox);
+      },
+      upload: (endpoint, bundle, onProgress) =>
+        uploadDiagnostics({
+          endpoint,
+          file: bundle.file,
+          bytes: bundle.bytes,
+          client: {
+            version: options.version,
+            platform: `${process.platform}-${process.arch}`,
+          },
+          onProgress,
+        }),
+      discard: (file) => rm(file, { force: true }),
+      onChange: (state) => {
+        if (state.phase === "sent")
+          this.#ctx?.log.info("diagnostics.sent", {
+            host: state.host,
+            report_id: state.reportId,
+          });
+        if (state.phase === "failed")
+          this.#ctx?.log.warn("diagnostics.send_failed", {
+            error: state.error,
+          });
+        this.#ctx?.bus.emit("diagnostics.changed");
+      },
+    });
   }
 
   async start(ctx: ModuleContext): Promise<void> {
     this.#ctx = ctx;
+    // A bundle left by a send the app quit during.
+    await rm(this.#options.outbox, { recursive: true, force: true });
+  }
+
+  // The receiver Send Diagnostics uploads to; none hides it.
+  uploadUrl(): string | undefined {
+    const config = this.#ctx?.config.get();
+    return config && diagnosticsUploadUrl(config);
   }
 
   async stop(): Promise<void> {}
@@ -296,14 +381,21 @@ export class DiagnosticsModule implements Module {
   }
 
   async #save(): Promise<string> {
+    const { file } = await this.#collect(this.#options.output());
+    this.#ctx?.log.info("diagnostics.saved", { file });
+    this.#options.showFile(file);
+    return file;
+  }
+
+  #collect(output: string): Promise<PreparedDiagnostics> {
     const local = this.#ctx?.get<LocalServerModule>("LocalServer").status();
     const daemon = this.#optionalModule<ComputerDaemonModule>("ComputerDaemon");
     const status = this.#optionalModule<StatusModule>("Status")?.current();
     const config = this.#ctx?.config.get();
-    const file = await collectDiagnostics({
+    return collectDiagnostics({
       userData: this.#options.userData,
       homes: [this.#options.home, ...(local ? [local.location.path] : [])],
-      output: this.#options.output(),
+      output,
       summary: {
         version: this.#options.version,
         platform: `${process.platform}-${process.arch}`,
@@ -325,9 +417,6 @@ export class DiagnosticsModule implements Module {
         },
       },
     });
-    this.#ctx?.log.info("diagnostics.saved", { file });
-    this.#options.showFile(file);
-    return file;
   }
 
   #optionalModule<T extends Module>(name: string): T | undefined {

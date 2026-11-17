@@ -65,6 +65,7 @@ func (a *App) registerExternalApps(ctx context.Context, cfg config.ExternalAppsC
 func (a *App) addExternalAppJobs(features *featureSet, appListeners bool) {
 	externalsource.AddJobWorkers(features.workers, a.externalSources, a.connectedAppsConfigured)
 	river.AddWorker(features.workers, &connectionAuthorizationSettleWorker{app: a})
+	river.AddWorker(features.workers, &profileSetupReminderWorker{app: a})
 	features.schedule(a.connectedAppSweeps(features.workers)...)
 	if !appListeners {
 		return
@@ -86,6 +87,23 @@ func (a *App) addExternalAppJobs(features *featureSet, appListeners bool) {
 // prompts, CLI actions and app jobs read it at use time.
 func (a *App) connectedAppsConfigured() bool {
 	return a.externalSources != nil && a.externalSources.ProviderConfigured()
+}
+
+// agentConnectedAppKeys lists the keys of the apps with an account granted to
+// the Agent, so its instructions name only the sources it can query.
+func (a *App) agentConnectedAppKeys(ctx context.Context, tx pgx.Tx, agentActorID, tenantID string) ([]string, error) {
+	if a.externalSources == nil {
+		return nil, nil
+	}
+	granted, err := a.externalSources.ListGrantedAgentToolConnectionsInTx(ctx, tx, agentActorID, tenantID, "", "")
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]string, 0, len(granted))
+	for _, connection := range granted {
+		keys = append(keys, connection.AppKey)
+	}
+	return keys, nil
 }
 
 // onboardingConnections reads the Connected App accounts granted to

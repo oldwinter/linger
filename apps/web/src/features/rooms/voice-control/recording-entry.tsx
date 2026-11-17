@@ -133,6 +133,7 @@ export function RecordingEntry({
         ) : (
           <Icon icon={AiTranscribeAudioIcon} size={16} />
         )}
+        <span className="xs-nav-btn-label">Meetings</span>
         {recording || connectionFailed ? (
           <span
             aria-hidden="true"

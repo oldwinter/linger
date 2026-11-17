@@ -29,16 +29,16 @@ WITH current AS (
   WHERE document.id=sqlc.arg(document_id)::text AND document.status='active'
 )
 INSERT INTO document_texts (document_id, tenant_id, source_kind, source_id, status,
-                            markdown, markdown_sha256, search_text, scanned,
+                            markdown, markdown_sha256, search_text,
                             longest_line_bytes, updated_at)
 SELECT current.document_id, current.tenant_id, current.source_kind, current.source_id,
        sqlc.arg(status)::text, sqlc.arg(markdown)::text, sqlc.narg(markdown_sha256)::text,
-       sqlc.arg(search_text)::text, sqlc.arg(scanned)::boolean,
+       sqlc.arg(search_text)::text,
        sqlc.arg(longest_line_bytes)::bigint, clock_timestamp()
 FROM current
 WHERE current.source_kind=sqlc.arg(source_kind)::text AND current.source_id=sqlc.arg(source_id)::text
 ON CONFLICT (document_id) DO UPDATE
 SET source_kind=EXCLUDED.source_kind, source_id=EXCLUDED.source_id, status=EXCLUDED.status,
     markdown=EXCLUDED.markdown, markdown_sha256=EXCLUDED.markdown_sha256,
-    search_text=EXCLUDED.search_text, scanned=EXCLUDED.scanned,
+    search_text=EXCLUDED.search_text,
     longest_line_bytes=EXCLUDED.longest_line_bytes, updated_at=EXCLUDED.updated_at;

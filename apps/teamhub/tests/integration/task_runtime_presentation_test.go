@@ -116,9 +116,10 @@ func TestTaskRuntimePresentationHistoryAndPrivacy(t *testing.T) {
 	if strings.Contains(string(body), "private") || !strings.Contains(string(body), "Working") || !strings.Contains(string(body), "Checking workspace") {
 		t.Fatalf("public Task events: %s", body)
 	}
-	native := get(alice, "/v0/rooms/"+roomID+"/runs/"+runID+"/activities", 200)
-	if !strings.Contains(string(native), `"status":"unavailable"`) {
-		t.Fatalf("native history leaked %s", native)
+	// A Task Run's activities come from the Agent Service's native history, which this environment cannot reach.
+	native := get(alice, "/v0/rooms/"+roomID+"/runs/"+runID+"/activities", 503)
+	if !strings.Contains(string(native), `"MESSAGE_ACTIVITIES_UNAVAILABLE"`) {
+		t.Fatalf("Task Run activities without an Agent Service: %s", native)
 	}
 	get(http.DefaultClient, path, 401)
 	// Finish with no tool completion and no Message. The Run still owns history.

@@ -15,6 +15,7 @@ import {
   PERSONALITY_SPEC,
   PERSONALITY_SPEC_COMPACT,
 } from "../../prompt/personality-spec.js";
+import { renderPersonalContextMethod } from "../../prompt/personal-context-method.js";
 import {
   PERSONAL_KNOWLEDGE_POLICY,
   PERSONAL_KNOWLEDGE_POLICY_COMPACT,
@@ -30,6 +31,8 @@ interface ExecutionContextDeveloperInstructionsCommonInput {
   readonly sponsor: AgentSponsorIdentity;
   /** TeamHub has a Composio API key, so the connected app commands work. */
   readonly connectedApps: boolean;
+  /** Keys of the apps with an account granted to this Agent. */
+  readonly connectedAppKeys: readonly string[];
   /** The Runtime model's context window is small: use the compact recipe. */
   readonly compactInstructions: boolean;
 }
@@ -74,6 +77,7 @@ export const assembleExecutionContextDeveloperInstructions = (
       roomId: input.roomId,
       roomKind: input.roomKind,
       connectedApps: input.connectedApps,
+      connectedAppKeys: input.connectedAppKeys,
     });
   const fragments: string[] = [
     renderAgentInstructions({
@@ -88,6 +92,7 @@ export const assembleExecutionContextDeveloperInstructions = (
   ];
   if (input.contextKind !== "document") {
     fragments.push(
+      renderPersonalContextMethod(input.connectedApps, input.connectedAppKeys),
       compact ? PERSONAL_KNOWLEDGE_POLICY_COMPACT : PERSONAL_KNOWLEDGE_POLICY,
     );
   }

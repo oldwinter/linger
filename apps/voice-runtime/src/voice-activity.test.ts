@@ -32,7 +32,7 @@ describe("Silero human-voice activity adapter", () => {
     await opening;
     expect(ready).toHaveBeenCalledWith(detector);
     expect(model.reset).toHaveBeenCalledOnce();
-    expect(await detector.pushPCM(new Int16Array(512).fill(1))).toEqual([
+    expect(await detector.pushPCM(new Int16Array(512).fill(1))).toMatchObject([
       { throughSample: 512, speech: true },
     ]);
     detector.close();
@@ -61,15 +61,16 @@ describe("Silero human-voice activity adapter", () => {
     };
     const detector = new SileroSpeechActivityDetector(model, 512);
     expect(await detector.pushPCM(new Int16Array(320))).toEqual([]);
-    expect(await detector.pushPCM(new Int16Array(320))).toEqual([
+    expect(await detector.pushPCM(new Int16Array(320))).toMatchObject([
       { throughSample: 512, speech: true },
     ]);
-    expect(await detector.pushPCM(new Int16Array(384).fill(30_000))).toEqual([
-      { throughSample: 1_024, speech: true },
-    ]);
-    expect(await detector.pushPCM(new Int16Array(512).fill(30_000))).toEqual([
-      { throughSample: 1_536, speech: false },
-    ]);
+    expect(
+      await detector.pushPCM(new Int16Array(384).fill(30_000)),
+    ).toMatchObject([{ throughSample: 1_024, speech: true }]);
+    const [loud] = await detector.pushPCM(new Int16Array(512).fill(30_000));
+    expect(loud).toMatchObject({ throughSample: 1_536, speech: false });
+    // The level comes with every window, whatever the model says.
+    expect(loud!.levelDb).toBeCloseTo(20 * Math.log10(30_000 / 32_768), 5);
     expect(
       model.predict.mock.calls.every(([frame]) => frame.length === 512),
     ).toBe(true);

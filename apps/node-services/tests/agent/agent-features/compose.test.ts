@@ -313,6 +313,7 @@ describe("composeContextFeatures", () => {
     expect(
       compose([a, b, c]).contextInstructions({
         connectedApps: true,
+        connectedAppKeys: [],
         compactInstructions: false,
       }),
     ).toBe("A\n\nC");

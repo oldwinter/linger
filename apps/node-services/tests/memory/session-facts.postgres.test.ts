@@ -268,6 +268,165 @@ describe.runIf(Boolean(databaseUrl))("Session facts in PostgreSQL", () => {
     ).toEqual([dogText]);
   });
 
+  it("ranks facts by when they happened, not when they were told", async () => {
+    const mail = async (id: string, date: string, body: string) => {
+      const markdown = `# Trip\n\n- Provider: gmail\n- Message ID: \`${id}\`\n- Thread ID: \`${id}\`\n- Timestamp: ${date}T01:00:00Z\n- Direction: outbound\n- Class: self_sent\n\n${body}\n`;
+      await chunks.indexDatabaseSource(
+        documentRawSource({
+          identity,
+          documentId: `document_${id}`,
+          textSourceKind: "file_version",
+          textSourceId: `version_${id}`,
+          title: "Trip",
+          filename: `${id}.md`,
+          mediaType: "text/markdown",
+          originKind: "mail",
+          date,
+          markdown,
+        }),
+        markdown,
+      );
+    };
+    // Told in April about March; June repeats the words but plans ahead.
+    await mail("april", "2026-04-10", "We went on the Kyoto trip last month.");
+    await mail(
+      "june",
+      "2026-06-02",
+      "Kyoto trip ideas: another Kyoto trip, Kyoto trip budget.",
+    );
+    const fact = (what: string, occurred?: string): ExtractedFact => ({
+      what,
+      when: occurred ?? "N/A",
+      where: "Kyoto",
+      who: "Ann",
+      why: "N/A",
+      fact_kind: occurred ? "event" : "conversation",
+      fact_type: "world",
+      entities: ["Ann", "Kyoto"],
+      ...(occurred ? { occurred_start: occurred, occurred_end: occurred } : {}),
+    });
+    await new SessionFactIndex({
+      sql: indexSql,
+      extract: async (batch) =>
+        new Map(
+          batch.map(({ window }) => [
+            window.sha256,
+            [
+              window.text.includes("last month")
+                ? fact("Ann went on a Kyoto trip", "2026-03-12")
+                : fact("Ann plans another Kyoto trip"),
+            ],
+          ]),
+        ),
+    }).syncAgent(identity.agent_id);
+    const lead = async (time: Record<string, string>) =>
+      (
+        await chunks.searchFacts({ ...identity, query: "Kyoto trip", ...time })
+      )[0]?.text;
+    const went = /went on a Kyoto trip/u;
+    const plans = /plans another Kyoto trip/u;
+    // Told in April, the trip happened in March.
+    expect(
+      await lead({ event_from: "2026-03-01", event_to: "2026-03-31" }),
+    ).toMatch(went);
+    // Something said in June happened on its day.
+    expect(
+      await lead({ event_from: "2026-06-01", event_to: "2026-06-30" }),
+    ).toMatch(plans);
+    // A mention in April does not count for an April event window.
+    const april = await chunks.searchFacts({
+      ...identity,
+      query: "Kyoto trip",
+      event_from: "2026-04-01",
+      event_to: "2026-04-30",
+    });
+    const none = await chunks.searchFacts({ ...identity, query: "Kyoto trip" });
+    expect(april.map(({ text }) => text)).toEqual(none.map(({ text }) => text));
+    // Original chunks take no event vote: their order is the keyword order.
+    const order = async (time: Record<string, string>) =>
+      (await chunks.search({ ...identity, query: "Kyoto trip", ...time })).map(
+        ({ sourceId }) => sourceId,
+      );
+    expect(
+      await order({ event_from: "2026-03-01", event_to: "2026-03-31" }),
+    ).toEqual(await order({}));
+  });
+
+  it("ranks facts by the recorded window and nudges them toward as_of", async () => {
+    const mail = async (id: string, date: string, body: string) => {
+      const markdown = `# Gift\n\n- Provider: gmail\n- Message ID: \`${id}\`\n- Thread ID: \`${id}\`\n- Timestamp: ${date}T01:00:00Z\n- Direction: outbound\n- Class: self_sent\n\n${body}\n`;
+      await chunks.indexDatabaseSource(
+        documentRawSource({
+          identity,
+          documentId: `document_${id}`,
+          textSourceKind: "file_version",
+          textSourceId: `version_${id}`,
+          title: "Gift",
+          filename: `${id}.md`,
+          mediaType: "text/markdown",
+          originKind: "mail",
+          date,
+          markdown,
+        }),
+        markdown,
+      );
+    };
+    // A year apart; the first states it more fully, so it leads on keywords.
+    await mail("first", "2025-05-20", "Clara's share for Ben's gift is 1,500.");
+    await mail(
+      "later",
+      "2026-05-28",
+      "Clara's share for Ben's gift is now 1,800.",
+    );
+    // Weaker matches give the fused list its usual depth.
+    for (const day of ["01", "02", "03", "04", "05", "06"])
+      await mail(`call${day}`, `2025-03-${day}`, "Clara called about lunch.");
+    const share = (amount: string): ExtractedFact => ({
+      what: `Clara's share for Ben's gift is ${amount}`,
+      when: "N/A",
+      where: "N/A",
+      who: "Clara",
+      why: "N/A",
+      fact_kind: "conversation",
+      fact_type: "world",
+      entities: ["Clara", "Ben"],
+    });
+    await new SessionFactIndex({
+      sql: indexSql,
+      extract: async (batch) =>
+        new Map(
+          batch.map(({ window }) => [
+            window.sha256,
+            [
+              window.text.includes("1,800")
+                ? share("1,800")
+                : window.text.includes("1,500")
+                  ? share("1,500, the gift share")
+                  : { ...share(""), what: "Clara called about lunch" },
+            ],
+          ]),
+        ),
+    }).syncAgent(identity.agent_id);
+    const first = async (time: Record<string, string>) =>
+      (
+        await chunks.searchFacts({
+          ...identity,
+          query: "Clara share gift",
+          ...time,
+        })
+      ).flatMap(({ text }) => text.match(/1,[58]00/u) ?? []);
+    // Both stay; each time parameter only decides which leads.
+    expect(await first({})).toEqual(["1,500", "1,800"]);
+    expect(await first({ as_of: "2026-05-30" })).toEqual(["1,800", "1,500"]);
+    expect(await first({ as_of: "2025-05-25" })).toEqual(["1,500", "1,800"]);
+    expect(
+      await first({ date_from: "2025-05-01", date_to: "2025-05-22" }),
+    ).toEqual(["1,500", "1,800"]);
+    expect(
+      await first({ date_from: "2026-05-26", date_to: "2026-05-31" }),
+    ).toEqual(["1,800", "1,500"]);
+  });
+
   it("keeps Raw candidates identical whether fact recall is on or off", async () => {
     await publishRaw(afternoon);
     await facts.syncAgent(identity.agent_id);

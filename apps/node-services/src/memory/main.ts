@@ -140,6 +140,7 @@ export async function startMemoryService({
     serviceToken: config.serviceToken,
     chunkSearch: chunkIndex,
     chunkFailures: chunkIndex,
+    factFailures: sessionFacts,
     onPocketNoteChanged: async (change) => {
       // A rebuilding Human gets Tracking Items from its replayed Dailies.
       if (

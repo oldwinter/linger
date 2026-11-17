@@ -45,6 +45,7 @@ import {
 } from "./livekit-worker.js";
 import {
   SileroSpeechActivityDetector,
+  type SpeechActivity,
   type SpeechActivityDetector,
 } from "./voice-activity.js";
 import { liveInputRate, xaiSpeedTool } from "./xai-live.js";
@@ -104,6 +105,25 @@ const preRollSamples = liveInputRate * 0.3;
  * echo; the pause becomes a barge-in only when server VAD confirms it.
  */
 const pauseSpeechSamples = 16_000 * 0.2;
+/**
+ * Speech this far below the user's own level is someone else in the room:
+ * Silero hears any voice, near or far. A speaker 15 dB below the user
+ * (synthesized speech, 2026-11-17) passed Silero in 68% of their speech
+ * windows and this gate in none.
+ */
+const otherSpeakerDb = 10;
+/** Playback's minimum speech level before the user's level is known. */
+const faintestSpeechDb = -50;
+/** An open gate stays open this much below its threshold, for word tails. */
+const levelHysteresisDb = 6;
+/**
+ * The learned level follows the user's louder windows at once and softer
+ * ones slowly: an average of every window sat among the soft syllables,
+ * where a nearby speaker's words passed, and those words then pulled it
+ * lower still.
+ */
+const userLevelRise = 0.5;
+const userLevelFall = 0.01;
 /** A pause server VAD has not confirmed resumes after this much local quiet. */
 const resumeQuietSamples = 16_000 * 0.4;
 /** A pause never lasts longer than this. */
@@ -466,6 +486,10 @@ export class LiveVoiceWorker {
   private quietRunSamples = 0;
   /** The microphone is sent as silence; see quietGateSamples. */
   private gated = false;
+  /** The user's speech level on this track, in dBFS; see otherSpeakerDb. */
+  private userLevelDb?: number;
+  /** The last window was the user's speech. */
+  private userSpeaking = false;
   /** Microphone frames held while gated, newest last. */
   private preRoll: Int16Array[] = [];
   private preRollHeld = 0;
@@ -2057,6 +2081,9 @@ export class LiveVoiceWorker {
     signal: AbortSignal,
   ) {
     const input = new TrackAudioInput(track, liveInputRate);
+    // Another microphone has a level of its own.
+    this.userLevelDb = undefined;
+    this.userSpeaking = false;
     const epoch = this.nextEpoch++;
     const generation = Number(
       participant.attributes?.["linger.voice_generation"] ?? 0,
@@ -2203,21 +2230,21 @@ export class LiveVoiceWorker {
     )
       return;
     for (const window of activity) {
-      if (window.speech) inputMetrics.speechStartedAt ??= receivedAt;
-      if (!window.speech && this.speechRunSamples > 0)
-        this.speechEndedAt = Date.now();
-      if (window.speech && this.quietSince !== undefined) {
+      const speech = this.isUserSpeech(window);
+      if (speech) inputMetrics.speechStartedAt ??= receivedAt;
+      if (!speech && this.speechRunSamples > 0) this.speechEndedAt = Date.now();
+      if (speech && this.quietSince !== undefined) {
         if (this.hearing)
           this.longestQuietMs = Math.max(
             this.longestQuietMs,
             receivedAt - this.quietSince,
           );
         this.quietSince = undefined;
-      } else if (!window.speech) this.quietSince ??= receivedAt;
-      this.speechRunSamples = window.speech
+      } else if (!speech) this.quietSince ??= receivedAt;
+      this.speechRunSamples = speech
         ? this.speechRunSamples + detectorWindowSamples
         : 0;
-      if (window.speech) {
+      if (speech) {
         this.quietRunSamples = 0;
         this.gated = false;
       } else {
@@ -2225,14 +2252,36 @@ export class LiveVoiceWorker {
         if (this.quietRunSamples >= quietGateSamples) this.gated = true;
       }
       if (
-        window.speech &&
+        speech &&
         this.speechRunSamples >= pauseSpeechSamples &&
         this.speechRunSamples - detectorWindowSamples < pauseSpeechSamples
       )
         this.pausePlayback();
-      else if (!window.speech && this.quietRunSamples >= resumeQuietSamples)
+      else if (!speech && this.quietRunSamples >= resumeQuietSamples)
         this.resumePlayback("quiet");
     }
+  }
+
+  /**
+   * During playback, quieter speech counts as quiet and pauses nothing.
+   * Otherwise Silero alone gates input, so a stale level cannot mute a turn.
+   */
+  private isUserSpeech({ speech, levelDb }: SpeechActivity) {
+    const learned = this.userLevelDb;
+    const threshold =
+      Math.max(
+        faintestSpeechDb,
+        learned === undefined ? faintestSpeechDb : learned - otherSpeakerDb,
+      ) - (this.userSpeaking ? levelHysteresisDb : 0);
+    this.userSpeaking = speech && (!this.isPlaying() || levelDb >= threshold);
+    if (this.userSpeaking)
+      this.userLevelDb =
+        learned === undefined
+          ? levelDb
+          : learned +
+            (levelDb - learned) *
+              (levelDb > learned ? userLevelRise : userLevelFall);
+    return this.userSpeaking;
   }
 
   private reportBoundary(

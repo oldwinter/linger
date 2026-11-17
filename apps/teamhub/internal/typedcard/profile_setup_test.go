@@ -20,6 +20,14 @@ func TestOnboardingStatusTextTellsAnotherMeWhatSetupCollected(t *testing.T) {
 			onboardingStatus{connections: gmail},
 			[]string{"- Gmail ada@example.test, connection connection_gmail", "ask whether to start now from what is connected so far"},
 		},
+		"finished with sources after asking": {
+			onboardingStatus{finished: true, links: []string{"https://ada.example"}, chatted: true, alreadyAsked: true},
+			[]string{"Links: https://ada.example", "do not ask the Human about it again", "add these sources to it"},
+		},
+		"idle reminder": {
+			onboardingStatus{connections: gmail, idleReminder: true},
+			[]string{"Setup cards: not finished", "- Gmail ada@example.test, connection connection_gmail", "no message of theirs comes with this status", "ask whether to start now from what is connected"},
+		},
 		"finished, nothing shared": {
 			onboardingStatus{finished: true, chatted: true},
 			[]string{"Setup cards: finished.", "Links: none.", "Files: none.", "The Human shared nothing. Do not open the personal-profile Skill"},

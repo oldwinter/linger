@@ -10,23 +10,24 @@ const NUDGES = [
   { time: "5:00 PM", text: "Before you go: the deck is ready." },
 ] as const;
 
-const ANOTHER_ME = figureKey("deer");
-// The first nudge waits for the headline and the card to settle.
+// A white fox on the seam's apricot, so the figure stands out from its tile.
+const ANOTHER_ME = figureKey("arctic_fox", "#F2A15F");
+// The first nudge waits for the headline and the timeline to settle.
 const FIRST_NUDGE_MS = 3_000;
 const NUDGE_EVERY_MS = 4_000;
 // Long enough to start one peek-and-smile; the figure then finishes it and
 // rests on its last frame.
 const AWAKE_MS = 1_000;
 
-type NudgeState = "next" | "previous" | "shown";
+type MomentState = "later" | "now" | "past";
 
 /**
- * The login page's picture: Another Me, a personal AI on your own computer,
- * reaching out before it is asked. It is decorative; the login shell hides it
- * from assistive technology.
+ * The login page's picture: Another Me's working day, a personal AI on your
+ * own computer reaching out before it is asked, one nudge lighting up at a
+ * time. It is decorative; the login shell hides it from assistive technology.
  */
 export function AuthIllustration() {
-  // Reduced motion keeps the first nudge on screen and never starts the loop.
+  // Reduced motion keeps the first nudge lit and never starts the loop.
   const [landed, setLanded] = useState(() => (prefersReducedMotion() ? 1 : 0));
   const [awake, setAwake] = useState(false);
 
@@ -55,33 +56,6 @@ export function AuthIllustration() {
 
   return (
     <div className="auth-art">
-      <div className="auth-art-nudges">
-        {NUDGES.map((nudge, index) => (
-          <p
-            className="auth-art-nudge"
-            data-state={nudgeState(index, current)}
-            key={nudge.time}
-          >
-            <span className="auth-art-nudge-time">{nudge.time}</span>
-            {nudge.text}
-          </p>
-        ))}
-      </div>
-
-      <div className="auth-art-mark">
-        <div className="auth-art-card">
-          <span className="auth-art-avatar">
-            <AgentAvatarPortrait animate={awake} avatarKey={ANOTHER_ME} />
-            {/* Keyed by the landing so the badge pops again for each nudge. */}
-            {current === null ? null : (
-              <span className="auth-art-badge town-pill-pop" key={landed}>
-                1
-              </span>
-            )}
-          </span>
-        </div>
-      </div>
-
       <div className="auth-art-copy">
         <h2 className="auth-art-title">
           <span>Your personal AI.</span>
@@ -91,26 +65,42 @@ export function AuthIllustration() {
           Another Me runs on your own computer, keeps track of your work, and
           reaches out before anything slips.
         </p>
-        <ol className="auth-art-steps">
-          <li>Your computer</li>
-          <li aria-hidden="true">→</li>
-          <li>Your context</li>
-          <li aria-hidden="true">→</li>
-          <li>Timely nudges</li>
+      </div>
+
+      <div className="auth-art-day">
+        <div className="auth-art-day-head">
+          <span className="auth-art-avatar">
+            <AgentAvatarPortrait animate={awake} avatarKey={ANOTHER_ME} />
+            {/* Keyed by the landing so the badge pops again for each nudge. */}
+            {current === null ? null : (
+              <span className="auth-art-badge town-pill-pop" key={landed}>
+                1
+              </span>
+            )}
+          </span>
+          <span className="auth-art-day-name">Another Me</span>
+        </div>
+        <ol className="auth-art-timeline">
+          {NUDGES.map((nudge, index) => (
+            <li
+              className="auth-art-moment"
+              data-state={momentState(index, current)}
+              key={nudge.time}
+            >
+              <span className="auth-art-moment-time">{nudge.time}</span>
+              <span className="auth-art-moment-text">{nudge.text}</span>
+            </li>
+          ))}
         </ol>
       </div>
     </div>
   );
 }
 
-/**
- * The shown nudge leaves upward and the one after it waits below, so every
- * change reads as a new message arriving.
- */
-function nudgeState(index: number, current: number | null): NudgeState {
-  if (current === null) return "next";
-  if (index === current) return "shown";
-  return index === (current + 1) % NUDGES.length ? "next" : "previous";
+/** Earlier moments of the day stay lit; later ones wait. */
+function momentState(index: number, current: number | null): MomentState {
+  if (current === null || index > current) return "later";
+  return index === current ? "now" : "past";
 }
 
 function prefersReducedMotion() {

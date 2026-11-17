@@ -13,7 +13,7 @@ RETURNING id,tenant_id,number,kind,title,description,priority,state,resolution,v
           task_control_source_kind,task_control_source_id,task_control_requested_by_actor_id,
           task_control_requested_at,task_control_payload,
           task_execution_updated_at,task_next_reconcile_at,task_worker_id,
-          task_lease_token_hash,task_lease_generation,task_lease_expires_at;
+          task_lease_token_hash,task_lease_generation,task_lease_expires_at, quiet;
 
 -- name: CreateMessageCard :exec
 INSERT INTO message_cards(
@@ -44,7 +44,7 @@ SELECT id,tenant_id,number,kind,title,description,priority,state,resolution,vers
        task_control_source_kind,task_control_source_id,task_control_requested_by_actor_id,
        task_control_requested_at,task_control_payload,
        task_execution_updated_at,task_next_reconcile_at,task_worker_id,
-       task_lease_token_hash,task_lease_generation,task_lease_expires_at
+       task_lease_token_hash,task_lease_generation,task_lease_expires_at, quiet
 FROM work_items
 WHERE id=$1;
 

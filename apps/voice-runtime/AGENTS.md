@@ -31,6 +31,8 @@
 - Never log audio bytes, transcript text, LiveKit tokens, TeamHub tokens, or provider credentials.
 - Partial observations are transient; TeamHub decides which final observations become product truth.
 - A duplicated provider event reuses the same stable `event_id`.
+- Every track consumer attempt claims its transcript media epoch from TeamHub (`claimVoiceMediaEpoch`) and never counts epochs in memory: a job restarted mid-session (deploy, crash, key change) must not reuse an epoch whose coverage stream an earlier job started.
 - Backpressure is bounded. Failure must stop or reconnect the affected track instead of accumulating unbounded PCM.
 - Shutdown waits for accepted final/progress callbacks up to a fixed deadline and then exits non-zero if state is uncertain.
+- During reply playback, the Live worker's local gate sends the microphone as silence unless Silero hears speech within `otherSpeakerDb` of the level it learned on this track; quieter speech neither reaches the provider nor pauses a reply. Outside playback, Silero alone gates the microphone so a stale learned level cannot mute the user's next turn.
 - Never move recording back into the ASR job process; ASR load or failure must never stall the Capture recorder. A recorder never extends an epoch it did not start; TeamHub rejects the conflicting segment and the recorder reports failure.

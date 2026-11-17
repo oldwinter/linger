@@ -62,7 +62,7 @@ SET created_at=$1::timestamptz,
 FROM voice_sessions voice
 WHERE capture.id=$2::text AND voice.id=capture.voice_session_id
   AND capture.status IN ('starting','finalizing')
-RETURNING capture.id, capture.tenant_id, capture.room_id, capture.created_by_actor_id, capture.status, capture.created_at, capture.updated_at, capture.transcript_start_offset_ms, capture.transcript_end_offset_ms, capture.document_id, capture.document_version_id, capture.transcript_document_id, capture.transcript_document_version_id, capture.voice_session_id, capture.transcript_integrity_lost, capture.source_audio_document_id, capture.source_audio_document_version_id, capture.transcript_recovered_at, capture.requested_transcript_start_offset_ms, capture.voice_completion_attempts, capture.voice_completion_failed_at, capture.voice_completion_failure_code, capture.staging_deleted_at, capture.stop_requested_at, capture.materialize_requested_at, capture.materialize_attempts, capture.materialize_retry_at, capture.transcript_recovery_status, capture.transcript_recovery_progress_ms, capture.transcript_recovery_total_ms, capture.transcript_recovery_failures, capture.transcript_recovery_failure_code, capture.transcript_recovery_retry_at, capture.hidden_at
+RETURNING capture.id, capture.tenant_id, capture.room_id, capture.created_by_actor_id, capture.status, capture.created_at, capture.updated_at, capture.transcript_start_offset_ms, capture.transcript_end_offset_ms, capture.document_id, capture.document_version_id, capture.transcript_document_id, capture.transcript_document_version_id, capture.voice_session_id, capture.transcript_integrity_lost, capture.source_audio_document_id, capture.source_audio_document_version_id, capture.transcript_recovered_at, capture.requested_transcript_start_offset_ms, capture.voice_completion_attempts, capture.voice_completion_failed_at, capture.voice_completion_failure_code, capture.staging_deleted_at, capture.stop_requested_at, capture.materialize_requested_at, capture.materialize_attempts, capture.materialize_retry_at, capture.transcript_recovery_status, capture.transcript_recovery_progress_ms, capture.transcript_recovery_total_ms, capture.transcript_recovery_failures, capture.transcript_recovery_failure_code, capture.transcript_recovery_retry_at, capture.hidden_at, capture.quick_notes_state, capture.quick_notes
 `
 
 type ConfirmInitialVoiceMediaTimelineParams struct {
@@ -108,6 +108,8 @@ func (q *Queries) ConfirmInitialVoiceMediaTimeline(ctx context.Context, arg Conf
 		&i.TranscriptRecoveryFailureCode,
 		&i.TranscriptRecoveryRetryAt,
 		&i.HiddenAt,
+		&i.QuickNotesState,
+		&i.QuickNotes,
 	)
 	return i, err
 }

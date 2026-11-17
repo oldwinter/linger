@@ -130,6 +130,7 @@ async function fixture() {
   });
   vi.mocked(prepareNativeDatabase).mockImplementation(async () => {
     running.add("postgres");
+    return {};
   });
   vi.stubGlobal(
     "fetch",
@@ -244,6 +245,44 @@ test("only TeamHub's process gets the server identity key", async () => {
       "TEAMHUB_LOCAL_IDENTITY_KEY",
     );
   expect(events.join("\n")).not.toContain(key);
+});
+test("a database from before Linger is reported and the installation goes on", async () => {
+  const f = await fixture();
+  vi.mocked(prepareRuntime).mockResolvedValue({
+    code: 0,
+    state: "ready",
+    message: "ready",
+  });
+  const backup = path.join(f.home, "instances/native-legacy/simplex-backup-x");
+  vi.mocked(prepareNativeDatabase).mockImplementation(async () => {
+    f.running.add("postgres");
+    return { legacyBackup: backup };
+  });
+  const events: InstallerEvent[] = [];
+  const result = await installNativeSource({
+    home: f.home,
+    repo: f.repo,
+    name: "native-legacy",
+    setupChoice: "pi",
+    signal: new AbortController().signal,
+    onEvent: (event) => events.push(event),
+  });
+  expect(result.code).toBe(0);
+  const notice = events.findIndex(
+    (event) => event.kind === "log" && event.message.includes(backup),
+  );
+  expect(events[notice]).toMatchObject({
+    stage: "services",
+    message: expect.stringContaining("earlier Simplex app"),
+  });
+  const migrate = vi
+    .mocked(runProcess)
+    .mock.calls.findIndex((row) => row[1].includes("migrate"));
+  expect(
+    vi.mocked(runProcess).mock.invocationCallOrder[migrate],
+  ).toBeGreaterThan(
+    vi.mocked(prepareNativeDatabase).mock.invocationCallOrder[0]!,
+  );
 });
 test("a new identity key restarts TeamHub alone", async () => {
   const f = await fixture();

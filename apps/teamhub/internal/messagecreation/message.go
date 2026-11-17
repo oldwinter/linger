@@ -54,6 +54,8 @@ type Segment struct {
 	TotalBytes             *int64 `json:"total_bytes,omitempty"`
 	EntryDocumentID        string `json:"entry_document_id,omitempty"`
 	EntryDocumentVersionID string `json:"entry_document_version_id,omitempty"`
+	// CaptureID is a meeting_notes segment's recording.
+	CaptureID string `json:"capture_id,omitempty"`
 }
 
 // ValidDocumentPresentation reports whether a document segment may carry
@@ -380,6 +382,9 @@ func validateSegment(segment Segment) error {
 	if segment.Type != "file" && hasFileMetadata {
 		return ErrInvalid
 	}
+	if segment.Type != "meeting_notes" && segment.CaptureID != "" {
+		return ErrInvalid
+	}
 	switch segment.Type {
 	case "text":
 		if segment.Target != "" || segment.TargetType != "" || segment.DocumentID != "" || segment.DocumentVersionID != "" || segment.Presentation != "" || segment.SkillID != "" || segment.ManifestVersion != "" || segment.Html != "" {
@@ -406,6 +411,12 @@ func validateSegment(segment Segment) error {
 			strings.TrimSpace(segment.Html) == "" || len(segment.Html) > maxHtmlFragmentBytes ||
 			segment.Target != "" || segment.TargetType != "" || segment.DocumentID != "" ||
 			segment.DocumentVersionID != "" || segment.Presentation != "" || segment.SkillID != "" || segment.ManifestVersion != "" {
+			return ErrInvalid
+		}
+	case "meeting_notes":
+		if !identifierPattern.MatchString(segment.CaptureID) ||
+			segment.Target != "" || segment.TargetType != "" || segment.DocumentID != "" ||
+			segment.DocumentVersionID != "" || segment.Presentation != "" || segment.SkillID != "" || segment.ManifestVersion != "" || segment.Html != "" {
 			return ErrInvalid
 		}
 	case "skill":

@@ -94,6 +94,28 @@ interface LocalAccount {
   provisioned: boolean;
 }
 
+// For a database made again from nothing: the next account step creates
+// the owner again with the saved email and password.
+export async function unprovisionLocalAccount(root: string): Promise<void> {
+  const file = path.join(root, "local-account.json");
+  const text = await readPrivate(file);
+  if (text === undefined) return;
+  let account: LocalAccount;
+  try {
+    account = JSON.parse(text) as LocalAccount;
+  } catch {
+    // Never expose parser errors containing the private password.
+    throw new Error(
+      "The local account file is invalid; existing credentials will not be overwritten.",
+    );
+  }
+  if (account.provisioned !== true) return;
+  await atomicPrivate(
+    file,
+    JSON.stringify({ ...account, provisioned: false }, null, 2) + "\n",
+  );
+}
+
 // Called under the instance lock. TeamHub owns deployment-owner creation;
 // its idempotent command never resets an existing account password.
 export async function ensureLocalAccount(

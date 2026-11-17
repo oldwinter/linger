@@ -20,6 +20,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -31,9 +32,12 @@ import {
   readLocalLogin,
 } from "@linger/local-installation/account";
 import { downloadVerified } from "@linger/local-installation/download";
+import { latestLegacyBackup } from "@linger/local-installation/legacy-database";
 import { legacyMigrationPending } from "@linger/local-installation/home";
+import type { LegacyInstanceSkipped } from "@linger/local-installation/legacy-migration";
 import {
   type SetupChoice,
+  type SetupMemory,
   setupChoices,
 } from "@linger/local-installation/setup-plan";
 import {
@@ -108,15 +112,23 @@ export type LocalModelsCheck =
   | { readonly state: "checking"; readonly download?: Transfer }
   | {
       readonly state: "checked";
-      // Whether this computer can serve a local model at all.
+      // Whether this computer can serve a local model now.
       readonly eligible: boolean;
+      // The model fits this computer's hardware, but other programs hold
+      // memory it needs now: the tool's state "blocked-now". The install
+      // would plan again against the memory free then, so it is not offered
+      // until a new check finds that memory.
+      readonly blockedNow?: true;
+      // While blocked now: the memory free now and what the plan needs, as
+      // the tool counts them (VRAM only for a discrete GPU).
+      readonly freeMemory?: SetupMemory;
       readonly memoryBytes: number;
       readonly diskFreeBytes: number | null;
       readonly gpu?: string;
-      // Present only when eligible.
+      // Present when eligible or when it needs free memory.
       readonly model?: LocalModel;
-      // Why not, as the localmodels tool's code and words; present only
-      // when not eligible.
+      // The localmodels tool's code and words for why not, or, when
+      // eligible, for what could still stop the install.
       readonly reasons?: readonly SetupReason[];
       // The localmodels tool's pick for this computer, which Quick Install
       // installs; the page adds no rule of its own.
@@ -267,6 +279,9 @@ export interface LocalServerStatus {
   readonly origin?: string;
   // While the "signin" step waits for the person.
   readonly signIn?: RuntimeSignIn;
+  // Where this installation moved the data of the earlier Simplex app,
+  // which it could not upgrade.
+  readonly legacyBackup?: string;
 }
 
 export interface LocalServerOptions {
@@ -299,6 +314,9 @@ export interface LocalServerOptions {
   readonly sessionCookie?: (origin: string) => Promise<string | undefined>;
   readonly platform?: NodeJS.Platform;
   readonly arch?: string;
+  // This Mac's macOS version (Electron's process.getSystemVersion); not
+  // checked without it.
+  readonly macosVersion?: () => string | undefined;
   readonly fetch?: typeof fetch;
   readonly pollMs?: number;
   // The free space a picked folder needs; LOCATION_FREE_BYTES by default.
@@ -327,6 +345,49 @@ const SERVER_CHECK_TTL_MS = 2_000;
 
 // The instance the desktop installs.
 export const LOCAL_INSTANCE = "desktop";
+
+export interface LegacyMigrationRun {
+  code: number | null;
+  output: string;
+  error: string;
+}
+
+/**
+ * Reads `installer.js --migrate`: the instances it left unconverted, and why
+ * `instance`, the one this app uses, could not be converted, if so.
+ */
+export function legacyMigrationResult(
+  run: LegacyMigrationRun,
+  instance: string,
+): { failure?: string; skipped: LegacyInstanceSkipped[] } {
+  if (run.code !== 0)
+    return {
+      failure:
+        run.error.trim() || `The installer exited with code ${run.code}.`,
+      skipped: [],
+    };
+  let skipped: LegacyInstanceSkipped[] = [];
+  try {
+    const parsed = JSON.parse(run.output.trim().split("\n").at(-1) ?? "") as {
+      skipped?: unknown;
+    };
+    if (Array.isArray(parsed.skipped))
+      skipped = parsed.skipped.filter(
+        (entry): entry is LegacyInstanceSkipped =>
+          typeof (entry as LegacyInstanceSkipped)?.instance === "string" &&
+          typeof (entry as LegacyInstanceSkipped)?.reason === "string",
+      );
+  } catch {
+    // An installer that answers no list converted everything it could.
+  }
+  const own = skipped.find((entry) => entry.instance === instance);
+  return {
+    skipped,
+    ...(own && {
+      failure: `Linger could not convert this computer's installation from the earlier Simplex app. ${own.reason}`,
+    }),
+  };
+}
 const NATIVE_TARGETS = new Set(["darwin-arm64", "linux-x64", "win32-x64"]);
 const MiB = 1024 * 1024;
 const GiB = 1024 * MiB;
@@ -373,6 +434,7 @@ export class LocalServerModule implements Module {
   #daemonFailure: string | undefined;
   #identityConflict = false;
   #signIn: RuntimeSignIn | undefined;
+  #legacyBackup: string | undefined;
   // The installer that runs the sign-in, and what the person asked for
   // while the step waits.
   #signInInstaller: InstallerApi | undefined;
@@ -478,6 +540,7 @@ export class LocalServerModule implements Module {
       },
       ...(this.#origin ? { origin: this.#origin } : {}),
       ...(this.#signIn ? { signIn: this.#signIn } : {}),
+      ...(this.#legacyBackup ? { legacyBackup: this.#legacyBackup } : {}),
     };
   }
 
@@ -506,9 +569,10 @@ export class LocalServerModule implements Module {
     this.#ctx?.bus.emit("local-server.changed");
   }
 
-  // Asks the installer, once per run, whether this computer can serve a
-  // local model; the setup window asks as it opens, before anything is
-  // installed. Then fetches the Node runtime an installation starts with.
+  // Asks the installer whether this computer can serve a local model; the
+  // setup window asks as it opens, before anything is installed, and again
+  // through recheck(). Then fetches the Node runtime an installation starts
+  // with.
   inspect(): void {
     if (
       this.#check.state !== "unchecked" ||
@@ -530,6 +594,9 @@ export class LocalServerModule implements Module {
           this.#ctx?.log.info("local_server.inspected", {
             ms: Date.now() - started,
             eligible: check.state === "checked" && check.eligible,
+            ...(check.state === "checked" && check.blockedNow
+              ? { blocked_now: true, free_memory: check.freeMemory }
+              : {}),
             ...(check.state === "checked" && check.recommendation
               ? { recommendation: check.recommendation }
               : {}),
@@ -556,6 +623,14 @@ export class LocalServerModule implements Module {
         if (!signal.aborted)
           void this.#ensureNode(signal).catch(() => undefined);
       });
+  }
+
+  // Checks again, for example after the person closed other programs to free
+  // the memory the local model needs.
+  recheck(): void {
+    if (this.#check.state === "checking" || this.#phase !== "idle") return;
+    this.#check = { state: "unchecked" };
+    this.inspect();
   }
 
   async #inspect(
@@ -616,6 +691,8 @@ export class LocalServerModule implements Module {
       recommendation?: unknown;
       localModels?: {
         eligible?: unknown;
+        state?: unknown;
+        memory?: Record<string, unknown>;
         reasons?: unknown;
         reasonMessages?: unknown;
         estimate?: {
@@ -645,8 +722,27 @@ export class LocalServerModule implements Module {
       typeof estimate?.model === "string" && estimate.model
         ? estimate.model
         : undefined;
-    // Offered only with a model to show; the plan names it.
-    const eligible = report.localModels.eligible && !!name;
+    // Offered only with a model to show; the plan names it. A plan blocked
+    // now cannot install until other programs free memory.
+    const blockedNow = !!name && report.localModels.state === "blocked-now";
+    const eligible = report.localModels.eligible && !!name && !blockedNow;
+    const memory = report.localModels.memory;
+    const freeMemory: SetupMemory | undefined =
+      blockedNow &&
+      bytes(memory?.ramAvailableBytes) !== null &&
+      bytes(memory?.ramRequiredBytes) !== null
+        ? {
+            ramAvailableBytes: memory!.ramAvailableBytes as number,
+            ramRequiredBytes: memory!.ramRequiredBytes as number,
+            ...(bytes(memory?.vramFreeBytes) !== null &&
+            bytes(memory?.vramRequiredBytes) !== null
+              ? {
+                  vramFreeBytes: memory!.vramFreeBytes as number,
+                  vramRequiredBytes: memory!.vramRequiredBytes as number,
+                }
+              : {}),
+          }
+        : undefined;
     const strings = (value: unknown) =>
       Array.isArray(value) ? value.map(String) : [];
     const messages = strings(report.localModels.reasonMessages);
@@ -671,7 +767,9 @@ export class LocalServerModule implements Module {
           ? hardware.diskFreeBytes
           : null,
       ...(typeof gpu === "string" ? { gpu } : {}),
-      ...(eligible && name
+      ...(blockedNow ? { blockedNow } : {}),
+      ...(freeMemory ? { freeMemory } : {}),
+      ...((eligible || blockedNow) && name
         ? {
             model: {
               name,
@@ -681,7 +779,7 @@ export class LocalServerModule implements Module {
             },
           }
         : {}),
-      ...(!eligible && reasons.length ? { reasons } : {}),
+      ...(reasons.length ? { reasons } : {}),
       ...(recommendation ? { recommendation } : {}),
     };
   }
@@ -788,6 +886,23 @@ export class LocalServerModule implements Module {
         runtime: runtime.setupChoice,
         keys: Object.keys(runtime.environment),
       });
+      // The installer set a database from before Linger aside for a fresh
+      // one; this computer's enrollment belongs to the old one, so it
+      // enrolls again. Noted in the config so that happens once.
+      const legacyBackup = await latestLegacyBackup(
+        path.join(home, "instances", LOCAL_INSTANCE),
+      );
+      if (
+        legacyBackup &&
+        legacyBackup !== this.#ctx?.config.get().legacyBackup
+      ) {
+        this.#ctx?.log.warn("local_server.legacy_data_set_aside", {
+          backup: legacyBackup,
+        });
+        await this.#ctx?.get<EnrollmentModule>("Enrollment").unenroll();
+        this.#ctx?.config.update({ legacyBackup });
+        this.#legacyBackup = legacyBackup;
+      }
       this.#advance("connect", 0, "Connecting this computer…");
       const login = await installer.login();
       await this.#signInAs(home, job.origin, login.email, login.password);
@@ -1127,54 +1242,65 @@ export class LocalServerModule implements Module {
     return this.#options.freeBytes ?? LOCATION_FREE_BYTES;
   }
 
+  #macos(): string | undefined {
+    if ((this.#options.platform ?? process.platform) !== "darwin")
+      return undefined;
+    return this.#options.macosVersion?.();
+  }
+
   #target(): string {
     return `${this.#options.platform ?? process.platform}-${this.#options.arch ?? process.arch}`;
   }
 
   // An install from before the rename keeps legacy names in its instance
   // records; the bundled installer converts them once, before a record is
-  // read. Returns why it failed, for the person to see.
+  // read. Returns why this computer's instance stayed unconverted, for the
+  // person to see; other instances it left behind are only logged.
   async #migrateLegacyHome(ctx: ModuleContext): Promise<string | undefined> {
     if (
       !(await legacyMigrationPending(this.#options.home)) ||
       !existsSync(this.#installerScript())
     )
       return undefined;
-    const outcome = await new Promise<{ code: number | null; error: string }>(
-      (resolve) => {
-        const child = spawn(
-          process.execPath,
-          [this.#installerScript(), "--home", this.#options.home, "--migrate"],
-          {
-            stdio: ["ignore", "ignore", "pipe"],
-            windowsHide: true,
-            env: {
-              ...process.env,
-              ELECTRON_RUN_AS_NODE: "1",
-              LINGER_HOME: this.#options.home,
-            },
+    const outcome = await new Promise<LegacyMigrationRun>((resolve) => {
+      const child = spawn(
+        process.execPath,
+        [this.#installerScript(), "--home", this.#options.home, "--migrate"],
+        {
+          stdio: ["ignore", "pipe", "pipe"],
+          windowsHide: true,
+          env: {
+            ...process.env,
+            ELECTRON_RUN_AS_NODE: "1",
+            LINGER_HOME: this.#options.home,
           },
-        );
-        let error = "";
-        child.stderr.on("data", (chunk: Buffer) => {
-          error = (error + chunk.toString("utf8")).slice(-2000);
-        });
-        child.once("error", (failure) =>
-          resolve({ code: null, error: failure.message }),
-        );
-        child.once("close", (code) => resolve({ code, error }));
-      },
-    );
-    if (outcome.code === 0) {
-      ctx.log.info("local_server.home_migrated", {});
-      return undefined;
+        },
+      );
+      let output = "";
+      let error = "";
+      child.stdout.on("data", (chunk: Buffer) => {
+        output = (output + chunk.toString("utf8")).slice(-20_000);
+      });
+      child.stderr.on("data", (chunk: Buffer) => {
+        error = (error + chunk.toString("utf8")).slice(-2000);
+      });
+      child.once("error", (failure) =>
+        resolve({ code: null, output, error: failure.message }),
+      );
+      child.once("close", (code) => resolve({ code, output, error }));
+    });
+    const { failure, skipped } = legacyMigrationResult(outcome, LOCAL_INSTANCE);
+    for (const entry of skipped)
+      ctx.log.warn("local_server.legacy_instance_skipped", {
+        instance: entry.instance,
+        reason: entry.reason,
+      });
+    if (failure) {
+      ctx.log.warn("local_server.home_migration_failed", { error: failure });
+      return failure;
     }
-    // The migration names every instance it could not convert; the page
-    // shows that text, so it keeps the whole captured tail.
-    const error =
-      outcome.error.trim() || `The installer exited with code ${outcome.code}.`;
-    ctx.log.warn("local_server.home_migration_failed", { error });
-    return error;
+    ctx.log.info("local_server.home_migrated", {});
+    return undefined;
   }
 
   #installerScript(): string {
@@ -1188,6 +1314,15 @@ export class LocalServerModule implements Module {
 
   // Checking this computer and installing may both need Node at once.
   #ensureNode(signal: AbortSignal): Promise<string> {
+    // The pinned Node.js and the native services do not start on an older
+    // macOS; say so instead of running the installer.
+    const macos = this.#macos();
+    if (macos && !atLeast(macos, MIN_MACOS))
+      return Promise.reject(
+        new Error(
+          `Linger needs macOS ${MIN_MACOS} or later. This Mac runs macOS ${macos}. Update macOS in System Settings > General > Software Update, then try again.`,
+        ),
+      );
     this.#node ??= this.#fetchNode(signal).catch((error: unknown) => {
       this.#node = undefined;
       throw error;
@@ -1771,12 +1906,13 @@ export class LocalServerModule implements Module {
       },
     );
     const log = this.#ctx?.log;
-    // The installer explains a failed start on stderr; keep its last line.
+    // The installer explains a failed start on stderr in one write, which
+    // can span lines (one reason per instance); keep the last one whole.
     let reason = "";
     child.stderr.on("data", (chunk: Buffer) => {
       const text = chunk.toString("utf8");
-      reason = text.trim().split("\n").at(-1)?.slice(0, 500) || reason;
-      log?.warn("local_server.installer_stderr", { line: text.slice(0, 500) });
+      reason = text.trim().slice(0, 1500) || reason;
+      log?.warn("local_server.installer_stderr", { line: text.slice(0, 1500) });
     });
     const origin = await new Promise<string>((resolve, reject) => {
       let output = "";
@@ -1968,11 +2104,6 @@ export class LocalServerModule implements Module {
     return answers(this.#options.fetch ?? fetch, origin);
   }
 
-  // Whether the window's server is the one this app runs.
-  serving(serverUrl: string): boolean {
-    return this.#origin === serverUrl;
-  }
-
   // Whether this app brings a source package the running services do not
   // use yet.
   sourceUpdateAvailable(): boolean {
@@ -2039,47 +2170,85 @@ export class LocalServerModule implements Module {
   ): Promise<void> {
     await this.#adoptSourceKeys(record.home);
     const node = await this.#ensureNode(signal);
-    const outcome = await new Promise<{ code: number; message: string }>(
-      (resolve, reject) => {
-        const child = spawn(
-          node,
-          [
-            this.#installerScript(),
-            "--home",
-            record.home,
-            "--source-repo",
-            repo,
-            "--external-computer",
-            "--instance",
-            LOCAL_INSTANCE,
-            "--resume",
-          ],
-          {
-            stdio: ["ignore", "pipe", "ignore"],
-            // The pinned Node is a console program; without this Windows
-            // opens a console window for it.
-            windowsHide: true,
-            env: { ...process.env, LINGER_HOME: record.home },
-            signal,
-          },
-        );
-        let output = "";
-        child.stdout.on("data", (chunk: Buffer) => {
-          output += chunk.toString("utf8");
-        });
-        child.once("error", reject);
-        child.once("close", (code) => {
-          try {
-            const last = output.trim().split("\n").at(-1) ?? "";
-            resolve(JSON.parse(last) as { code: number; message: string });
-          } catch {
-            reject(new Error(`The installer exited with code ${code}`));
-          }
-        });
-      },
-    );
+    const outcome = await new Promise<{
+      code: number;
+      message: string;
+      runtime?: InstanceRuntime;
+    }>((resolve, reject) => {
+      const child = spawn(
+        node,
+        [
+          this.#installerScript(),
+          "--home",
+          record.home,
+          "--source-repo",
+          repo,
+          "--external-computer",
+          "--instance",
+          LOCAL_INSTANCE,
+          "--resume",
+        ],
+        {
+          stdio: ["ignore", "pipe", "ignore"],
+          // The pinned Node is a console program; without this Windows
+          // opens a console window for it.
+          windowsHide: true,
+          env: { ...process.env, LINGER_HOME: record.home },
+          signal,
+        },
+      );
+      let output = "";
+      child.stdout.on("data", (chunk: Buffer) => {
+        output += chunk.toString("utf8");
+      });
+      child.once("error", reject);
+      child.once("close", (code) => {
+        try {
+          const last = output.trim().split("\n").at(-1) ?? "";
+          resolve(
+            JSON.parse(last) as {
+              code: number;
+              message: string;
+              runtime?: InstanceRuntime;
+            },
+          );
+        } catch {
+          reject(new Error(`The installer exited with code ${code}`));
+        }
+      });
+    });
     if (outcome.code !== 0)
       throw new Error(outcome.message || "The installation stopped");
+    this.#adoptRuntime(outcome.runtime);
+  }
+
+  // Every resume reports the runtime and localmodels tool paths, so an
+  // install from before the Computer knew one gains it. A change restarts
+  // the Computer once its running tasks end.
+  #adoptRuntime(runtime: InstanceRuntime | undefined): void {
+    const ctx = this.#ctx;
+    if (
+      !ctx ||
+      !runtime?.environment ||
+      typeof runtime.environment !== "object" ||
+      Object.values(runtime.environment).some(
+        (value) => typeof value !== "string",
+      )
+    )
+      return;
+    if (
+      isDeepStrictEqual(
+        ctx.config.get().runtimeEnvironment ?? {},
+        runtime.environment,
+      )
+    )
+      return;
+    ctx.config.update({ runtimeEnvironment: runtime.environment });
+    ctx.log.info("local_server.runtime", {
+      runtime: runtime.setupChoice,
+      keys: Object.keys(runtime.environment),
+    });
+    ctx.bus.emit("computer.runtime");
   }
 
   // Kept in the default home, wherever the installation went.
@@ -2142,6 +2311,12 @@ interface BundledRuntime {
 // The bundled services' native packages need this glibc or newer, like the
 // PostgreSQL build: Ubuntu 22.04, Debian 12.
 const MIN_GLIBC = "2.35";
+
+// The oldest macOS every binary Linger runs on a Mac starts on: the bundled
+// PostgreSQL and LiveKit's ffmpeg are built for 14.0 (Node.js 26 for 13.5,
+// Electron for 13.0). packaging/mac/package.py writes the same value as
+// LSMinimumSystemVersion.
+export const MIN_MACOS = "14.0";
 
 const atLeast = (version: string, minimum: string): boolean => {
   const [major = 0, minor = 0] = version.split(".").map(Number);
@@ -2386,6 +2561,14 @@ export class InstallerApi {
     )
       job = latest;
     else {
+      // The installer answers a new request with a job still waiting for
+      // the person, so an attempt that stopped there would be handed back,
+      // failed as it ended, on every later attempt.
+      if (latest?.state === "waiting_user")
+        await this.#json(
+          `/api/jobs/${encodeURIComponent(latest.id)}/cancel`,
+          {},
+        );
       const setupChoice =
         plan.runtime === "local"
           ? "local-models"
@@ -2479,9 +2662,13 @@ export class InstallerApi {
       }
       if (!["queued", "running"].includes(job.state))
         throw new Error(
-          LOCAL_MODEL_FAILURES.has(job.errorCode ?? "")
-            ? "This computer can't run the local model right now. Choose another AI runtime and try again."
-            : job.message || "The installation stopped",
+          // Only the planner finding no model that fits can be helped by
+          // freeing memory; free memory is what it measures at that moment.
+          job.errorCode === "LOCAL_MODELS_UNAVAILABLE"
+            ? `This computer can't run the local model right now. Close other programs to free memory, or choose another AI runtime, and try again.${job.message ? ` (${job.message})` : ""}`
+            : LOCAL_MODEL_FAILURES.has(job.errorCode ?? "")
+              ? `This computer can't run the local model right now. Choose another AI runtime and try again.${job.message ? ` (${job.message})` : ""}`
+              : job.message || "The installation stopped",
         );
       await delay(this.#pollMs, undefined, { signal });
       job = await this.#json<Job>(`/api/jobs/${encodeURIComponent(job.id)}`);

@@ -22,23 +22,41 @@ packed around it.
 
 ![The same five layers on an RTX 4090 PC and a 32 GB Mac: the catalog keeps the models each platform supports, free memory sets the language model's share, only models whose weights and shared 128K KV pool fit go on, quality beats speed, and the decision and helper models are packed into what is left, so the Mac ends up with a smaller quantization and no MTP](../assets/feature-local-pick.jpg)
 
-| Machine                      | Model               | Quant   | Context | Decode        | SimplexAI | Compares with        |
-| ---------------------------- | ------------------- | ------- | ------- | ------------- | --------- | -------------------- |
-| Mac 16 GB                    | Spark-X2.6-4B       | Q4_0    | 128K    | 165 tok/s     | 31.5      | Beats GPT-4o¹        |
-| Mac 24 GB                    | Underdog-Saluki-27B | IQ2-mix | 128K    | 50 tok/s      | 48.4      | Beats Gemini 2.5 Pro |
-| Mac 32 GB                    | Qwen3.8-27B         | IQ3_S   | 128K    | 46 tok/s      | 51.9      | Claude Opus 4.5      |
-| NVIDIA 8 GB + 32 GB RAM      | Qwen3.8-Flash-Next  | IQ1_M   | 64K     | 95 tok/s      | 51.9      | Claude Opus 4.5      |
-| NVIDIA 12 GB + 32 GB RAM     | Qwen3.8-Flash-Next  | IQ2_XXS | 64K     | 120 tok/s     | 54.8      | Claude Sonnet 4.6    |
-| NVIDIA 24 GB + 64 GB RAM     | Qwen3.8-Flash-Next  | IQ3_XXS | 256K    | 167 tok/s     | 59.3      | Claude Opus 4.6      |
-| NVIDIA 24 GB, two sessions\* | Qwen3.8-27B         | Q4_K_M  | 128K    | 41 tok/s each | 54.0      | Claude Sonnet 4.6    |
+<!-- BEGIN GENERATED: public-tiers tiers, from llm-inference-lab docs/public-tiers.json; run scripts/public_tiers_sync.py there, do not edit here -->
 
-<sub>Decode is the best single-session result under ideal lab conditions, so expect
-less on a laptop. SimplexAI scores sit on the third-party AIHOT scale, where 50 is
-the average of 123 reference models, and scores within 3 points count as the same
-level. Rows marked \* run two agent sessions that share one 128K context. ¹ GPT-4o
-is not rated by AIHOT; the comparison uses vendor-reported GPQA Diamond (77.1 vs
-53.6) and SWE-bench Verified (62.8 vs 33.2). Once the plan is approved, each model
-counts as installed only after it answers a real question.</sub>
+| Machine                    | Model               | Quant        | Context | Decode, tok/s                                                                                  | SimplexAI  | Compares with       |
+| -------------------------- | ------------------- | ------------ | ------- | ---------------------------------------------------------------------------------------------- | ---------- | ------------------- |
+| Mac 16 GB                  | Spark-X2.6-4B†      | Q4_K_M       | 128K    | 37.6 short (37.4–37.8); 13.3 after a 126K prompt (13.30–13.31)                                 | Not ranked | —                   |
+| Mac 24 GB                  | Qwen3.8-27B         | UD-IQ3_S     | 64K     | 46.06 single session (median of 3); 48.43 for 2 sessions together                              | 51.9       | ≈ Claude Opus 4.5   |
+| Mac 32 GB                  | Qwen3.8-27B         | UD-Q4_K_M    | 128K    | 45.44 single session (median of 3)                                                             | 54.0       | ≈ Claude Sonnet 4.6 |
+| Linux NVIDIA 8 GB + 32 GB  | Qwen3.6-35B-A3B     | UD-Q3_K_M    | 64K     | 121–146 short; 88–103 after a 62K prompt                                                       | 35.4       | ≈ Gemini 2.5 Pro    |
+| Linux NVIDIA 12 GB + 32 GB | Qwen3.8-Flash-Next† | GSQ-RCO Q2_0 | 64K     | 21.3 short (19.8–25.4); 34.1 after a 62K prompt (12.0–37.3), first token after about 3 minutes | 57.3       | ≈ Claude Opus 4.6   |
+| Linux NVIDIA 24 GB + 64 GB | Qwen3.8-27B         | UD-Q4_K_M    | 128K    | 32.5–33.2 single session at 130K; 28–41 per session with two sessions at about 8K              | 54.0       | ≈ Claude Sonnet 4.6 |
+
+Decode speeds were measured in our lab, mostly on a simulated tier (a larger card held to the tier's memory budget, or a larger Mac planned as the tier), so a real machine of the tier can be slower. SimplexAI scores sit on the third-party AIHOT scale, where 50 is the reference average, and scores within 3 points count as the same level.
+
+Test conditions:
+
+- Mac 16 GB: An Apple M6 Mac mini with 24 GB, not a 16 GB machine; llama.cpp b12167 Metal, KV q8_0, one session.
+- Mac 24 GB: Simulated 24 GB tier on an M5 Ultra with 256 GB: only the planner's memory figures were lowered, the physical memory and page cache were not; installed with a 128K window shared by two sessions, KV q4_0, short prompts; the installer now plans 64K; the chips in common 24 GB Macs are much slower.
+- Mac 32 GB: Short prompts on an M5 Ultra with 256 GB, using the 48 GB tier's setup (200K window, two sessions, KV q8_0); the 32 GB setup (128K, KV q4_0) is not measured yet; common 32 GB Macs are slower.
+- Linux NVIDIA 8 GB + 32 GB: Simulated: a 96 GB card limited to an 8 GB budget, memory capped at 28 GB for a 32 GB machine; strata-poly poly.7, one request per start; not a real 8 GB card.
+- Linux NVIDIA 12 GB + 32 GB: Simulated: a 96 GB card limited to a 12 GB budget, memory capped at 28 GB; Strata pages the experts from the model file; 3 requests from one start; not a real 12 GB card.
+- Linux NVIDIA 24 GB + 64 GB: A real RTX 4090 D 24 GB card; the two sessions share one 128K window (about 8K each when both ran); llama.cpp r3 build of 2026-10-25, KV q8_0/q4_0 and q8_0/q8_0 (the ranges cover both); the two sessions overlapped only in part, so per-session numbers are approximate; not a rerun of the current installer recipe.
+
+† Mac 16 GB: the table shows Spark-X2.6-4B Q4_K_M; the default recommendation for this machine is LFM3-1.7B Q8_0.
+
+Not ranked (Mac 16 GB): AIHOT has no third-party results for Spark-X2.6-4B. Our own self-test: SciCode subproblems 28.2% (82/291), read on AIHOT's SciCode scale as 22.1 (12.5–30.8). Self-test, not a SimplexAI score: Q4_K_M on an M5 Ultra with 256 GiB (llama.cpp b11370, 4 sessions of 192K, not the 16 GB setup), thinking on, 16,384 output tokens per turn (25 of 65 problems hit the cap and count as failed), one pass@1; the interval covers resampling the problems only; the vendor reports 36.8% unquantized.
+
+† Linux NVIDIA 12 GB + 32 GB: the table shows Qwen3.8-Flash-Next GSQ-RCO Q2_0; the default recommendation for this machine is Qwen3.6-35B-A3B UD-Q4_K_M.
+
+<!-- END GENERATED: public-tiers tiers -->
+
+The table lists measured configurations. For the plan setup makes on every Mac and
+NVIDIA tier, on Windows as well as Linux, and the smaller model it picks when
+memory is busy, see [Hardware compatibility](https://docs.heylinger.com/hardware/compatibility).
+
+Once the plan is approved, each model counts as installed only after it answers a real question.
 
 ## Inference engines
 

@@ -2,7 +2,10 @@
 // The setup window walks a new install through server, sign-in, connecting
 // this computer and the system permissions it needs.
 
-import type { SetupChoice } from "@linger/local-installation/setup-plan";
+import type {
+  SetupChoice,
+  SetupMemory,
+} from "@linger/local-installation/setup-plan";
 
 export interface SetupFolder {
   readonly grantId: string;
@@ -49,6 +52,9 @@ export interface SetupLocalServer {
   // Once installed: the owner account, for signing in again after logging
   // out.
   readonly account?: SetupLocalAccount;
+  // Where the installation moved the earlier Simplex app's data it could
+  // not upgrade (~ for the home folder).
+  readonly legacyBackup?: string;
 }
 
 // The owner account in the installation's local-account.json. The password
@@ -99,18 +105,25 @@ export type SetupLocalModelsCheck =
   | {
       readonly state: "checked";
       readonly eligible: boolean;
+      // The model fits the hardware, but other programs hold the memory it
+      // needs now (the tool's "blocked-now"); it is shown on hold until a
+      // new check finds that memory.
+      readonly blockedNow?: true;
+      // While blocked now: memory free now and what the plan needs.
+      readonly freeMemory?: SetupMemory;
       readonly memoryBytes: number;
       readonly diskFreeBytes: number | null;
       readonly gpu?: string;
-      // The inference model to deploy, with what it needs; when eligible.
+      // The inference model to deploy, with what it needs; when eligible or
+      // on hold for free memory.
       readonly model?: {
         readonly name: string;
         readonly downloadBytes: number | null;
         readonly diskBytes: number | null;
         readonly memoryBytes: number | null;
       };
-      // Why not, as the localmodels tool's code and words; when not
-      // eligible.
+      // The localmodels tool's code and words for why not, or, when
+      // eligible, for what could still stop the install.
       readonly reasons?: readonly {
         readonly code: string;
         readonly message?: string;
@@ -135,6 +148,31 @@ export interface SetupProviderKeys {
   readonly composio?: string;
 }
 
+// Send Diagnostics: the zip is built (preparing), shown for consent with
+// what it holds and where it goes (confirm), uploaded (sending), then the
+// receiver's report id (sent) or why it failed and whether Try Again can
+// help.
+export type SetupDiagnosticsSend =
+  | { readonly phase: "idle" | "preparing" }
+  | {
+      readonly phase: "confirm";
+      readonly host: string;
+      readonly files: readonly string[];
+      readonly bytes: number;
+    }
+  | {
+      readonly phase: "sending";
+      readonly host: string;
+      readonly sent: number;
+      readonly total: number;
+    }
+  | { readonly phase: "sent"; readonly host: string; readonly reportId: string }
+  | {
+      readonly phase: "failed";
+      readonly error: string;
+      readonly retry: boolean;
+    };
+
 export interface SetupState {
   readonly platform: "darwin" | "win32" | "linux";
   readonly version: string;
@@ -148,6 +186,8 @@ export interface SetupState {
   readonly localServer: SetupLocalServer;
   // The diagnostics zip last saved from this window, or why it failed.
   readonly diagnostics?: { readonly file?: string; readonly error?: string };
+  // Send Diagnostics, present only while a diagnostics server is set up.
+  readonly diagnosticsSend?: SetupDiagnosticsSend;
   // macOS privacy permissions; absent on other platforms or until checked.
   readonly permissions?: Readonly<
     Record<SetupPermission, SetupPermissionStatus>
@@ -161,6 +201,8 @@ export type SetupCommand =
       readonly runtime?: SetupLocalRuntime;
       readonly keys?: SetupProviderKeys;
     }
+  // Checks this computer for a local model again.
+  | { readonly op: "local.recheck" }
   // Picks the install folder with the system picker, or goes back to the
   // default.
   | { readonly op: "local.location.pick" }
@@ -194,7 +236,13 @@ export type SetupCommand =
   | { readonly op: "finish" }
   // Opens the log folder, or saves a redacted diagnostics zip and shows it.
   | { readonly op: "logs.open" }
-  | { readonly op: "diagnostics.save" };
+  | { readonly op: "diagnostics.save" }
+  // Send Diagnostics: build the zip and ask, send it, try again, cancel or
+  // close, or copy the report id.
+  | {
+      readonly op: "diagnostics.send";
+      readonly action: "start" | "confirm" | "retry" | "cancel" | "copy";
+    };
 
 export interface LingerSetupApi {
   getState(): Promise<SetupState>;

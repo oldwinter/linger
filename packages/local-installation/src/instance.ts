@@ -7,7 +7,7 @@ import {
   privateDirectory,
   readPrivate,
 } from "./private-files.js";
-import { lingerHome } from "./home.js";
+import { LEGACY_PROJECT_PREFIX, lingerHome } from "./home.js";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { parseEnv } from "node:util";
@@ -99,6 +99,12 @@ export async function loadInstance(options: {
   )
     throw new Error(
       `The Linger installation in ${root} ran in Docker, which Linger no longer supports. Remove that folder and install again; Linger now runs natively.`,
+    );
+  // The installer converts it before it starts; `--migrate` reports why not,
+  // and the desktop runs that and shows the reason for its own instance.
+  if (value.project?.startsWith(LEGACY_PROJECT_PREFIX))
+    throw new Error(
+      `The installation in ${root} still has its names from the earlier Simplex app because it could not be converted. Run the installer with --migrate to see why, fix that, then start Linger again.`,
     );
   if (
     value.schemaVersion !== 1 ||
@@ -298,6 +304,8 @@ async function writeLocalIdentityKey(root: string): Promise<void> {
     `${randomBytes(32).toString("base64")}\n`,
   );
 }
+/** The error code when another process holds an instance's lock. */
+export const INSTANCE_BUSY = "INSTANCE_BUSY";
 export async function withInstanceLock<T>(
   instance: Instance,
   callback: () => Promise<T>,
@@ -325,7 +333,9 @@ export async function withInstanceLock<T>(
   } catch (error) {
     database.close();
     if (error instanceof Error && error.message.includes("database is locked"))
-      throw new Error("Instance busy", { cause: error });
+      throw Object.assign(new Error("Instance busy", { cause: error }), {
+        code: INSTANCE_BUSY,
+      });
     throw error;
   }
   try {

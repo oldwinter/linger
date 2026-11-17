@@ -36,6 +36,7 @@ export const createContextInstructionsFeature = (): FeatureDeclaration =>
             representedHuman: view.identity.representedHuman,
             sponsor: view.identity.sponsor,
             connectedApps: facts.connectedApps,
+            connectedAppKeys: facts.connectedAppKeys,
             compactInstructions: facts.compactInstructions,
             ...contextPromptInput,
           });

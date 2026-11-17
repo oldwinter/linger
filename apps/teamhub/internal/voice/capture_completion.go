@@ -18,6 +18,7 @@ import (
 	artifactstore "github.com/simplexai-labs/linger/apps/teamhub/internal/artifact"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/document"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/idempotency"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/jobs"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/messagecreation"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/voicemedia"
@@ -81,25 +82,11 @@ func (s *Service) completeCaptureRecording(
 	if acceptedOffsetMS < session.TranscriptEndOffsetMs.Int64 {
 		return idempotency.Result{}, errCaptureTranscriptIncomplete
 	}
-	segments, err := s.queries.ListLiveKitCaptureCompletionSegments(ctx, sessionID)
+	rendered, err := s.renderCaptureTranscript(ctx, session, audioVersion.CreatedAt)
 	if err != nil {
 		return idempotency.Result{}, err
 	}
-	// Clip the document projection; canonical ASR windows and task evidence stay unchanged.
-	for index := range segments {
-		segments[index].EndOffsetMs = min(segments[index].EndOffsetMs, session.TranscriptEndOffsetMs.Int64)
-	}
-	mediaRanges, err := s.queries.ListCaptureMediaRangesForCapture(ctx, sessionID)
-	if err != nil {
-		return idempotency.Result{}, err
-	}
-	gapRanges := captureGapExclusionRanges(mediaRanges)
-	transcript := []byte(renderCaptureTranscriptFrom(
-		segments,
-		session.TranscriptStartOffsetMs.Int64,
-		gapRanges,
-		audioVersion.CreatedAt,
-	))
+	transcript := []byte(rendered)
 	digest := sha256.Sum256(transcript)
 	object, storageReplay, err := s.artifacts.PutIfAbsent(
 		ctx, captureTranscriptObjectKey(sessionID), bytes.NewReader(transcript), int64(len(transcript)), digest,
@@ -331,12 +318,10 @@ func (s *Service) commitCaptureCompletion(
 		if peerErr != nil || !peer.Active || (audioVersion.CreatedBy.Kind == "agent" && audioVersion.CreatedBy.ID != peer.ID) || (version.CreatedBy.Kind == "agent" && version.CreatedBy.ID != peer.ID) {
 			return idempotency.Result{}, errors.Join(errCaptureCompletionAgentUnavailable, peerErr)
 		}
-		content, normalizeErr := messagecreation.Normalize([]messagecreation.Segment{
-			{Type: "text", Content: captureCompletionMessage + "\n"},
-			{Type: "document", Content: audioVersion.Filename, DocumentID: audioVersion.DocumentID, Presentation: "card"},
-			{Type: "text", Content: "\n"},
-			{Type: "document", Content: version.Filename, DocumentID: version.DocumentID, Presentation: "card"},
-		})
+		// The recording and transcript go out now; quick notes follow under
+		// them once written, without holding this Message.
+		withNotes := s.quickNotes != nil
+		content, normalizeErr := messagecreation.Normalize(captureCompletionSegments(session.ID, audioVersion, version, withNotes))
 		if normalizeErr != nil {
 			return idempotency.Result{}, normalizeErr
 		}
@@ -350,6 +335,14 @@ func (s *Service) commitCaptureCompletion(
 		})
 		if messageErr != nil {
 			return idempotency.Result{}, messageErr
+		}
+		if withNotes {
+			if err := queries.MarkCaptureQuickNotesPending(ctx, session.ID); err != nil {
+				return idempotency.Result{}, err
+			}
+			if err := jobs.InsertTx(ctx, tx, CaptureQuickNotesArgs{CaptureSessionID: session.ID}, nil); err != nil {
+				return idempotency.Result{}, err
+			}
 		}
 	} else if !errors.Is(directErr, pgx.ErrNoRows) {
 		return idempotency.Result{}, directErr
@@ -366,4 +359,40 @@ func (s *Service) commitCaptureCompletion(
 func captureTranscriptObjectKey(sessionID string) string {
 	digest := sha256.Sum256([]byte("capture-transcript:" + sessionID))
 	return "object_" + hex.EncodeToString(digest[:16])
+}
+
+// captureCompletionSegments is the completion Message: the recording and
+// transcript cards, then the quick notes the Capture will hold.
+func captureCompletionSegments(captureID string, audio, transcript document.Version, withNotes bool) []messagecreation.Segment {
+	segments := []messagecreation.Segment{
+		{Type: "text", Content: captureCompletionMessage + "\n"},
+		{Type: "document", Content: audio.Filename, DocumentID: audio.DocumentID, Presentation: "card"},
+		{Type: "text", Content: "\n"},
+		{Type: "document", Content: transcript.Filename, DocumentID: transcript.DocumentID, Presentation: "card"},
+	}
+	if withNotes {
+		segments = append(segments,
+			messagecreation.Segment{Type: "text", Content: "\n"},
+			messagecreation.Segment{Type: "meeting_notes", Content: "Quick notes", CaptureID: captureID},
+		)
+	}
+	return segments
+}
+
+// renderCaptureTranscript is the Capture's transcript as its Document holds
+// it, clipped to the recording's transcript window.
+func (s *Service) renderCaptureTranscript(ctx context.Context, session store.CaptureSession, generatedAt time.Time) (string, error) {
+	segments, err := s.queries.ListLiveKitCaptureCompletionSegments(ctx, session.ID)
+	if err != nil {
+		return "", err
+	}
+	// Clip the document projection; canonical ASR windows and task evidence stay unchanged.
+	for index := range segments {
+		segments[index].EndOffsetMs = min(segments[index].EndOffsetMs, session.TranscriptEndOffsetMs.Int64)
+	}
+	mediaRanges, err := s.queries.ListCaptureMediaRangesForCapture(ctx, session.ID)
+	if err != nil {
+		return "", err
+	}
+	return renderCaptureTranscriptFrom(segments, session.TranscriptStartOffsetMs.Int64, captureGapExclusionRanges(mediaRanges), generatedAt), nil
 }

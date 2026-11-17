@@ -1,6 +1,7 @@
 package taskexecution
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
@@ -111,5 +112,15 @@ func TestInspectCurrentAttemptRunsKeepsTheReportedRunAndError(t *testing.T) {
 	result, err = inspectCurrentAttemptRuns(input, effects)
 	if err != nil || !result.failed || result.failureMessage != "the AlterEgo could not start: CONTEXT_ACTIVATION_RUNTIME_FAILED" {
 		t.Fatalf("activation failure=%+v err=%v", result, err)
+	}
+}
+
+func TestQuietTaskReportAsksForOneReminder(t *testing.T) {
+	quiet, ordinary := taskDoneReminder("task_1", true), taskDoneReminder("task_1", false)
+	if !strings.Contains(quiet, "never saw it start") || !strings.Contains(quiet, "one reminder") || strings.Contains(quiet, "message card") {
+		t.Fatalf("quiet report=%q", quiet)
+	}
+	if !strings.Contains(ordinary, "teamhub message card") || strings.Contains(ordinary, "never saw it start") {
+		t.Fatalf("ordinary report=%q", ordinary)
 	}
 }

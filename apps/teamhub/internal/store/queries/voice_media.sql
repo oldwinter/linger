@@ -115,6 +115,15 @@ SELECT coalesce(extract(epoch FROM min(updated_at+CASE
 FROM voice_sessions
 WHERE id=sqlc.arg(id)::text AND status IN ('provisioning','connected','reconnecting','closing');
 
+-- name: ClaimVoiceTranscriptEpoch :one
+-- Each claim returns a number no earlier claim for the session returned, even
+-- across runtime restarts, so transcript coverage streams never collide. It
+-- leaves updated_at alone: the reconcile worker reads it as publisher activity.
+UPDATE voice_sessions
+SET next_media_epoch=next_media_epoch+1
+WHERE id=$1 AND status IN ('provisioning','connected','reconnecting','closing')
+RETURNING (next_media_epoch-1)::integer AS media_epoch;
+
 -- name: MarkVoiceSessionPublisherAbsent :exec
 UPDATE voice_sessions
 SET status='reconnecting',last_failure_code='publisher_absent',updated_at=clock_timestamp()

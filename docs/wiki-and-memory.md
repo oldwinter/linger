@@ -20,18 +20,17 @@ its own conversations.
 
 The wiki is a set of typed Markdown pages. Clients, contacts, projects and
 topics each get one page per real-world entity, so every fact has one home, and
-each conversation or meeting gets a Session page that links to the entities it
-touched.
+each meeting gets a Session page that links to the entities it touched.
 
 ![A graph of wiki pages, with clients, contacts, projects, topics and sessions linked to each other, and the Acme rollout project page opened to show its sections: summaries kept or rewritten with a reason, lists changed entry by entry, and a Change Log the app writes](../assets/feature-wiki-pages.jpg)
 
-| Page    | What it remembers                                                                                   |
-| ------- | --------------------------------------------------------------------------------------------------- |
-| Client  | Who they are, how they work, needs and constraints, open and closed items, past contact             |
-| Contact | Role, how you know them, how they work, what they care about, past contact                          |
-| Project | Where it stands, its directions, open and closed items                                              |
-| Topic   | An overview and your current understanding                                                          |
-| Session | One conversation or meeting: summary, topics, decisions, action items, and patterns in how you work |
+| Page    | What it remembers                                                                       |
+| ------- | --------------------------------------------------------------------------------------- |
+| Client  | Who they are, how they work, needs and constraints, open and closed items, past contact |
+| Contact | Role, how you know them, how they work, what they care about, past contact              |
+| Project | Where it stands, its directions, open and closed items                                  |
+| Topic   | An overview and your current understanding                                              |
+| Session | One meeting: summary, topics, decisions, action items, and patterns in how you work     |
 
 A model reads each new conversation or file and proposes changes section by
 section, and the app checks every change against the page it replaces. A summary
@@ -61,21 +60,24 @@ something was never recorded.
 | -------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | Index    | One chunk per page, or per section for long pages; headings weigh most in keywords  | Chunks of each conversation, transcript, document or email     |
 | Keywords | PostgreSQL full-text search, once for the query and once for each alternate wording | Same                                                           |
-| Time     | Keyword matches inside a time window the question names                             | Same                                                           |
+| Time     | Session pages: matches from the period asked about; other pages take no time vote   | Matches from the period or recorded then; nearer a day         |
 | Fusion   | Reciprocal rank fusion of all lists                                                 | Same                                                           |
 | Extra    |                                                                                     | A separate list of facts from chats, recordings, notes, emails |
 | Result   | Its own ranked list; the top entries carry the text near the match                  | Its own ranked list; the same                                  |
 
 <sub>Agents pass up to six alternate wordings, such as synonyms and
 translations, so a Chinese question can find an English page. Search uses
-keywords only, with no embedding or reranker model. Another Me also has the
+keywords only, with no embedding or reranker model. A time the question names
+only ranks matches higher and never hides others: when something happened,
+when it was recorded, or, among close matches, what was said nearest before a
+day. Another Me also has the
 wiki as read-only files in its workspace.</sub>
 
 When an answer needs more than the knowledge search, such as a project's state
 across Slack and the calendar, who is free next week, what is still owed, or a
-plan built on the person's constraints, Another Me and General agents open the
-built-in `holistic-context` Skill. It searches knowledge first and then only the
-live sources the answer still needs: the calendar, Tracking Items, Slack, live
+plan built on the person's constraints, Another Me and General agents follow
+the personal context method in their instructions. It searches knowledge first
+and then only the live sources the answer still needs: the calendar, Tracking Items, Slack, live
 mail, Drive, Notion, GitHub or the web. Anything memory says that can change,
 such as a date, a role or an amount, is checked against its latest source before
 the answer states it as current.

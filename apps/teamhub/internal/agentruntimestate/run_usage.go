@@ -114,7 +114,8 @@ func filterLocalRunUsage(raw json.RawMessage, runtimeType string) ([]RunUsage, [
 	return valid, rejected
 }
 
-// RecordRunOperationInput names a Runner Operation of a Run. Usage is the
+// RecordRunOperationInput names a Runner Operation of a Run. TurnID is the
+// Runtime turn it started, empty until the Runtime reports one. Usage is the
 // array its terminal reported; nil records the Operation as it starts.
 type RecordRunOperationInput struct {
 	ContextKey  string
@@ -122,6 +123,7 @@ type RecordRunOperationInput struct {
 	RunID       string
 	OperationID string
 	RuntimeType string
+	TurnID      string
 	Usage       json.RawMessage
 }
 
@@ -129,7 +131,8 @@ type RecordRunOperationInput struct {
 // lands a terminal's usage once. Invalid usage entries are logged and
 // skipped; they never fail the write.
 func (s *Service) RecordRunOperation(ctx context.Context, input RecordRunOperationInput) error {
-	if !validText(input.RunID, 1, 256) || !validText(input.OperationID, 1, 256) || !IsSupportedLocalRuntimeType(input.RuntimeType) {
+	if !validText(input.RunID, 1, 256) || !validText(input.OperationID, 1, 256) || !IsSupportedLocalRuntimeType(input.RuntimeType) ||
+		(input.TurnID != "" && !validText(input.TurnID, 1, 256)) {
 		return ErrInvalid
 	}
 	_, err := executeEpochTx(ctx, s, input.Epoch, func(ctx context.Context, _ pgx.Tx, queries *store.Queries) (bool, error) {
@@ -147,6 +150,13 @@ func (s *Service) RecordRunOperation(ctx context.Context, input RecordRunOperati
 			OperationID: input.OperationID, RunID: input.RunID,
 		}); err != nil {
 			return false, err
+		}
+		if input.TurnID != "" {
+			if err := queries.RecordAgentLocalRunTurn(ctx, store.RecordAgentLocalRunTurnParams{
+				TurnID: input.TurnID, RunID: input.RunID,
+			}); err != nil {
+				return false, err
+			}
 		}
 		if len(input.Usage) == 0 {
 			return true, nil

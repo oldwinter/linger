@@ -1,8 +1,8 @@
-{"hook":"context.contributeContextInstructions","facts":{"connectedApps":true,"compactInstructions":false}}
+{"hook":"context.contributeContextInstructions","facts":{"connectedApps":true,"connectedAppKeys":[],"compactInstructions":false}}
 {"hook":"context.onContextBound","context":{"kind":"meta","agentId":"agent-trace","roomId":"room-trace"},"bootstrap":"new"}
 {"step":"state.enqueueTrustedTurn","messageIds":["m-1"],"runId":"run-1"}
 {"hook":"activation.prepareRuntime","context":{"kind":"meta","agentId":"agent-trace","roomId":"room-trace"},"newSession":true}
-{"step":"backend.activate","developerInstructions":"sha256:a144a97e5f7c2481","mappings":1}
+{"step":"backend.activate","developerInstructions":"sha256:3691ca18aa50fd6e","mappings":1}
 {"step":"provider.createSession"}
 {"step":"state.claimLocalRun","runId":"run-1","messageIds":["m-1"]}
 {"hook":"context.prepareInput","messageId":"m-1"}

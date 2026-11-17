@@ -51,6 +51,9 @@ function Timeline({
       >
         Latest
       </button>
+      {scroll.awayFromLatest ? (
+        <button onClick={scroll.scrollToLatest}>Jump to latest</button>
+      ) : null}
       <div
         aria-label="Room timeline"
         ref={scroll.timelineRef}
@@ -258,6 +261,30 @@ describe("Message deep-link positioning", () => {
   });
 });
 
+describe("Jump to latest", () => {
+  it("appears away from the newest Message and returns the reader to following", () => {
+    let height = 1000;
+    vi.spyOn(Element.prototype, "scrollHeight", "get").mockImplementation(
+      () => height,
+    );
+    vi.spyOn(Element.prototype, "clientHeight", "get").mockReturnValue(200);
+    const view = render(<Timeline visible />);
+    const timeline = screen.getByLabelText("Room timeline");
+    expect(screen.queryByText("Jump to latest")).toBeNull();
+
+    timeline.scrollTop = 150;
+    fireEvent.scroll(timeline);
+    fireEvent.click(screen.getByText("Jump to latest"));
+    fireEvent.scroll(timeline);
+
+    expect(timeline.scrollTop).toBe(1000);
+    expect(screen.queryByText("Jump to latest")).toBeNull();
+    height = 1200;
+    view.rerender(<Timeline visible messageCount={11} />);
+    expect(timeline.scrollTop).toBe(1200);
+  });
+});
+
 describe("Room timeline remount", () => {
   it("restores a Room's reading position on return and isolates other Rooms and Accounts", () => {
     vi.spyOn(Element.prototype, "scrollHeight", "get").mockReturnValue(1000);
@@ -277,6 +304,9 @@ describe("Room timeline remount", () => {
     view.unmount();
     view = render(<Timeline visible scope={scope} />);
     expect(screen.getByLabelText("Room timeline").scrollTop).toBe(350);
+    expect(
+      screen.getByRole("button", { name: "Jump to latest" }),
+    ).toBeVisible();
     view.unmount();
     view = render(
       <Timeline visible scope={{ ...scope, accountId: "other" }} />,
@@ -445,6 +475,9 @@ describe("Unread divider visibility", () => {
       <Timeline visible messageCount={11} messageIds={["a", "b"]} />,
     );
     expect(timeline.scrollTop).toBe(1000);
+    expect(
+      screen.getByRole("button", { name: "Jump to latest" }),
+    ).toBeVisible();
     vi.useRealTimers();
   });
 });

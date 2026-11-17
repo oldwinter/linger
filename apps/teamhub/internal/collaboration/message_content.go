@@ -61,6 +61,9 @@ func NormalizeMessageCreateRequest(request httpapi.MessageCreateRequest) (Messag
 			if discErr != nil || discriminator == "html_fragment" {
 				return MessageContent{}, errors.New("html_fragment segments can only be created by show_fragment")
 			}
+			if discriminator == "meeting_notes" {
+				return MessageContent{}, errors.New("meeting_notes segments are written by TeamHub")
+			}
 			if discriminator == "file" {
 				file, fileErr := segment.AsFileSegment()
 				if fileErr != nil || file.Filename != nil || file.MediaType != nil {
@@ -300,6 +303,14 @@ func validateMessageSegment(segment httpapi.MessageSegment) (string, error) {
 		var value httpapi.HtmlFragmentSegment
 		if err := decodeStrictJSON(bytes.NewReader(encoded), &value, "segment must contain one JSON object"); err != nil || value.Type != "html_fragment" || value.Content == "" || len(value.Content) > 1024 || strings.TrimSpace(value.Html) == "" || len(value.Html) > 2<<20 {
 			return "", errors.New("html fragment segment is invalid")
+		}
+		return value.Content, nil
+	case "meeting_notes":
+		var value httpapi.MeetingNotesSegment
+		if err := decodeStrictJSON(bytes.NewReader(encoded), &value, "segment must contain one JSON object"); err != nil ||
+			value.Type != "meeting_notes" || value.Content == "" || len(value.Content) > MaxMessageLength ||
+			!messageSegmentIDPattern.MatchString(value.CaptureId) {
+			return "", errors.New("meeting notes segment is invalid")
 		}
 		return value.Content, nil
 	case "document":

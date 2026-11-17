@@ -44,7 +44,7 @@ describe("RecordingEntry", () => {
     const meetings = screen.getByRole("button", { name: "Meetings" });
     expect(meetings).toBeEnabled();
     expect(meetings).toHaveAttribute("title", "Meetings");
-    expect(meetings).toHaveTextContent("");
+    expect(meetings).toHaveTextContent("Meetings");
     expect(document.querySelector(".animate-spin")).toBeNull();
   });
 });

@@ -9,7 +9,9 @@ daemon) and the official Electron zip for linux-x64.
 
 The archive holds one folder, Linger-<version>-linux-x64/, with the
 `linger` executable at the top; it runs from wherever it is unpacked. The Go
-daemon goes to resources/computer/. With a bundled source package, the
+daemon goes to resources/computer/ and the browser and computer-control tools
+it loads to resources/cli/ and resources/runtime/ (../computer_tools.py); the
+finished archive is checked for them. With a bundled source package, the
 TeamHub binaries and the Native runtime build.mjs built from it must be there
 and match their manifests and that package (../native_bundle.py). The
 runtime and the bundled PostgreSQL need glibc 2.35 or newer (Ubuntu 22.04,
@@ -29,6 +31,7 @@ import zipfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 DESKTOP = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.dirname(HERE))
+import computer_tools  # noqa: E402
 from native_bundle import check_runtime, check_teamhub  # noqa: E402
 
 TARGET = "linux-x64"
@@ -69,13 +72,14 @@ def stage_app(version, electron_version, root, cache):
 
     app_dir = os.path.join(resources, "app")
     shutil.copytree(os.path.join(DESKTOP, "dist"), os.path.join(app_dir, "dist"),
-                    ignore=shutil.ignore_patterns("*.map", "computer"), symlinks=True)
+                    ignore=shutil.ignore_patterns("*.map", "computer", "computer-tools"), symlinks=True)
     with open(os.path.join(app_dir, "package.json"), "w") as out:
         json.dump({"name": "linger-desktop", "productName": "Linger", "version": version,
                    "type": "module", "main": "dist/main/index.mjs"}, out, indent=2)
     computer = os.path.join(resources, "computer")
     os.makedirs(computer)
     shutil.copy2(DAEMON, computer)
+    computer_tools.copy(resources, TARGET)
     shutil.copy2(os.path.join(DESKTOP, "resources", "icon.png"), resources)
     os.rename(os.path.join(root, "electron"), os.path.join(root, "linger"))
 
@@ -117,6 +121,7 @@ def main():
         output = os.path.join(args.out, f"{name}.tar.gz")
         with tarfile.open(output, "w:gz") as archive:
             archive.add(root, arcname=name, filter=owned_by_root)
+        computer_tools.check_archive(output, f"{name}/resources/", TARGET)
         print(f"{output} {os.path.getsize(output)} sha256={sha256(output)}")
     finally:
         shutil.rmtree(workdir, ignore_errors=True)

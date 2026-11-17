@@ -27,6 +27,7 @@ import {
   createLocalComputerRouteHandlers,
   LocalComputerHttpError,
   registerLocalComputerCompatibilityRoutes,
+  registerLocalComputerModelRoutes,
   registerLocalComputerPermissionRoutes,
 } from "./local-computer-http.js";
 import {
@@ -190,6 +191,7 @@ export const createAgentManagerHttpServer = <TRuntimeSettings>(
   };
   let httpHost: HttpHost | undefined;
   let ownedHost: HttpHost | undefined;
+  let unmountRoutes: (() => void) | undefined;
   let runnerGatewayWebSocket: { close(): Promise<void> } | undefined;
   let lifecycle: ServerLifecycle = "idle";
   let starting: Promise<AgentManagerHttpServerAddress> | undefined;
@@ -202,6 +204,8 @@ export const createAgentManagerHttpServer = <TRuntimeSettings>(
   // The Runner Gateway socket is always this server's own; the listener is
   // closed here only when the server started it.
   const closeOwnedNetwork = async (): Promise<void> => {
+    unmountRoutes?.();
+    unmountRoutes = undefined;
     await runnerGatewayWebSocket?.close();
     runnerGatewayWebSocket = undefined;
     await ownedHost?.close();
@@ -214,7 +218,7 @@ export const createAgentManagerHttpServer = <TRuntimeSettings>(
       ownedHost = await startHttpHost({ host, port });
       httpHost = ownedHost;
     }
-    httpHost.mount({
+    unmountRoutes = httpHost.mount({
       prefixes: ["/v1/"],
       fetch: (request) => app.fetch(request),
       readiness,
@@ -646,6 +650,7 @@ const createAgentManagerHttpApp = <TRuntimeSettings>(
   app.post("/v1/local-computer-tools:call", handlers.callLocalComputerTool);
   registerLocalComputerCompatibilityRoutes(app, handlers);
   registerLocalComputerPermissionRoutes(app, handlers);
+  registerLocalComputerModelRoutes(app, handlers);
 
   app.notFound((context) =>
     writeProtocolError(context, 404, "not_found", "Not found"),

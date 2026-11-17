@@ -319,7 +319,7 @@ WHERE run_id=$4::text
   AND context_key=$5::text
   AND status='queued'
   AND agent_document_run_claimable(agent_local_runs.run_id,agent_local_runs.context_key)
-RETURNING run_id, context_key, status, terminal, created_at, updated_at, started_at, finished_at, attempt_count, cancellation_requested, epoch, claim_id, claim_configuration_revision, usage, status_room_id, claim_profile_revision
+RETURNING run_id, context_key, status, terminal, created_at, updated_at, started_at, finished_at, attempt_count, cancellation_requested, epoch, claim_id, claim_configuration_revision, usage, status_room_id, claim_profile_revision, turn_ids
 `
 
 type ClaimAgentLocalRunParams struct {
@@ -356,6 +356,7 @@ func (q *Queries) ClaimAgentLocalRun(ctx context.Context, arg ClaimAgentLocalRun
 		&i.Usage,
 		&i.StatusRoomID,
 		&i.ClaimProfileRevision,
+		&i.TurnIds,
 	)
 	return i, err
 }
@@ -447,7 +448,7 @@ func (q *Queries) CountAgentRunStatusSegments(ctx context.Context, localRunID st
 const createAgentLocalRun = `-- name: CreateAgentLocalRun :one
 INSERT INTO agent_local_runs(run_id,context_key,status)
 VALUES($1::text,$2::text,'queued')
-RETURNING run_id, context_key, status, terminal, created_at, updated_at, started_at, finished_at, attempt_count, cancellation_requested, epoch, claim_id, claim_configuration_revision, usage, status_room_id, claim_profile_revision
+RETURNING run_id, context_key, status, terminal, created_at, updated_at, started_at, finished_at, attempt_count, cancellation_requested, epoch, claim_id, claim_configuration_revision, usage, status_room_id, claim_profile_revision, turn_ids
 `
 
 type CreateAgentLocalRunParams struct {
@@ -475,6 +476,7 @@ func (q *Queries) CreateAgentLocalRun(ctx context.Context, arg CreateAgentLocalR
 		&i.Usage,
 		&i.StatusRoomID,
 		&i.ClaimProfileRevision,
+		&i.TurnIds,
 	)
 	return i, err
 }
@@ -573,6 +575,16 @@ func (q *Queries) DeleteAgentRuntimeSessionAtConfigurationRevision(ctx context.C
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const deleteLocalComputerModelSnapshot = `-- name: DeleteLocalComputerModelSnapshot :exec
+DELETE FROM local_computer_model_snapshots
+WHERE computer_id=$1::text
+`
+
+func (q *Queries) DeleteLocalComputerModelSnapshot(ctx context.Context, computerID string) error {
+	_, err := q.db.Exec(ctx, deleteLocalComputerModelSnapshot, computerID)
+	return err
 }
 
 const deletePendingAgentRuntimeLocalComputerEnrollments = `-- name: DeletePendingAgentRuntimeLocalComputerEnrollments :exec
@@ -687,7 +699,7 @@ func (q *Queries) GetAgentExecutionContextRuntimeEventCount(ctx context.Context,
 }
 
 const getAgentLocalRun = `-- name: GetAgentLocalRun :one
-SELECT run_id, context_key, status, terminal, created_at, updated_at, started_at, finished_at, attempt_count, cancellation_requested, epoch, claim_id, claim_configuration_revision, usage, status_room_id, claim_profile_revision
+SELECT run_id, context_key, status, terminal, created_at, updated_at, started_at, finished_at, attempt_count, cancellation_requested, epoch, claim_id, claim_configuration_revision, usage, status_room_id, claim_profile_revision, turn_ids
 FROM agent_local_runs
 WHERE context_key=$1::text
   AND run_id=$2::text
@@ -718,6 +730,7 @@ func (q *Queries) GetAgentLocalRun(ctx context.Context, arg GetAgentLocalRunPara
 		&i.Usage,
 		&i.StatusRoomID,
 		&i.ClaimProfileRevision,
+		&i.TurnIds,
 	)
 	return i, err
 }
@@ -1221,6 +1234,24 @@ func (q *Queries) GetLatestAgentRuntimeActivityEvent(ctx context.Context, arg Ge
 	return i, err
 }
 
+const getLocalComputerModelSnapshot = `-- name: GetLocalComputerModelSnapshot :one
+SELECT snapshot,host
+FROM local_computer_model_snapshots
+WHERE computer_id=$1::text
+`
+
+type GetLocalComputerModelSnapshotRow struct {
+	Snapshot []byte `json:"snapshot"`
+	Host     []byte `json:"host"`
+}
+
+func (q *Queries) GetLocalComputerModelSnapshot(ctx context.Context, computerID string) (GetLocalComputerModelSnapshotRow, error) {
+	row := q.db.QueryRow(ctx, getLocalComputerModelSnapshot, computerID)
+	var i GetLocalComputerModelSnapshotRow
+	err := row.Scan(&i.Snapshot, &i.Host)
+	return i, err
+}
+
 const getMaterializableAgentRuntimeRegistrationByManagementID = `-- name: GetMaterializableAgentRuntimeRegistrationByManagementID :one
 SELECT registration.actor_id,registration.tenant_id,registration.status,
        registration.agent_management_id,registration.configuration_revision,
@@ -1345,7 +1376,7 @@ func (q *Queries) GetRoomRunStatusForAccount(ctx context.Context, arg GetRoomRun
 }
 
 const getRunningAgentLocalRun = `-- name: GetRunningAgentLocalRun :one
-SELECT run_id, context_key, status, terminal, created_at, updated_at, started_at, finished_at, attempt_count, cancellation_requested, epoch, claim_id, claim_configuration_revision, usage, status_room_id, claim_profile_revision FROM agent_local_runs
+SELECT run_id, context_key, status, terminal, created_at, updated_at, started_at, finished_at, attempt_count, cancellation_requested, epoch, claim_id, claim_configuration_revision, usage, status_room_id, claim_profile_revision, turn_ids FROM agent_local_runs
 WHERE context_key=$1::text AND status='running'
 LIMIT 1
 `
@@ -1370,6 +1401,7 @@ func (q *Queries) GetRunningAgentLocalRun(ctx context.Context, contextKey string
 		&i.Usage,
 		&i.StatusRoomID,
 		&i.ClaimProfileRevision,
+		&i.TurnIds,
 	)
 	return i, err
 }
@@ -2269,6 +2301,34 @@ func (q *Queries) ListAgentRuntimeNativeOperationIDs(ctx context.Context, localR
 	return items, nil
 }
 
+const listAgentRuntimeNativeTurnIDs = `-- name: ListAgentRuntimeNativeTurnIDs :many
+SELECT turn.turn_id::text AS turn_id
+FROM agent_local_runs run
+CROSS JOIN LATERAL unnest(run.turn_ids) AS turn(turn_id)
+WHERE run.run_id=$1::text
+ORDER BY turn.turn_id
+`
+
+func (q *Queries) ListAgentRuntimeNativeTurnIDs(ctx context.Context, localRunID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, listAgentRuntimeNativeTurnIDs, localRunID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var turn_id string
+		if err := rows.Scan(&turn_id); err != nil {
+			return nil, err
+		}
+		items = append(items, turn_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAgentRuntimeSteeringInputs = `-- name: ListAgentRuntimeSteeringInputs :many
 SELECT context_key, input_id, input_sequence, payload, payload_hash, source_kind, source_message_id, source_inbox_id, status, selection_result, steer_group_id, local_run_id, steer_outcome, created_at, updated_at
 FROM agent_runtime_inputs
@@ -2304,6 +2364,65 @@ func (q *Queries) ListAgentRuntimeSteeringInputs(ctx context.Context, contextKey
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLocalModelUsersOnComputer = `-- name: ListLocalModelUsersOnComputer :many
+SELECT registration.agent_management_id::text AS agent_id,
+       agent.display_name,registration.runtime_model
+FROM agent_registrations registration
+JOIN actors agent
+  ON agent.id=registration.actor_id AND agent.tenant_id=registration.tenant_id
+WHERE registration.tenant_id=$1::text
+  AND registration.computer_id=$2::text
+  AND registration.status='active'
+  AND registration.local_runtime_type='pi'
+  AND (
+    registration.visibility_scope='workspace' OR
+    registration.created_by_actor_id=$3::text OR
+    EXISTS (
+      SELECT 1
+      FROM active_room_members viewer_membership
+      JOIN active_room_members agent_membership
+        ON agent_membership.room_id=viewer_membership.room_id
+       AND agent_membership.actor_id=registration.actor_id
+      WHERE viewer_membership.actor_id=$3::text
+    )
+  )
+ORDER BY agent.display_name,registration.agent_management_id
+`
+
+type ListLocalModelUsersOnComputerParams struct {
+	TenantID      string `json:"tenant_id"`
+	ComputerID    string `json:"computer_id"`
+	ViewerActorID string `json:"viewer_actor_id"`
+}
+
+type ListLocalModelUsersOnComputerRow struct {
+	AgentID      string `json:"agent_id"`
+	DisplayName  string `json:"display_name"`
+	RuntimeModel string `json:"runtime_model"`
+}
+
+// Active Agents on runtime pi placed on a Computer, limited to those the
+// viewer sees in the Tenant Agent directory (ListTenantAgentsForAccount).
+func (q *Queries) ListLocalModelUsersOnComputer(ctx context.Context, arg ListLocalModelUsersOnComputerParams) ([]ListLocalModelUsersOnComputerRow, error) {
+	rows, err := q.db.Query(ctx, listLocalModelUsersOnComputer, arg.TenantID, arg.ComputerID, arg.ViewerActorID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListLocalModelUsersOnComputerRow{}
+	for rows.Next() {
+		var i ListLocalModelUsersOnComputerRow
+		if err := rows.Scan(&i.AgentID, &i.DisplayName, &i.RuntimeModel); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -3299,7 +3418,7 @@ func (q *Queries) LockMetaContextsForRoomMemberships(ctx context.Context, arg Lo
 }
 
 const lockNextQueuedAgentLocalRun = `-- name: LockNextQueuedAgentLocalRun :one
-SELECT run.run_id, run.context_key, run.status, run.terminal, run.created_at, run.updated_at, run.started_at, run.finished_at, run.attempt_count, run.cancellation_requested, run.epoch, run.claim_id, run.claim_configuration_revision, run.usage, run.status_room_id, run.claim_profile_revision
+SELECT run.run_id, run.context_key, run.status, run.terminal, run.created_at, run.updated_at, run.started_at, run.finished_at, run.attempt_count, run.cancellation_requested, run.epoch, run.claim_id, run.claim_configuration_revision, run.usage, run.status_room_id, run.claim_profile_revision, run.turn_ids
 FROM agent_local_runs run
 WHERE run.context_key=$1::text AND run.status='queued'
   AND agent_document_run_claimable(run.run_id,run.context_key)
@@ -3328,6 +3447,7 @@ func (q *Queries) LockNextQueuedAgentLocalRun(ctx context.Context, contextKey st
 		&i.Usage,
 		&i.StatusRoomID,
 		&i.ClaimProfileRevision,
+		&i.TurnIds,
 	)
 	return i, err
 }
@@ -4304,4 +4424,31 @@ func (q *Queries) UpsertAgentPerRoomMetaContext(ctx context.Context, arg UpsertA
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const upsertLocalComputerModelSnapshot = `-- name: UpsertLocalComputerModelSnapshot :exec
+INSERT INTO local_computer_model_snapshots(computer_id,snapshot,host,observed_at,updated_at)
+VALUES($1::text,$2::jsonb,$3::jsonb,
+       $4::timestamptz,clock_timestamp())
+ON CONFLICT (computer_id) DO UPDATE
+SET snapshot=EXCLUDED.snapshot,
+    host=COALESCE(EXCLUDED.host,local_computer_model_snapshots.host),
+    observed_at=EXCLUDED.observed_at,updated_at=EXCLUDED.updated_at
+`
+
+type UpsertLocalComputerModelSnapshotParams struct {
+	ComputerID string             `json:"computer_id"`
+	Snapshot   []byte             `json:"snapshot"`
+	Host       []byte             `json:"host"`
+	ObservedAt pgtype.Timestamptz `json:"observed_at"`
+}
+
+func (q *Queries) UpsertLocalComputerModelSnapshot(ctx context.Context, arg UpsertLocalComputerModelSnapshotParams) error {
+	_, err := q.db.Exec(ctx, upsertLocalComputerModelSnapshot,
+		arg.ComputerID,
+		arg.Snapshot,
+		arg.Host,
+		arg.ObservedAt,
+	)
+	return err
 }

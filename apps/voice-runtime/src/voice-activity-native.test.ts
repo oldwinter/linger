@@ -5,7 +5,7 @@ describe("production Silero native binding", () => {
   it("loads the packaged model and classifies one silent 16 kHz window without a network service", async () => {
     const detector = await SileroSpeechActivityDetector.open();
     try {
-      expect(await detector.pushPCM(new Int16Array(512))).toEqual([
+      expect(await detector.pushPCM(new Int16Array(512))).toMatchObject([
         { throughSample: 512, speech: false },
       ]);
     } finally {

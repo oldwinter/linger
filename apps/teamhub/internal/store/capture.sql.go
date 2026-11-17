@@ -74,7 +74,7 @@ UPDATE capture_sessions
 SET transcript_document_id=$2,transcript_document_version_id=$3,updated_at=clock_timestamp()
 WHERE id=$1 AND status='finalized'
   AND transcript_document_id IS NULL AND transcript_document_version_id IS NULL
-RETURNING id, tenant_id, room_id, created_by_actor_id, status, created_at, updated_at, transcript_start_offset_ms, transcript_end_offset_ms, document_id, document_version_id, transcript_document_id, transcript_document_version_id, voice_session_id, transcript_integrity_lost, source_audio_document_id, source_audio_document_version_id, transcript_recovered_at, requested_transcript_start_offset_ms, voice_completion_attempts, voice_completion_failed_at, voice_completion_failure_code, staging_deleted_at, stop_requested_at, materialize_requested_at, materialize_attempts, materialize_retry_at, transcript_recovery_status, transcript_recovery_progress_ms, transcript_recovery_total_ms, transcript_recovery_failures, transcript_recovery_failure_code, transcript_recovery_retry_at, hidden_at
+RETURNING id, tenant_id, room_id, created_by_actor_id, status, created_at, updated_at, transcript_start_offset_ms, transcript_end_offset_ms, document_id, document_version_id, transcript_document_id, transcript_document_version_id, voice_session_id, transcript_integrity_lost, source_audio_document_id, source_audio_document_version_id, transcript_recovered_at, requested_transcript_start_offset_ms, voice_completion_attempts, voice_completion_failed_at, voice_completion_failure_code, staging_deleted_at, stop_requested_at, materialize_requested_at, materialize_attempts, materialize_retry_at, transcript_recovery_status, transcript_recovery_progress_ms, transcript_recovery_total_ms, transcript_recovery_failures, transcript_recovery_failure_code, transcript_recovery_retry_at, hidden_at, quick_notes_state, quick_notes
 `
 
 type AttachCaptureTranscriptDocumentParams struct {
@@ -121,12 +121,14 @@ func (q *Queries) AttachCaptureTranscriptDocument(ctx context.Context, arg Attac
 		&i.TranscriptRecoveryFailureCode,
 		&i.TranscriptRecoveryRetryAt,
 		&i.HiddenAt,
+		&i.QuickNotesState,
+		&i.QuickNotes,
 	)
 	return i, err
 }
 
 const getCaptureSessionForAccount = `-- name: GetCaptureSessionForAccount :one
-SELECT session.id, session.tenant_id, session.room_id, session.created_by_actor_id, session.status, session.created_at, session.updated_at, session.transcript_start_offset_ms, session.transcript_end_offset_ms, session.document_id, session.document_version_id, session.transcript_document_id, session.transcript_document_version_id, session.voice_session_id, session.transcript_integrity_lost, session.source_audio_document_id, session.source_audio_document_version_id, session.transcript_recovered_at, session.requested_transcript_start_offset_ms, session.voice_completion_attempts, session.voice_completion_failed_at, session.voice_completion_failure_code, session.staging_deleted_at, session.stop_requested_at, session.materialize_requested_at, session.materialize_attempts, session.materialize_retry_at, session.transcript_recovery_status, session.transcript_recovery_progress_ms, session.transcript_recovery_total_ms, session.transcript_recovery_failures, session.transcript_recovery_failure_code, session.transcript_recovery_retry_at, session.hidden_at
+SELECT session.id, session.tenant_id, session.room_id, session.created_by_actor_id, session.status, session.created_at, session.updated_at, session.transcript_start_offset_ms, session.transcript_end_offset_ms, session.document_id, session.document_version_id, session.transcript_document_id, session.transcript_document_version_id, session.voice_session_id, session.transcript_integrity_lost, session.source_audio_document_id, session.source_audio_document_version_id, session.transcript_recovered_at, session.requested_transcript_start_offset_ms, session.voice_completion_attempts, session.voice_completion_failed_at, session.voice_completion_failure_code, session.staging_deleted_at, session.stop_requested_at, session.materialize_requested_at, session.materialize_attempts, session.materialize_retry_at, session.transcript_recovery_status, session.transcript_recovery_progress_ms, session.transcript_recovery_total_ms, session.transcript_recovery_failures, session.transcript_recovery_failure_code, session.transcript_recovery_retry_at, session.hidden_at, session.quick_notes_state, session.quick_notes
 FROM capture_sessions session
 JOIN actors caller
   ON caller.tenant_id=session.tenant_id AND caller.account_id=$2 AND caller.kind='human'
@@ -181,6 +183,8 @@ func (q *Queries) GetCaptureSessionForAccount(ctx context.Context, arg GetCaptur
 		&i.TranscriptRecoveryFailureCode,
 		&i.TranscriptRecoveryRetryAt,
 		&i.HiddenAt,
+		&i.QuickNotesState,
+		&i.QuickNotes,
 	)
 	return i, err
 }
@@ -219,6 +223,56 @@ func (q *Queries) GetCaptureTranscriptAcceptedOffset(ctx context.Context, id str
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const getPendingCaptureQuickNotes = `-- name: GetPendingCaptureQuickNotes :one
+SELECT session.id, session.tenant_id, session.room_id, session.created_by_actor_id, session.status, session.created_at, session.updated_at, session.transcript_start_offset_ms, session.transcript_end_offset_ms, session.document_id, session.document_version_id, session.transcript_document_id, session.transcript_document_version_id, session.voice_session_id, session.transcript_integrity_lost, session.source_audio_document_id, session.source_audio_document_version_id, session.transcript_recovered_at, session.requested_transcript_start_offset_ms, session.voice_completion_attempts, session.voice_completion_failed_at, session.voice_completion_failure_code, session.staging_deleted_at, session.stop_requested_at, session.materialize_requested_at, session.materialize_attempts, session.materialize_retry_at, session.transcript_recovery_status, session.transcript_recovery_progress_ms, session.transcript_recovery_total_ms, session.transcript_recovery_failures, session.transcript_recovery_failure_code, session.transcript_recovery_retry_at, session.hidden_at, session.quick_notes_state, session.quick_notes
+FROM capture_sessions session
+WHERE session.id=$1 AND session.quick_notes_state='pending'
+`
+
+func (q *Queries) GetPendingCaptureQuickNotes(ctx context.Context, id string) (CaptureSession, error) {
+	row := q.db.QueryRow(ctx, getPendingCaptureQuickNotes, id)
+	var i CaptureSession
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.RoomID,
+		&i.CreatedByActorID,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TranscriptStartOffsetMs,
+		&i.TranscriptEndOffsetMs,
+		&i.DocumentID,
+		&i.DocumentVersionID,
+		&i.TranscriptDocumentID,
+		&i.TranscriptDocumentVersionID,
+		&i.VoiceSessionID,
+		&i.TranscriptIntegrityLost,
+		&i.SourceAudioDocumentID,
+		&i.SourceAudioDocumentVersionID,
+		&i.TranscriptRecoveredAt,
+		&i.RequestedTranscriptStartOffsetMs,
+		&i.VoiceCompletionAttempts,
+		&i.VoiceCompletionFailedAt,
+		&i.VoiceCompletionFailureCode,
+		&i.StagingDeletedAt,
+		&i.StopRequestedAt,
+		&i.MaterializeRequestedAt,
+		&i.MaterializeAttempts,
+		&i.MaterializeRetryAt,
+		&i.TranscriptRecoveryStatus,
+		&i.TranscriptRecoveryProgressMs,
+		&i.TranscriptRecoveryTotalMs,
+		&i.TranscriptRecoveryFailures,
+		&i.TranscriptRecoveryFailureCode,
+		&i.TranscriptRecoveryRetryAt,
+		&i.HiddenAt,
+		&i.QuickNotesState,
+		&i.QuickNotes,
+	)
+	return i, err
 }
 
 const listCaptureTranscriptSegments = `-- name: ListCaptureTranscriptSegments :many
@@ -319,4 +373,37 @@ func (q *Queries) ListLiveKitCaptureCompletionSegments(ctx context.Context, id s
 		return nil, err
 	}
 	return items, nil
+}
+
+const markCaptureQuickNotesPending = `-- name: MarkCaptureQuickNotesPending :exec
+UPDATE capture_sessions
+SET quick_notes_state='pending', quick_notes=NULL
+WHERE id=$1
+`
+
+// Its completion Message promised quick notes; the job writes them.
+func (q *Queries) MarkCaptureQuickNotesPending(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, markCaptureQuickNotesPending, id)
+	return err
+}
+
+const settleCaptureQuickNotes = `-- name: SettleCaptureQuickNotes :execrows
+UPDATE capture_sessions
+SET quick_notes_state=$1, quick_notes=$2
+WHERE id=$3 AND quick_notes_state='pending'
+`
+
+type SettleCaptureQuickNotesParams struct {
+	State pgtype.Text `json:"state"`
+	Notes []byte      `json:"notes"`
+	ID    string      `json:"id"`
+}
+
+// Writes the notes (ready) or gives up (failed) once, while they are pending.
+func (q *Queries) SettleCaptureQuickNotes(ctx context.Context, arg SettleCaptureQuickNotesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, settleCaptureQuickNotes, arg.State, arg.Notes, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

@@ -134,6 +134,20 @@ func (s *Service) applyVoiceFinalObservation(
 // ErrVoiceSessionNotFound reports an observation for an unknown VoiceSession.
 var ErrVoiceSessionNotFound = errors.New("VoiceSession was not found")
 
+// ClaimMediaEpoch returns the next transcript media epoch of an open
+// VoiceSession. The counter lives in PostgreSQL so a restarted runtime job
+// never reuses an epoch whose coverage stream an earlier job already started.
+func (s *Service) ClaimMediaEpoch(ctx context.Context, voiceSessionID string) (int, error) {
+	epoch, err := s.queries.ClaimVoiceTranscriptEpoch(ctx, voiceSessionID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrVoiceSessionNotFound
+	}
+	if err != nil {
+		return 0, fmt.Errorf("claim Voice media epoch: %w", err)
+	}
+	return int(epoch), nil
+}
+
 // ErrVoicePurposeConflict reports a dictation turn outside a live chat
 // dictation session.
 var ErrVoicePurposeConflict = errors.New("dictation turns require a live chat dictation session")

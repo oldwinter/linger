@@ -378,6 +378,46 @@ func (q *Queries) ListDecisionsByMessages(ctx context.Context, messageIds []stri
 	return items, nil
 }
 
+const listProfileSetupReminderCards = `-- name: ListProfileSetupReminderCards :many
+SELECT decision.id AS decision_id,decision.room_id
+FROM external_connection_agent_grants grant_row
+JOIN external_connections connection
+  ON connection.id=grant_row.connection_id AND connection.status='active'
+JOIN decisions decision
+  ON decision.requested_by_actor_id=grant_row.agent_actor_id AND decision.tenant_id=grant_row.tenant_id
+ AND decision.decider_actor_id=grant_row.represented_human_actor_id
+ AND decision.kind IN ('profile_setup_apps','profile_setup_sources') AND decision.status='pending'
+WHERE grant_row.connection_id=$1::text AND grant_row.status='active'
+ORDER BY decision.id
+`
+
+type ListProfileSetupReminderCardsRow struct {
+	DecisionID string `json:"decision_id"`
+	RoomID     string `json:"room_id"`
+}
+
+// The open AnotherMe setup cards whose AnotherMe holds an active grant to the
+// active Connection for the card's Human: the setups a reminder may concern.
+func (q *Queries) ListProfileSetupReminderCards(ctx context.Context, connectionID string) ([]ListProfileSetupReminderCardsRow, error) {
+	rows, err := q.db.Query(ctx, listProfileSetupReminderCards, connectionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProfileSetupReminderCardsRow{}
+	for rows.Next() {
+		var i ListProfileSetupReminderCardsRow
+		if err := rows.Scan(&i.DecisionID, &i.RoomID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const locateDecision = `-- name: LocateDecision :one
 SELECT tenant_id,room_id FROM decisions WHERE id=$1
 `
@@ -434,6 +474,93 @@ func (q *Queries) LockHerdrAnswerDecision(ctx context.Context, id string) (LockH
 		&i.AgentManagementID,
 	)
 	return i, err
+}
+
+const lockPendingProfileSetupCard = `-- name: LockPendingProfileSetupCard :one
+SELECT decision.message_id,decision.tenant_id,decision.decider_actor_id,decision.requested_by_actor_id
+FROM decisions decision
+WHERE decision.id=$1::text AND decision.status='pending'
+  AND decision.kind IN ('profile_setup_apps','profile_setup_sources')
+FOR UPDATE
+`
+
+type LockPendingProfileSetupCardRow struct {
+	MessageID          string `json:"message_id"`
+	TenantID           string `json:"tenant_id"`
+	DeciderActorID     string `json:"decider_actor_id"`
+	RequestedByActorID string `json:"requested_by_actor_id"`
+}
+
+// Locks one AnotherMe setup card while it is still open, after the Room
+// membership lock, as a decision answer does.
+func (q *Queries) LockPendingProfileSetupCard(ctx context.Context, decisionID string) (LockPendingProfileSetupCardRow, error) {
+	row := q.db.QueryRow(ctx, lockPendingProfileSetupCard, decisionID)
+	var i LockPendingProfileSetupCardRow
+	err := row.Scan(
+		&i.MessageID,
+		&i.TenantID,
+		&i.DeciderActorID,
+		&i.RequestedByActorID,
+	)
+	return i, err
+}
+
+const personalProfileNotStarted = `-- name: PersonalProfileNotStarted :one
+SELECT (
+  NOT EXISTS(SELECT 1 FROM personal_profile_currents
+    WHERE tenant_id=$1::text AND owner_actor_id=$2::text)
+  AND NOT EXISTS(SELECT 1 FROM personal_profile_builds
+    WHERE tenant_id=$1::text AND owner_actor_id=$2::text
+      AND expires_at>clock_timestamp())
+  AND NOT EXISTS(SELECT 1 FROM personal_profile_generations
+    WHERE tenant_id=$1::text AND owner_actor_id=$2::text
+      AND status IN ('queued','running'))
+)::boolean
+`
+
+type PersonalProfileNotStartedParams struct {
+	TenantID     string `json:"tenant_id"`
+	OwnerActorID string `json:"owner_actor_id"`
+}
+
+// Whether the Human has no Personal Profile and none is being written.
+func (q *Queries) PersonalProfileNotStarted(ctx context.Context, arg PersonalProfileNotStartedParams) (bool, error) {
+	row := q.db.QueryRow(ctx, personalProfileNotStarted, arg.TenantID, arg.OwnerActorID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const profileOfferedInRoom = `-- name: ProfileOfferedInRoom :one
+SELECT EXISTS(
+  SELECT 1 FROM messages message
+  JOIN decisions decision
+    ON decision.message_id=message.card_context_message_id AND decision.room_id=message.room_id
+   AND decision.kind IN ('profile_setup_apps','profile_setup_sources')
+  WHERE message.room_id=$1::text AND message.author_actor_id=$2::text
+    AND message.message_kind='agent_runtime'
+    AND EXISTS(SELECT 1 FROM external_connection_agent_grants grant_row
+      WHERE grant_row.agent_actor_id=$3::text AND grant_row.tenant_id=decision.tenant_id
+        AND grant_row.created_at<=message.created_at
+        AND (grant_row.revoked_at IS NULL OR grant_row.revoked_at>message.created_at))
+)::boolean
+`
+
+type ProfileOfferedInRoomParams struct {
+	RoomID       string `json:"room_id"`
+	HumanActorID string `json:"human_actor_id"`
+	AgentActorID string `json:"agent_actor_id"`
+}
+
+// Whether a setup status AnotherMe read already offered the Profile: one
+// written while the Human had an app granted to AnotherMe. A status written
+// with no app granted only told AnotherMe to wait. Links and files arrive only
+// with the status that finishes setup, after which no card is left to check.
+func (q *Queries) ProfileOfferedInRoom(ctx context.Context, arg ProfileOfferedInRoomParams) (bool, error) {
+	row := q.db.QueryRow(ctx, profileOfferedInRoom, arg.RoomID, arg.HumanActorID, arg.AgentActorID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const recordDecisionResult = `-- name: RecordDecisionResult :exec

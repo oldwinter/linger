@@ -11,6 +11,7 @@ import {
 } from "../session-source.js";
 import type { PersonalKnowledgeQueryRequest } from "@linger/wire-contracts/node-services-internal/client";
 import { SESSION_ITEM_LABELS } from "@linger/knowledge-format/sections";
+import { localIsoString } from "../date.js";
 import { markMemoryChanged } from "../fs-utils.js";
 import { agentWorkspaceRoot } from "../paths.js";
 import type { AnotherMeSubject, SessionlyCollection } from "../types.js";
@@ -321,6 +322,10 @@ export function sourceSearchText(
   return sourceKind === "wiki_page" ? wikiPageSearchText(content) : content;
 }
 
+/** `sessions/<date>/<session>.md`, the path LLM Wiki gives a Session page. */
+const SESSION_PAGE_KEY =
+  /^sessions\/(\d{4}-\d{2}-\d{2})\/(?!index\.md$)[^/]+\.md$/u;
+
 /**
  * One page of the Human's published Wiki as Raw, kept at the Wiki's current
  * revision; only PostgreSQL stores it.
@@ -335,7 +340,10 @@ export function wikiPageRawSource(input: {
   revision: string;
   markdown: string;
 }): RawSource {
-  const date = input.publishedAt.slice(0, 10);
+  // A Session page is about its Session's day; any other page is dated by its
+  // publication, which says nothing about when its content happened.
+  const date =
+    SESSION_PAGE_KEY.exec(input.pageKey)?.[1] ?? input.publishedAt.slice(0, 10);
   if (
     !input.pageKey ||
     !DOCUMENT_ID_PATTERN.test(input.documentId) ||
@@ -476,13 +484,14 @@ export function profileRawSource(input: {
 export function sessionSourceText(collection: SessionlyCollection): string {
   const room = collection.rooms[0];
   if (!room) throw new Error("Session source has no Room");
-  // An independent recording is not speech by its uploader.
+  // An independent recording is not speech by its uploader. Message times are
+  // the Human's local time with its offset, as the Web client shows them.
   return collection.recording
     ? room.messages.map((message) => message.body).join("\n")
     : room.messages
         .map(
           (message) =>
-            `## ${message.createdAt} · ${message.authorDisplayName.replace(/[\r\n]/gu, " ")}\n\nMessage metadata: ${JSON.stringify({ message_id: message.id, author_actor_id: message.authorActorId, author_kind: message.authorKind })}\n\n${escapeMessageHeadings(message.body)}\n${message.attachments.map((attachment) => `\n### Attachment: ${attachment.filename.replace(/[\r\n]/gu, " ")}\n\n${escapeMessageHeadings(attachment.content)}\n`).join("")}`,
+            `## ${localIsoString(new Date(message.createdAt))} · ${message.authorDisplayName.replace(/[\r\n]/gu, " ")}\n\nMessage metadata: ${JSON.stringify({ message_id: message.id, author_actor_id: message.authorActorId, author_kind: message.authorKind })}\n\n${escapeMessageHeadings(message.body)}\n${message.attachments.map((attachment) => `\n### Attachment: ${attachment.filename.replace(/[\r\n]/gu, " ")}\n\n${escapeMessageHeadings(attachment.content)}\n`).join("")}`,
         )
         .join("\n");
 }

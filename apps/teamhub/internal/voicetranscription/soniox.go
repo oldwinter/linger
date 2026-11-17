@@ -18,10 +18,10 @@ import (
 )
 
 // Asynchronous transcription needs an async model; Voice Runtime streams with
-// stt-rt-v5.
+// stt-rt-v6.
 const (
 	defaultSonioxBaseURL     = "https://api.soniox.com"
-	sonioxTranscriptionModel = "stt-async-v5"
+	sonioxTranscriptionModel = "stt-async-v6"
 )
 
 // SonioxLanguageHints bias short, ambiguous openings without excluding other

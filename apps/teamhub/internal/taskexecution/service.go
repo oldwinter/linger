@@ -235,7 +235,7 @@ func CreateManagedGeneration(
 		return CreateManagedGenerationResult{}, err
 	}
 	if _, err := queries.PromoteTaskToManagedExecution(ctx, store.PromoteTaskToManagedExecutionParams{
-		WorkItemState: "in_progress", SourceKey: optionalText(input.SourceKey),
+		WorkItemState: "in_progress", SourceKey: optionalText(input.SourceKey), Quiet: input.Quiet,
 		Generation: generation, ExecutionStatus: "running", ExecutionRevision: 1,
 		TaskID: input.TaskID, TenantID: locked.TenantID,
 	}); err != nil {

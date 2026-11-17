@@ -392,6 +392,7 @@
         cursor: pointer;
       }
       button:disabled,
+      button[aria-disabled="true"],
       select:disabled {
         opacity: 0.45;
         cursor: not-allowed;
@@ -777,7 +778,7 @@
           border-color 140ms ease,
           background-color 140ms ease;
       }
-      .pick:hover:not(:disabled) {
+      .pick:hover:not(:disabled):not([aria-disabled="true"]) {
         border-color: #c4c4bc;
       }
       .pick[aria-checked="true"] {
@@ -1176,8 +1177,45 @@
         margin: 6px auto 0;
         font-size: 12px;
       }
-      .diagnostics[hidden] {
+      .diagnostics[hidden],
+      .diagnostics [hidden] {
         display: none;
+      }
+      /* Send Diagnostics: consent, progress and the report id. */
+      .send-modal .files {
+        max-height: 132px;
+        margin: 0 0 14px;
+        padding: 8px 10px;
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        list-style: none;
+        color: var(--muted);
+        font:
+          11px/1.6 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        overflow-wrap: anywhere;
+      }
+      .send-modal .track {
+        margin: 0 0 14px;
+      }
+      .send-modal .fill {
+        transition: width 200ms linear;
+      }
+      .send-modal .report strong {
+        display: block;
+        margin-top: 6px;
+        color: var(--ink);
+        font:
+          600 16px ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        letter-spacing: 0.06em;
+        user-select: all;
+        -webkit-user-select: all;
       }
       .diagnostics output {
         flex-basis: 100%;
@@ -1195,6 +1233,8 @@
         place-items: center;
         width: 52px;
         height: 52px;
+        /* A tall receipt overflows the section; the circle must not shrink. */
+        flex-shrink: 0;
         margin: 0 auto 18px;
         border-radius: 50%;
         background: linear-gradient(180deg, #2f2f2c, #1b1b19);
@@ -1315,6 +1355,16 @@
       section.active .account {
         animation: enter 420ms 160ms var(--ease) both;
       }
+      /* The earlier Simplex app's data this install could not upgrade. */
+      .legacy-note {
+        width: 100%;
+        max-width: 420px;
+        margin: 12px auto 0;
+        color: var(--muted);
+        font-size: 12px;
+        text-align: left;
+        overflow-wrap: anywhere;
+      }
       /* Confetti for a finished install, drawn over the whole window. */
       #confetti {
         position: fixed;
@@ -1384,7 +1434,10 @@
               <div class="choice local" id="local-row" hidden>
                 <div class="text">
                   <strong>Local model</strong
-                  ><span class="sub" id="local-sub"></span>
+                  ><span class="sub" id="local-sub"></span
+                  ><span class="sub" id="local-pi-only" hidden
+                    >Local models are only available with the Pi runtime.</span
+                  >
                 </div>
                 <button
                   type="button"
@@ -1463,6 +1516,9 @@
             </button>
           </p>
           <p class="plan-why" id="plan-why" hidden></p>
+          <button class="link quiet" id="local-recheck" type="button" hidden>
+            Check again
+          </button>
         </div>
         <p class="error" id="local-error" role="alert"></p>
         <p class="team" id="team">
@@ -1582,7 +1638,35 @@
           <button class="link quiet" id="save-diagnostics" type="button">
             Save Diagnostics
           </button>
+          <button class="link quiet" id="send-diagnostics" type="button" hidden>
+            Send Diagnostics
+          </button>
           <output id="diagnostics-note"></output>
+        </div>
+        <div
+          class="signin-modal send-modal"
+          id="send-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="send-title"
+          hidden
+        >
+          <div class="sheet">
+            <h2 id="send-title"></h2>
+            <p id="send-lead"></p>
+            <ul class="files" id="send-files" aria-label="Files to send"></ul>
+            <div class="track" id="send-track">
+              <div class="fill" id="send-fill"></div>
+            </div>
+            <p class="report" id="send-report">
+              Report ID <strong id="send-report-id"></strong>
+            </p>
+            <p class="problem" id="send-error" role="alert"></p>
+            <div class="actions">
+              <button class="primary" id="send-primary" type="button"></button>
+              <button class="link quiet" id="send-close" type="button"></button>
+            </div>
+          </div>
         </div>
         <footer class="actions" id="installing-actions">
           <button class="ghost" data-go="welcome" type="button">Back</button>
@@ -1619,6 +1703,7 @@
           </p>
           <p class="account-error" id="account-error" role="alert"></p>
         </div>
+        <p class="legacy-note" id="legacy-note" hidden></p>
         <div class="start">
           <button class="primary large" id="open" type="button">
             <span>Open Linger</span
@@ -1928,8 +2013,8 @@
           : value.slice(0, 18) + "…" + value.slice(-27);
       // Quick Install installs what the localmodels tool recommends for this
       // computer once it has checked; until then (or when it cannot check)
-      // the installer picks. The local model runs tasks through Pi, so
-      // choosing it chooses Pi.
+      // the installer picks. The tool's local-models pick runs through Pi,
+      // so it implies Pi.
       const defaults = () => {
         const models = state.localServer.localModels;
         const pick = models.state === "checked" && models.recommendation;
@@ -2196,6 +2281,26 @@
         const models = local.localModels;
         const model =
           models.state === "checked" && models.eligible && models.model;
+        // The model fits the hardware, but other programs hold the memory it
+        // needs now: shown, not offered, until a new check finds that memory.
+        const held =
+          models.state === "checked" && models.blockedNow && models.model;
+        // The tool's count of memory free now against what the plan needs.
+        const free = held && models.freeMemory;
+        const freeText =
+          free &&
+          "needs " +
+            size(free.ramRequiredBytes) +
+            " of memory, " +
+            size(free.ramAvailableBytes) +
+            " is free" +
+            (free.vramRequiredBytes != null
+              ? "; graphics memory needs " +
+                size(free.vramRequiredBytes) +
+                ", " +
+                size(free.vramFreeBytes) +
+                " is free"
+              : "");
         if (!model) plan.localModel = false;
         const custom = !isDefaultPlan(local);
         // Quick Install waits for the check, so it installs what it shows.
@@ -2258,14 +2363,34 @@
                     gigabytes(model.downloadBytes) + " download",
                 ]
                   .filter(Boolean)
-                  .join(" · ")
-              : models.state === "checked" && !models.eligible
-                ? "No local model: " +
-                  (models.reasons?.[0]?.message ||
-                    "this computer can't run one.")
-                : models.state === "unavailable"
-                  ? "Couldn't check this computer for a local model."
-                  : "";
+                  .join(" · ") +
+                (models.reasons?.[0]?.message
+                  ? ". " + models.reasons[0].message
+                  : "")
+              : held
+                ? "Local model on hold: " +
+                  (free
+                    ? "quit other programs first; it " +
+                      freeText +
+                      "." +
+                      // Other codes name what to quit, such as another
+                      // inference app; the counts alone do not.
+                      (models.reasons?.[0]?.code !== "free-memory-required" &&
+                      models.reasons?.[0]?.message
+                        ? " " + models.reasons[0].message
+                        : "")
+                    : models.reasons?.[0]?.message ||
+                      "other programs are using the memory it needs.") +
+                  " Quick Install sets up " +
+                  named(plan) +
+                  " now, or choose Check again once memory is free."
+                : models.state === "checked" && !models.eligible
+                  ? "No local model: " +
+                    (models.reasons?.[0]?.message ||
+                      "this computer can't run one.")
+                  : models.state === "unavailable"
+                    ? "Couldn't check this computer for a local model."
+                    : "";
         $("plan-why").hidden =
           !local.available || customizing || !$("plan-why").textContent;
         $("plan-line").hidden = !local.available;
@@ -2291,24 +2416,38 @@
           remove.textContent = removing ? "Keep" : "Remove";
         }
         $("keys-note").textContent = "Applies when the installation runs.";
-        $("local-row").hidden = !model;
-        $("local-model").hidden = !model;
-        if (model) {
-          $("local-sub").textContent = [
-            recommended.localModel
-              ? "Recommended for this computer"
-              : "Runs your tasks on this computer",
-            models.gpu,
-          ]
-            .filter(Boolean)
-            .join(" · ");
-          $("local-model-name").textContent = model.name;
+        const shown = model || held;
+        const runtime =
+          plan.runtime === "recommended" ? recommended.runtime : plan.runtime;
+        const piOnly = !!shown && runtime !== "pi";
+        $("local-row").hidden = !shown;
+        $("local-model").hidden = !shown;
+        $("local-recheck").hidden = !held || !local.available;
+        $("local-recheck").disabled = busy;
+        if (shown) {
+          $("local-sub").textContent = held
+            ? free
+              ? "On hold: " +
+                size(free.ramRequiredBytes) +
+                " memory needed, " +
+                size(free.ramAvailableBytes) +
+                " free"
+              : "On hold: close other programs, then Check again."
+            : [
+                recommended.localModel
+                  ? "Recommended for this computer"
+                  : "Runs your tasks on this computer",
+                models.gpu,
+              ]
+                .filter(Boolean)
+                .join(" · ");
+          $("local-model-name").textContent = shown.name;
           $("local-model-needs").textContent = [
-            model.downloadBytes != null &&
-              gigabytes(model.downloadBytes) + " download",
-            model.diskBytes != null && gigabytes(model.diskBytes) + " disk",
-            model.memoryBytes != null &&
-              gigabytes(model.memoryBytes) + " memory",
+            shown.downloadBytes != null &&
+              gigabytes(shown.downloadBytes) + " download",
+            shown.diskBytes != null && gigabytes(shown.diskBytes) + " disk",
+            shown.memoryBytes != null &&
+              gigabytes(shown.memoryBytes) + " memory",
           ]
             .filter(Boolean)
             .join(" · ");
@@ -2316,7 +2455,14 @@
             "aria-checked",
             String(plan.localModel),
           );
-          $("local-model").disabled = busy;
+          $("local-model").disabled = busy || !model;
+          // The local model runs only behind Pi: with another runtime it
+          // stays focusable, greyed and says so, but does not toggle.
+          $("local-pi-only").hidden = !piOnly;
+          $("local-model").setAttribute("aria-disabled", String(piOnly));
+          if (piOnly)
+            $("local-model").setAttribute("aria-describedby", "local-pi-only");
+          else $("local-model").removeAttribute("aria-describedby");
         }
         $("runtime-sub").textContent = known
           ? "Recommended: " + RUNTIMES[recommended.runtime] + "."
@@ -2436,6 +2582,7 @@
         shownDiagnostics = savedKey;
         $("installing-actions").hidden = !failed;
         renderSignIn(local, busy);
+        renderSend();
         // Each failure brings its message and actions into view once.
         if (failed && revealed !== local.attempt) {
           revealed = local.attempt;
@@ -2445,6 +2592,12 @@
         }
         $("ready-lead").textContent = "Running on this computer, just for you.";
         renderAccount(local.account);
+        $("legacy-note").hidden = !local.legacyBackup;
+        $("legacy-note").textContent = local.legacyBackup
+          ? "Your data from the earlier Simplex app can't be upgraded to Linger, so this is a fresh workspace. The earlier data was moved, not deleted, to " +
+            local.legacyBackup +
+            "."
+          : "";
       };
 
       // The password stays masked until Show; the main process copies it.
@@ -2531,6 +2684,86 @@
             return chip;
           }),
         );
+      };
+
+      // Send Diagnostics, while a diagnostics server is set up.
+      const fileSize = (bytes) =>
+        bytes < 1024 ** 2
+          ? Math.max(1, Math.ceil(bytes / 1024)) + " KB"
+          : (bytes / 1024 ** 2).toFixed(1) + " MB";
+      let copiedReport;
+      const renderSend = () => {
+        const send = state.diagnosticsSend;
+        $("send-diagnostics").hidden = !send;
+        const phase = send?.phase ?? "idle";
+        $("send-modal").hidden = phase === "idle";
+        if (phase === "idle") return;
+        const title = {
+          preparing: "Preparing diagnostics",
+          confirm: "Send diagnostics to " + send.host + "?",
+          sending: "Sending diagnostics",
+          sent: "Diagnostics sent",
+          failed: "Couldn't send diagnostics",
+        }[phase];
+        $("send-title").textContent = title;
+        const lead = $("send-lead");
+        if (phase === "preparing")
+          lead.innerHTML =
+            '<span class="spinner"></span>Collecting logs and settings…';
+        else
+          lead.textContent =
+            phase === "confirm"
+              ? send.files.length +
+                " files, " +
+                fileSize(send.bytes) +
+                ": logs and settings of this app and of Linger on this computer. Passwords, tokens, keys and your home folder path are removed first; credential files and your data are never included. Only the people who run " +
+                send.host +
+                " can read the report."
+              : phase === "sending"
+                ? "Uploading to " +
+                  send.host +
+                  "… " +
+                  Math.floor((send.sent / Math.max(1, send.total)) * 100) +
+                  "%"
+                : phase === "sent"
+                  ? "Give this report ID to Linger support so they can find your report."
+                  : send.retry
+                    ? ""
+                    : "You can still use Save Diagnostics and send the file by hand.";
+        const files = $("send-files");
+        files.hidden = phase !== "confirm";
+        if (
+          phase === "confirm" &&
+          files.dataset.shown !== send.files.join("\n")
+        ) {
+          files.replaceChildren(
+            ...send.files.map((file) => {
+              const item = document.createElement("li");
+              item.textContent = file;
+              return item;
+            }),
+          );
+          files.dataset.shown = send.files.join("\n");
+        }
+        $("send-track").hidden = phase !== "sending";
+        if (phase === "sending")
+          $("send-fill").style.width =
+            Math.min(100, (send.sent / Math.max(1, send.total)) * 100) + "%";
+        $("send-report").hidden = phase !== "sent";
+        $("send-report-id").textContent = phase === "sent" ? send.reportId : "";
+        $("send-error").textContent = phase === "failed" ? send.error : "";
+        const primary = {
+          confirm: "Send",
+          sent: copiedReport === send.reportId ? "Copied" : "Copy Report ID",
+          failed: send.retry ? "Try Again" : "",
+        }[phase];
+        $("send-primary").hidden = !primary;
+        $("send-primary").textContent = primary ?? "";
+        const close = { confirm: "Cancel", sent: "Done", failed: "Close" }[
+          phase
+        ];
+        $("send-close").hidden = !close;
+        $("send-close").textContent = close ?? "";
       };
 
       // Runs one command at a time; errors land next to the step.
@@ -2627,6 +2860,27 @@
       $("save-diagnostics").addEventListener("click", () =>
         run({ op: "diagnostics.save" }, "diagnostics-note"),
       );
+      $("send-diagnostics").addEventListener("click", () => {
+        copiedReport = undefined;
+        run({ op: "diagnostics.send", action: "start" }, "diagnostics-note");
+      });
+      $("send-primary").addEventListener("click", async () => {
+        const send = state.diagnosticsSend;
+        if (send?.phase === "confirm")
+          run({ op: "diagnostics.send", action: "confirm" }, "send-error");
+        else if (send?.phase === "failed")
+          run({ op: "diagnostics.send", action: "retry" }, "send-error");
+        else if (send?.phase === "sent") {
+          if (
+            await run({ op: "diagnostics.send", action: "copy" }, "send-error")
+          )
+            copiedReport = send.reportId;
+          render();
+        }
+      });
+      $("send-close").addEventListener("click", () =>
+        run({ op: "diagnostics.send", action: "cancel" }, "send-error"),
+      );
       const clearKeys = () => {
         keys = {};
         for (const input of document.querySelectorAll("[data-key]")) {
@@ -2687,11 +2941,14 @@
       $("location-change").addEventListener("click", () =>
         run({ op: "local.location.pick" }),
       );
+      $("local-recheck").addEventListener("click", () =>
+        run({ op: "local.recheck" }, "local-error"),
+      );
       $("local-model").addEventListener("click", () => {
+        // Only Pi runs the local model; choose Pi first.
+        if ($("local-model").getAttribute("aria-disabled") === "true") return;
         picked = true;
-        plan = plan.localModel
-          ? { ...plan, localModel: false }
-          : { ...plan, runtime: "pi", localModel: true };
+        plan = { ...plan, localModel: !plan.localModel };
         render();
       });
       $("open").addEventListener("click", () => run({ op: "finish" }));

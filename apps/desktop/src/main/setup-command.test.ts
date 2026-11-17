@@ -23,11 +23,17 @@ describe("parseSetupCommand", () => {
         runtime: "local",
       }),
     ).toEqual({ op: "local.start", runtime: "local" });
+    expect(
+      parseSetupCommand({ op: "diagnostics.send", action: "confirm" }),
+    ).toEqual({ op: "diagnostics.send", action: "confirm" });
     expect(parseSetupCommand({ op: "local.location.pick" })).toEqual({
       op: "local.location.pick",
     });
     expect(parseSetupCommand({ op: "local.location.reset" })).toEqual({
       op: "local.location.reset",
+    });
+    expect(parseSetupCommand({ op: "local.recheck" })).toEqual({
+      op: "local.recheck",
     });
     expect(parseSetupCommand({ op: "local.signin.start" })).toEqual({
       op: "local.signin.start",

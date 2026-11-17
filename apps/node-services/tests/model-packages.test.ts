@@ -48,9 +48,9 @@ const integrity = (body: Buffer) =>
 const root = mkdtempSync(path.join(os.tmpdir(), "model-packages-"));
 afterAll(() => rm(root, { recursive: true, force: true }));
 
-const eng = tarball({
-  "package/package.json": '{"name":"@tesseract.js-data/eng"}',
-  "package/4.0.0_best_int/eng.traineddata.gz": "eng data",
+const turn = tarball({
+  "package/package.json": '{"name":"@livekit/local-inference-darwin-arm64"}',
+  "package/models/turn.onnx": "turn data",
 });
 const vad = tarball({ "package/index.node": "binding" });
 let home: string;
@@ -65,13 +65,13 @@ beforeEach(async () => {
     path.join(runtime.packageRoot, "models.json"),
     JSON.stringify({
       packages: {
-        "@tesseract.js-data/eng": {
-          group: "ocr",
-          version: "1.0.0",
-          integrity: integrity(eng),
+        "@livekit/local-inference-darwin-arm64": {
+          group: "voice",
+          version: "0.2.7",
+          integrity: integrity(turn),
           tarballs: [
-            "https://registry.example/eng-1.0.0.tgz",
-            "https://mirror.example/eng-1.0.0.tgz",
+            "https://registry.example/turn-0.2.7.tgz",
+            "https://mirror.example/turn-0.2.7.tgz",
           ],
         },
         "@livekit/local-inference-linux-x64-gnu": {
@@ -86,22 +86,42 @@ beforeEach(async () => {
   vi.resetModules();
 });
 
+/** Marks both listed voice packages installed, as a finished download does. */
+async function markVoiceInstalled(packagesRoot: string): Promise<void> {
+  for (const [name, body] of [
+    ["@livekit/local-inference-darwin-arm64", turn],
+    ["@livekit/local-inference-linux-x64-gnu", vad],
+  ] as const) {
+    const directory = path.join(packagesRoot, name);
+    await mkdir(directory, { recursive: true });
+    writeFileSync(
+      path.join(directory, ".simplex-model-package.json"),
+      JSON.stringify({ integrity: integrity(body) }),
+    );
+  }
+}
+
 // The module reads models.json once, so every test loads it afresh.
 const load = () => import("../src/model-packages.js");
 
 describe("model packages", () => {
   it("lists packages by group and resolves them only once installed", async () => {
     const models = await load();
-    expect(models.modelPackageNames("ocr")).toEqual(["@tesseract.js-data/eng"]);
     expect(models.modelPackageNames("voice")).toEqual([
+      "@livekit/local-inference-darwin-arm64",
       "@livekit/local-inference-linux-x64-gnu",
     ]);
-    expect(models.modelPackageDirectory("tesseract.js-core", environment)).toBe(
+    expect(models.modelPackageDirectory("officeparser", environment)).toBe(
       undefined,
     );
     expect(() =>
-      models.modelPackageDirectory("@tesseract.js-data/eng", environment),
-    ).toThrow("Model package @tesseract.js-data/eng is not installed");
+      models.modelPackageDirectory(
+        "@livekit/local-inference-darwin-arm64",
+        environment,
+      ),
+    ).toThrow(
+      "Model package @livekit/local-inference-darwin-arm64 is not installed",
+    );
   });
 
   it("downloads from the next registry when one serves another tarball", async () => {
@@ -109,27 +129,37 @@ describe("model packages", () => {
     const fetch = vi.fn(async (url: string) =>
       url.startsWith("https://registry.")
         ? new Response(new Uint8Array(vad))
-        : new Response(new Uint8Array(eng)),
+        : new Response(new Uint8Array(turn)),
     );
-    await models.installModelPackages(["@tesseract.js-data/eng"], environment, {
-      fetch: fetch as typeof globalThis.fetch,
-    });
+    await models.installModelPackages(
+      ["@livekit/local-inference-darwin-arm64"],
+      environment,
+      {
+        fetch: fetch as typeof globalThis.fetch,
+      },
+    );
     expect(fetch).toHaveBeenCalledTimes(2);
     const directory = models.modelPackageDirectory(
-      "@tesseract.js-data/eng",
+      "@livekit/local-inference-darwin-arm64",
       environment,
     )!;
     expect(directory).toBe(
-      path.join(home, "models", "node_modules", "@tesseract.js-data", "eng"),
+      path.join(
+        home,
+        "models",
+        "node_modules",
+        "@livekit",
+        "local-inference-darwin-arm64",
+      ),
+    );
+    expect(readFileSync(path.join(directory, "models/turn.onnx"), "utf8")).toBe(
+      "turn data",
     );
     expect(
-      readFileSync(
-        path.join(directory, "4.0.0_best_int/eng.traineddata.gz"),
-        "utf8",
+      models.modelPackagesInstalled(
+        ["@livekit/local-inference-darwin-arm64"],
+        environment,
       ),
-    ).toBe("eng data");
-    expect(
-      models.modelPackagesInstalled(["@tesseract.js-data/eng"], environment),
     ).toBe(true);
   });
 
@@ -139,17 +169,17 @@ describe("model packages", () => {
     const fetch = vi.fn(
       () =>
         new Promise<Response>((resolve) => {
-          release = () => resolve(new Response(new Uint8Array(eng)));
+          release = () => resolve(new Response(new Uint8Array(turn)));
         }),
     );
     const options = { fetch: fetch as unknown as typeof globalThis.fetch };
     const first = models.installModelPackages(
-      ["@tesseract.js-data/eng"],
+      ["@livekit/local-inference-darwin-arm64"],
       environment,
       options,
     );
     const second = models.installModelPackages(
-      ["@tesseract.js-data/eng"],
+      ["@livekit/local-inference-darwin-arm64"],
       environment,
       options,
     );
@@ -175,27 +205,64 @@ describe("model packages", () => {
     ).rejects.toThrow("Could not download");
     expect(offline).toHaveBeenCalledOnce();
     // Nothing is left behind for the next attempt to trip over.
-    expect(existsSync(path.join(home, "models/node_modules/@livekit"))).toBe(
-      false,
-    );
+    expect(
+      existsSync(
+        path.join(
+          home,
+          "models/node_modules/@livekit/local-inference-linux-x64-gnu",
+        ),
+      ),
+    ).toBe(false);
     expect(models.modelPackagesInstalled(voice, environment)).toBe(false);
   });
 
   it("keeps a package's files inside its folder", async () => {
     const { unpackTarball } = await load();
-    expect(unpackTarball(gunzipSync(eng)).map(([file]) => file)).toEqual([
+    expect(unpackTarball(gunzipSync(turn)).map(([file]) => file)).toEqual([
       "package.json",
-      "4.0.0_best_int/eng.traineddata.gz",
+      "models/turn.onnx",
     ]);
     expect(() =>
       unpackTarball(gunzipSync(tarball({ "package/../escape": "x" }))),
     ).toThrow("Unsafe path in model package: package/../escape");
   });
 
+  it("removes downloaded packages the runtime no longer lists", async () => {
+    const models = await load();
+    const packagesRoot = models.modelPackagesRoot(environment);
+    for (const name of [
+      "@tesseract.js-data/eng",
+      "@livekit/local-inference-linux-x64-gnu",
+      "@livekit/local-inference-darwin-arm64.partial-1",
+      "retired-model",
+    ])
+      await mkdir(path.join(packagesRoot, name), { recursive: true });
+    expect((await models.pruneModelPackages(environment)).sort()).toEqual([
+      "@tesseract.js-data/eng",
+      "retired-model",
+    ]);
+    expect(existsSync(path.join(packagesRoot, "@tesseract.js-data"))).toBe(
+      false,
+    );
+    expect(
+      existsSync(
+        path.join(packagesRoot, "@livekit/local-inference-linux-x64-gnu"),
+      ),
+    ).toBe(true);
+    expect(
+      existsSync(
+        path.join(
+          packagesRoot,
+          "@livekit/local-inference-darwin-arm64.partial-1",
+        ),
+      ),
+    ).toBe(true);
+  });
+
   it("installs nothing when the runtime lists no packages", async () => {
     await rm(path.join(runtime.packageRoot, "models.json"));
     const models = await load();
-    expect(models.modelPackageNames("ocr")).toEqual([]);
+    expect(models.modelPackageNames("voice")).toEqual([]);
     expect(models.modelPackagesInstalled([], environment)).toBe(true);
     await models.installModelPackages([], environment, {
       fetch: () => {
@@ -214,17 +281,9 @@ describe("features that need model packages", () => {
       () =>
         new Promise<void>((resolve) => {
           installed = () => {
-            const directory = path.join(
-              models.modelPackagesRoot(environment),
-              "@livekit/local-inference-linux-x64-gnu",
+            void markVoiceInstalled(models.modelPackagesRoot(environment)).then(
+              resolve,
             );
-            void mkdir(directory, { recursive: true }).then(() => {
-              writeFileSync(
-                path.join(directory, ".simplex-model-package.json"),
-                JSON.stringify({ integrity: integrity(vad) }),
-              );
-              resolve();
-            });
           };
         }),
     );
@@ -292,17 +351,9 @@ describe("features that need model packages", () => {
     const installModels = vi
       .fn<() => Promise<void>>()
       .mockRejectedValueOnce(new Error("offline"))
-      .mockImplementation(async () => {
-        const directory = path.join(
-          models.modelPackagesRoot(environment),
-          "@livekit/local-inference-linux-x64-gnu",
-        );
-        await mkdir(directory, { recursive: true });
-        writeFileSync(
-          path.join(directory, ".simplex-model-package.json"),
-          JSON.stringify({ integrity: integrity(vad) }),
-        );
-      });
+      .mockImplementation(() =>
+        markVoiceInstalled(models.modelPackagesRoot(environment)),
+      );
     const log = vi.fn();
     let keys: Record<string, string> = {};
     const spawnWorker = vi.fn(
@@ -338,26 +389,5 @@ describe("features that need model packages", () => {
     const stopping = service.stop();
     (spawnWorker.mock.results[0]!.value as EventEmitter).emit("exit", 0, null);
     await stopping;
-  });
-
-  it("convert documents when the OCR packages cannot install", async () => {
-    const { WorkerDocumentNormalizer } =
-      await import("../src/document-normalizer/document-normalizer.js");
-    const failure = new Error("offline");
-    const onModelsUnavailable = vi.fn();
-    const normalizer = new WorkerDocumentNormalizer({
-      execute: async () => new TextEncoder().encode("text\n"),
-      installModels: async () => {
-        throw failure;
-      },
-      onModelsUnavailable,
-    });
-    const markdown = await normalizer.normalizeDocument({
-      filename: "scan.pdf",
-      mediaType: "application/pdf",
-      source: new TextEncoder().encode("%PDF-1.4"),
-    });
-    expect(new TextDecoder().decode(markdown)).toBe("text\n");
-    expect(onModelsUnavailable).toHaveBeenCalledWith(failure);
   });
 });

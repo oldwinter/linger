@@ -92,6 +92,27 @@ it("reports the real start failure and points at permissions only for access err
   );
 });
 
+it("keeps every line of a start failure", async () => {
+  const { startFailure } = await import("./main.js");
+  expect(
+    startFailure(new Error("Could not start these instances:\nalpha: why\n")),
+  ).toBe(
+    "Installer could not start: Could not start these instances:\nalpha: why",
+  );
+});
+
+it("names a leftover instance it could not convert and why", async () => {
+  const { legacySkippedWarning } = await import("./main.js");
+  expect(
+    legacySkippedWarning({
+      instance: "default",
+      reason: "Its Computer is running 2 task(s).",
+    }),
+  ).toBe(
+    'Linger could not convert the instance "default" from the earlier Simplex app and left it as it was; it tries again at the next start. Its Computer is running 2 task(s).',
+  );
+});
+
 it("saves keys in the instance's user.env without echoing their values", async () => {
   const { parseInstallerArguments, saveUserKeys } = await import("./main.js");
   expect(() => parseInstallerArguments(["--user-keys"])).toThrow(

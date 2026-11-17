@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/document"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/messagecreation"
 )
 
 func TestLiveKitCaptureCompletionFailureCode(t *testing.T) {
@@ -82,5 +83,24 @@ func TestLiveKitCaptureCompletionRetryDelay(t *testing.T) {
 	}
 	if LiveKitCaptureCompletionMaxAttempts < 1 {
 		t.Fatal("max attempts must fail a retryable Capture")
+	}
+}
+
+func TestCaptureCompletionSegmentsPutQuickNotesAfterTheFiles(t *testing.T) {
+	t.Parallel()
+	audio := document.Version{DocumentID: "document_audio", Filename: "source.m4a"}
+	transcript := document.Version{DocumentID: "document_transcript", Filename: "transcript.md"}
+	plain, err := messagecreation.Normalize(captureCompletionSegments("capture_1", audio, transcript, false))
+	if err != nil || plain.Segments[0].Content != captureCompletionMessage+"\n" || len(plain.Segments) != 4 {
+		t.Fatalf("without notes: %+v err=%v", plain, err)
+	}
+	content, err := messagecreation.Normalize(captureCompletionSegments("capture_1", audio, transcript, true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := content.Segments[len(content.Segments)-1]
+	if len(content.Segments) != 6 || content.Segments[1].DocumentID != "document_audio" || content.Segments[3].DocumentID != "document_transcript" ||
+		last.Type != "meeting_notes" || last.CaptureID != "capture_1" || last.Content == "" {
+		t.Fatalf("with notes: %+v", content.Segments)
 	}
 }

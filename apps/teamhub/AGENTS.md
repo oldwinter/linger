@@ -36,6 +36,9 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
 
 ## Important Conventions
 
+- A Room permits 100 Routines: recurring ones count while they exist, and
+  one-shot ones count until they fire. There is no separate one-shot limit.
+
 - Room input acceptance: Runtime State validates canonical
   conversation/targeted agent_runtime inputs atomically with Local Run and cursor.
   Document reads are live-latest and mutations retain CAS. CLI business
@@ -91,6 +94,9 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   The check compares Git trees, not deployment or Goose database state. If a
   deployment has already applied a branch's version, provide a new forward
   repair rather than editing its recorded history.
+- Before importing upstream SQL, read [the fork migration history](migrations/README.md).
+  This fork's published migration numbers identify its own SQL; imports receive
+  new forward versions and preserve their SQL bodies and relative order.
 - Do not add an empty-database goose UpTo/DownTo integration test for every
   migration. Prove current behavior on the template clone. Fresh-install
   tests use `//go:build integration_migration_history` and stay off the
@@ -156,5 +162,19 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   environment key over one saved in the product (`voice_provider_keys`, sealed
   with `TEAMHUB_SECRET_ENCRYPTION_KEY`), so a save applies without a restart
   on every replica. A save wakes the Node Services voice workers best effort.
+- Local models: `local_computer_model_snapshots` keeps each Computer's latest
+  model library snapshot and the last host any snapshot carried; removing the
+  Computer deletes the row in the same transaction. Recording a snapshot
+  publishes a `local-models` invalidation (id is the Computer ID) to the
+  owner's Tenant. Any member of the Computer's Tenant reads the library;
+  `used_by` lists active Agents on runtime `pi` on that Computer whose
+  `runtime_model` equals the model's `pi_model` exactly (loaded or not), limited to the
+  Agents the reader sees in the Agent directory. Only the owner acts
+  (`LOCAL_MODEL_ACTION_FORBIDDEN`), and only while the Computer is online by
+  the Computers page's 60-second rule (`LOCAL_COMPUTER_OFFLINE`). A connected
+  Computer that has not decided within the action's 10 seconds answers 504
+  `LOCAL_MODEL_ACTION_UNCONFIRMED`: it may still act, and the snapshots show
+  the outcome. The Computer's refusal codes map to `LocalModelsErrorCode` in
+  `internal/app/handlers_local_models.go`.
 - Do not add write-only audit, event, or provenance tables. A new audit table
   needs a named product or compliance reader in the same pull request.

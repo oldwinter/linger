@@ -27,6 +27,7 @@ const setupCommand = z.discriminatedUnion("op", [
         .optional(),
     })
     .strict(),
+  z.object({ op: z.literal("local.recheck") }).strict(),
   z.object({ op: z.literal("local.location.pick") }).strict(),
   z.object({ op: z.literal("local.location.reset") }).strict(),
   z
@@ -67,6 +68,12 @@ const setupCommand = z.discriminatedUnion("op", [
   z.object({ op: z.literal("finish") }).strict(),
   z.object({ op: z.literal("logs.open") }).strict(),
   z.object({ op: z.literal("diagnostics.save") }).strict(),
+  z
+    .object({
+      op: z.literal("diagnostics.send"),
+      action: z.enum(["start", "confirm", "retry", "cancel", "copy"]),
+    })
+    .strict(),
 ]);
 
 // Commands come from a local page, but are still validated at the boundary.

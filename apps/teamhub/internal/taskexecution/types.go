@@ -48,7 +48,10 @@ type CreateManagedGenerationInput struct {
 	EventRoomID     string
 	WorkItemVersion int64
 	SourceKey       string
-	RunSpec         RunSpecV1
+	// Quiet marks a Task started during a proactive wake or a Routine that
+	// serves a Tracking Item.
+	Quiet   bool
+	RunSpec RunSpecV1
 	// Participant is the AlterEgo of RunSpec's result Agent, the Task's only
 	// participant.
 	Participant           ParticipantInput

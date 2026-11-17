@@ -30,6 +30,17 @@ build:assets` to check the initial JS budget.
   when the summary arrives. - `src/features/wiki`: A Wiki page Another Me finished yesterday waits at the
   front of Wiki until that page is opened.
 - `src/features/local-computer`: What this Mac can do asks macOS for Screen Recording and Accessibility on one computer, then relaunches Linger when a new grant needs it. Opening Computers on this Mac opens that computer when several are connected. All computers stays on the list.
+- `src/features/local-models`: Settings › Local models (`settings/local-models?computer=<id>`),
+  one Computer's model library as TeamHub last stored it. The Computer decides
+  fit, availability, placement, the recommendation and memory; the page only
+  orders and labels them, picks the Make room default, renders family icons,
+  capability/parameter badges, download speed/ETA and model-card facts from
+  structured `LocalModel` fields in `local-models-rules.ts`, and maps every
+  code and enum label to English in `local-models-copy.ts`. Without `?computer=`
+  the desktop app opens
+  its own Computer. Only the Computer's owner can act; actions return at once
+  and progress arrives as `local-models` invalidation hints. A Computer's
+  detail on the Computers page links here and reads no model state itself.
 - `src/test`: unit-test support, including the in-process TeamHub test server.
 - `e2e`: Playwright product workflows; every spec runs on the real TeamHub and
   Document Runtime stack (`make check-e2e-room-document`).
@@ -41,6 +52,13 @@ build:assets` to check the initial JS budget.
   contains focus while modal, and returns focus to the opener on dismissal.
   Desktop sidebars are ordinary navigation, so modal detection checks
   `dialog[open]`, never every `dialog` element.
+- The desktop Room header centers its title when the pane has room and truncates
+  long titles without pushing actions outside the pane. Quick-access labels
+  shrink inside the sidebar while every action stays reachable.
+- Jump to latest returns a rewound conversation to live messages. Its position
+  state also updates when history is restored or a quiet Room receives messages,
+  without requiring the reader to scroll. The unread jump sits above it when
+  both actions are visible.
 - `ModalDialog` portals to `document.body` so a closed navigation wrapper cannot
   hide a nested dialog. Action menus portal into their nearest open native
   dialog or the body and constrain both parent and child menus to the viewport.
@@ -58,6 +76,9 @@ build:assets` to check the initial JS budget.
   may inject `fetchRequest` (`fetchDouble`) instead.
 - Unit tests must not depend on machine speed: rely on the global 5s async wait (Testing Library and `vi.waitFor`) instead of per-test `timeout` options, use fake timers for time-based behavior, and put real Vite/Rollup builds in `*.build.test.ts`.
 - TanStack Query owns remote state; route loaders only ensure feature-owned queries.
+- The Room surface loads at its `rooms/:roomId` route boundary. Keep its
+  bootstrap loader on the route so authorization and history requests start
+  alongside the module download, without waiting for the Room component.
 - Components do not handwrite TeamHub endpoints or wire DTOs. Every TeamHub
   request names a generated contract path through the `openapi-fetch` client in
   `src/features/teamhub/teamhub-api.ts`; SSE, XHR upload, and download URLs use

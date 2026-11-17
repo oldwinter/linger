@@ -306,18 +306,18 @@ func activeVoiceRuntimeDispatch(
 	}
 	state := dispatch.State
 	if state == nil || len(state.Jobs) == 0 {
-		return dispatchAwaitingAssignment(state)
+		return dispatchAwaitingAssignment(state, unassignedDispatchGrace)
 	}
 	for _, job := range state.Jobs {
 		if job == nil || job.State == nil || job.State.Status == livekit.JobStatus_JS_PENDING {
-			if dispatchAwaitingAssignment(state) {
+			if dispatchAwaitingAssignment(state, time.Minute) {
 				return true
 			}
 			continue
 		}
 		if job.State.Status == livekit.JobStatus_JS_RUNNING {
 			if job.State.ParticipantIdentity == "" {
-				if dispatchAwaitingAssignment(state) {
+				if dispatchAwaitingAssignment(state, time.Minute) {
 					return true
 				}
 				continue
@@ -337,14 +337,22 @@ func activeVoiceRuntimeDispatch(
 	return false
 }
 
-func dispatchAwaitingAssignment(state *livekit.AgentDispatchState) bool {
-	// LiveKit can retain a dispatch with no assigned job after all workers were
-	// unavailable. Registration of a later worker does not replay that request.
+// unassignedDispatchGrace bounds how long a dispatch may hold no job at all.
+// LiveKit appends a job once a registered worker accepts it, which takes at
+// most its 10 s assignment timeout. A job-less dispatch older than that was
+// dropped because no worker was available, and a worker that registers later
+// is not offered it, so the reconcile loop recreates it. Keeping this short
+// lets a restarted worker get the job back within seconds of registering.
+const unassignedDispatchGrace = 15 * time.Second
+
+// dispatchAwaitingAssignment reports whether a dispatch without a joined job
+// is still young enough to keep waiting for a worker.
+func dispatchAwaitingAssignment(state *livekit.AgentDispatchState, grace time.Duration) bool {
 	if state == nil || state.CreatedAt <= 0 {
 		return false
 	}
 	age := time.Since(time.Unix(0, state.CreatedAt))
-	return age >= -5*time.Second && age < time.Minute
+	return age >= -5*time.Second && age < grace
 }
 
 func staleVoiceRuntimeDispatches(

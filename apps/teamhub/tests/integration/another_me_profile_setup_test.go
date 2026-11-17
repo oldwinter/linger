@@ -442,8 +442,8 @@ func TestAnotherMeProfileSetupFinishedWithoutSourcesTellsAnotherMeToChat(t *test
 }
 
 // The Human's first own Message while setup is open carries the status just
-// ahead of it, once; later Messages do not. Finishing setup afterwards asks
-// before starting, since the Human is mid-conversation.
+// ahead of it, once; later Messages do not. Finishing setup with a new link
+// afterwards hands it over without asking about the Profile again.
 func TestAnotherMeOnboardingStatusPrecedesTheHumansFirstMessage(t *testing.T) {
 	allowParallelIntegrationTest(t)
 	// Connected Apps list a grant only while Composio is configured.
@@ -476,12 +476,31 @@ func TestAnotherMeOnboardingStatusPrecedesTheHumansFirstMessage(t *testing.T) {
 
 	f.decideApps(t, "connected")
 	decisionID, sourcesMessageID, version := f.card(t, typedcard.DecisionKindProfileSetupSources)
-	if status, body := f.decide(f.human, decisionID, version, map[string]any{"decision": "skipped"}, "onboarding-sources"); status != http.StatusOK {
+	// The link is handed over; the Profile is not offered a second time.
+	if status, body := f.decide(f.human, decisionID, version, map[string]any{"decision": "done", "links": []string{"https://alice.example"}}, "onboarding-sources"); status != http.StatusOK {
 		t.Fatalf("sources decision status=%d body=%s", status, body)
 	}
 	finished := f.onboardingStatus(t, sourcesMessageID)
-	if !strings.Contains(finished.body, "Setup cards: finished.") || !strings.Contains(finished.body, "ask the Human once whether to start now") {
+	if !strings.Contains(finished.body, "Setup cards: finished.") || !strings.Contains(finished.body, "Links: https://alice.example") ||
+		!strings.Contains(finished.body, "do not ask the Human about it again") {
 		t.Fatalf("finished status=%s", finished.body)
+	}
+}
+
+// After AnotherMe has read a status, a sources card that shares nothing adds
+// none.
+func TestAnotherMeEmptySourcesCardAddsNoSecondStatus(t *testing.T) {
+	allowParallelIntegrationTest(t)
+	f := newProfileSetupFixture(t, newFakeComposio(t).configure)
+	f.grantGmail(t)
+	f.say(t, "hello", "empty-sources-first")
+	f.decideApps(t, "connected")
+	decisionID, _, version := f.card(t, typedcard.DecisionKindProfileSetupSources)
+	if status, body := f.decide(f.human, decisionID, version, map[string]any{"decision": "skipped"}, "empty-sources"); status != http.StatusOK {
+		t.Fatalf("sources decision status=%d body=%s", status, body)
+	}
+	if got := countRows(t, f.env, `SELECT count(*) FROM messages WHERE room_id=$1 AND message_kind='agent_runtime'`, f.roomID); got != 1 {
+		t.Fatalf("statuses=%d want 1", got)
 	}
 }
 
@@ -561,5 +580,55 @@ func TestAnotherMeDecisionResultsWakeOnlyThroughHandoff(t *testing.T) {
 	}
 	if got := f.disposition(t, f.messageID(t, "hello")); got != "notify" {
 		t.Fatalf("ordinary Message disposition=%s want notify", got)
+	}
+}
+
+// A first status written while nothing was shared only tells AnotherMe to
+// wait, so connecting in the card and finishing setup still offers the
+// Profile, whether or not the sources card shares more.
+func TestAnotherMeSetupOffersTheProfileAfterAWaitingStatus(t *testing.T) {
+	allowParallelIntegrationTest(t)
+	for name, answer := range map[string]map[string]any{
+		"skipped":   {"decision": "skipped"},
+		"with link": {"decision": "done", "links": []string{"https://alice.example"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newProfileSetupFixture(t, newFakeComposio(t).configure)
+			_, appsMessageID, _ := f.card(t, typedcard.DecisionKindProfileSetupApps)
+			f.say(t, "hello", "waiting-first")
+			if waiting := f.onboardingStatus(t, appsMessageID); !strings.Contains(waiting.body, "Do not open the personal-profile Skill until they share something") {
+				t.Fatalf("first status=%s", waiting.body)
+			}
+			f.grantGmail(t)
+			f.decideApps(t, "connected")
+			decisionID, sourcesMessageID, version := f.card(t, typedcard.DecisionKindProfileSetupSources)
+			if status, body := f.decide(f.human, decisionID, version, answer, "waiting-sources"); status != http.StatusOK {
+				t.Fatalf("sources decision status=%d body=%s", status, body)
+			}
+			finished := f.onboardingStatus(t, sourcesMessageID)
+			if !strings.Contains(finished.body, "- Gmail alice@example.test") || !strings.Contains(finished.body, "ask the Human once whether to start now") {
+				t.Fatalf("finished status=%s", finished.body)
+			}
+		})
+	}
+}
+
+// A waiting status written on the sources card does not count as an offer
+// once that card shares a link: finishing setup still offers the Profile.
+func TestAnotherMeSourcesCardOffersTheProfileAfterAWaitingStatus(t *testing.T) {
+	allowParallelIntegrationTest(t)
+	f := newProfileSetupFixture(t)
+	f.decideApps(t, "skipped")
+	decisionID, sourcesMessageID, version := f.card(t, typedcard.DecisionKindProfileSetupSources)
+	f.say(t, "hello", "sources-waiting-first")
+	if status, body := f.decide(f.human, decisionID, version, map[string]any{"decision": "done", "links": []string{"https://alice.example"}}, "sources-waiting-link"); status != http.StatusOK {
+		t.Fatalf("sources decision status=%d body=%s", status, body)
+	}
+	var finished string
+	if err := f.pool.QueryRow(t.Context(), `SELECT body FROM messages WHERE room_id=$1 AND message_kind='agent_runtime' AND card_context_message_id=$2 ORDER BY created_at DESC,id DESC LIMIT 1`, f.roomID, sourcesMessageID).Scan(&finished); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(finished, "Setup cards: finished.") || !strings.Contains(finished, "ask the Human once whether to start now") {
+		t.Fatalf("finished status=%s", finished)
 	}
 }

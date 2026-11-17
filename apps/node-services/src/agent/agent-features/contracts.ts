@@ -84,6 +84,8 @@ export interface FeatureContextView {
 export interface ContextInstructionFacts {
   /** TeamHub has a Composio API key now, so the connected app commands work. */
   readonly connectedApps: boolean;
+  /** Keys of the apps with an account granted to this Agent, such as gmail. */
+  readonly connectedAppKeys: readonly string[];
   /**
    * The placed Runtime model's context window is at most 128K tokens, so
    * every section uses its compact version.

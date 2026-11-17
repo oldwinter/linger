@@ -133,8 +133,6 @@ func AddJobWorkers(workers *river.Workers, worker *Worker) {
 type extracted struct {
 	Status   string
 	Markdown string
-	// Scanned marks a PDF whose Markdown came from OCR alone.
-	Scanned bool
 }
 
 // sync extracts the Document's current version and records the result. The
@@ -172,7 +170,6 @@ func (w *Worker) sync(ctx context.Context, args SyncArgs, finalAttempt bool) err
 		params.Markdown = result.Markdown
 		params.MarkdownSha256 = pgtype.Text{String: hex.EncodeToString(digest[:]), Valid: true}
 		params.SearchText = document.MarkdownToSearchText(result.Markdown)
-		params.Scanned = result.Scanned
 		params.LongestLineBytes = LongestLineBytes(result.Markdown)
 	}
 	if _, err := w.queries.UpsertDocumentText(ctx, params); err != nil {
@@ -227,7 +224,7 @@ func (w *Worker) extract(ctx context.Context, documentID string, source store.Ge
 		if normalized.Status != StatusReady {
 			return extracted{Status: normalized.Status}, nil
 		}
-		return extracted{Status: StatusReady, Markdown: string(normalized.Markdown), Scanned: scannedPDF(source)}, nil
+		return extracted{Status: StatusReady, Markdown: string(normalized.Markdown)}, nil
 	default:
 		return extracted{}, fmt.Errorf("unknown Document text source kind %q", source.SourceKind)
 	}

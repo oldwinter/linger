@@ -26,7 +26,7 @@ RETURNING id, tenant_id, number, kind, title, description, priority, state, reso
           task_control_source_kind, task_control_source_id, task_control_requested_by_actor_id,
           task_control_requested_at, task_control_payload,
           task_execution_updated_at, task_next_reconcile_at, task_worker_id,
-          task_lease_token_hash, task_lease_generation, task_lease_expires_at;
+          task_lease_token_hash, task_lease_generation, task_lease_expires_at, quiet;
 
 -- name: GetWorkItemForHuman :one
 SELECT wi.id, wi.tenant_id, wi.number, wi.kind, wi.title, wi.description, wi.priority,
@@ -38,7 +38,7 @@ SELECT wi.id, wi.tenant_id, wi.number, wi.kind, wi.title, wi.description, wi.pri
        wi.task_control_source_kind, wi.task_control_source_id, wi.task_control_requested_by_actor_id,
        wi.task_control_requested_at, wi.task_control_payload,
        wi.task_execution_updated_at, wi.task_next_reconcile_at, wi.task_worker_id,
-       wi.task_lease_token_hash, wi.task_lease_generation, wi.task_lease_expires_at
+       wi.task_lease_token_hash, wi.task_lease_generation, wi.task_lease_expires_at, wi.quiet
 FROM work_items wi
 WHERE wi.id=sqlc.arg(id)::text
   AND EXISTS (
@@ -58,7 +58,7 @@ SELECT wi.id, wi.tenant_id, wi.number, wi.kind, wi.title, wi.description, wi.pri
        wi.task_control_source_kind, wi.task_control_source_id, wi.task_control_requested_by_actor_id,
        wi.task_control_requested_at, wi.task_control_payload,
        wi.task_execution_updated_at, wi.task_next_reconcile_at, wi.task_worker_id,
-       wi.task_lease_token_hash, wi.task_lease_generation, wi.task_lease_expires_at
+       wi.task_lease_token_hash, wi.task_lease_generation, wi.task_lease_expires_at, wi.quiet
 FROM work_items wi
 WHERE wi.id=sqlc.arg(id)::text
   AND EXISTS (
@@ -79,7 +79,7 @@ SELECT wi.id, wi.tenant_id, wi.number, wi.kind, wi.title, wi.description, wi.pri
        wi.task_control_source_kind, wi.task_control_source_id, wi.task_control_requested_by_actor_id,
        wi.task_control_requested_at, wi.task_control_payload,
        wi.task_execution_updated_at, wi.task_next_reconcile_at, wi.task_worker_id,
-       wi.task_lease_token_hash, wi.task_lease_generation, wi.task_lease_expires_at
+       wi.task_lease_token_hash, wi.task_lease_generation, wi.task_lease_expires_at, wi.quiet
 FROM work_items wi
 WHERE wi.tenant_id=sqlc.arg(tenant_id)::text
   AND EXISTS (
@@ -167,7 +167,7 @@ RETURNING id, tenant_id, number, kind, title, description, priority, state, reso
           task_control_source_kind, task_control_source_id, task_control_requested_by_actor_id,
           task_control_requested_at, task_control_payload,
           task_execution_updated_at, task_next_reconcile_at, task_worker_id,
-          task_lease_token_hash, task_lease_generation, task_lease_expires_at;
+          task_lease_token_hash, task_lease_generation, task_lease_expires_at, quiet;
 
 -- name: TransitionWorkItem :one
 UPDATE work_items
@@ -185,7 +185,7 @@ RETURNING id, tenant_id, number, kind, title, description, priority, state, reso
           task_control_source_kind, task_control_source_id, task_control_requested_by_actor_id,
           task_control_requested_at, task_control_payload,
           task_execution_updated_at, task_next_reconcile_at, task_worker_id,
-          task_lease_token_hash, task_lease_generation, task_lease_expires_at;
+          task_lease_token_hash, task_lease_generation, task_lease_expires_at, quiet;
 
 -- name: SetWorkItemArchived :one
 UPDATE work_items
@@ -202,7 +202,7 @@ RETURNING id, tenant_id, number, kind, title, description, priority, state, reso
           task_control_source_kind, task_control_source_id, task_control_requested_by_actor_id,
           task_control_requested_at, task_control_payload,
           task_execution_updated_at, task_next_reconcile_at, task_worker_id,
-          task_lease_token_hash, task_lease_generation, task_lease_expires_at;
+          task_lease_token_hash, task_lease_generation, task_lease_expires_at, quiet;
 
 -- name: TouchWorkItem :exec
 UPDATE work_items

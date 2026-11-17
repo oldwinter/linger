@@ -119,8 +119,9 @@ LIMIT 50;
 -- name: ListRoomRunningTasks :many
 -- The Tasks running for this Room, oldest first: the background Tasks its Meta
 -- delegated and the tasks Live started with it as their home Room; live
--- marks the latter, which have no Meta.
-SELECT item.id, item.title, item.description, item.created_at,
+-- marks the latter, which have no Meta. quiet marks a Task started during a
+-- proactive wake or a Routine that serves a Tracking Item.
+SELECT item.id, item.title, item.description, item.created_at, item.quiet,
        EXISTS (SELECT 1 FROM voice_live_tasks voice WHERE voice.work_item_id=item.id)::boolean AS live
 FROM work_items item
 WHERE item.id IN (

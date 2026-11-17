@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
 
-import sharp from "sharp";
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 
@@ -24,11 +23,11 @@ async function convert(name: string, source?: Uint8Array): Promise<string> {
   );
 }
 
-describe("local document extraction with bundled models", () => {
+describe("local document extraction", () => {
   it.each(manifest)(
     "extracts the body of $name",
     async (fixture) => {
-      if (fixture.name === "blank.pdf") {
+      if (fixture.facts.length === 0) {
         await expect(convert(fixture.name)).rejects.toMatchObject({
           code: "DOCUMENT_SOURCE_EMPTY",
         });
@@ -59,68 +58,6 @@ describe("local document extraction with bundled models", () => {
     expect(sheet).toContain("| Launch | 2026-11-15 | 25% |");
     expect(await convert("structured.pptx")).toContain("SPEAKER-NOTE");
   });
-
-  it("decodes JPEG, WebP, GIF, AVIF, BMP and both pages of a TIFF locally", async () => {
-    const english = await readFile(new URL("ocr-en.png", fixtures));
-    for (const format of ["jpeg", "webp", "gif", "avif"] as const) {
-      const source = await sharp(english).toFormat(format).toBuffer();
-      const result = await normalizeDocumentContent({
-        filename: `scan.${format}`,
-        mediaType: `image/${format}`,
-        source,
-      });
-      expect(new TextDecoder().decode(result)).toContain("9876");
-    }
-    const { data, info } = await sharp(english)
-      .removeAlpha()
-      .raw()
-      .toBuffer({ resolveWithObject: true });
-    const stride = Math.ceil((info.width * 3) / 4) * 4;
-    const bitmap = Buffer.alloc(54 + stride * info.height);
-    bitmap.write("BM");
-    bitmap.writeUInt32LE(bitmap.length, 2);
-    bitmap.writeUInt32LE(54, 10);
-    bitmap.writeUInt32LE(40, 14);
-    bitmap.writeInt32LE(info.width, 18);
-    bitmap.writeInt32LE(info.height, 22);
-    bitmap.writeUInt16LE(1, 26);
-    bitmap.writeUInt16LE(24, 28);
-    for (let y = 0; y < info.height; y++)
-      for (let x = 0; x < info.width; x++) {
-        const input = (y * info.width + x) * 3;
-        const output = 54 + (info.height - y - 1) * stride + x * 3;
-        bitmap[output] = data[input + 2]!;
-        bitmap[output + 1] = data[input + 1]!;
-        bitmap[output + 2] = data[input]!;
-      }
-    const bitmapText = await normalizeDocumentContent({
-      filename: "scan.bmp",
-      mediaType: "image/bmp",
-      source: bitmap,
-    });
-    expect(new TextDecoder().decode(bitmapText)).toContain("9876");
-    const sparse = await readFile(new URL("ocr-sparse.png", fixtures));
-    const size = await sharp(english).metadata();
-    const frame = await sharp(sparse)
-      .resize(size.width, size.height, {
-        fit: "contain",
-        background: "white",
-      })
-      .toBuffer();
-    const tiff = await sharp([english, frame], { join: { animated: true } })
-      .tiff()
-      .toBuffer();
-    const result = new TextDecoder().decode(
-      await normalizeDocumentContent({
-        filename: "scans.tiff",
-        mediaType: "image/tiff",
-        source: tiff,
-      }),
-    );
-    expect(compact(result)).toContain("SCAN-ORCHID");
-    // The resized sparse frame comes back with mixed letter case.
-    expect(compact(result).toLowerCase()).toContain("sparse9876");
-  }, 30_000);
 
   it.each([
     "sample.odt",
@@ -188,21 +125,6 @@ describe("local document extraction with bundled models", () => {
         source: zipFixture([{ name: "../outside.xml", value: "secret" }]),
       }),
     ).rejects.toMatchObject({ code: "DOCUMENT_SOURCE_INVALID" });
-  });
-
-  it("rejects an oversized bitmap before allocating decoded pixels", async () => {
-    const source = Buffer.alloc(54);
-    source.write("BM");
-    source.writeUInt32LE(40, 14);
-    source.writeInt32LE(100_000, 18);
-    source.writeInt32LE(100_000, 22);
-    await expect(
-      normalizeDocumentContent({
-        filename: "huge.bmp",
-        mediaType: "image/bmp",
-        source,
-      }),
-    ).rejects.toMatchObject({ code: "DOCUMENT_SOURCE_TOO_LARGE" });
   });
 
   it("decodes MIME transfer encoding and an encoded subject", async () => {

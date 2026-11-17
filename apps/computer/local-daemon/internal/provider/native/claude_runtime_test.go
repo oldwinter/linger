@@ -303,7 +303,7 @@ func TestClaudeArgv(t *testing.T) {
 	if encoded, _ := json.Marshal(managed); string(encoded) != wantManaged {
 		t.Fatalf("managed = %s", encoded)
 	}
-	wantSettings := `{"autoCompactWindow":200000,"autoMemoryEnabled":false,"cleanupPeriodDays":36500,"disableAgentView":true,"disableBundledSkills":true,"disableRemoteControl":true,"env":{"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS":"1"},"syncClaudeAiPlugins":false,"syncClaudeAiSkills":false}`
+	wantSettings := `{"autoCompactWindow":200000,"autoMemoryEnabled":false,"cleanupPeriodDays":36500,"disableAgentView":true,"disableBundledSkills":true,"disableRemoteControl":true,"env":{"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS":"1","CLAUDE_CODE_DISABLE_CLAUDE_MDS":"1"},"syncClaudeAiPlugins":false,"syncClaudeAiSkills":false}`
 	if encoded, _ := json.Marshal(settings); string(encoded) != wantSettings {
 		t.Fatalf("settings = %s", encoded)
 	}
@@ -334,7 +334,7 @@ func TestClaudeSettingsFollowContextWindow(t *testing.T) {
 	if small["autoCompactWindow"] != float64(200000) || small["bashOutputMaxChars"] != float64(12978) ||
 		env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] != "64896" || env["CLAUDE_CODE_DISABLE_1M_CONTEXT"] != "1" ||
 		env["CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS"] != "9734" || env["MAX_MCP_OUTPUT_TOKENS"] != "9734" ||
-		env["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] != "1" {
+		env["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] != "1" || env["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] != "1" {
 		t.Fatalf("64k settings = %v", small)
 	}
 	// A large window caps tool output at Claude's own Read and MCP limit;
@@ -347,7 +347,7 @@ func TestClaudeSettingsFollowContextWindow(t *testing.T) {
 	if _, env := settingsFor(1000000); env["CLAUDE_CODE_DISABLE_1M_CONTEXT"] != nil {
 		t.Fatalf("1M settings env = %v", env)
 	}
-	if claudeSettings(0) != `{"autoCompactWindow":200000,"autoMemoryEnabled":false,"cleanupPeriodDays":36500,"disableAgentView":true,"disableBundledSkills":true,"disableRemoteControl":true,"env":{"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS":"1"},"syncClaudeAiPlugins":false,"syncClaudeAiSkills":false}` {
+	if claudeSettings(0) != `{"autoCompactWindow":200000,"autoMemoryEnabled":false,"cleanupPeriodDays":36500,"disableAgentView":true,"disableBundledSkills":true,"disableRemoteControl":true,"env":{"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS":"1","CLAUDE_CODE_DISABLE_CLAUDE_MDS":"1"},"syncClaudeAiPlugins":false,"syncClaudeAiSkills":false}` {
 		t.Fatalf("unknown window settings = %s", claudeSettings(0))
 	}
 	// The settings are part of the argv a parked process keeps, so another

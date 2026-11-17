@@ -3,59 +3,59 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 # >>> release pin
-$StackVersion = '0.1.0.dev35'
-$StackSourceCommit = 'a7eab155b4d6c691ab1e144c41549f1e94ae1578'
-$StackNpmVersion = '0.1.0-dev.35'
+$StackVersion = '0.1.0.dev37'
+$StackSourceCommit = '8faa238fd597660a29922b37b18e0d9bf511b6ba'
+$StackNpmVersion = '0.1.0-dev.37'
 $StackKits = @{
-    'darwin-arm64' = '330c6dde5dbee15ce9885d3ca9aeeda67dad5cbd45d4b8f2ded8b9d7e84fd8af'
-    'darwin-x64' = '004e8cd07acffaaa42ba508d7a5c78b32ce832233ec757bd50dbfaf7a0944e78'
-    'linux-arm64' = '655210198217c068e4e618d6cd338be19e5aa77511d0b58d979dce0bfa670fd8'
-    'linux-x64' = '802985cd55a263d3e3a400979612ba1b1cfba7370cbb946fa2a5ef60d512bc1f'
-    'win32-x64' = 'c4ce105f6cb05f94cac573392ad8ade1cd9a25706219c3f1778bc99777d9b179'
+    'darwin-arm64' = '6db617ba450c1d705472d784dff559665a58a8ac5abab6fe09ab3276d95eb09a'
+    'darwin-x64' = 'e9718432b2e3df4dbef2224ceb102470919fe445c54e1e8db1a8ad777afcbce7'
+    'linux-arm64' = '2cb813dea04723a183d6f26c4f214047dbf81fb6dd9febedc11676aba573122e'
+    'linux-x64' = '9afd0f80b7610c6339745aa4fd9eed4efd24d6db58ae2f69a3d5f4b4b2ef781c'
+    'win32-x64' = '2fb0e50f288d66ae9543f4f27e4628fced94e64f65d4b2f8add8f20cd8dd9a94'
 }
 $StackBootstrap = @{
     'darwin-arm64' = @{
-        manifest = '9db8e1b56c15040f50e7df3b8bcf4a2385f5c65bcd41f19ea020d00f7aed6254'
-        inventory = '77a56e7172c96b5ddef182b8f44c591fbee2866f2d0a4f1e09566ecd9d0fde1f'
-        bytes = '14795716'
-        files = '1339'
-        entries = '1479'
+        manifest = '61e02656830e49eeae9f891bfdd84ca62423dbc963f3d7ed534c9e0f0d620685'
+        inventory = 'bac945c12b3791e7991560bbfdc621897fc9c24b000b5f4519045dacae962706'
+        bytes = '14875686'
+        files = '1361'
+        entries = '1501'
         python = 'python/bin/python3.12'
         modules = 'modules'
     }
     'darwin-x64' = @{
-        manifest = '583bc226274a4c9f726b6451f45cd06f25df34b43a63e702f4713da86bae03eb'
-        inventory = 'a0619f9e61aacfeba59d5116ba3c99b9448c1e89fa18a95323ef505dca2ff726'
-        bytes = '14628578'
-        files = '1336'
-        entries = '1475'
+        manifest = 'ccf762b31a50d2b6651f9095c0b99f31cb3b689118eda576b01be1e2163cd621'
+        inventory = '1f0b1659785d0625b4b75fd40417f6f014252c49fff1609526d706beb68db8ef'
+        bytes = '14709066'
+        files = '1358'
+        entries = '1497'
         python = 'python/bin/python3.12'
         modules = 'modules'
     }
     'linux-arm64' = @{
-        manifest = 'a9167b0831cdd8e8b1f974a37dbd98c995f3980362ea6cab78bde3453f74065d'
-        inventory = '6eb65cebea3d00bf579e7e38e7d36a0a4a42a596e5f6facf9e1cfd2e7f8e1a73'
-        bytes = '17305252'
-        files = '4210'
-        entries = '4394'
+        manifest = '877f17321468f9e607156b5198a84bd16aaa1460d853ebcd08e40ab0fc0d96a5'
+        inventory = 'ebbf2b72380974dce23fae75a3f246663af0169a6f7165002d4238b5a0b31da3'
+        bytes = '17385607'
+        files = '4232'
+        entries = '4416'
         python = 'python/bin/python3.12'
         modules = 'modules'
     }
     'linux-x64' = @{
-        manifest = '11f1cab90914ac27d6b7977d23c40bab040b429c9e18a607d237bea23ce442b5'
-        inventory = '8cf1ec24bd2111935daa0723e5b5d382d0a761362ad98dc96157f97e183f5c44'
-        bytes = '20632512'
-        files = '4210'
-        entries = '4394'
+        manifest = 'df7171c4d87008cb4c96db0fc7cb92d0f0b05bf9b3b51f0c9e2a1cb4a92ad75c'
+        inventory = '50664482bc02e570c3b82ac81c733685ca023737effe5354e632372d064656c8'
+        bytes = '20715789'
+        files = '4232'
+        entries = '4416'
         python = 'python/bin/python3.12'
         modules = 'modules'
     }
     'win32-x64' = @{
-        manifest = 'f5c676b2f17d2dff14b885f5e009a866599ca6b16460d9fc5f40d3174fd25b63'
-        inventory = '2743907d8f205f0b45fc6886d918adc7fc5e79a822177dc60cab8991b97ce647'
-        bytes = '23034149'
-        files = '3380'
-        entries = '3647'
+        manifest = 'f44da996f1af181026249c5766c5ae36ec9b768c404a9c5e1103600bed779a63'
+        inventory = 'be9a1012650a89a6ee8882eeebf53c9f8782816271e84177da9020e87dae4592'
+        bytes = '23115104'
+        files = '3402'
+        entries = '3669'
         python = 'python/python.exe'
         modules = 'modules'
     }
@@ -108,18 +108,16 @@ function Assert-Item([string]$Path, [bool]$Directory) {
     }
     return $item
 }
-function Assert-WindowsPrivate([string]$Path, [bool]$Repair, [bool]$AllowInherited = $false) {
-    $item = Get-Item -LiteralPath $Path -Force
+function Assert-WindowsParents([string]$Path) {
     $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
     $system = [Security.Principal.SecurityIdentifier]::new('S-1-5-18')
     $admins = 'S-1-5-32-544'
     $trustedInstaller = 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'
-    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { Stop-Stack 'linked private path' }
-    $acl = Get-Acl -LiteralPath $Path
-    $owner = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
-    if ($owner -ne $sid.Value -and -not ($Repair -and $owner -eq $admins)) { Stop-Stack 'foreign kit owner' }
-    $parent = if (($item -is [IO.DirectoryInfo])) { $item.Parent } else { $item.Directory }
+    $parent = [IO.Directory]::GetParent([IO.Path]::GetFullPath($Path))
     while ($parent) {
+        if (-not (Test-Path -LiteralPath $parent.FullName)) { $parent = $parent.Parent; continue }
+        $parent = Get-Item -LiteralPath $parent.FullName -Force
+        if ($parent -isnot [IO.DirectoryInfo]) { Stop-Stack 'unsafe private parent path' }
         if ($parent.Attributes -band [IO.FileAttributes]::ReparsePoint) { Stop-Stack 'linked private parent' }
         $parentAcl = Get-Acl -LiteralPath $parent.FullName
         if ($parentAcl.GetOwner([Security.Principal.SecurityIdentifier]).Value -notin @($sid.Value, $system.Value, $admins, $trustedInstaller)) {
@@ -134,6 +132,41 @@ function Assert-WindowsPrivate([string]$Path, [bool]$Repair, [bool]$AllowInherit
         }
         $parent = $parent.Parent
     }
+}
+function Get-KitRoot([bool]$Windows, [string]$CacheBase) {
+    if ($env:LOCALMODELS_KIT_HOME) { return [IO.Path]::GetFullPath($env:LOCALMODELS_KIT_HOME) }
+    $preferred = [IO.Path]::GetFullPath((Join-Path $CacheBase 'simplex-localmodels/kits'))
+    if ($Windows) {
+        try { Assert-WindowsParents $preferred } catch {
+            if (-not $_.Exception.Data['StackError'] -or $_.Exception.Message -notin @(
+                'unsafe private parent permissions', 'foreign private parent',
+                'linked private parent', 'unsafe private parent path'
+            )) { throw }
+            if (-not $env:USERPROFILE -or -not [IO.Path]::IsPathRooted($env:USERPROFILE)) { throw }
+            # AppData can grant app capabilities broad rights; verify a separate cache instead.
+            $preferred = [IO.Path]::GetFullPath((Join-Path $env:USERPROFILE '.cache/simplex-localmodels/kits'))
+            Assert-WindowsParents $preferred
+        }
+    }
+    return $preferred
+}
+function Get-WindowsAcl([IO.FileSystemInfo]$Item) {
+    $sections = [Security.AccessControl.AccessControlSections]'Owner,Access'
+    if ($PSVersionTable.PSEdition -eq 'Core') {
+        return [IO.FileSystemAclExtensions]::GetAccessControl($Item, $sections)
+    }
+    return $Item.GetAccessControl($sections)
+}
+function Assert-WindowsPrivate([string]$Path, [bool]$Repair, [bool]$AllowInherited = $false, [bool]$PrivateTree = $false) {
+    $item = Get-Item -LiteralPath $Path -Force
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    $system = [Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+    $admins = 'S-1-5-32-544'
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { Stop-Stack 'linked private path' }
+    $acl = Get-WindowsAcl $item
+    $owner = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+    if ($owner -ne $sid.Value -and -not ($Repair -and $owner -eq $admins)) { Stop-Stack 'foreign kit owner' }
+    if (-not $PrivateTree) { Assert-WindowsParents $Path }
     if ($Repair) {
         $acl = if (($item -is [IO.DirectoryInfo])) { [Security.AccessControl.DirectorySecurity]::new() } else { [Security.AccessControl.FileSecurity]::new() }
         $acl.SetOwner($sid)
@@ -145,7 +178,7 @@ function Assert-WindowsPrivate([string]$Path, [bool]$Repair, [bool]$AllowInherit
             $acl.AddAccessRule($rule)
         }
         if ($PSVersionTable.PSEdition -eq 'Core') { [IO.FileSystemAclExtensions]::SetAccessControl($item, $acl) } else { $item.SetAccessControl($acl) }
-        $acl = Get-Acl -LiteralPath $Path
+        $acl = Get-WindowsAcl $item
     }
     if (($item -is [IO.DirectoryInfo]) -and -not $AllowInherited -and -not $acl.AreAccessRulesProtected) { Stop-Stack 'inherited private permissions' }
     $allowed = $false
@@ -200,10 +233,12 @@ function Assert-Kit([string]$Directory) {
     $tree = @(Get-KitTree $Directory)
     $payload = @($tree | Where-Object { $_ -isnot [IO.DirectoryInfo] })
     if ($tree.Count -ne [int]$pin.entries -or $payload.Count -ne [int]$pin.files) { Stop-Stack 'kit tree mismatch' }
+    if ($onWindows) { Assert-WindowsParents $Directory }
     foreach ($item in $tree) {
         if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { Stop-Stack 'linked kit path' }
         if ($onWindows) {
-            Assert-WindowsPrivate $item.FullName $false
+            # The tree walk checks every private ancestor once, before its descendants.
+            Assert-WindowsPrivate $item.FullName $false $false $true
         } else {
             $modes = if (($item -is [IO.DirectoryInfo])) { @('500') } else { @('400', '500') }
             Assert-PosixMode $item.FullName $modes
@@ -252,10 +287,11 @@ function Assert-Kit([string]$Directory) {
 }
 function Set-KitMode([string]$Directory) {
     $tree = @(Get-KitTree $Directory)
+    if ($onWindows) { Assert-WindowsParents $Directory }
     foreach ($item in $tree) {
         if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { Stop-Stack 'linked kit path' }
         if ($onWindows) {
-            Assert-WindowsPrivate $item.FullName $true
+            Assert-WindowsPrivate $item.FullName $true $false $true
             if (-not ($item -is [IO.DirectoryInfo])) { $item.IsReadOnly = $true }
         } else {
             $mode = if (($item -is [IO.DirectoryInfo])) { '500' } else { 'a-w,go-rwx' }
@@ -563,8 +599,7 @@ try {
     }
     if (-not $target -or -not $StackKits.ContainsKey($target)) { Stop-Stack 'release has no kit for this platform' }
     $kit = $StackKits[$target]; $pin = $StackBootstrap[$target]
-    $root = if ($env:LOCALMODELS_KIT_HOME) { $env:LOCALMODELS_KIT_HOME } else { Join-Path $cacheBase 'simplex-localmodels/kits' }
-    $root = [IO.Path]::GetFullPath($root)
+    $root = Get-KitRoot $onWindows $cacheBase
     $final = Join-Path $root $kit
     if ($cleanup) { Remove-OperationStage; exit 0 }
     $valid = $false

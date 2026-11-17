@@ -206,7 +206,7 @@ func (s *Service) HandleEvent(ctx context.Context, event Event) (Outcome, error)
 			instructions += "\n" + reminder.Prompt(reminder.EventTrackOnly, nil)
 		}
 	}
-	err = s.wake(ctx, owner, candidate, eventText(instructions, event), outcome.Skipped == "", event)
+	err = s.wake(ctx, owner, candidate, eventText(instructions+"\n"+reminder.Prompt(reminder.Arranging, nil), event), outcome.Skipped == "", event)
 	if revoked(err) {
 		outcome.Skipped = "authorization_revoked"
 		return outcome, nil

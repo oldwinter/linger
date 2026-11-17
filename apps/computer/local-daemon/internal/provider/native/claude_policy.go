@@ -127,7 +127,11 @@ const claudeLongContextWindow = 1_000_000
 
 // claudeSettings sizes Claude by the model's context window; zero is unknown.
 func claudeSettings(contextWindow int) string {
-	settingsEnv := map[string]string{"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"}
+	// The project setting source loads the Context's own Skills, but it also
+	// loads every CLAUDE.md and AGENTS.md from the workspace up to the root,
+	// which reaches the user's home. Agent instructions come only from the
+	// appended system prompt, so no CLAUDE.md is read.
+	settingsEnv := map[string]string{"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1", "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1"}
 	settings := map[string]any{
 		"disableBundledSkills": true, "syncClaudeAiSkills": false, "syncClaudeAiPlugins": false,
 		"disableAgentView": true, "disableRemoteControl": true, "autoMemoryEnabled": false,

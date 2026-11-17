@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/collaboration"
@@ -244,10 +245,14 @@ func authorizeAgentResourceRead(ctx context.Context, q *store.Queries, agentID s
 	return registration, nil
 }
 
+// ConnectedAppKeysFunc lists the keys of the apps with an account granted to
+// the Agent, read in the caller's transaction.
+type ConnectedAppKeysFunc func(ctx context.Context, tx pgx.Tx, agentActorID, tenantID string) ([]string, error)
+
 // EffectiveResources resolves the Skills and Connected Apps an active Agent
-// runs with. Skill set conflicts report skill.ErrConflict or
-// skill.ErrDependency.
-func (s *Service) EffectiveResources(ctx context.Context, agentID string, connectedApps bool) (teamhubinternal.AgentEffectiveResources, error) {
+// runs with, including the keys of the apps it holds an account for. Skill set
+// conflicts report skill.ErrConflict or skill.ErrDependency.
+func (s *Service) EffectiveResources(ctx context.Context, agentID string, connectedApps bool, appKeys ConnectedAppKeysFunc) (teamhubinternal.AgentEffectiveResources, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return teamhubinternal.AgentEffectiveResources{}, internal("begin Agent resource read", err)
@@ -266,9 +271,19 @@ func (s *Service) EffectiveResources(ctx context.Context, agentID string, connec
 	if err != nil {
 		return teamhubinternal.AgentEffectiveResources{}, internal("resolve Agent Skill configuration", err)
 	}
+	keys := []string{}
+	if connectedApps && appKeys != nil {
+		listed, err := appKeys(ctx, tx, registration.ActorID, registration.TenantID)
+		if err != nil {
+			return teamhubinternal.AgentEffectiveResources{}, internal("list Agent connected apps", err)
+		}
+		slices.Sort(listed)
+		keys = slices.Compact(listed)
+	}
 	result := teamhubinternal.AgentEffectiveResources{
-		EffectiveSha256: EffectiveResourcesDigest(digest, connectedApps), ConnectedApps: connectedApps,
-		Skills: make([]teamhubinternal.AgentEffectiveSkill, 0, len(items)),
+		EffectiveSha256: EffectiveResourcesDigest(digest, connectedApps, keys), ConnectedApps: connectedApps,
+		ConnectedAppKeys: keys,
+		Skills:           make([]teamhubinternal.AgentEffectiveSkill, 0, len(items)),
 	}
 	for _, item := range items {
 		result.Skills = append(result.Skills, teamhubinternal.AgentEffectiveSkill{SkillId: item.SkillID, ManifestId: item.ManifestID, ManifestVersion: item.ManifestVersion, Name: item.Name, PackageSha256: item.PackageSHA256, Source: teamhubinternal.AgentEffectiveSkillSource(item.Source), Config: item.Config})

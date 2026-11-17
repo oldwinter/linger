@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import type {
   HerdrAgentEvent,
+  LocalModelsSnapshot,
   RunnerHello,
   RuntimeDiagnostics,
 } from "@linger/wire-contracts/runner-gateway/types";
@@ -77,6 +78,11 @@ export interface LocalComputerRegistry {
   touch(computerId: string, touch: LocalComputerTouch): Promise<void>;
   /** Hands a herdr pane event to the proactive judgment of the Computer's owner. */
   reportHerdrEvent(computerId: string, event: HerdrAgentEvent): Promise<void>;
+  /** Replaces the Computer's stored model library with its latest snapshot. */
+  recordLocalModels(
+    computerId: string,
+    snapshot: LocalModelsSnapshot,
+  ): Promise<void>;
   remove(
     input: LocalComputerOwner & { readonly computerId: string },
   ): Promise<LocalComputerRemovalResult>;
@@ -90,6 +96,7 @@ export const createTeamHubLocalComputerRegistry = (
     | "touchLocalComputer"
     | "reportHerdrEvent"
     | "removeLocalComputer"
+    | "recordLocalModels"
   >,
 ): LocalComputerRegistry => ({
   async credentialGeneration(computerId, owner) {
@@ -171,6 +178,12 @@ export const createTeamHubLocalComputerRegistry = (
   },
   async reportHerdrEvent(computerId, event) {
     await client.reportHerdrEvent({ computer_id: computerId, ...event });
+  },
+  async recordLocalModels(computerId, snapshot) {
+    await client.recordLocalModels({
+      computer_id: computerId,
+      snapshot: structuredClone(snapshot),
+    });
   },
   async remove({ computerId, tenantId, ownerActorId }) {
     const response = await client.removeLocalComputer({

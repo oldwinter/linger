@@ -399,7 +399,10 @@ export function MessageTimeline({
         {hasTimelineContent ? (
           <div className="room-message-list flex flex-col gap-1">
             {candidateMessages.map((message, index) => {
-              if (answerPairAt.covered.has(index) || momentStarts.has(index - 1))
+              if (
+                answerPairAt.covered.has(index) ||
+                momentStarts.has(index - 1)
+              )
                 return null;
               const pair = answerPairAt.starts.get(index);
               if (pair) {

@@ -61,7 +61,7 @@ describe("Soniox streaming", () => {
       });
       const stream = await new SonioxASRProvider({
         apiKey: "test",
-        model: "stt-rt-v5",
+        model: "stt-rt-v6",
         webSocketUrl: `ws://127.0.0.1:${port}`,
       }).open(new AbortController().signal);
       const finals: ASREvent[] = [];
@@ -102,11 +102,11 @@ describe("Soniox streaming", () => {
   it("keeps the API key in the first JSON config and omits language hints by default", () => {
     const config = sonioxRealtimeSessionConfig({
       apiKey: "soniox-secret",
-      model: "stt-rt-v5",
+      model: "stt-rt-v6",
     });
     expect(config).toMatchObject({
       api_key: "soniox-secret",
-      model: "stt-rt-v5",
+      model: "stt-rt-v6",
       audio_format: "pcm_s16le",
       sample_rate: 16000,
       num_channels: 1,
@@ -120,7 +120,7 @@ describe("Soniox streaming", () => {
     expect(
       sonioxRealtimeSessionConfig({
         apiKey: "soniox-secret",
-        model: "stt-rt-v5",
+        model: "stt-rt-v6",
         dictation: true,
       }),
     ).toMatchObject({
@@ -132,7 +132,7 @@ describe("Soniox streaming", () => {
     expect(
       sonioxRealtimeSessionConfig({
         apiKey: "soniox-secret",
-        model: "stt-rt-v5",
+        model: "stt-rt-v6",
         diarization: true,
       }),
     ).toEqual(
@@ -143,14 +143,14 @@ describe("Soniox streaming", () => {
     expect(
       sonioxRealtimeSessionConfig({
         apiKey: "soniox-secret",
-        model: "stt-rt-v5",
+        model: "stt-rt-v6",
         diarization: true,
       }),
     ).not.toHaveProperty("enable_endpoint_detection");
     expect(
       sonioxRealtimeSessionConfig({
         apiKey: "soniox-secret",
-        model: "stt-rt-v5",
+        model: "stt-rt-v6",
         languageHints: ["zh", "en"],
       }).language_hints,
     ).toEqual(["zh", "en"]);
@@ -203,7 +203,7 @@ describe("Soniox streaming", () => {
     });
     const provider = new SonioxASRProvider({
       apiKey: "soniox-secret",
-      model: "stt-rt-v5",
+      model: "stt-rt-v6",
       languageHints: ["zh"],
       webSocketUrl: `ws://127.0.0.1:${port}`,
       dictation: true,
@@ -221,7 +221,7 @@ describe("Soniox streaming", () => {
       expect(configs).toEqual([
         sonioxRealtimeSessionConfig({
           apiKey: "soniox-secret",
-          model: "stt-rt-v5",
+          model: "stt-rt-v6",
           languageHints: ["zh"],
           dictation: true,
         }),
@@ -264,7 +264,7 @@ describe("Soniox streaming", () => {
     });
     const stream = await new SonioxASRProvider({
       apiKey: "test",
-      model: "stt-rt-v5",
+      model: "stt-rt-v6",
       webSocketUrl: `ws://127.0.0.1:${port}`,
       diarization: true,
     }).open(new AbortController().signal);
@@ -371,7 +371,7 @@ describe("Soniox streaming", () => {
     });
     const provider = new SonioxASRProvider({
       apiKey: "test",
-      model: "stt-rt-v5",
+      model: "stt-rt-v6",
       webSocketUrl: `ws://127.0.0.1:${port}`,
     });
     const stream = await provider.open(new AbortController().signal);
@@ -438,7 +438,7 @@ describe("Soniox streaming", () => {
     });
     const provider = new SonioxASRProvider({
       apiKey: "test",
-      model: "stt-rt-v5",
+      model: "stt-rt-v6",
       webSocketUrl: `ws://127.0.0.1:${port}`,
       dictation: true,
     });
@@ -524,7 +524,7 @@ describe("Soniox streaming", () => {
     });
     const provider = new SonioxASRProvider({
       apiKey: "test",
-      model: "stt-rt-v5",
+      model: "stt-rt-v6",
       webSocketUrl: `ws://127.0.0.1:${port}`,
     });
     const stream = await provider.open(new AbortController().signal);
@@ -618,7 +618,7 @@ describe("Soniox streaming", () => {
     const stream = await SonioxASRStream.connect(
       {
         apiKey: "test",
-        model: "stt-rt-v5",
+        model: "stt-rt-v6",
         webSocketUrl: `ws://127.0.0.1:${port}`,
       },
       new AbortController().signal,
@@ -647,7 +647,7 @@ describe("Soniox streaming", () => {
       const result = await SonioxASRStream.connect(
         {
           apiKey: "test",
-          model: "stt-rt-v5",
+          model: "stt-rt-v6",
           webSocketUrl: `ws://127.0.0.1:${port}`,
         },
         new AbortController().signal,
@@ -668,7 +668,7 @@ describe("Soniox streaming", () => {
     const stream = await SonioxASRStream.connect(
       {
         apiKey: "test",
-        model: "stt-rt-v5",
+        model: "stt-rt-v6",
         webSocketUrl: `ws://127.0.0.1:${port}`,
       },
       new AbortController().signal,
@@ -739,7 +739,7 @@ describe("Soniox streaming", () => {
     });
     const stream = await new SonioxASRProvider({
       apiKey: "test",
-      model: "stt-rt-v5",
+      model: "stt-rt-v6",
       webSocketUrl: `ws://127.0.0.1:${port}`,
     }).open(new AbortController().signal);
     const seen: ASREvent[] = [];

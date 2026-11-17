@@ -86,18 +86,10 @@ func TestProjectionRefreshesReferencesAndInvalidatesOnlyUnboundCache(t *testing.
 	home, opts := projectionFixture(t)
 	catalog := filepath.Join(t.TempDir(), "catalog.json")
 	projectionWrite(t, catalog, `{"models":[]}`)
-	config := "model_catalog_json='" + filepath.ToSlash(catalog) + "'\nmodel_instructions_file='nested/rules.md'\n"
+	config := "model_catalog_json='" + filepath.ToSlash(catalog) + "'\n"
 	projectionWrite(t, filepath.Join(opts.SharedHome, "config.toml"), config)
-	projectionWrite(t, filepath.Join(opts.SharedHome, "nested", "rules.md"), "first instructions")
 	projectionWrite(t, filepath.Join(opts.SharedHome, "models_cache.json"), "unbound user cache")
-	settings := preparedSettings(t, home, opts)
-	projected := settings["model_instructions_file"].(string)
-	if !strings.HasPrefix(projected, filepath.Join(home, projectionAssets)+string(filepath.Separator)) {
-		t.Fatal(projected)
-	}
-	if projectionRead(t, projected) != "first instructions" {
-		t.Fatal("missing reference")
-	}
+	preparedSettings(t, home, opts)
 	cache := filepath.Join(home, "models_cache.json")
 	if _, err := os.Stat(cache); !os.IsNotExist(err) {
 		t.Fatal("imported unbound cache")
@@ -112,14 +104,27 @@ func TestProjectionRefreshesReferencesAndInvalidatesOnlyUnboundCache(t *testing.
 	if _, err := os.Stat(cache); !os.IsNotExist(err) {
 		t.Fatal("reused cache after absolute catalog changed")
 	}
+}
+func TestProjectionCopiesRelativeReferencesAndRetiresThem(t *testing.T) {
+	home, opts := projectionFixture(t)
+	projectionWrite(t, filepath.Join(opts.SharedHome, "config.toml"), "model_catalog_json='nested/catalog.json'\n")
+	projectionWrite(t, filepath.Join(opts.SharedHome, "nested", "catalog.json"), `{"models":[]}`)
+	settings := preparedSettings(t, home, opts)
+	projected := settings["model_catalog_json"].(string)
+	if !strings.HasPrefix(projected, filepath.Join(home, projectionAssets)+string(filepath.Separator)) {
+		t.Fatal(projected)
+	}
+	if projectionRead(t, projected) != `{"models":[]}` {
+		t.Fatal("missing reference")
+	}
 	projectionWrite(t, filepath.Join(opts.SharedHome, "config.toml"), "model='new-provider'\n")
 	preparedSettings(t, home, opts)
 	if _, err := os.Stat(projected); !os.IsNotExist(err) {
-		t.Fatal("retired instructions still stored")
+		t.Fatal("retired reference still stored")
 	}
 }
 func TestProjectionFailsBeforeLaunchOnInvalidConfiguration(t *testing.T) {
-	for _, config := range []string{"broken=[", "model_instructions_file='../outside'", "model_catalog_json='missing'"} {
+	for _, config := range []string{"broken=[", "model_catalog_json='../outside'", "model_catalog_json='missing'"} {
 		t.Run(config, func(t *testing.T) {
 			home, opts := projectionFixture(t)
 			projectionWrite(t, filepath.Join(opts.SharedHome, "config.toml"), config)

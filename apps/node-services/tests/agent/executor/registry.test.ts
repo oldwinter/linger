@@ -3744,6 +3744,7 @@ describe("Execution Context AgentManager", () => {
       expect(
         options?.renderDeveloperInstructions?.({
           connectedApps: false,
+          connectedAppKeys: [],
           compactInstructions: false,
         }),
       ).not.toContain("Connected app writes");

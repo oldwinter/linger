@@ -250,6 +250,7 @@ export class RunnerOperationState {
   #startSentCount = 0;
   #inputReceiptTimer: ReturnType<typeof setTimeout> | undefined;
   #inputReceipts: Deferred<void> | undefined;
+  #turnId: string | undefined;
 
   // Called after the operation.start frame is written to the Computer peer.
   // Replays on reconnect are later writes of the same frame.
@@ -346,6 +347,11 @@ export class RunnerOperationState {
     return outcome?.type === "operation.failed"
       ? outcome.error.failure?.code
       : undefined;
+  }
+
+  /** The Runtime turn the Operation started, once the Daemon reports it. */
+  get turnId(): string | undefined {
+    return this.#turnId;
   }
 
   /** The usage the Daemon reported with the terminal, when it reported one. */
@@ -774,6 +780,8 @@ export class RunnerOperationState {
       case "operation.accepted":
         break;
       case "operation.event":
+        if (envelope.event.type === "run.started")
+          this.#turnId = envelope.event.turn_id;
         await this.#events.push(envelope.event);
         break;
       case "operation.input_result":

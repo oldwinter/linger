@@ -133,6 +133,7 @@ export class SetupWindowModule implements Module {
       () => session.defaultSession.cookies.off("changed", onCookie),
       () => pages.protocol.unhandle("app"),
       ctx.bus.on("computer.changed", push),
+      ctx.bus.on("diagnostics.changed", push),
       ctx.bus.on("power.changed", push),
       ctx.bus.on("grants.changed", push),
       ctx.bus.on("local-server.changed", onLocal),
@@ -205,6 +206,9 @@ export class SetupWindowModule implements Module {
     window.on("closed", () => {
       if (this.#window === window) this.#window = undefined;
       this.#account?.hide();
+      // A report waiting on this page's consent would block other sends.
+      const sender = this.#ctx?.get<DiagnosticsModule>("Diagnostics").sender;
+      if (sender?.state().phase === "confirm") void sender.cancel();
     });
     this.#window = window;
     void window.loadURL(SETUP_URL).catch(() => undefined);
@@ -232,6 +236,9 @@ export class SetupWindowModule implements Module {
         void local.begin(plan).catch(() => undefined);
         return;
       }
+      case "local.recheck":
+        ctx.get<LocalServerModule>("LocalServer").recheck();
+        return;
       case "local.location.pick": {
         const picked = await dialog.showOpenDialog(this.#window!, {
           title: "Choose Where to Install Linger",
@@ -318,6 +325,18 @@ export class SetupWindowModule implements Module {
           };
         }
         return;
+      case "diagnostics.send": {
+        const sender = ctx.get<DiagnosticsModule>("Diagnostics").sender;
+        const state = sender.state();
+        // Collecting and uploading report through diagnostics.changed, so
+        // the page stays usable meanwhile.
+        if (command.action === "start") void sender.start();
+        else if (command.action === "confirm") void sender.confirm();
+        else if (command.action === "retry") void sender.retry();
+        else if (command.action === "cancel") await sender.cancel();
+        else if (state.phase === "sent") clipboard.writeText(state.reportId);
+        return;
+      }
       case "finish":
         this.#window?.close();
         windows.show();
@@ -328,6 +347,7 @@ export class SetupWindowModule implements Module {
   #state(): SetupState {
     const ctx = this.#ctx!;
     const config = ctx.config.get();
+    const diagnostics = ctx.get<DiagnosticsModule>("Diagnostics");
     return {
       platform: process.platform as SetupState["platform"],
       version: this.#options.version,
@@ -347,6 +367,9 @@ export class SetupWindowModule implements Module {
         this.#account?.view(),
       ),
       ...(this.#diagnostics ? { diagnostics: this.#diagnostics } : {}),
+      ...(diagnostics.uploadUrl()
+        ? { diagnosticsSend: diagnostics.sender.state() }
+        : {}),
       ...(this.#permissions ? { permissions: this.#permissions } : {}),
     };
   }
@@ -422,8 +445,13 @@ const localServerState = (
     location,
     keys,
     signIn,
+    legacyBackup,
   } = local.status();
   const home = os.homedir();
+  const shown = (folder: string) =>
+    folder === home || folder.startsWith(home + path.sep)
+      ? "~" + folder.slice(home.length)
+      : folder;
   return {
     available,
     phase,
@@ -436,13 +464,11 @@ const localServerState = (
     localModels,
     location: {
       ...location,
-      path:
-        location.path === home || location.path.startsWith(home + path.sep)
-          ? "~" + location.path.slice(home.length)
-          : location.path,
+      path: shown(location.path),
     },
     keys,
     ...(signIn ? { signIn } : {}),
+    ...(legacyBackup ? { legacyBackup: shown(legacyBackup) } : {}),
     ...(account ? { account } : {}),
   };
 };

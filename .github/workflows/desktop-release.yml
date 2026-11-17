@@ -128,7 +128,6 @@ jobs:
           MACOS_DEVELOPER_ID_P12_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_P12_BASE64 }}
           MACOS_DEVELOPER_ID_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_PASSWORD }}
           MACOS_NOTARY_KEY_JSON: ${{ secrets.MACOS_NOTARY_KEY_JSON }}
-          DESKTOP_UPDATE_KEY_PEM: ${{ secrets.DESKTOP_UPDATE_KEY_PEM }}
           WINDOWS_SIGNING_P12_BASE64: ${{ secrets.WINDOWS_SIGNING_P12_BASE64 }}
           WINDOWS_SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
           TARGET: ${{ matrix.target }}
@@ -147,10 +146,6 @@ jobs:
               echo "MACOS_NOTARY_KEY=$keys/notary.json" >>"$GITHUB_ENV"
             fi
           fi
-          if [ "$TARGET" = darwin-arm64 ] && [ -n "$DESKTOP_UPDATE_KEY_PEM" ]; then
-            printf '%s\n' "$DESKTOP_UPDATE_KEY_PEM" >"$keys/update.pem"
-            echo "DESKTOP_UPDATE_KEY=$keys/update.pem" >>"$GITHUB_ENV"
-          fi
           if [ "$TARGET" = win32-x64 ] && [ -n "$WINDOWS_SIGNING_P12_BASE64" ]; then
             base64 -d <<<"$WINDOWS_SIGNING_P12_BASE64" >"$keys/authenticode.p12"
             printf '%s' "$WINDOWS_SIGNING_PASSWORD" >"$keys/authenticode.password"
@@ -158,6 +153,10 @@ jobs:
             echo "WINDOWS_SIGNING_PASSWORD_FILE=$keys/authenticode.password" >>"$GITHUB_ENV"
           fi
       - run: scripts/ci/desktop-release.sh build ${{ matrix.target }}
+        env:
+          # The hosted diagnostics receiver this build carries; a secret so
+          # the address stays masked. Without it Send Diagnostics is hidden.
+          LINGER_DIAGNOSTICS_UPLOAD_URL: ${{ secrets.LINGER_DIAGNOSTICS_UPLOAD_URL }}
       - name: Remove signing files
         if: always()
         run: rm -rf "$RUNNER_TEMP/signing"
@@ -182,6 +181,22 @@ jobs:
           pattern: desktop-*
           path: release
           merge-multiple: true
+      # The signed update manifest over every platform's package. Without
+      # the key the release still goes out, with a warning and no manifest.
+      - name: Sign the update manifest
+        env:
+          DESKTOP_UPDATE_KEY_PEM: ${{ secrets.DESKTOP_UPDATE_KEY_PEM }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          if [ -n "$DESKTOP_UPDATE_KEY_PEM" ]; then
+            key="$RUNNER_TEMP/update.pem"
+            trap 'rm -f "$key"' EXIT
+            printf '%s\n' "$DESKTOP_UPDATE_KEY_PEM" >"$key"
+            export DESKTOP_UPDATE_KEY="$key"
+          fi
+          scripts/ci/desktop-release.sh manifest release "${{ needs.prepare.outputs.version }}"
       - run: scripts/ci/desktop-release.sh checksums release "${{ needs.prepare.outputs.version }}"
       # GITHUB_TOKEN can write only this repository; a release in another one
       # takes LINGER_RELEASE_TOKEN, which prepare checked.

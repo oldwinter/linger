@@ -14,6 +14,8 @@ set -euo pipefail
 #   desktop-release.sh compile <target>           node build.mjs for the target (Node, pnpm, Go)
 #   desktop-release.sh package <target>           package.py for the target (Python, Docker)
 #   desktop-release.sh build <target>             fetch-native, compile and package
+#   desktop-release.sh manifest <dir> <version>   write the signed update manifest
+#                                                 (manifest.json and .sig) into <dir>
 #   desktop-release.sh checksums <dir> <version>  write <dir>/SHA256SUMS.txt
 #   desktop-release.sh gitlab-upload <dir> <version>
 #                                                 upload <dir>'s files to a GitLab generic
@@ -28,6 +30,9 @@ set -euo pipefail
 #                                (~/.cache/linger-desktop)
 #   LINGER_NATIVE_DEPS_URL       folder serving those archives by file name; in a GitLab
 #                                CI job it defaults to the project's linger-native-deps package
+#   LINGER_DIAGNOSTICS_UPLOAD_URL
+#                                hosted diagnostics receiver that build.mjs builds in (https);
+#                                without it Send Diagnostics is hidden
 #   RELEASE_OUT                  output root (.linger-runtime/desktop-release); release
 #                                files go to $RELEASE_OUT/assets/
 #   RCODESIGN                    rcodesign executable for darwin-arm64 (PATH)
@@ -35,7 +40,8 @@ set -euo pipefail
 #                                Developer ID Application .p12 and a file with its
 #                                password; without them the app is signed ad hoc
 #   MACOS_NOTARY_KEY             App Store Connect API key JSON; notarizes and staples
-#   DESKTOP_UPDATE_KEY           Ed25519 PEM file that signs the macOS update feed
+#   DESKTOP_UPDATE_KEY           Ed25519 PEM file that signs the update manifest; without
+#                                it the release has no manifest and offers no update
 #   WINDOWS_SIGNING_P12, WINDOWS_SIGNING_PASSWORD_FILE
 #                                Authenticode .p12 and a file with its password for
 #                                the setup program (osslsigncode); unsigned without
@@ -61,7 +67,7 @@ die() {
 
 usage() {
   echo "Usage: $0 version <tag> | fetch-native|compile|package|build <target>" \
-    "| checksums <dir> <version> | github-release <dir> <tag> <version>" \
+    "| manifest|checksums <dir> <version> | github-release <dir> <tag> <version>" \
     "| gitlab-upload <dir> <version>" >&2
   exit 2
 }
@@ -207,17 +213,11 @@ package_darwin() {
   else
     echo "desktop-release: no Developer ID; the app gets an ad-hoc signature" >&2
   fi
-  if [[ -n "${DESKTOP_UPDATE_KEY:-}" ]]; then
-    args+=(--update-key "$DESKTOP_UPDATE_KEY")
-  else
-    echo "desktop-release: no DESKTOP_UPDATE_KEY; no macOS update feed" >&2
-  fi
+  args+=(--update-archive)
   (cd "$desktop" && python3 packaging/mac/package.py "${args[@]}")
   mv "$pkg/Linger-$version-arm64.dmg" "$assets/Linger-$version-macos-arm64.dmg"
-  # The feed's three files go to the server's install/desktop/stable/ as they are.
-  if [[ -d "$pkg/update" ]]; then
-    tar -cf "$assets/Linger-$version-macos-arm64-update-feed.tar" -C "$pkg/update" .
-  fi
+  # The installed app replaces itself with this archive (updater.ts).
+  mv "$pkg/Linger-$version-arm64.app.tar.gz" "$assets/Linger-$version-macos-arm64.app.tar.gz"
 }
 
 package_linux() {
@@ -271,8 +271,70 @@ cmd_build() {
   cmd_package "$@"
 }
 
+# The package each platform's installed app updates from, keyed like
+# packageFor in apps/desktop/src/main/update-manifest.ts. Linux and the
+# portable Windows folder only link to the release.
+update_packages='darwin-arm64:macos-arm64.app.tar.gz linux-x64:linux-x64.tar.gz win32-x64:windows-x64-setup.exe'
+
+# manifest.json lists every platform's package with its size and sha256, and
+# manifest.json.sig is its Ed25519 signature, made with DESKTOP_UPDATE_KEY.
+# Installed apps read both from the latest release and download the package
+# from the release of the version it names. Without the key the release goes
+# out without them, and no installed app is offered it.
+cmd_manifest() {
+  local dir="${1:-}" version="${2:-}" entry target suffix packages=()
+  [[ -d "$dir" ]] || die "manifest needs the folder holding the release files"
+  [[ "$version" =~ $version_pattern ]] || die "manifest needs the release version"
+  rm -f "$dir/manifest.json" "$dir/manifest.json.sig"
+  if [[ -z "${DESKTOP_UPDATE_KEY:-}" ]]; then
+    echo "::warning::DESKTOP_UPDATE_KEY_PEM is not set: this release has no update manifest, so installed apps will not update to $version (docs/desktop-release.md)."
+    return 0
+  fi
+  [[ -f "$DESKTOP_UPDATE_KEY" ]] || die "DESKTOP_UPDATE_KEY names no file"
+  for entry in $update_packages; do
+    target="${entry%%:*}"
+    suffix="${entry#*:}"
+    [[ -f "$dir/Linger-$version-$suffix" ]] || die "$dir has no Linger-$version-$suffix"
+    packages+=("$target" "Linger-$version-$suffix")
+  done
+  # The key file is read only here; the built-in public key decides whether
+  # installed apps would accept the signature.
+  node - "$dir" "$version" "$DESKTOP_UPDATE_KEY" "$desktop/src/main/update-manifest.ts" "${packages[@]}" <<'NODE' ||
+const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
+const [dir, version, keyFile, source, ...pairs] = process.argv.slice(2);
+const packages = {};
+for (let i = 0; i < pairs.length; i += 2) {
+  const bytes = fs.readFileSync(path.join(dir, pairs[i + 1]));
+  packages[pairs[i]] = {
+    file: pairs[i + 1],
+    sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+    size: bytes.length,
+  };
+}
+const manifest = Buffer.from(
+  JSON.stringify({ schema: 2, version, packages }, null, 2) + "\n",
+);
+const key = crypto.createPrivateKey(fs.readFileSync(keyFile));
+const signature = crypto.sign(null, manifest, key);
+const builtIn = /-----BEGIN PUBLIC KEY-----[\s\S]+?-----END PUBLIC KEY-----/.exec(
+  fs.readFileSync(source, "utf8"),
+);
+if (!builtIn || !crypto.verify(null, manifest, crypto.createPublicKey(builtIn[0]), signature)) {
+  console.error("desktop-release: DESKTOP_UPDATE_KEY is not the key of UPDATE_PUBLIC_KEY in update-manifest.ts; installed apps would refuse this manifest");
+  process.exit(1);
+}
+fs.writeFileSync(path.join(dir, "manifest.json"), manifest);
+fs.writeFileSync(path.join(dir, "manifest.json.sig"), signature.toString("base64") + "\n");
+console.log(`desktop-release: signed manifest.json for ${version}: ${Object.keys(packages).sort().join(", ")}`);
+NODE
+    die "could not write the update manifest"
+}
+
 # Every release ships the three installers; SHA256SUMS.txt covers each file
-# of the version, extra ones such as the portable zip and update feed included.
+# of the version, extra ones such as the portable zip and the app archive
+# included, and the update manifest and its signature when there are.
 cmd_checksums() {
   local dir="${1:-}" version="${2:-}" required file files=()
   [[ -d "$dir" ]] || die "checksums needs the folder holding the release files"
@@ -282,7 +344,7 @@ cmd_checksums() {
   done
   while IFS= read -r file; do
     files+=("$(basename "$file")")
-  done < <(find "$dir" -maxdepth 1 -type f -name "Linger-$version-*" | LC_ALL=C sort)
+  done < <(find "$dir" -maxdepth 1 -type f \( -name "Linger-$version-*" -o -name manifest.json -o -name manifest.json.sig \) | LC_ALL=C sort)
   : >"$dir/SHA256SUMS.txt.part"
   for file in "${files[@]}"; do
     printf '%s  %s\n' "$(sha256_of "$dir/$file")" "$file" >>"$dir/SHA256SUMS.txt.part"
@@ -367,6 +429,7 @@ case "$command" in
   compile) cmd_compile "$@" ;;
   package) cmd_package "$@" ;;
   build) cmd_build "$@" ;;
+  manifest) cmd_manifest "$@" ;;
   checksums) cmd_checksums "$@" ;;
   gitlab-upload) cmd_gitlab_upload "$@" ;;
   github-release) cmd_github_release "$@" ;;

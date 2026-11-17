@@ -46,6 +46,7 @@ import {
   MemoryBrowserNotFoundError,
 } from "./memory-browser.js";
 import type { ChunkSearchProvider, MemoryChunkIndex } from "./chunk-index.js";
+import type { SessionFactIndex } from "./session-fact-index.js";
 import { writeMemoryLog } from "./run-telemetry.js";
 
 export async function startMemoryServer(options: {
@@ -72,6 +73,7 @@ export async function startMemoryServer(options: {
   getMemoryEntry?: typeof getMemoryEntry;
   chunkSearch?: ChunkSearchProvider;
   chunkFailures?: Pick<MemoryChunkIndex, "failedSources">;
+  factFailures?: Pick<SessionFactIndex, "failures">;
   rebuildSubjects?: () => Promise<RebuildSubject[]>;
   rebuildSessionDates?: (subject: RebuildSubject) => Promise<string[]>;
   /** Drops the subject's indexed Wiki and reports when a rebuild starts. */
@@ -432,11 +434,12 @@ const FAILURE_LIST_LIMIT = 200;
 async function failureSummary(options: {
   scheduler: Pick<MemoryScheduler, "failures">;
   chunkFailures?: Pick<MemoryChunkIndex, "failedSources">;
+  factFailures?: Pick<SessionFactIndex, "failures">;
 }) {
   // Each store degrades alone so one broken database still shows the others.
   const section = async <T extends object>(
     name: string,
-    read: (() => Promise<T>) | undefined,
+    read: (() => T | Promise<T>) | undefined,
   ) => {
     if (!read) return { configured: false };
     try {
@@ -456,6 +459,11 @@ async function failureSummary(options: {
     options.chunkFailures &&
       (() => options.chunkFailures!.failedSources(FAILURE_LIST_LIMIT)),
   );
+  const sessionFacts = await section(
+    "session_facts",
+    options.factFailures &&
+      (() => options.factFailures!.failures(FAILURE_LIST_LIMIT)),
+  );
   return {
     scheduler: {
       exhausted_total: exhausted.length,
@@ -464,6 +472,7 @@ async function failureSummary(options: {
       pending_retries: pending_retries.slice(0, FAILURE_LIST_LIMIT),
     },
     raw_chunk_sources: rawChunkSources,
+    session_facts: sessionFacts,
   };
 }
 
@@ -566,6 +575,9 @@ function parseQueryRequest(value: unknown): PersonalKnowledgeQueryRequest {
     "date_to",
     "event_from",
     "event_to",
+    "as_of",
+    "scope",
+    "page",
   ];
   if (
     !requiredKeys.every((key) => Object.hasOwn(input, key)) ||
@@ -587,7 +599,17 @@ function parseQueryRequest(value: unknown): PersonalKnowledgeQueryRequest {
     !validOptionalDate(input.event_to) ||
     (typeof input.event_from === "string" &&
       typeof input.event_to === "string" &&
-      input.event_from > input.event_to)
+      input.event_from > input.event_to) ||
+    !validOptionalDate(input.as_of) ||
+    (input.scope !== undefined &&
+      input.scope !== "originals" &&
+      input.scope !== "summaries") ||
+    (input.page !== undefined &&
+      !(
+        Number.isInteger(input.page) &&
+        (input.page as number) >= 1 &&
+        (input.page as number) <= 10
+      ))
   ) {
     throw new TypeError("Request body is invalid");
   }

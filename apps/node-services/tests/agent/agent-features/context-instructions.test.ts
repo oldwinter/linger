@@ -39,6 +39,7 @@ const render = (scene: Scene): string =>
     developerInstructions: undefined,
     sponsor,
     connectedApps: true,
+    connectedAppKeys: ["gmail", "google_calendar"],
     compactInstructions: false,
     ...(scene.agentType === "anotherme" ? { representedHuman } : {}),
     ...scene,
@@ -48,6 +49,7 @@ const render = (scene: Scene): string =>
 interface Deployment {
   readonly capabilities: readonly AgentCapability[];
   readonly connectedApps: boolean;
+  readonly connectedAppKeys: readonly string[];
   /** The placed model's context window is at most 128K tokens. */
   readonly compactInstructions?: boolean;
 }
@@ -56,14 +58,17 @@ interface Deployment {
 const defaultDeployment: Deployment = {
   capabilities: ["permissionReview"],
   connectedApps: false,
+  connectedAppKeys: [],
 };
 const fullDeployment: Deployment = {
   capabilities: ["permissionReview"],
   connectedApps: true,
+  connectedAppKeys: ["gmail", "google_calendar"],
 };
 const unconfiguredDeployment: Deployment = {
   capabilities: [],
   connectedApps: false,
+  connectedAppKeys: [],
 };
 const compactDeployment: Deployment = {
   ...fullDeployment,
@@ -98,6 +103,7 @@ const renderComposed = (
     features: [createContextInstructionsFeature(), createToolApprovalFeature()],
   }).contextInstructions({
     connectedApps: deployment.connectedApps,
+    connectedAppKeys: deployment.connectedAppKeys,
     compactInstructions: deployment.compactInstructions === true,
   });
 };
@@ -197,6 +203,40 @@ describe("execution Context instructions", () => {
     },
   );
 
+  // The personal context sources name only the apps the Agent can query, so it
+  // never runs a command for an app without a granted account. Document
+  // contexts carry no personal context method.
+  it.each(scenes.filter(([, scene]) => scene.contextKind !== "document"))(
+    "lists only the connected app sources in %s",
+    (_, scene) => {
+      const gmailOnly = renderComposed(scene, {
+        ...fullDeployment,
+        connectedAppKeys: ["gmail"],
+      })!;
+      expect(gmailOnly).toContain("- mail (teamhub gmail list / read)");
+      if (scene.contextKind === "meta") {
+        expect(gmailOnly).toContain(
+          "when this Run started, these apps had an account you can use: gmail",
+        );
+      }
+      expect(gmailOnly).not.toContain("teamhub gcal");
+      expect(gmailOnly).not.toContain("teamhub slack");
+      expect(gmailOnly).not.toContain("other connected apps");
+      const outlookCalendar = renderComposed(scene, {
+        ...fullDeployment,
+        connectedAppKeys: ["outlook_calendar"],
+      })!;
+      expect(outlookCalendar).toContain(
+        "- other connected apps (outlook_calendar): find a tool with teamhub apps search",
+      );
+      const both = renderComposed(scene, fullDeployment)!;
+      expect(both).toContain("- calendar (teamhub gcal list / free / read)");
+      const none = renderComposed(scene, defaultDeployment)!;
+      expect(none).not.toContain("teamhub gmail");
+      expect(none).toContain("- Tracking Items (teamhub tracking-items list)");
+    },
+  );
+
   it.each(scenes)(
     "leaves memory.md to the user-memory feature for %s",
     (_, scene) => {
@@ -220,6 +260,7 @@ describe("context-instructions feature", () => {
     expect(
       composed.contextInstructions({
         connectedApps: true,
+        connectedAppKeys: [],
         compactInstructions: false,
       }),
     ).toContain('"display_name":"Research Partner"');

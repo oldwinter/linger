@@ -7,6 +7,13 @@ import { runProcess } from "./process.js";
 import path from "node:path";
 import { localModelsEnvironment } from "./local-models.js";
 import {
+  localModelsConfig,
+  localModelsLoginArguments,
+  localmodelsComputerTool,
+  type LocalmodelsComputerTool,
+} from "./localmodels-computer.js";
+import { pinnedToolSource } from "./localmodels-tool.js";
+import {
   inspectSelectedRuntimeDescriptors,
   runtimeEnvironmentFromDescriptors,
 } from "./managed-runtimes.js";
@@ -234,10 +241,17 @@ async function managedRuntimeState(instance: Instance) {
   const managed = runtimeEnvironmentFromDescriptors(descriptors);
   Object.assign(managed, await localModelsEnvironment(instance));
   managed.PATH = await runtimePath(instance);
+  // Part of the fingerprint, so an install from before the Computer knew
+  // its localmodels tool is rebound once on its next connect.
+  const localModels = await localmodelsComputerTool(
+    path.resolve(instance.root, "../.."),
+    pinnedToolSource(),
+  );
   const fingerprint = createHash("sha256")
     .update(
       JSON.stringify({
         managed,
+        localModels,
         revisions: descriptors.map((row) => ({
           runtime: row.runtime,
           revision: row.configFingerprint,
@@ -248,6 +262,7 @@ async function managedRuntimeState(instance: Instance) {
     .digest("hex");
   return {
     managed,
+    localModels,
     fingerprint,
     authFile: descriptors.find((row) => row.runtime === "codex")?.computer
       ?.authFile,
@@ -261,14 +276,15 @@ async function bindManagedRuntime(
   instance: Instance,
   managed: NodeJS.ProcessEnv,
   authFile?: string,
+  localModels?: LocalmodelsComputerTool,
 ) {
-  if (
-    !managed.CODEX_HOME &&
-    !managed.LINGER_CODEX_PATH &&
-    !managed.LINGER_CLAUDE_PATH &&
-    !managed.LINGER_PI_PATH
-  )
-    return;
+  const runtime = Boolean(
+    managed.CODEX_HOME ||
+    managed.LINGER_CODEX_PATH ||
+    managed.LINGER_CLAUDE_PATH ||
+    managed.LINGER_PI_PATH,
+  );
+  if (!runtime && !localModels) return;
   const contents = await readPrivate(instance.computerConfig);
   if (!contents) throw new Error("Instance Computer configuration is missing");
   const parsed: unknown = JSON.parse(contents);
@@ -283,17 +299,20 @@ async function bindManagedRuntime(
         Array.isArray(config[key]))
     )
       throw new Error("Invalid instance Computer runtime configuration");
-  if (authFile) {
-    if (!path.isAbsolute(authFile))
-      throw new Error("Invalid upstream Computer credential binding");
-    config.codex = { ...record(config.codex), auth_file: authFile };
+  if (runtime) {
+    if (authFile) {
+      if (!path.isAbsolute(authFile))
+        throw new Error("Invalid upstream Computer credential binding");
+      config.codex = { ...record(config.codex), auth_file: authFile };
+    }
+    config.runtime_paths = Object.fromEntries(
+      (["codex", "claude", "pi"] as const).flatMap((name) => {
+        const executable = managed[`LINGER_${name.toUpperCase()}_PATH`];
+        return executable ? [[name, executable]] : [];
+      }),
+    );
   }
-  config.runtime_paths = Object.fromEntries(
-    (["codex", "claude", "pi"] as const).flatMap((runtime) => {
-      const executable = managed[`LINGER_${runtime.toUpperCase()}_PATH`];
-      return executable ? [[runtime, executable]] : [];
-    }),
-  );
+  if (localModels) config.local_models = localModelsConfig(localModels);
   await atomicPrivate(
     instance.computerConfig,
     JSON.stringify(config, null, 2) + "\n",
@@ -332,6 +351,7 @@ async function connectInstanceComputer(
             desired.managed[`LINGER_${runtime.toUpperCase()}_PATH`];
           return executable ? [`--${runtime}-path`, executable] : [];
         }),
+        ...localModelsLoginArguments(desired.localModels),
       ],
       options.signal,
       10 * 60_000,
@@ -361,7 +381,9 @@ async function connectInstanceComputer(
   const refresh =
     !startedByLogin &&
     receipt !== desired.fingerprint &&
-    (Boolean(receipt) || Object.keys(desired.managed).length > 0);
+    (Boolean(receipt) ||
+      Object.keys(desired.managed).length > 0 ||
+      desired.localModels !== undefined);
   if (refresh) {
     if (observed.activeOperations !== 0)
       return {
@@ -383,7 +405,12 @@ async function connectInstanceComputer(
         detail:
           "The instance Computer could not stop safely. Check its active operations and retry.",
       };
-    await bindManagedRuntime(instance, desired.managed, desired.authFile);
+    await bindManagedRuntime(
+      instance,
+      desired.managed,
+      desired.authFile,
+      desired.localModels,
+    );
     // The existing identity and credential references stay in the same instance configuration.
     observed = { ...observed, state: "offline", connected: false };
   }
@@ -454,6 +481,17 @@ export async function stopComputer(
     throw new Error(
       "Instance busy: active operations are running or operation state is unavailable",
     );
+  await stopIdleComputer(instance, options);
+}
+/**
+ * Asks an instance's daemon to stop, for a caller that already found it
+ * idle; the daemon itself still refuses while it runs work.
+ */
+export async function stopIdleComputer(
+  instance: Instance,
+  options: { signal?: AbortSignal } = {},
+): Promise<void> {
+  if (!(await configured(instance))) return;
   const stopped = await invoke(
     instance,
     ["daemon", "stop", "--if-idle"],

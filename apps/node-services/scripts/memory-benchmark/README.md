@@ -70,7 +70,7 @@ Each nightly step is tried at most twice; when it still fails, that night is ski
 
 ## Arms (`--arms`)
 
-- `product` (default): what Another Me actually gets. The system prompt is memory.md (rendered as the Agent's `user-memory` feature renders it) plus `PERSONAL_KNOWLEDGE_POLICY`, with the `knowledge_search` / `knowledge_read` tools over every source: Raw, Session facts, Wiki pages and Daily reports.
+- `product` (default): what Another Me actually gets for knowledge. The system prompt is memory.md (rendered as the Agent's `user-memory` feature renders it) plus `PERSONAL_KNOWLEDGE_POLICY`, with the `knowledge_search` / `knowledge_read` tools over every source: Raw, Session facts, Wiki pages and Daily reports. The personal context method that sends Another Me to live sources such as mail and Tracking Items is left out, since the benchmark has no live sources.
 - `search`: the same search without memory.md. Compare it with `product` to see whether memory.md helps.
 - `wiki`: only Wiki pages and Daily reports. Another search scope of the same Human holds only these two kinds, so Raw does not affect ranking.
 - `memory-md`: memory.md only, no search.

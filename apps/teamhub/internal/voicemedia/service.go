@@ -771,6 +771,7 @@ func captureModel(record store.CaptureSession, epoch store.VoiceMediaEpoch) Capt
 	model.AudioDocumentVersionID = record.DocumentVersionID.String
 	model.SourceAudioDocumentVersionID = record.SourceAudioDocumentVersionID.String
 	model.TranscriptDocumentVersionID = record.TranscriptDocumentVersionID.String
+	model.QuickNotesState, model.QuickNotes = record.QuickNotesState.String, record.QuickNotes
 	if epoch.ArchivedThroughMs.Valid {
 		value := epoch.ArchivedThroughMs.Int64
 		model.ArchivedThroughMS = &value

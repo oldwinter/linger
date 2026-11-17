@@ -219,8 +219,6 @@ func (a *App) writeReminderError(c *gin.Context, action string, err error) bool 
 		a.writeError(c, http.StatusConflict, "ROUTINE_AGENT_UNAVAILABLE", "The Agent this Routine belongs to is not active; try again after it is back")
 	case errors.Is(err, reminder.ErrConflict):
 		a.writeError(c, http.StatusConflict, "CONFLICT", "Reminder was updated by another request")
-	case errors.Is(err, reminder.ErrPendingOnceLimit):
-		a.writeError(c, http.StatusConflict, "REMINDER_LIMIT_REACHED", "this Room already has the maximum number of one-shot Reminders waiting")
 	case errors.Is(err, reminder.ErrLimitReached):
 		a.writeError(c, http.StatusConflict, "REMINDER_LIMIT_REACHED", "this Room already has the maximum number of Reminders")
 	default:

@@ -98,6 +98,60 @@ WHERE requested_by_actor_id=sqlc.arg(agent_actor_id)::text AND status='pending'
 ORDER BY created_at DESC,id DESC
 LIMIT 1;
 
+-- name: ListProfileSetupReminderCards :many
+-- The open AnotherMe setup cards whose AnotherMe holds an active grant to the
+-- active Connection for the card's Human: the setups a reminder may concern.
+SELECT decision.id AS decision_id,decision.room_id
+FROM external_connection_agent_grants grant_row
+JOIN external_connections connection
+  ON connection.id=grant_row.connection_id AND connection.status='active'
+JOIN decisions decision
+  ON decision.requested_by_actor_id=grant_row.agent_actor_id AND decision.tenant_id=grant_row.tenant_id
+ AND decision.decider_actor_id=grant_row.represented_human_actor_id
+ AND decision.kind IN ('profile_setup_apps','profile_setup_sources') AND decision.status='pending'
+WHERE grant_row.connection_id=sqlc.arg(connection_id)::text AND grant_row.status='active'
+ORDER BY decision.id;
+
+-- name: LockPendingProfileSetupCard :one
+-- Locks one AnotherMe setup card while it is still open, after the Room
+-- membership lock, as a decision answer does.
+SELECT decision.message_id,decision.tenant_id,decision.decider_actor_id,decision.requested_by_actor_id
+FROM decisions decision
+WHERE decision.id=sqlc.arg(decision_id)::text AND decision.status='pending'
+  AND decision.kind IN ('profile_setup_apps','profile_setup_sources')
+FOR UPDATE;
+
+-- name: ProfileOfferedInRoom :one
+-- Whether a setup status AnotherMe read already offered the Profile: one
+-- written while the Human had an app granted to AnotherMe. A status written
+-- with no app granted only told AnotherMe to wait. Links and files arrive only
+-- with the status that finishes setup, after which no card is left to check.
+SELECT EXISTS(
+  SELECT 1 FROM messages message
+  JOIN decisions decision
+    ON decision.message_id=message.card_context_message_id AND decision.room_id=message.room_id
+   AND decision.kind IN ('profile_setup_apps','profile_setup_sources')
+  WHERE message.room_id=sqlc.arg(room_id)::text AND message.author_actor_id=sqlc.arg(human_actor_id)::text
+    AND message.message_kind='agent_runtime'
+    AND EXISTS(SELECT 1 FROM external_connection_agent_grants grant_row
+      WHERE grant_row.agent_actor_id=sqlc.arg(agent_actor_id)::text AND grant_row.tenant_id=decision.tenant_id
+        AND grant_row.created_at<=message.created_at
+        AND (grant_row.revoked_at IS NULL OR grant_row.revoked_at>message.created_at))
+)::boolean;
+
+-- name: PersonalProfileNotStarted :one
+-- Whether the Human has no Personal Profile and none is being written.
+SELECT (
+  NOT EXISTS(SELECT 1 FROM personal_profile_currents
+    WHERE tenant_id=sqlc.arg(tenant_id)::text AND owner_actor_id=sqlc.arg(owner_actor_id)::text)
+  AND NOT EXISTS(SELECT 1 FROM personal_profile_builds
+    WHERE tenant_id=sqlc.arg(tenant_id)::text AND owner_actor_id=sqlc.arg(owner_actor_id)::text
+      AND expires_at>clock_timestamp())
+  AND NOT EXISTS(SELECT 1 FROM personal_profile_generations
+    WHERE tenant_id=sqlc.arg(tenant_id)::text AND owner_actor_id=sqlc.arg(owner_actor_id)::text
+      AND status IN ('queued','running'))
+)::boolean;
+
 -- name: HumanWroteInRoom :one
 -- Whether the Human has written in the Room themselves: published
 -- conversation Messages that are not a card's recorded result.

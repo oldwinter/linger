@@ -19,7 +19,7 @@ SELECT wi.id, wi.tenant_id, wi.number, wi.kind, wi.title, wi.description, wi.pri
        wi.task_control_source_kind, wi.task_control_source_id, wi.task_control_requested_by_actor_id,
        wi.task_control_requested_at, wi.task_control_payload,
        wi.task_execution_updated_at, wi.task_next_reconcile_at, wi.task_worker_id,
-       wi.task_lease_token_hash, wi.task_lease_generation, wi.task_lease_expires_at
+       wi.task_lease_token_hash, wi.task_lease_generation, wi.task_lease_expires_at, wi.quiet
 FROM work_items wi
 WHERE wi.id=sqlc.arg(id)::text
   AND wi.tenant_id=sqlc.arg(tenant_id)::text
@@ -57,7 +57,7 @@ SELECT wi.id, wi.tenant_id, wi.number, wi.kind, wi.title, wi.description, wi.pri
        wi.task_control_source_kind, wi.task_control_source_id, wi.task_control_requested_by_actor_id,
        wi.task_control_requested_at, wi.task_control_payload,
        wi.task_execution_updated_at, wi.task_next_reconcile_at, wi.task_worker_id,
-       wi.task_lease_token_hash, wi.task_lease_generation, wi.task_lease_expires_at
+       wi.task_lease_token_hash, wi.task_lease_generation, wi.task_lease_expires_at, wi.quiet
 FROM work_items wi
 WHERE wi.id=sqlc.arg(id)::text
   AND wi.tenant_id=sqlc.arg(tenant_id)::text
@@ -80,7 +80,7 @@ SELECT wi.id, wi.tenant_id, wi.number, wi.kind, wi.title, wi.description, wi.pri
        wi.task_control_source_kind, wi.task_control_source_id, wi.task_control_requested_by_actor_id,
        wi.task_control_requested_at, wi.task_control_payload,
        wi.task_execution_updated_at, wi.task_next_reconcile_at, wi.task_worker_id,
-       wi.task_lease_token_hash, wi.task_lease_generation, wi.task_lease_expires_at
+       wi.task_lease_token_hash, wi.task_lease_generation, wi.task_lease_expires_at, wi.quiet
 FROM work_items wi
 WHERE wi.tenant_id=sqlc.arg(tenant_id)::text
   AND (sqlc.arg(kind_filter)::text = '' OR wi.kind=sqlc.arg(kind_filter)::text)

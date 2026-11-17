@@ -4,6 +4,7 @@
 ; is fixed: the uninstaller removes all of it.
 Unicode true
 !include "MUI2.nsh"
+!include "FileFunc.nsh"
 
 Name "Linger"
 OutFile "${OUTPUT}"
@@ -161,6 +162,17 @@ Section "Linger"
   WriteRegDWORD HKCU "${UNINSTALL_KEY}" "NoModify" 1
   WriteRegDWORD HKCU "${UNINSTALL_KEY}" "NoRepair" 1
 SectionEnd
+
+; The app's self-update runs this setup with /S /relaunch after it quit
+; (updater.ts): a silent install shows no finish page to start Linger from.
+Function .onInstSuccess
+  ${GetParameters} $0
+  ClearErrors
+  ${GetOptions} $0 "/relaunch" $1
+  IfErrors done
+  Exec '"$INSTDIR\Linger.exe"'
+  done:
+FunctionEnd
 
 Section "Uninstall"
   ; Settings, sign-in and logs stay in %APPDATA%\Linger, and the local

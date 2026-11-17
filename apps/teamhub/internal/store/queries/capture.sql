@@ -96,3 +96,20 @@ SET end_offset_ms=greatest(capture_transcript_coverage.end_offset_ms,EXCLUDED.en
 WHERE capture_transcript_coverage.lane=EXCLUDED.lane
   AND capture_transcript_coverage.start_offset_ms=EXCLUDED.start_offset_ms
 RETURNING end_offset_ms;
+
+-- name: MarkCaptureQuickNotesPending :exec
+-- Its completion Message promised quick notes; the job writes them.
+UPDATE capture_sessions
+SET quick_notes_state='pending', quick_notes=NULL
+WHERE id=$1;
+
+-- name: GetPendingCaptureQuickNotes :one
+SELECT session.*
+FROM capture_sessions session
+WHERE session.id=$1 AND session.quick_notes_state='pending';
+
+-- name: SettleCaptureQuickNotes :execrows
+-- Writes the notes (ready) or gives up (failed) once, while they are pending.
+UPDATE capture_sessions
+SET quick_notes_state=sqlc.arg(state), quick_notes=sqlc.narg(notes)
+WHERE id=sqlc.arg(id) AND quick_notes_state='pending';

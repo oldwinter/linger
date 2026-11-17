@@ -50,21 +50,21 @@ WITH current AS (
          (CASE WHEN document.format='blocknote' THEN body.seq::text ELSE document.current_version_id END)::text AS source_id
   FROM documents document
   LEFT JOIN document_bodies body ON body.document_id=document.id
-  WHERE document.id=$9::text AND document.status='active'
+  WHERE document.id=$8::text AND document.status='active'
 )
 INSERT INTO document_texts (document_id, tenant_id, source_kind, source_id, status,
-                            markdown, markdown_sha256, search_text, scanned,
+                            markdown, markdown_sha256, search_text,
                             longest_line_bytes, updated_at)
 SELECT current.document_id, current.tenant_id, current.source_kind, current.source_id,
        $1::text, $2::text, $3::text,
-       $4::text, $5::boolean,
-       $6::bigint, clock_timestamp()
+       $4::text,
+       $5::bigint, clock_timestamp()
 FROM current
-WHERE current.source_kind=$7::text AND current.source_id=$8::text
+WHERE current.source_kind=$6::text AND current.source_id=$7::text
 ON CONFLICT (document_id) DO UPDATE
 SET source_kind=EXCLUDED.source_kind, source_id=EXCLUDED.source_id, status=EXCLUDED.status,
     markdown=EXCLUDED.markdown, markdown_sha256=EXCLUDED.markdown_sha256,
-    search_text=EXCLUDED.search_text, scanned=EXCLUDED.scanned,
+    search_text=EXCLUDED.search_text,
     longest_line_bytes=EXCLUDED.longest_line_bytes, updated_at=EXCLUDED.updated_at
 `
 
@@ -73,7 +73,6 @@ type UpsertDocumentTextParams struct {
 	Markdown         string      `json:"markdown"`
 	MarkdownSha256   pgtype.Text `json:"markdown_sha256"`
 	SearchText       string      `json:"search_text"`
-	Scanned          bool        `json:"scanned"`
 	LongestLineBytes int64       `json:"longest_line_bytes"`
 	SourceKind       string      `json:"source_kind"`
 	SourceID         string      `json:"source_id"`
@@ -89,7 +88,6 @@ func (q *Queries) UpsertDocumentText(ctx context.Context, arg UpsertDocumentText
 		arg.Markdown,
 		arg.MarkdownSha256,
 		arg.SearchText,
-		arg.Scanned,
 		arg.LongestLineBytes,
 		arg.SourceKind,
 		arg.SourceID,

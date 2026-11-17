@@ -1,7 +1,10 @@
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync, verify } from "node:crypto";
 import {
   chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -15,8 +18,8 @@ import { afterEach, describe, expect, it } from "vitest";
 const script = join(process.cwd(), "scripts/ci/desktop-release.sh");
 const temporary: string[] = [];
 
-function run(args: string[], env: Record<string, string> = {}) {
-  const result = spawnSync("bash", [script, ...args], {
+function run(args: string[], env: Record<string, string> = {}, file = script) {
+  const result = spawnSync("bash", [file, ...args], {
     encoding: "utf8",
     env: { PATH: process.env.PATH ?? "", HOME: tmpdir(), ...env },
   });
@@ -119,6 +122,122 @@ describe("desktop-release.sh checksums", () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain(`Linger-${version}-macos-arm64.dmg`);
+  });
+});
+
+describe("desktop-release.sh manifest", () => {
+  const version = "0.16.33";
+  const packages = {
+    "darwin-arm64": `Linger-${version}-macos-arm64.app.tar.gz`,
+    "linux-x64": `Linger-${version}-linux-x64.tar.gz`,
+    "win32-x64": `Linger-${version}-windows-x64-setup.exe`,
+  };
+  const release = () => {
+    const dir = folder();
+    for (const name of Object.values(packages))
+      writeFileSync(join(dir, name), name);
+    writeFileSync(join(dir, `Linger-${version}-macos-arm64.dmg`), "dmg");
+    return dir;
+  };
+  // A copy of the script beside an update-manifest.ts holding a throwaway
+  // key's public half, so the test never needs the release key.
+  const checkout = () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+    const root = folder();
+    mkdirSync(join(root, "scripts/ci"), { recursive: true });
+    mkdirSync(join(root, "apps/desktop/src/main"), { recursive: true });
+    copyFileSync(script, join(root, "scripts/ci/desktop-release.sh"));
+    const publicPem = publicKey.export({ type: "spki", format: "pem" });
+    writeFileSync(
+      join(root, "apps/desktop/src/main/update-manifest.ts"),
+      `export const UPDATE_PUBLIC_KEY = \`${publicPem.toString().trim()}\`;\n`,
+    );
+    const key = join(folder(), "update.pem");
+    writeFileSync(
+      key,
+      privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+    );
+    return {
+      script: join(root, "scripts/ci/desktop-release.sh"),
+      key,
+      publicKey,
+    };
+  };
+
+  it("signs a manifest of every platform's package", () => {
+    const dir = release();
+    const repo = checkout();
+
+    const result = run(
+      ["manifest", dir, version],
+      { DESKTOP_UPDATE_KEY: repo.key },
+      repo.script,
+    );
+
+    expect(result.status).toBe(0);
+    const bytes = readFileSync(join(dir, "manifest.json"));
+    const signature = readFileSync(join(dir, "manifest.json.sig"), "utf8");
+    expect(
+      verify(null, bytes, repo.publicKey, Buffer.from(signature, "base64")),
+    ).toBe(true);
+    expect(JSON.parse(bytes.toString())).toEqual({
+      schema: 2,
+      version,
+      packages: Object.fromEntries(
+        Object.entries(packages).map(([target, file]) => [
+          target,
+          {
+            file,
+            sha256: createHash("sha256").update(file).digest("hex"),
+            size: file.length,
+          },
+        ]),
+      ),
+    });
+
+    run(["checksums", dir, version]);
+    const sums = readFileSync(join(dir, "SHA256SUMS.txt"), "utf8");
+    expect(sums).toContain("  manifest.json\n");
+    expect(sums).toContain("  manifest.json.sig\n");
+  });
+
+  it("warns and writes nothing without the key", () => {
+    const dir = release();
+
+    const result = run(["manifest", dir, version]);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("::warning::DESKTOP_UPDATE_KEY_PEM");
+    expect(existsSync(join(dir, "manifest.json"))).toBe(false);
+  });
+
+  it("refuses a key installed apps would not accept", () => {
+    const dir = release();
+    // The throwaway key against this checkout's UPDATE_PUBLIC_KEY.
+    const other = checkout();
+
+    const result = run(["manifest", dir, version], {
+      DESKTOP_UPDATE_KEY: other.key,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("UPDATE_PUBLIC_KEY");
+    expect(existsSync(join(dir, "manifest.json"))).toBe(false);
+  });
+
+  it("refuses a release without a platform's package", () => {
+    const dir = release();
+    rmSync(join(dir, packages["darwin-arm64"]));
+    const repo = checkout();
+
+    const result = run(
+      ["manifest", dir, version],
+      { DESKTOP_UPDATE_KEY: repo.key },
+      repo.script,
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(packages["darwin-arm64"]);
   });
 });
 

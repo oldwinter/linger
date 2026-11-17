@@ -7,6 +7,16 @@ SET usage=coalesce(usage,'{}'::jsonb)||jsonb_build_object(sqlc.arg(operation_id)
 WHERE run_id=sqlc.arg(run_id)::text
   AND NOT coalesce(usage,'{}'::jsonb) ? sqlc.arg(operation_id)::text;
 
+-- name: RecordAgentLocalRunTurn :exec
+-- A Run keeps each Runtime turn its Operations started once; a Run runs a
+-- handful of Operations, so the cap only bounds a misbehaving Runtime.
+UPDATE agent_local_runs
+SET turn_ids=array_append(turn_ids,sqlc.arg(turn_id)::text),
+    updated_at=clock_timestamp()
+WHERE run_id=sqlc.arg(run_id)::text
+  AND NOT sqlc.arg(turn_id)::text=ANY(turn_ids)
+  AND cardinality(turn_ids)<64;
+
 -- name: RecordAgentLocalRunUsage :execrows
 -- One Runner Operation's usage lands on its Run once; a repeated terminal of
 -- the same Operation changes nothing.

@@ -92,3 +92,15 @@ it("stops the services again when Retry follows a running Linger", () => {
     "Goto retry",
   );
 });
+
+it("starts Linger after a silent install only when asked to relaunch", () => {
+  order(
+    block("Function .onInstSuccess", "FunctionEnd"),
+    "${GetParameters} $0",
+    '${GetOptions} $0 "/relaunch" $1',
+    "IfErrors done",
+    "Exec '\"$INSTDIR\\Linger.exe\"'",
+    "done:",
+  );
+  expect(script).toContain('!include "FileFunc.nsh"');
+});

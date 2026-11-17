@@ -34,7 +34,7 @@ SET task_worker_id=sqlc.arg(worker_id)::text,
     task_next_reconcile_at=clock_timestamp()+make_interval(secs=>sqlc.arg(lease_seconds)::int)
 FROM candidate
 WHERE item.id=candidate.id
-RETURNING item.id AS task_id,item.task_worker_id,item.task_lease_generation,item.task_lease_expires_at;
+RETURNING item.id AS task_id,item.task_worker_id,item.task_lease_generation,item.task_lease_expires_at, item.quiet;
 
 -- name: NextTaskExecutionClaimDelay :one
 -- Milliseconds on the database clock until the earliest Task satisfies the
@@ -62,7 +62,7 @@ FROM (
 HAVING min(ready.ready_at) IS NOT NULL;
 
 -- name: GetTaskExecutionWorkerLease :one
-SELECT id AS task_id,task_worker_id,task_lease_generation,task_lease_expires_at
+SELECT id AS task_id,task_worker_id,task_lease_generation,task_lease_expires_at, quiet
 FROM work_items
 WHERE id=sqlc.arg(task_id)::text
   AND task_worker_id=sqlc.arg(worker_id)::text
@@ -118,7 +118,7 @@ WHERE id=sqlc.arg(task_id)::text
   AND task_lease_token_hash=sqlc.arg(lease_token_hash)::bytea
   AND task_lease_expires_at>clock_timestamp()
   AND (SELECT count(*) FROM extended_effects)>=0
-RETURNING id AS task_id,task_worker_id,task_lease_generation,task_lease_expires_at;
+RETURNING id AS task_id,task_worker_id,task_lease_generation,task_lease_expires_at, quiet;
 
 -- name: ScheduleTaskExecutionReconcile :one
 -- The running Attempt's deadline caps the delay, so the timeout needs no

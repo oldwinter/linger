@@ -335,9 +335,9 @@ export class RunnerOperations {
   }
 
   /**
-   * Records a run.start Operation on its Run, and its usage once it ends.
-   * Message activities and usage totals read the record; the Run's own
-   * outcome never waits for it.
+   * Records a run.start Operation on its Run, the Runtime turn it started, and
+   * its usage once it ends. Message activities and usage totals read the
+   * record; the Run's own outcome never waits for it.
    */
   #recordRunOperation(operation: RunnerOperationState): void {
     const record = this.context.options.recordRunOperation;
@@ -346,12 +346,16 @@ export class RunnerOperations {
       return;
     const usage = operation.terminal ? operation.usage : undefined;
     if (operation.terminal && !usage) return;
+    // The turn goes with run.started and usage goes alone, so a TeamHub
+    // that rejects the turn field during a rolling deploy still lands usage.
+    const turnId = operation.terminal ? undefined : operation.turnId;
     void record({
       contextKey: operation.start.execution_context_key,
       epoch,
       runId: operation.start.request.run_context.execution_run_ref,
       operationId: operation.start.operation_id,
       runtimeType: operation.start.runtime_type,
+      ...(turnId ? { turnId } : {}),
       ...(usage ? { usage } : {}),
     }).catch((error: unknown) =>
       logAgentEvent("warn", "runner.operation.record_failed", {
@@ -628,6 +632,15 @@ export class RunnerOperations {
       envelope.event.type === "model.responded"
     )
       this.#observeModelResponse(operation, envelope.event);
+    // The turn is recorded as soon as it starts, so a live Run's activities
+    // can already read it.
+    if (
+      envelope.type === "operation.event" &&
+      envelope.event.type === "run.started" &&
+      operation.turnId !== undefined &&
+      !operation.terminal
+    )
+      this.#recordRunOperation(operation);
     if (operation.terminal) this.#retireOperation(operation);
     if (acknowledgement)
       await this.owners.connections().send(connection, acknowledgement);

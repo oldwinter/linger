@@ -63,8 +63,8 @@ SELECT 'decision-'||card,'tenant_acme','room_runtime_inbox',card,'question','act
  ('d-card-native',jsonb_build_object('runtime',jsonb_build_object('kind','native_question','context_key',$1::text))),
  ('d-card-other',jsonb_build_object('runtime',jsonb_build_object('kind','native_question','context_key','another-context'))),
  ('d-card-human','{}'::jsonb)) seed(card,request);
-INSERT INTO task_meta_messages(id,tenant_id,task_id,agent_actor_id,meta_seq,author_actor_id,body,segments)
- VALUES('d-meta','tenant_acme',$2,'actor_acme_official',1,'actor_acme_official','meta','`+mention+`');
+INSERT INTO task_meta_messages(id,tenant_id,task_id,agent_actor_id,meta_seq,author_actor_id,body,segments,source)
+ VALUES('d-meta','tenant_acme',$2,'actor_acme_official',1,'actor_acme_official','meta','`+mention+`','message');
 INSERT INTO task_meta_callbacks(task_id,tenant_id,generation,coordinator_actor_id,coordinator_context_key)
  VALUES($2,'tenant_acme',1,'actor_acme_official',$1);
 INSERT INTO task_meta_callback_messages(id,task_id,tenant_id,generation,meta_seq,author_actor_id,body,segments) VALUES

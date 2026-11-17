@@ -406,7 +406,7 @@ export function RoomSecondaryNavigation({
         </header>
       ) : (
         <div
-          className="flex shrink-0 items-center gap-1 pl-0 pr-1.5 pt-3"
+          className="xs-nav-quick flex shrink-0 items-center gap-1.5 pl-0 pr-1.5 pt-3"
           aria-label="Quick access"
         >
           {accountId ? (

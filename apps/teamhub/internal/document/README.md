@@ -30,10 +30,12 @@ SHA-256 and the plain search words, with the version it came from (`native_body`
 `internal/documenttext` runs the one `document_text.sync` job; `enqueue_document_text_sync` queues it from
 triggers on `documents` (a new current Version, reactivation), on a new `document_bodies` row and in
 `record_document_history_point`. Global search and Memory (`memory_source.personal_documents`, through
-`document_text_heads`) read it; the job skips a file Version whose text is already ready. A ready text requests no
+`document_text_heads`) read it, Memory only the texts the Wiki whitelist below admits; the job skips a file Version whose text is already ready. A ready text requests no
 Wiki refresh. The Wiki reads only the bound Documents its
 whitelist admits: `wiki_document_verdicts` gives each one with a text a reason to stay out or none, using the text's
-`scanned` and `longest_line_bytes` facts, and a refresh freezes the admitted ones by `document_text_version_id`.
+status and `longest_line_bytes` (a PDF without a text layer has no text and stays out as `scanned`), and a
+refresh freezes the admitted ones by `document_text_version_id`. Texts come from text layers only; there is no OCR, so
+raster images have no text.
 Mail the whitelist filters out never becomes a source and is not recorded.
 The Wiki's Session sources are not Documents: `wiki_session_sources` reads the Human's Room and recording Sessions
 from the Memory index (`memory_index.sources` at their `source_versions` text), `wiki_current_sources` joins them

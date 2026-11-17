@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -117,6 +118,21 @@ func (o fixtureTextObjects) Open(ctx context.Context, key string) (io.ReadCloser
 
 type fixtureTextNormalizer struct{}
 
+// Normalize returns the bytes as Markdown, except that a real PDF gives only
+// the strings its pages draw, as the real normalizer reads only the text layer.
 func (fixtureTextNormalizer) Normalize(_ context.Context, source documenttext.NormalizationSource) (documenttext.NormalizedDocument, error) {
-	return documenttext.NormalizedDocument{Status: documenttext.StatusReady, Markdown: source.Bytes}, nil
+	markdown := source.Bytes
+	if bytes.HasPrefix(source.Bytes, []byte("%PDF-")) {
+		var drawn [][]byte
+		for _, match := range fixturePDFText.FindAllSubmatch(source.Bytes, -1) {
+			drawn = append(drawn, match[1])
+		}
+		markdown = bytes.Join(drawn, []byte("\n"))
+	}
+	if len(markdown) == 0 {
+		return documenttext.NormalizedDocument{Status: documenttext.StatusNoText}, nil
+	}
+	return documenttext.NormalizedDocument{Status: documenttext.StatusReady, Markdown: markdown}, nil
 }
+
+var fixturePDFText = regexp.MustCompile(`\(([^)]*)\) Tj`)

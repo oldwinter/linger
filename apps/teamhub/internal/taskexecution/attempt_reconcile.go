@@ -258,7 +258,7 @@ func settleTaskTurn(
 		}
 		// The Meta reads what to do, then the AlterEgo's own words as their
 		// own report, the one a live call tells as the Task's latest.
-		reports = []string{"Task " + snapshot.Title + " (" + input.TaskID + ") is idle. " + taskDoneReminder(input.TaskID), reply}
+		reports = []string{"Task " + snapshot.Title + " (" + input.TaskID + ") is idle. " + taskDoneReminder(input.TaskID, snapshot.Quiet), reply}
 	}
 	return settleTaskStatus(ctx, queries, lease, snapshot, input, status, reason, reports, map[string]any{
 		"attempt_id": attempt.ID, "input_revision": attempt.CurrentInputRevision,
@@ -268,13 +268,21 @@ func settleTaskTurn(
 
 // taskDoneReminder asks the Meta to hand a finished Task's result to the user
 // as one card, followed by one ordinary message for anything the user must
-// add or check. Only an idle report carries it; a failure is told in plain
-// words.
-func taskDoneReminder(taskID string) string {
+// add or check. A quiet Task, started during a proactive wake or a Routine
+// that serves a Tracking Item, is delivered as the one reminder it prepared
+// for. Only an idle report carries it; a failure is told in plain words.
+func taskDoneReminder(taskID string, quiet bool) string {
+	if quiet {
+		return quietTaskNote + "If it is done, send the user one reminder about the matter it prepared for, " +
+			"with its files from ./playground/" + taskID + "/ attached or its Document as a card, and nothing else about the Task."
+	}
 	return "If it is done, deliver it to the user with teamhub message card: a title, " +
 		"a one-line result, and its files from ./playground/" + taskID + "/ with --attach; then say in one " +
 		"ordinary message what the user should add or check, if anything."
 }
+
+// quietTaskNote tells the Meta that the user never saw a quiet Task start.
+const quietTaskNote = "You started it during a proactive wake or a Routine that serves a Tracking Item, so the user never saw it start. "
 
 func failTaskAttempt(
 	ctx context.Context,
@@ -303,6 +311,9 @@ func failTaskAttempt(
 		return err
 	}
 	report := "Task " + snapshot.Title + " (" + input.TaskID + ") failed: " + truncateRunes(failure, taskReportFailureMaxRunes)
+	if snapshot.Quiet {
+		report += " " + quietTaskNote + "Remind the user without it, or say nothing."
+	}
 	return settleTaskStatus(ctx, queries, lease, snapshot, input, "failed", stopReason, []string{report}, map[string]any{
 		"attempt_id": attempt.ID, "attempt_number": attempt.AttemptNumber, "stop_reason_code": stopReason,
 	})

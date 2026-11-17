@@ -778,12 +778,25 @@ const knowledgeDefinitions: CommandDefinition[] = [
         "Synonym, translation or related term searched beside the query; up to 6.",
         true,
       ),
-      ...Object.fromEntries(
-        ["date-from", "date-to", "event-from", "event-to"].map((name) => [
-          `--${name}`,
-          flag("YYYY-MM-DD ranking preference; other dates may appear."),
-        ]),
+      "--date-from": flag(
+        "YYYY-MM-DD start of when the asked records were made; ranks, never excludes.",
       ),
+      "--date-to": flag(
+        "YYYY-MM-DD end of when the asked records were made; ranks, never excludes.",
+      ),
+      "--event-from": flag(
+        "YYYY-MM-DD start of when an event that may have been told later happened; use --date-from for a day or period; ranks, never excludes.",
+      ),
+      "--event-to": flag(
+        "YYYY-MM-DD end of when an event that may have been told later happened; ranks, never excludes.",
+      ),
+      "--as-of": flag(
+        "YYYY-MM-DD day a changing value is asked for, today for the current one; moves close matches said shortly before then up a little.",
+      ),
+      "--scope": flag(
+        "summaries or originals: search one list with the whole result size.",
+      ),
+      "--page": flag("Next page of the same search, from a result's nextPage."),
     },
     async (args) => {
       assertPositionals(args, 1);
@@ -795,8 +808,13 @@ const knowledgeDefinitions: CommandDefinition[] = [
         ["date-to", "dateTo"],
         ["event-from", "eventFrom"],
         ["event-to", "eventTo"],
+        ["as-of", "asOf"],
+        ["scope", "scope"],
       ])
         Object.assign(input, optional(field!, option(args, `--${name}`)));
+      const page = option(args, "--page");
+      if (page !== undefined)
+        input.page = /^\d+$/u.test(page) ? Number(page) : page;
       await validate("search_knowledge", input);
       return { input };
     },

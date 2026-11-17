@@ -186,6 +186,28 @@ const small: SetupLocalModelsCheck = {
   ],
   recommendation: "codex",
 };
+// The model fits the hardware, but other programs hold its memory now.
+const held: SetupLocalModelsCheck = {
+  state: "checked",
+  eligible: false,
+  blockedNow: true,
+  memoryBytes: 16 * GB,
+  diskFreeBytes: 400 * GB,
+  model: {
+    name: "qwen3-8b",
+    downloadBytes: 6 * GB,
+    diskBytes: 8 * GB,
+    memoryBytes: 12 * GB,
+  },
+  reasons: [
+    {
+      code: "free-memory-required",
+      message:
+        "Other programs are using memory it needs (now 2.7 GB of RAM is available).",
+    },
+  ],
+  recommendation: "codex",
+};
 const welcome = (localModels: SetupLocalModelsCheck): SetupState => {
   const base = state("idle");
   return { ...base, localServer: { ...base.localServer, localModels } };
@@ -224,6 +246,84 @@ describe("setup page Quick Install recommendation", () => {
     $("local-install").click();
     await vi.waitFor(() =>
       expect(installed(run)).toEqual([{ op: "local.start", runtime: "codex" }]),
+    );
+  });
+
+  it("holds a local model that needs free memory and checks again on request", async () => {
+    const { run } = await openPage(welcome(held), "welcome");
+    expect($("plan-summary").textContent).toBe(
+      "Recommended for this computer: Codex",
+    );
+    expect($("plan-why").textContent).toBe(
+      "Local model on hold: Other programs are using memory it needs (now 2.7 GB of RAM is available). Quick Install sets up Codex now, or choose Check again once memory is free.",
+    );
+    expect($("local-recheck").hidden).toBe(false);
+    $("local-customize").click();
+    expect($("local-row").hidden).toBe(false);
+    expect($("local-model-name").textContent).toBe("qwen3-8b");
+    expect($("local-sub").textContent).toBe(
+      "On hold: close other programs, then Check again.",
+    );
+    expect(($("local-model") as HTMLButtonElement).disabled).toBe(true);
+    expect($("local-model").getAttribute("aria-checked")).toBe("false");
+    $("local-recheck").click();
+    await vi.waitFor(() =>
+      expect(run).toHaveBeenCalledWith({ op: "local.recheck" }),
+    );
+    $("local-customize").click();
+    $("local-install").click();
+    await vi.waitFor(() =>
+      expect(installed(run)).toEqual([{ op: "local.start", runtime: "codex" }]),
+    );
+  });
+
+  it("says how much memory a held local model needs and how much is free", async () => {
+    const counted = (
+      code: string,
+      message: string,
+      vram = false,
+    ): SetupLocalModelsCheck => ({
+      ...held,
+      freeMemory: {
+        ramAvailableBytes: 2899102924,
+        ramRequiredBytes: 13689304433,
+        ...(vram ? { vramFreeBytes: 3 * GB, vramRequiredBytes: 9 * GB } : {}),
+      },
+      reasons: [{ code, message }],
+    });
+    await openPage(
+      welcome(
+        counted(
+          "free-memory-required",
+          "Other programs are using memory it needs.",
+        ),
+      ),
+      "welcome",
+    );
+    expect($("plan-summary").textContent).toBe(
+      "Recommended for this computer: Codex",
+    );
+    expect($("plan-why").textContent).toBe(
+      "Local model on hold: quit other programs first; it needs 12.7 GB of memory, 2.7 GB is free. Quick Install sets up Codex now, or choose Check again once memory is free.",
+    );
+    expect($("local-recheck").hidden).toBe(false);
+    $("local-customize").click();
+    expect($("local-sub").textContent).toBe(
+      "On hold: 12.7 GB memory needed, 2.7 GB free",
+    );
+    // Another code names what holds the memory, so its words stay.
+    await openPage(
+      welcome(
+        counted(
+          "plan-unavailable",
+          "Another inference app holds this Mac's memory; quit it and check again.",
+          true,
+        ),
+      ),
+      "welcome",
+    );
+    expect($("plan-why").textContent).toBe(
+      "Local model on hold: quit other programs first; it needs 12.7 GB of memory, 2.7 GB is free; graphics memory needs 9.0 GB, 3.0 GB is free. Another inference app holds this Mac's memory; quit it and check again. Quick Install sets up Codex now, or choose Check again once memory is free.",
     );
   });
 
@@ -329,6 +429,70 @@ describe("setup page Quick Install recommendation", () => {
       "Recommended for this computer: Local model + Pi",
     );
   });
+  it("offers the local model only with the Pi runtime", async () => {
+    const { run } = await openPage(welcome(capable), "welcome");
+    // Quick Install follows the tool's pick: Pi with the local model.
+    expect($("plan-summary").textContent).toBe(
+      "Recommended for this computer: Local model + Pi",
+    );
+    $("local-customize").click();
+    const option = (value: string) =>
+      document.querySelector<HTMLButtonElement>(
+        `[data-plan="runtime"] [data-value="${value}"]`,
+      )!;
+    const local = $("local-model") as HTMLButtonElement;
+    expect(local.getAttribute("aria-disabled")).toBe("false");
+    expect(local.hasAttribute("aria-describedby")).toBe(false);
+    expect($("local-pi-only").hidden).toBe(true);
+    for (const runtime of ["codex", "claude"]) {
+      option(runtime).click();
+      // Greyed, still focusable, and it says why.
+      expect(local.getAttribute("aria-checked")).toBe("false");
+      expect(local.getAttribute("aria-disabled")).toBe("true");
+      expect(local.disabled).toBe(false);
+      expect(local.getAttribute("aria-describedby")).toBe("local-pi-only");
+      expect($("local-pi-only").hidden).toBe(false);
+      expect($("local-pi-only").textContent).toBe(
+        "Local models are only available with the Pi runtime.",
+      );
+      // Clicking or pressing it does not pick it, nor switch the runtime.
+      local.click();
+      expect(local.getAttribute("aria-checked")).toBe("false");
+      expect(option(runtime).getAttribute("aria-checked")).toBe("true");
+    }
+    // Pi alone: the local model is off until chosen again.
+    option("pi").click();
+    expect(local.getAttribute("aria-disabled")).toBe("false");
+    expect($("local-pi-only").hidden).toBe(true);
+    expect(local.getAttribute("aria-checked")).toBe("false");
+    local.click();
+    expect(local.getAttribute("aria-checked")).toBe("true");
+    $("local-install").click();
+    await vi.waitFor(() =>
+      expect(installed(run)).toEqual([{ op: "local.start", runtime: "local" }]),
+    );
+  });
+
+  it("keeps a held local model on hold with Pi and says Pi is needed otherwise", async () => {
+    await openPage(welcome(held), "welcome");
+    $("local-customize").click();
+    const local = $("local-model") as HTMLButtonElement;
+    // Codex is the tool's pick here.
+    expect(local.disabled).toBe(true);
+    expect($("local-pi-only").hidden).toBe(false);
+    document
+      .querySelector<HTMLButtonElement>(
+        '[data-plan="runtime"] [data-value="pi"]',
+      )!
+      .click();
+    expect($("local-pi-only").hidden).toBe(true);
+    expect(local.getAttribute("aria-disabled")).toBe("false");
+    // Pi does not lift the hold: the model still waits for free memory.
+    expect(local.disabled).toBe(true);
+    expect($("local-sub").textContent).toBe(
+      "On hold: close other programs, then Check again.",
+    );
+  });
 });
 
 describe("setup page download progress", () => {
@@ -375,5 +539,132 @@ describe("setup page download progress", () => {
     expect($("installing-transfer-bytes").textContent).toBe(
       "This file: 3.0 GB of 4.0 GB · 50 MB/s",
     );
+  });
+});
+
+describe("setup page Send Diagnostics", () => {
+  // A failure scrolls its actions into view, which jsdom lacks.
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = () => {};
+  });
+
+  const failed = (
+    diagnosticsSend?: SetupState["diagnosticsSend"],
+  ): SetupState => {
+    const base = state("failed");
+    return {
+      ...base,
+      localServer: { ...base.localServer, message: "Services did not start" },
+      ...(diagnosticsSend ? { diagnosticsSend } : {}),
+    };
+  };
+
+  it("hides Send Diagnostics while no receiver is set up", async () => {
+    await openPage(failed());
+    expect($("installing-diagnostics").hidden).toBe(false);
+    expect($("send-diagnostics").hidden).toBe(true);
+    expect($("send-modal").hidden).toBe(true);
+  });
+
+  it("asks before sending and lists every file", async () => {
+    const { run, push } = await openPage(failed({ phase: "idle" }));
+    expect($("send-diagnostics").hidden).toBe(false);
+    $("send-diagnostics").click();
+    await vi.waitFor(() =>
+      expect(run).toHaveBeenCalledWith({
+        op: "diagnostics.send",
+        action: "start",
+      }),
+    );
+    push(failed({ phase: "preparing" }));
+    expect($("send-modal").hidden).toBe(false);
+    expect($("send-title").textContent).toBe("Preparing diagnostics");
+    expect($("send-primary").hidden).toBe(true);
+    push(
+      failed({
+        phase: "confirm",
+        host: "diagnostics.example.com",
+        files: ["summary.json", "desktop/logs/main.log"],
+        bytes: 2048,
+      }),
+    );
+    expect($("send-title").textContent).toBe(
+      "Send diagnostics to diagnostics.example.com?",
+    );
+    expect($("send-lead").textContent).toContain("2 files, 2 KB");
+    expect($("send-lead").textContent).toContain("home folder path");
+    expect(
+      [...$("send-files").querySelectorAll("li")].map((li) => li.textContent),
+    ).toEqual(["summary.json", "desktop/logs/main.log"]);
+    expect($("send-primary").textContent).toBe("Send");
+    expect($("send-close").textContent).toBe("Cancel");
+    $("send-primary").click();
+    await vi.waitFor(() =>
+      expect(run).toHaveBeenLastCalledWith({
+        op: "diagnostics.send",
+        action: "confirm",
+      }),
+    );
+  });
+
+  it("shows progress, then the report id to copy", async () => {
+    const { run, push } = await openPage(failed({ phase: "idle" }));
+    push(
+      failed({
+        phase: "sending",
+        host: "diagnostics.example.com",
+        sent: 512,
+        total: 2048,
+      }),
+    );
+    expect($("send-title").textContent).toBe("Sending diagnostics");
+    expect($("send-lead").textContent).toBe(
+      "Uploading to diagnostics.example.com… 25%",
+    );
+    expect($("send-track").hidden).toBe(false);
+    expect($("send-fill").style.width).toBe("25%");
+    expect($("send-close").hidden).toBe(true);
+    push(
+      failed({
+        phase: "sent",
+        host: "diagnostics.example.com",
+        reportId: "LD-7K3Q9XPM",
+      }),
+    );
+    expect($("send-report").hidden).toBe(false);
+    expect($("send-report-id").textContent).toBe("LD-7K3Q9XPM");
+    $("send-primary").click();
+    await vi.waitFor(() =>
+      expect($("send-primary").textContent).toBe("Copied"),
+    );
+    expect(run).toHaveBeenCalledWith({
+      op: "diagnostics.send",
+      action: "copy",
+    });
+    $("send-close").click();
+    await vi.waitFor(() =>
+      expect(run).toHaveBeenLastCalledWith({
+        op: "diagnostics.send",
+        action: "cancel",
+      }),
+    );
+  });
+
+  it("offers Try Again only when it can help", async () => {
+    const { run, push } = await openPage(failed({ phase: "idle" }));
+    push(failed({ phase: "failed", error: "Couldn't reach it", retry: true }));
+    expect($("send-error").textContent).toBe("Couldn't reach it");
+    expect($("send-primary").textContent).toBe("Try Again");
+    $("send-primary").click();
+    await vi.waitFor(() =>
+      expect(run).toHaveBeenLastCalledWith({
+        op: "diagnostics.send",
+        action: "retry",
+      }),
+    );
+    push(failed({ phase: "failed", error: "Too large", retry: false }));
+    expect($("send-primary").hidden).toBe(true);
+    expect($("send-lead").textContent).toContain("Save Diagnostics");
+    expect($("send-close").textContent).toBe("Close");
   });
 });

@@ -26,7 +26,6 @@ export type DocumentSourceKind =
   | "zip"
   | "gzip"
   | "svg"
-  | "image"
   | "unsupported";
 
 const IN_PROCESS_DOCUMENT_SOURCE_KINDS = new Set<DocumentSourceKind>([
@@ -138,25 +137,25 @@ const EXTENSION_KINDS: Record<string, DocumentSourceKind> = {
   c: "code",
   cpp: "code",
   css: "code",
-  avif: "image",
-  bmp: "image",
+  avif: "unsupported",
+  bmp: "unsupported",
   csv: "csv",
   doc: "doc",
   docx: "docx",
-  gif: "image",
+  gif: "unsupported",
   go: "code",
   gz: "gzip",
   gzip: "gzip",
   h: "code",
-  heic: "image",
-  heif: "image",
+  heic: "unsupported",
+  heif: "unsupported",
   hpp: "code",
   htm: "html",
   html: "html",
-  ico: "image",
+  ico: "unsupported",
   java: "code",
-  jpeg: "image",
-  jpg: "image",
+  jpeg: "unsupported",
+  jpg: "unsupported",
   js: "code",
   json: "json",
   jsx: "code",
@@ -166,7 +165,7 @@ const EXTENSION_KINDS: Record<string, DocumentSourceKind> = {
   md: "markdown",
   mmd: "code",
   pdf: "pdf",
-  png: "image",
+  png: "unsupported",
   pptx: "pptx",
   py: "code",
   rs: "code",
@@ -174,14 +173,14 @@ const EXTENSION_KINDS: Record<string, DocumentSourceKind> = {
   sh: "code",
   sql: "code",
   svg: "svg",
-  tif: "image",
-  tiff: "image",
+  tif: "unsupported",
+  tiff: "unsupported",
   toml: "code",
   ts: "code",
   tsv: "tsv",
   tsx: "code",
   txt: "plain",
-  webp: "image",
+  webp: "unsupported",
   xlsx: "xlsx",
   xml: "xml",
   yaml: "yaml",
@@ -199,7 +198,7 @@ const REPRESENTATION_KINDS: Record<string, DocumentSourceKind> = {
   markdown: "markdown",
   pdf: "pdf",
   plain_text: "plain",
-  png: "image",
+  png: "unsupported",
   pptx: "pptx",
   svg: "svg",
   tsv: "tsv",
@@ -282,8 +281,8 @@ function kindFromMediaType(essence: string): DocumentSourceKind | undefined {
   if (!essence || essence === "application/octet-stream") return undefined;
   const mapped = MEDIA_TYPE_KINDS[essence];
   if (mapped) return mapped;
-  if (essence.startsWith("image/")) return "image";
   if (
+    essence.startsWith("image/") ||
     essence.startsWith("audio/") ||
     essence.startsWith("video/") ||
     EXPLICITLY_UNSUPPORTED_MEDIA_TYPES.has(essence)

@@ -1,5 +1,7 @@
 import { type ComponentProps, useEffect, useMemo, useState } from "react";
 
+import { isRunWorking } from "@/features/teamhub/run-status";
+
 import { EarlierConversationBar } from "./earlier-conversation-bar";
 import {
   conversationBeganAt,
@@ -7,6 +9,7 @@ import {
 } from "./earlier-conversation";
 import { formatMessageTime, timelineMessages } from "./message-grouping";
 import { useWritingSeat } from "./writing-seat";
+import { JumpToLatestButton } from "./jump-to-latest-button";
 import { MessageTimeline } from "./message-timeline";
 import { roomAgreedMessage } from "./room-agreed";
 import { RoomAgreedLine } from "./room-agreed-line";
@@ -113,6 +116,12 @@ export function RoomChatTimelineSection({
         rewound={asOf !== undefined}
       />
       <RoomTimelineViewport
+        agentWorking={conversation.streamingRunStatuses.some(isRunWorking)}
+        awayFromLatest={asOf !== undefined || timeline.awayFromLatest}
+        onJumpToLatest={() => {
+          setAsOf(undefined);
+          timeline.scrollToLatest();
+        }}
         actorDisplayNames={actions.actorDisplayNames}
         canLoadOlder={messages.hasNextPage}
         currentActorId={currentActorId}
@@ -212,7 +221,10 @@ export function RoomChatTimelineSection({
 }
 
 type RoomTimelineViewportProps = ComponentProps<typeof MessageTimeline> & {
+  agentWorking: boolean;
+  awayFromLatest: boolean;
   initialScrollReady: boolean;
+  onJumpToLatest: () => void;
   onJumpToUnread: () => void;
   showUnreadJump: boolean;
   viewportOnScroll: NonNullable<ComponentProps<"div">["onScroll"]>;
@@ -220,7 +232,10 @@ type RoomTimelineViewportProps = ComponentProps<typeof MessageTimeline> & {
 };
 
 function RoomTimelineViewport({
+  agentWorking,
+  awayFromLatest,
   initialScrollReady,
+  onJumpToLatest,
   onJumpToUnread,
   showUnreadJump,
   viewportOnScroll,
@@ -253,7 +268,15 @@ function RoomTimelineViewport({
       >
         <MessageTimeline {...timelineProps} />
       </div>
-      {showUnreadJump ? <RoomUnreadJump onJump={onJumpToUnread} /> : null}
+      {showUnreadJump ? (
+        <RoomUnreadJump aboveLatest={awayFromLatest} onJump={onJumpToUnread} />
+      ) : null}
+      {awayFromLatest ? (
+        <JumpToLatestButton
+          agentWorking={agentWorking}
+          onClick={onJumpToLatest}
+        />
+      ) : null}
     </div>
   );
 }

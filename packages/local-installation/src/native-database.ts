@@ -7,7 +7,13 @@ import {
   readPrivate,
   type Instance,
 } from "./instance.js";
-import { inspectNativeProcess, startNativeProcess } from "./native-process.js";
+import { removeRetrying, renameRetrying } from "./fs-retry.js";
+import {
+  inspectNativeProcess,
+  startNativeProcess,
+  stopNativeProcess,
+} from "./native-process.js";
+import { preLingerSchema, setAsideLegacyData } from "./legacy-database.js";
 import { runProcess } from "./process.js";
 import { parseEnv } from "node:util";
 
@@ -39,13 +45,16 @@ export async function windowsElevated(
   );
 }
 
+// Prepares the instance's private PostgreSQL. A database from before Linger
+// is set aside with its data for a fresh one, and `legacyBackup` names the
+// folder it went to.
 export async function prepareNativeDatabase(options: {
   instance: Instance;
   postgresBin: string;
   env: NodeJS.ProcessEnv;
   signal: AbortSignal;
   onOutput: (chunk: string) => void;
-}): Promise<void> {
+}): Promise<{ legacyBackup?: string }> {
   const { instance, postgresBin, signal } = options;
   if (process.getuid?.() === 0)
     throw new Error(
@@ -65,22 +74,6 @@ export async function prepareNativeDatabase(options: {
     (await readPrivate(path.join(instance.root, "services.env")))!,
   ).LINGER_POSTGRES_PASSWORD!;
   await atomicPrivate(passwordFile, `${password}\n`);
-  let initialized = false;
-  try {
-    const version = path.join(data, "PG_VERSION");
-    const info = await lstat(version);
-    if (
-      !info.isFile() ||
-      info.isSymbolicLink() ||
-      (await readFile(version, "utf8")).trim() !== "17"
-    )
-      throw new Error(
-        "This native instance contains an unsupported PostgreSQL data directory.",
-      );
-    initialized = true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
   const env = { ...options.env, PGPASSWORD: password, PGCONNECT_TIMEOUT: "3" };
   const command = async (name: string, args: string[], timeoutMs = 60_000) => {
     const result = await runProcess(postgresProgram(postgresBin, name), args, {
@@ -95,87 +88,153 @@ export async function prepareNativeDatabase(options: {
       );
     return result;
   };
-  if (!initialized)
-    await command("initdb", [
-      "--pgdata",
-      data,
-      "--username",
-      "simplexai",
-      "--pwfile",
-      passwordFile,
-      "--auth-host",
-      "scram-sha-256",
-      "--auth-local",
-      "scram-sha-256",
-      "--encoding",
-      "UTF8",
-      "--no-locale",
-    ]);
-  await startNativeProcess({
-    root: instance.root,
-    name: "postgres",
-    executable: postgresProgram(postgresBin, "postgres"),
-    args: [
-      "-D",
-      data,
-      "-h",
-      "127.0.0.1",
-      "-p",
-      String(port),
-      "-k",
-      "",
-      "-c",
-      "max_connections=100",
-      "-c",
-      "shared_buffers=128MB",
-      "-c",
-      "jit=off",
-    ],
-    cwd: instance.root,
-    env,
-    signal,
-    redactions: [password],
-  });
-  const connection = [
-    "--host",
-    "127.0.0.1",
-    "--port",
-    String(port),
-    "--username",
-    "simplexai",
-    "--dbname",
-    "postgres",
-  ];
-  const deadline = Date.now() + 30_000;
-  for (;;) {
-    signal.throwIfAborted();
-    if (!(await inspectNativeProcess(instance.root, "postgres")).running)
-      throw new Error("Native PostgreSQL stopped; inspect its instance log.");
-    const ready = await runProcess(
-      postgresProgram(postgresBin, "pg_isready"),
-      connection,
-      { env, signal, timeoutMs: 5_000 },
-    );
-    if (ready.code === 0) break;
-    if (Date.now() >= deadline)
-      throw new Error("Native PostgreSQL did not become ready.");
-    await delay(200, undefined, { signal });
-  }
-  const present = await command("psql", [
-    ...connection,
-    "--tuples-only",
-    "--no-align",
-    "--command",
-    "SELECT 1 FROM pg_database WHERE datname='simplexai'",
-  ]);
-  if (present.stdout.trim() !== "1")
-    await command("createdb", [
+  const open = async () => {
+    let initialized = false;
+    try {
+      const version = path.join(data, "PG_VERSION");
+      const info = await lstat(version);
+      if (
+        !info.isFile() ||
+        info.isSymbolicLink() ||
+        (await readFile(version, "utf8")).trim() !== "17"
+      )
+        throw new Error(
+          "This native instance contains an unsupported PostgreSQL data directory.",
+        );
+      // Only a started postmaster writes postmaster.opts; initdb does not. A
+      // directory without it never served a connection and holds no data, as
+      // when an earlier initdb was killed after writing PG_VERSION, so it is
+      // made again rather than left to fail every start.
+      initialized = await lstat(path.join(data, "postmaster.opts")).then(
+        () => true,
+        (error: NodeJS.ErrnoException) => {
+          if (error.code !== "ENOENT") throw error;
+          return false;
+        },
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    if (!initialized) {
+      // A forced kill (Windows ends the tree on timeout or cancel) leaves
+      // initdb no time to clean up, so it builds aside and its directory
+      // becomes the data directory only once it succeeded.
+      const pending = `${data}.partial`;
+      await removeRetrying(pending);
+      await privateDirectory(pending);
+      await command(
+        "initdb",
+        [
+          "--pgdata",
+          pending,
+          "--username",
+          "simplexai",
+          "--pwfile",
+          passwordFile,
+          "--auth-host",
+          "scram-sha-256",
+          "--auth-local",
+          "scram-sha-256",
+          "--encoding",
+          "UTF8",
+          "--no-locale",
+        ],
+        // Antivirus scanning of the new files can make it take minutes.
+        10 * 60_000,
+      );
+      await removeRetrying(data);
+      await renameRetrying(pending, data, { signal });
+    }
+    await startNativeProcess({
+      root: instance.root,
+      name: "postgres",
+      executable: postgresProgram(postgresBin, "postgres"),
+      args: [
+        "-D",
+        data,
+        "-h",
+        "127.0.0.1",
+        "-p",
+        String(port),
+        "-k",
+        "",
+        "-c",
+        "max_connections=100",
+        "-c",
+        "shared_buffers=128MB",
+        "-c",
+        "jit=off",
+      ],
+      cwd: instance.root,
+      env,
+      signal,
+      redactions: [password],
+    });
+    const connection = [
       "--host",
       "127.0.0.1",
       "--port",
       String(port),
       "--username",
       "simplexai",
-      "simplexai",
+      "--dbname",
+      "postgres",
+    ];
+    const deadline = Date.now() + 30_000;
+    for (;;) {
+      signal.throwIfAborted();
+      if (!(await inspectNativeProcess(instance.root, "postgres")).running)
+        throw new Error("Native PostgreSQL stopped; inspect its instance log.");
+      const ready = await runProcess(
+        postgresProgram(postgresBin, "pg_isready"),
+        connection,
+        { env, signal, timeoutMs: 5_000 },
+      );
+      if (ready.code === 0) break;
+      if (Date.now() >= deadline)
+        throw new Error("Native PostgreSQL did not become ready.");
+      await delay(200, undefined, { signal });
+    }
+    const present = await command("psql", [
+      ...connection,
+      "--tuples-only",
+      "--no-align",
+      "--command",
+      "SELECT 1 FROM pg_database WHERE datname='simplexai'",
     ]);
+    if (present.stdout.trim() !== "1")
+      await command("createdb", [
+        "--host",
+        "127.0.0.1",
+        "--port",
+        String(port),
+        "--username",
+        "simplexai",
+        "simplexai",
+      ]);
+  };
+  await open();
+  const query = async (sql: string) =>
+    (
+      await command("psql", [
+        "--host",
+        "127.0.0.1",
+        "--port",
+        String(port),
+        "--username",
+        "simplexai",
+        "--dbname",
+        "simplexai",
+        "--tuples-only",
+        "--no-align",
+        "--command",
+        sql,
+      ])
+    ).stdout;
+  if (!(await preLingerSchema(query))) return {};
+  await stopNativeProcess(instance.root, "postgres");
+  const legacyBackup = await setAsideLegacyData(instance.root, signal);
+  await privateDirectory(data);
+  await open();
+  return { legacyBackup };
 }

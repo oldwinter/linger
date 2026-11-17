@@ -119,6 +119,7 @@ check-desktop:
 	pnpm --filter @linger/desktop typecheck
 	pnpm --filter @linger/desktop lint
 	pnpm --filter @linger/desktop test
+	python3 -m unittest discover -s apps/desktop/packaging -p '*_test.py'
 	# The Go daemon that packaging bundles, for every platform the app ships on.
 	cd apps/desktop && node scripts/build-daemon.mjs --all
 
@@ -126,7 +127,7 @@ check-desktop:
 check-computer-go:
 	cd apps/computer/local-daemon && go test ./... -run '^$$'
 	cd apps/computer/local-daemon && $(COMPUTER_TEST_RUNNER) go test ./internal/platform/...
-	cd apps/computer/local-daemon && $(COMPUTER_TEST_RUNNER) go test ./cmd/linger-computer-daemon ./cmd/linger-computer-launcher ./internal/computercli ./internal/computerconfig ./internal/daemon ./internal/linger/context ./internal/linger/assignment ./internal/linger/control ./internal/linger/herdr ./internal/linger/registration ./internal/linger/localskills ./internal/linger/mcpproxy ./internal/linger/transport ./internal/linger/runtimehistory ./internal/linger/localtools ./internal/process ./internal/workspace ./internal/provider ./internal/provider/redact ./internal/permission
+	cd apps/computer/local-daemon && $(COMPUTER_TEST_RUNNER) go test ./cmd/linger-computer-daemon ./cmd/linger-computer-launcher ./internal/computercli ./internal/computerconfig ./internal/daemon ./internal/linger/context ./internal/linger/assignment ./internal/linger/control ./internal/linger/herdr ./internal/linger/registration ./internal/linger/localskills ./internal/linger/mcpproxy ./internal/linger/transport ./internal/linger/runtimehistory ./internal/linger/localtools ./internal/process ./internal/workspace ./internal/provider ./internal/provider/redact ./internal/permission ./internal/localmodels
 	cd apps/computer/local-daemon && $(COMPUTER_TEST_RUNNER) go test ./internal/provider/native
 
 check-computer-release:

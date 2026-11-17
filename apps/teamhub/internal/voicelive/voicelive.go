@@ -261,7 +261,8 @@ func memorySection(memory UserMemory) string {
 		return ""
 	}
 	return "## About the User\n" +
-		"From the user's memory.md; use it to know who you talk to and answer questions about who they are and what they do. For anything about their past (what was said, decided or done), look it up as usual.\n" +
+		"From the user's memory.md; use it to know who you talk to and answer questions about who they are and what they do. For anything about their past (what was said, decided or done), look it up as usual. " +
+		"It is not part of any request: when you start work, a preference here that may apply goes after the goal on its own line, marked as a preference from memory the task may follow.\n" +
 		strings.Join(lines, "\n") + "\n\n"
 }
 

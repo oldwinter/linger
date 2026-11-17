@@ -11,6 +11,12 @@ import {
 import { VoiceTrackWorker } from "./livekit-worker.js";
 import { ASREventQueue } from "./event-queue.js";
 
+// Hands out media epochs the way TeamHub does: every claim takes a new number.
+function claimEpochs() {
+  let next = 0;
+  return async (_voiceSessionId: string) => next++;
+}
+
 const audioInputs = vi.hoisted(
   () => new Map<object, ReadableStreamDefaultController<AudioFrame>>(),
 );
@@ -50,6 +56,7 @@ describe("Voice publisher track lifecycle", () => {
     let shutdown!: () => Promise<void>;
     const worker = new VoiceTrackWorker(
       {
+        claimMediaEpoch: claimEpochs(),
         reportObservation: async (event: VoiceObservation) => {
           accepted.push(event);
           return { event_id: event.event_id, status: "accepted" };
@@ -169,6 +176,7 @@ describe("Voice publisher track lifecycle", () => {
       let shutdown!: () => Promise<void>;
       const worker = new VoiceTrackWorker(
         {
+          claimMediaEpoch: claimEpochs(),
           reportObservation: async (event: VoiceObservation) => {
             if (
               slow &&
@@ -301,6 +309,7 @@ describe("Voice publisher track lifecycle", () => {
       }));
       const worker = new VoiceTrackWorker(
         {
+          claimMediaEpoch: claimEpochs(),
           reportObservation: async (event: VoiceObservation) => {
             if (event.kind === "final") {
               await new Promise((resolve) => setTimeout(resolve, 1_900));
@@ -405,6 +414,7 @@ describe("Voice publisher track lifecycle", () => {
     }));
     const worker = new VoiceTrackWorker(
       {
+        claimMediaEpoch: claimEpochs(),
         reportObservation: async (event: VoiceObservation) => {
           if (event.kind === "partial" || event.kind === "progress")
             throw new DOMException("callback timed out", "TimeoutError");
@@ -514,6 +524,7 @@ describe("Voice publisher track lifecycle", () => {
     let opened = 0;
     const worker = new VoiceTrackWorker(
       {
+        claimMediaEpoch: claimEpochs(),
         reportObservation: async (event: VoiceObservation) => {
           observations.push(event);
           return { event_id: event.event_id, status: "accepted" };
@@ -662,6 +673,7 @@ describe("Voice publisher input retention and absence evidence", () => {
     });
     const worker = new VoiceTrackWorker(
       {
+        claimMediaEpoch: claimEpochs(),
         reportObservation: async (event: VoiceObservation) => {
           accepted.push(event);
           return { event_id: event.event_id, status: "accepted" };
@@ -761,6 +773,7 @@ describe("Voice publisher input retention and absence evidence", () => {
     const accepted: VoiceObservation[] = [];
     const worker = new VoiceTrackWorker(
       {
+        claimMediaEpoch: claimEpochs(),
         reportObservation: async (event: VoiceObservation) => {
           accepted.push(event);
           return { event_id: event.event_id, status: "accepted" };

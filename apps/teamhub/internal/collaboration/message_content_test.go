@@ -29,6 +29,7 @@ func TestNormalizeMessageCreateRequest(t *testing.T) {
 		{name: "reconstruction mismatch", request: `{"raw_message":"one","segments":[{"type":"text","content":"two"}]}`, wantInvalid: true},
 		{name: "invalid skill token", request: `{"raw_message":"summarize","segments":[{"type":"skill","content":"summarize","target":"agent_reviewer","skill_id":"skill_summarize","manifest_version":"1.0.0"}]}`, wantInvalid: true},
 		{name: "client supplied file metadata", request: `{"raw_message":"report","segments":[{"type":"file","content":"report","document_id":"document_1","document_version_id":"version_1","filename":"spoof.pdf","media_type":"application/pdf"}]}`, wantInvalid: true},
+		{name: "Human meeting notes rejected", request: `{"raw_message":"Quick notes","segments":[{"type":"meeting_notes","content":"Quick notes","capture_id":"capture_1"}]}`, wantInvalid: true},
 		{name: "invalid Document presentation", request: `{"raw_message":"report","segments":[{"type":"document","content":"report","document_id":"document_1","presentation":"banner"}]}`, wantInvalid: true},
 	}
 	for _, test := range tests {
@@ -121,5 +122,30 @@ func TestStoredArtifactTreeMessageCanBeReadAndForwarded(t *testing.T) {
 	text, err := forwarded.segments[0].AsTextSegment()
 	if err != nil || text.Content != "Published delivery" {
 		t.Fatalf("forwarded segment=%+v err=%v", text, err)
+	}
+}
+
+func TestStoredMeetingNotesReadAndForwardAsText(t *testing.T) {
+	encoded := []byte(`[{"type":"document","content":"source.m4a","document_id":"document_1","presentation":"card"},{"type":"meeting_notes","content":"Quick notes","capture_id":"capture_1"}]`)
+	raw := "source.m4aQuick notes"
+	stored, err := storedMessageContent(raw, encoded)
+	if err != nil || len(stored.segments) != 2 {
+		t.Fatalf("stored=%+v err=%v", stored, err)
+	}
+	forwarded, err := forwardedMessageContent(raw, encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kind, _ := forwarded.segments[1].Discriminator(); kind != "text" {
+		t.Fatalf("forwarded notes are %q", kind)
+	}
+	for _, bad := range []string{
+		`[{"type":"meeting_notes","content":"x","capture_id":"capture/1"}]`,
+		`[{"type":"meeting_notes","content":"x"}]`,
+		`[{"type":"meeting_notes","content":"x","capture_id":"capture_1","title":"T"}]`,
+	} {
+		if _, err := storedMessageContent("x", []byte(bad)); err == nil {
+			t.Fatalf("%s accepted", bad)
+		}
 	}
 }

@@ -317,7 +317,14 @@ async function harness(
         return {
           async pushPCM(frame: Int16Array) {
             through += 512;
-            return [{ throughSample: through, speech: frame[0] === 1 }];
+            // 1 is loud speech; 3 is speech 15 dB quieter.
+            return [
+              {
+                throughSample: through,
+                speech: frame[0] === 1 || frame[0] === 3,
+                levelDb: frame[0] === 3 ? -35 : -20,
+              },
+            ];
           },
           close: () => undefined,
         };
@@ -1032,6 +1039,56 @@ describe("LiveVoiceWorker", () => {
     expect(test.session().cancel).not.toHaveBeenCalled();
     await test.shutdown();
   });
+
+  it("hears quieter speech than the user's own as someone else in the room", async () => {
+    const test = await harness();
+    await answeredTurn(test);
+    await vi.waitFor(() => expect(test.source().frames).toHaveLength(2));
+    test.source().queued = 400;
+    const start = test.session().audio.length;
+    // The user's level is learned from their own words.
+    for (let index = 0; index < 5; index++) test.track.frame(1);
+    for (let index = 0; index < 10; index++) test.track.frame(0);
+    // Someone farther away talks over the reply, longer than a pause needs.
+    for (let index = 0; index < 12; index++) test.track.frame(3);
+    await vi.waitFor(() =>
+      expect(test.session().audio.length).toBe(start + 27),
+    );
+    expect(test.source().clears).toBe(0);
+    // It is gated like quiet: the provider hears silence.
+    expect(
+      test
+        .session()
+        .audio.slice(start + 15)
+        .every((frame) => frame.every((sample) => sample === 0)),
+    ).toBe(true);
+    await test.shutdown();
+  });
+
+  it.each([false, true])(
+    "passes quieter user speech on the first window outside playback (after reply: %s)",
+    async (afterReply) => {
+      const test = await harness();
+      for (let index = 0; index < 5; index++) test.track.frame(1);
+      for (let index = 0; index < 10; index++) test.track.frame(0);
+      await vi.waitFor(() => expect(test.session().audio).toHaveLength(15));
+      if (afterReply) {
+        await answeredTurn(test);
+        await vi.waitFor(() => expect(test.source().frames).toHaveLength(2));
+        test.source().queued = 400;
+        for (let index = 0; index < 12; index++) test.track.frame(3);
+        await vi.waitFor(() => expect(test.session().audio).toHaveLength(27));
+        expect(test.session().audio.at(-1)).toEqual(new Int16Array(320));
+        test.session().emit({ type: "response_finished", canceled: false });
+        test.source().queued = 0;
+      }
+      // A stale loud level must not mute a normal turn, even after it gated speech.
+      test.track.frame(3);
+      await vi.waitFor(() => expect(test.session().audio.at(-1)?.[0]).toBe(3));
+      expect(test.source().clears).toBe(0);
+      await test.shutdown();
+    },
+  );
 
   it("sends silence after a moment of local quiet and the held onset when speech resumes", async () => {
     const test = await harness();

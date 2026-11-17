@@ -11,6 +11,7 @@ export type TrayAction =
   | "check-update"
   | "show-logs"
   | "save-diagnostics"
+  | "send-diagnostics"
   | "quit";
 
 export type TrayMenuItem =
@@ -31,6 +32,8 @@ export interface TrayMenuState {
   // The updater's progress; a failure says why, since it is otherwise only
   // in the log.
   readonly update?: UpdateState;
+  // A diagnostics server is set up, so reports can be sent from here.
+  readonly canSendDiagnostics?: boolean;
 }
 
 // The tray menu. Items for features that do not exist yet
@@ -70,6 +73,15 @@ export const trayMenu = (state: TrayMenuState): TrayMenuItem[] => [
   // What to send when something goes wrong.
   { kind: "action", action: "show-logs", label: "Show Logs" },
   { kind: "action", action: "save-diagnostics", label: "Save Diagnostics…" },
+  ...(state.canSendDiagnostics
+    ? [
+        {
+          kind: "action" as const,
+          action: "send-diagnostics" as const,
+          label: "Send Diagnostics…",
+        },
+      ]
+    : []),
   { kind: "separator" },
   // Tasks run in the app, so quitting takes the computer offline.
   { kind: "action", action: "quit", label: "Quit Linger" },
@@ -107,6 +119,14 @@ const updateItems = (update: TrayMenuState["update"]): TrayMenuItem[] => {
       return update.services
         ? [{ kind: "label", label: "Updating Linger on This Computer…" }]
         : [];
+    case "available":
+      return [
+        {
+          kind: "action",
+          action: "install-update",
+          label: `Download Linger ${update.version}…`,
+        },
+      ];
     case "failed": {
       const reason =
         update.error.length > REASON_LENGTH
@@ -125,3 +145,25 @@ const updateItems = (update: TrayMenuState["update"]): TrayMenuItem[] => {
       return [];
   }
 };
+
+// The notification for an update once it is ready or available; clicking it
+// does what the tray's update item does.
+export function updateNotice(update: UpdateState): {
+  title: string;
+  body: string;
+} {
+  if (update.kind === "available")
+    return {
+      title: "Update available",
+      body: `Linger ${update.version} is available. Click to open its download page.`,
+    };
+  if (update.kind === "ready" && !update.services)
+    return {
+      title: "Update ready",
+      body: `Linger ${update.version} is downloaded. Click to restart Linger and update.`,
+    };
+  return {
+    title: "Update ready",
+    body: "Click to update Linger on this computer. It restarts in about a minute.",
+  };
+}

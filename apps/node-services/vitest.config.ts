@@ -5,7 +5,7 @@ const AGENT_PROCESS_TEST = "tests/agent/executor/agent-manager-process.test.ts";
 export default defineConfig({
   root: import.meta.dirname,
   test: {
-    // Real OCR workers run alongside the existing process tests.
+    // Real conversion workers run alongside the existing process tests.
     maxWorkers: 2,
     testTimeout: 5_000,
     environment: "node",
