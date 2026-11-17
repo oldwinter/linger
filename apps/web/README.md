@@ -7,6 +7,10 @@ save; a failed save keeps the editor open and offers Retry. This protects the
 mounted editor's draft, but does not provide recovery after a browser reload or
 coordinate writes from another tab.
 
+Room creation dialogs remain open while creation is pending.
+Routine dialogs also disable editing and competing actions during create, save,
+run, or delete. A failed request preserves the form for retry.
+
 Commands, conventions and boundaries are in [AGENTS.md](./AGENTS.md).
 
 ## Interaction behavior
