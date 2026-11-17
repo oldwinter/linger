@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ModalDialog } from "./modal-dialog";
@@ -17,7 +18,7 @@ function stubShowModal() {
   };
 }
 
-describe("ModalDialog initial focus", () => {
+describe("ModalDialog", () => {
   let restore: () => void;
 
   beforeEach(() => {
@@ -60,5 +61,92 @@ describe("ModalDialog initial focus", () => {
     );
 
     expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
+  });
+
+  it("closes only the nested dialog when its native cancel event crosses the React portal", () => {
+    const closeParent = vi.fn();
+    const closeChild = vi.fn();
+    function NestedDialogs() {
+      const [parentOpen, setParentOpen] = useState(true);
+      const [childOpen, setChildOpen] = useState(false);
+      return parentOpen ? (
+        <ModalDialog
+          onClose={() => {
+            closeParent();
+            setParentOpen(false);
+          }}
+          title="Connector details"
+        >
+          <input aria-label="Account label" defaultValue="Audit account" />
+          <button onClick={() => setChildOpen(true)} type="button">
+            Connect account
+          </button>
+          {childOpen ? (
+            <ModalDialog
+              onClose={() => {
+                closeChild();
+                setChildOpen(false);
+              }}
+              title="Connection unavailable"
+            >
+              <p>Configure this connection before trying again.</p>
+            </ModalDialog>
+          ) : null}
+        </ModalDialog>
+      ) : null;
+    }
+    render(<NestedDialogs />);
+    const parent = screen.getByRole("dialog", {
+      name: "Connector details",
+    });
+    fireEvent.click(
+      within(parent).getByRole("button", { name: "Connect account" }),
+    );
+    const child = screen.getByRole("dialog", {
+      name: "Connection unavailable",
+    });
+    expect(child.parentElement).toBe(document.body);
+    expect(parent.contains(child)).toBe(false);
+
+    fireEvent(child, new Event("cancel", { cancelable: true }));
+
+    expect(closeChild).toHaveBeenCalledOnce();
+    expect(closeParent).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("dialog", { name: "Connection unavailable" }),
+    ).toBeNull();
+    expect(parent).toBeVisible();
+    expect(
+      within(parent).getByRole("textbox", { name: "Account label" }),
+    ).toHaveValue("Audit account");
+
+    fireEvent(parent, new Event("cancel", { cancelable: true }));
+
+    expect(closeParent).toHaveBeenCalledOnce();
+    expect(closeChild).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("closes the native modal before removing it so the browser can restore focus", () => {
+    const originalClose = HTMLDialogElement.prototype.close;
+    const connectedWhenClosed: boolean[] = [];
+    HTMLDialogElement.prototype.close = function close(
+      this: HTMLDialogElement,
+    ) {
+      connectedWhenClosed.push(this.isConnected);
+      this.open = false;
+    };
+    try {
+      const { unmount } = render(
+        <ModalDialog onClose={vi.fn()} title="Daily report">
+          <button type="button">Copy report</button>
+        </ModalDialog>,
+      );
+      unmount();
+
+      expect(connectedWhenClosed).toEqual([true]);
+    } finally {
+      HTMLDialogElement.prototype.close = originalClose;
+    }
   });
 });

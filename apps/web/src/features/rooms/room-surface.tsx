@@ -7,8 +7,15 @@ import {
 } from "@tanstack/react-query";
 import {
   Delete02Icon,
+  FileAddIcon,
+  Login01Icon,
+  Logout01Icon,
   Search01Icon,
+  Share08Icon,
   SidebarRightIcon,
+  StopIcon,
+  UserGroupIcon,
+  WorkflowSquare01Icon,
 } from "@hugeicons/core-free-icons";
 import {
   lazy,
@@ -25,11 +32,11 @@ import {
 } from "react";
 import {
   Await,
-  Link,
   Outlet,
   useLoaderData,
   useLocation,
   useMatch,
+  useNavigate,
   useOutletContext,
   useParams,
   useSearchParams,
@@ -74,7 +81,7 @@ import {
   type OpenPanelTabInput,
   type RoomOutletContext,
 } from "./room-connectivity";
-import { RoomHeaderMenu } from "./room-nav-actions";
+import { RoomHeaderMenu } from "./room-header-menu";
 import { requireRoomRouteParam } from "./room-route-params";
 import {
   roomMembersQueryOptions,
@@ -101,11 +108,12 @@ import { AuthenticatedRouteLoading } from "./route-loading-surface";
 import { RoomPresentationBoundary } from "./room-presentation-boundary";
 import { GENERAL_AGENT_DEFAULT_NAME } from "./general-agent-defaults";
 import { MobileNavigationButton } from "./mobile-navigation";
-import { RoomAddDocumentLink } from "./room-add-document-link";
+import { roomAddDocumentPath } from "./room-add-document";
 import { RoomWatchLink } from "./room-watch-link";
-import { WorkMovesLink } from "./work-moves-link";
-import { WhoManagesLink } from "./who-manages-link";
-import { SteerRunLink } from "./steer-run-link";
+import { workMovesPath } from "./work-moves";
+import { whoManagesPath } from "./who-manages";
+import { steerRunPath } from "./steer-run";
+import { useRoomActivity } from "./use-room-activity";
 
 // Share the after-chat warmup and immediate-open import. A warmed module renders
 // directly, avoiding React.lazy's first-render Suspense delay.
@@ -810,6 +818,9 @@ function RoomHeader({
   roomId: string;
   tenantId: string;
 }) {
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const { runningRoomIds } = useRoomActivity(tenantId, true);
   const isDirectRoom = room.kind === "direct";
   const headerPeer =
     room.direct_peer?.kind === "agent" ? room.direct_peer : undefined;
@@ -819,18 +830,71 @@ function RoomHeader({
       room.name === GENERAL_AGENT_DEFAULT_NAME)
       ? headerPeer.display_name
       : room.name;
+  const roomActions = [
+    {
+      icon: FileAddIcon,
+      label: "Add a document",
+      path: roomAddDocumentPath(tenantId, roomId),
+    },
+    {
+      icon: WorkflowSquare01Icon,
+      label: "How work moves",
+      path: workMovesPath(tenantId, roomId),
+    },
+    {
+      icon: UserGroupIcon,
+      label: "Who can manage",
+      path: whoManagesPath(tenantId, roomId),
+    },
+    ...(runningRoomIds.includes(roomId)
+      ? [
+          {
+            icon: StopIcon,
+            label: "Steer this run",
+            path: steerRunPath(tenantId, roomId),
+          },
+        ]
+      : []),
+    ...(room.kind !== "thread"
+      ? [
+          {
+            icon: Share08Icon,
+            label: "Hand off",
+            path: handOffPath(tenantId, roomId),
+          },
+        ]
+      : []),
+    ...(room.kind === "room"
+      ? [
+          {
+            icon: room.participation === "left" ? Login01Icon : Logout01Icon,
+            label: room.participation === "left" ? "Come back" : "Step out",
+            path: stepOutPath(tenantId, roomId),
+          },
+        ]
+      : []),
+  ]
+    .filter((action) => action.path !== pathname)
+    .map(({ icon, label, path }) => ({
+      icon: <Icon icon={icon} size={14} />,
+      label,
+      onSelect: () => void navigate(path),
+    }));
 
   return (
     <header
-      className={`room-chat-header room-header ${isChatView ? "room-header--chat" : ""} grid h-(--app-header-height) shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(max-content,1fr)] items-center gap-2 border-b border-transparent bg-app-surface pl-3 pr-4`}
+      className={`room-chat-header room-header ${isChatView ? "room-header--chat" : ""} grid h-(--app-header-height) shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b border-transparent bg-app-surface pl-3 pr-4`}
     >
       <div className="flex min-w-0 items-center">
         <MobileNavigationButton />
       </div>
-      <div className="flex min-w-0 items-center justify-center gap-2">
+      <div className="flex min-w-0 items-center gap-2">
         {/* Avatar + name chip; the avatar button covers the whole chip and
             toggles the Agent or Room page in the side panel. */}
-        <div className="relative flex h-8 min-w-0 items-center gap-2 rounded-full bg-card pl-1 pr-3 shadow-outline transition-colors duration-150 hover:bg-accent">
+        <div
+          className="relative flex h-8 min-w-0 max-w-full items-center gap-2 rounded-full bg-card pl-1 pr-3 shadow-outline transition-colors duration-150 hover:bg-accent"
+          title={headerName}
+        >
           <button
             type="button"
             aria-expanded={panelOpen}
@@ -879,18 +943,6 @@ function RoomHeader({
       </div>
       <div className="flex shrink-0 items-center justify-end gap-1">
         <RoomWatchLink roomId={roomId} tenantId={tenantId} />
-        <RoomAddDocumentLink roomId={roomId} tenantId={tenantId} />
-        <WorkMovesLink roomId={roomId} tenantId={tenantId} />
-        <WhoManagesLink roomId={roomId} tenantId={tenantId} />
-        <SteerRunLink roomId={roomId} tenantId={tenantId} />
-        {room.kind !== "thread" ? (
-          <Link
-            className="shrink-0 rounded-lg px-2 py-1 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-            to={handOffPath(tenantId, room.id)}
-          >
-            Hand off
-          </Link>
-        ) : null}
         {/* Bootstrap sync is background work; the header shows nothing for it. */}
         <Suspense fallback={null}>
           <Await resolve={pendingBootstrap ?? { initialRoomSeq }}>
@@ -926,14 +978,6 @@ function RoomHeader({
           roomName={headerName}
           tenantId={tenantId}
         />
-        {room.kind === "room" ? (
-          <Link
-            className="rounded-lg px-2 text-xs text-muted-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            to={stepOutPath(tenantId, roomId)}
-          >
-            {room.participation === "left" ? "Come back" : "Step out"}
-          </Link>
-        ) : null}
         {canDeleteDeletedAgentRoom ? (
           <Button
             aria-label="Delete Room"
@@ -946,7 +990,12 @@ function RoomHeader({
             <Icon icon={Delete02Icon} size={16} />
           </Button>
         ) : null}
-        <RoomHeaderMenu name={headerName} roomId={roomId} tenantId={tenantId} />
+        <RoomHeaderMenu
+          actions={roomActions}
+          name={headerName}
+          roomId={roomId}
+          tenantId={tenantId}
+        />
         {panelOpen ? (
           <span
             aria-hidden="true"

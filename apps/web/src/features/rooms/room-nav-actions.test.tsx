@@ -24,11 +24,8 @@ import {
   type TestRouteRequest,
 } from "@/test/teamhub-test-server";
 
-import {
-  AgentRowMenu,
-  RoomHeaderMenu,
-  RoomMentionMenu,
-} from "./room-nav-actions";
+import { RoomHeaderMenu } from "./room-header-menu";
+import { AgentRowMenu, RoomMentionMenu } from "./room-nav-actions";
 import { tenantRoomsQueryKey } from "./room-queries";
 
 vi.mock("@/lib/clipboard", () => ({ writeClipboardText: vi.fn() }));

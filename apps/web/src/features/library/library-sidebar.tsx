@@ -1,4 +1,4 @@
-import { ArrowLeft01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
 import { type ReactNode, useLayoutEffect, useRef } from "react";
 import { Link } from "react-router";
@@ -108,17 +108,6 @@ export function LibrarySidebar({
               <Icon icon={ArrowLeft01Icon} className="shrink-0" size={16} />
               <span className="truncate">Back to Library</span>
             </Link>
-            {mobileOpen && onMobileClose ? (
-              <button
-                aria-label="Close Owned by Me"
-                className="flex size-8 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus sm:hidden"
-                onClick={onMobileClose}
-                title="Close Owned by Me"
-                type="button"
-              >
-                <Icon icon={Cancel01Icon} size={16} />
-              </button>
-            ) : null}
           </header>
           <div className="pt-2">{children}</div>
           <div className="mt-1">

@@ -3,7 +3,6 @@ import { useRoomRenderTiming } from "./room-render-timing";
 import {
   AlertCircleIcon,
   ArrowDown01Icon,
-  Cancel01Icon,
   PinIcon,
   Search01Icon,
   SidebarLeftIcon,
@@ -437,20 +436,6 @@ export function RoomSecondaryNavigation({
           </button>
         </div>
       )}
-
-      <div className="room-nav-controls pr-2 md:hidden">
-        <div className="mt-1 flex items-center justify-end">
-          <Button
-            aria-label="Close Room navigation"
-            className="md:hidden"
-            onClick={onCloseMobile}
-            size="icon"
-            tone="ghost"
-          >
-            <Icon icon={Cancel01Icon} size={16} />
-          </Button>
-        </div>
-      </div>
 
       {localAgentOpen ? (
         <Suspense fallback={null}>

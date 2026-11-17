@@ -107,7 +107,9 @@ function shouldDeferEscape(event: KeyboardEvent) {
   return (
     event.target instanceof Element &&
     Boolean(
-      event.target.closest("dialog, [role='dialog'], [role='alertdialog']"),
+      event.target.closest(
+        "dialog[open], [role='dialog'], [role='alertdialog']",
+      ),
     )
   );
 }

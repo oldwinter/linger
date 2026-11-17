@@ -217,17 +217,6 @@ export function useMarkAllRoomsRead(tenantId: string) {
 const roomNavActionClass =
   "flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-150 hover:bg-foreground/5 hover:text-foreground aria-expanded:bg-foreground/5 aria-expanded:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
-const roomHeaderActionClass =
-  "flex size-8 shrink-0 items-center justify-center rounded-lg text-app-muted transition-colors hover:bg-app-hover hover:text-app-ink aria-expanded:bg-app-hover aria-expanded:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus";
-
-/**
- * Copies a Room's canonical chat URL. A thread is a Room, so passing its id
- * copies the thread's own URL.
- */
-function useRoomLinkCopy(tenantId: string, roomId: string) {
-  return useRoomClipboardCopy(() => roomChatPath(tenantId, roomId));
-}
-
 /** The row action, present only when the Room has a cursor to acknowledge. */
 function roomMarkReadItems(
   markRead: ReturnType<typeof useRoomMarkRead>,
@@ -255,35 +244,6 @@ function RoomMarkReadStatus({ failed }: { failed: boolean }) {
     <span className="text-xs leading-4 text-app-danger" role="alert">
       Could not mark as read.
     </span>
-  );
-}
-
-/** The Room header's overflow menu. */
-export function RoomHeaderMenu({
-  name,
-  roomId,
-  tenantId,
-}: {
-  name: string;
-  roomId: string;
-  tenantId: string;
-}) {
-  const link = useRoomLinkCopy(tenantId, roomId);
-  return (
-    <>
-      <RoomCopyStatus state={link.state} />
-      <ActionMenu
-        buttonClassName={roomHeaderActionClass}
-        items={[
-          {
-            icon: <Icon icon={Link01Icon} size={14} />,
-            label: "Copy Room link",
-            onSelect: link.copy,
-          },
-        ]}
-        label={`More actions for ${name}`}
-      />
-    </>
   );
 }
 
@@ -467,7 +427,7 @@ export function AgentRowMenu({
     (agent) => agent.actor.id === agentId,
   );
   const canDelete = canDeleteTenantAgent(registration, currentActorId);
-  const link = useRoomLinkCopy(tenantId, roomId);
+  const link = useRoomClipboardCopy(() => roomChatPath(tenantId, roomId));
   const markRead = useRoomMarkRead(tenantId);
   return (
     <>

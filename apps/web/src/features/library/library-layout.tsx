@@ -4,6 +4,7 @@ import { Outlet, useLocation, useParams } from "react-router";
 
 import { DesktopBarSlot } from "@/app/desktop-frame";
 import { isDesktopShell } from "@/app/desktop-shell";
+import { NavigationDrawer } from "@/components/ui/navigation-drawer";
 import { documentQueryOptions } from "@/features/rooms/room-queries";
 import { RouteContentBoundary } from "@/features/rooms/route-content-boundary";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
@@ -80,46 +81,45 @@ export function LibraryLayout() {
         <div className="library-layout flex min-h-0 flex-1 flex-col overflow-hidden bg-app-surface">
           {isDesktopShell() ? <div className="library-desktop-bar" /> : null}
           <div className="library-layout-body relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-            {treeOpen ? (
-              <button
-                aria-hidden="true"
-                className="absolute inset-0 z-30 bg-background/20 backdrop-blur-[8px] sm:hidden"
-                onClick={() => setTreeOpenAt(null)}
-                tabIndex={-1}
-                type="button"
-              />
-            ) : null}
             {hasList ? (
-              <LibrarySidebar
-                active={section}
-                backTo={libraryFolderBackPath(
-                  tenantId,
-                  tree.data?.items ?? [],
-                  documentId,
-                )}
-                holdsOpenFile={holdsWikiPage ? "wiki" : null}
-                id={WORKSPACE_TREE_ID}
-                mobileOpen={treeOpen}
-                onMobileClose={() => setTreeOpenAt(null)}
-                tenantId={tenantId}
+              <NavigationDrawer
+                ariaLabel="Library pages"
+                closeLabel="Close Library pages"
+                mobileBreakpoint="sm"
+                onClose={() => setTreeOpenAt(null)}
+                open={treeOpen}
               >
-                <MyDocumentsTree
-                  activeDocumentId={documentId}
-                  // My pages starts shut on every entry page, folders included;
-                  // later navigation keeps whatever the reader opened.
-                  collapseCollectionInitially
-                  collapseFoldersInitially
-                  items={tree.data?.items ?? []}
-                  loadError={tree.error}
-                  onChanged={() =>
-                    queryClient.invalidateQueries({
-                      queryKey: ["teamhub", tenantId, "document-tree"],
-                    })
-                  }
-                  pending={tree.isPending}
+                <LibrarySidebar
+                  active={section}
+                  backTo={libraryFolderBackPath(
+                    tenantId,
+                    tree.data?.items ?? [],
+                    documentId,
+                  )}
+                  holdsOpenFile={holdsWikiPage ? "wiki" : null}
+                  id={WORKSPACE_TREE_ID}
+                  mobileOpen={treeOpen}
+                  onMobileClose={() => setTreeOpenAt(null)}
                   tenantId={tenantId}
-                />
-              </LibrarySidebar>
+                >
+                  <MyDocumentsTree
+                    activeDocumentId={documentId}
+                    // My pages starts shut on every entry page, folders included;
+                    // later navigation keeps whatever the reader opened.
+                    collapseCollectionInitially
+                    collapseFoldersInitially
+                    items={tree.data?.items ?? []}
+                    loadError={tree.error}
+                    onChanged={() =>
+                      queryClient.invalidateQueries({
+                        queryKey: ["teamhub", tenantId, "document-tree"],
+                      })
+                    }
+                    pending={tree.isPending}
+                    tenantId={tenantId}
+                  />
+                </LibrarySidebar>
+              </NavigationDrawer>
             ) : null}
             {content}
           </div>

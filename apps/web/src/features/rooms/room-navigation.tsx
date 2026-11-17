@@ -14,6 +14,7 @@ import {
 import { isDesktopShell, useDesktopListCollapsed } from "@/app/desktop-shell";
 import { BrandMark } from "@/components/ui/brand-mark";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
+import { NavigationDrawer } from "@/components/ui/navigation-drawer";
 import { useRoomListWidth } from "@/components/ui/use-sidebar-width";
 import {
   documentQueryOptions,
@@ -116,15 +117,12 @@ export function RoomNavigation({
     roomNavigationVisible && rooms.length > 0,
   );
   return (
-    <>
-      {mobileOpen ? (
-        <button
-          aria-label="Close Room navigation"
-          className="fixed inset-0 z-30 bg-(--app-overlay) backdrop-blur-sm md:hidden"
-          onClick={onCloseMobile}
-          type="button"
-        />
-      ) : null}
+    <NavigationDrawer
+      ariaLabel="Room navigation"
+      closeLabel="Close Room navigation"
+      onClose={onCloseMobile}
+      open={mobileOpen}
+    >
       <aside
         aria-label="Collaboration sidebar"
         data-animating={railToggling || undefined}
@@ -273,7 +271,7 @@ export function RoomNavigation({
           />
         ) : null}
       </aside>
-    </>
+    </NavigationDrawer>
   );
 }
 

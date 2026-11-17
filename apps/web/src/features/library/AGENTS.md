@@ -42,6 +42,9 @@
   its multi-level Folder, inline create/rename, tree-local Move, Duplicate,
   import/export, trash/restore, ancestor expansion, active reveal, scroll
   restoration, keyboard, and menu behavior behind the shared tree module.
+- Personal and shared Folder renames ignore Enter and Escape while an input
+  method is composing. Submission and cancellation resume after composition
+  ends; language-specific key or text matching does not decide this.
 - Shared with me is a Binding-derived smart view of accessible Documents not
   owned by the current Human. It never creates a Placement or masquerades as a
   Folder. Copy to My Documents creates an independent Document through the

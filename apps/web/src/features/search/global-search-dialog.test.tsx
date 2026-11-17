@@ -129,6 +129,54 @@ describe("Global search dialog", () => {
     await waitFor(() => expect(harness.searchDocuments).toHaveBeenCalled());
   });
 
+  it.each<SearchRoomScope>([
+    { id: "room-all", name: "All hands" },
+    {
+      id: "room-thread-1",
+      label: "Thread · Rollout plan",
+      name: "Rollout plan",
+    },
+  ])(
+    "clears the $name scope with empty Backspace and keeps other editing keys native",
+    async (room) => {
+      const harness = await renderDialog({ room });
+      const input = screen.getByRole("combobox", { name: INPUT_NAME });
+      const removeScope = () =>
+        screen.queryByRole("button", {
+          name: `Remove ${room.label ?? "This Room"} scope`,
+        });
+      expect(fireEvent.keyDown(input, { key: "Tab" })).toBe(true);
+      expect(fireEvent.keyDown(input, { key: "Tab", shiftKey: true })).toBe(
+        true,
+      );
+      expect(
+        fireEvent.keyDown(input, { key: "Backspace", isComposing: true }),
+      ).toBe(true);
+      expect(fireEvent.keyDown(input, { key: "Backspace", keyCode: 229 })).toBe(
+        true,
+      );
+      expect(removeScope()).toBeVisible();
+
+      fireEvent.change(input, { target: { value: "deploy" } });
+      expect(fireEvent.keyDown(input, { key: "Backspace" })).toBe(true);
+      expect(removeScope()).toBeVisible();
+      fireEvent.change(input, { target: { value: "" } });
+      expect(fireEvent.keyDown(input, { key: "Backspace" })).toBe(false);
+      expect(removeScope()).toBeNull();
+      expect(input).toHaveFocus();
+
+      fireEvent.change(input, { target: { value: "deploy" } });
+      await waitFor(() =>
+        expect(searchRequests(harness.searchMessages)).toContainEqual({
+          params: { tenantId: TENANT },
+          query: { limit: "20", q: "deploy" },
+          signal: expect.any(AbortSignal),
+        }),
+      );
+      await waitFor(() => expect(harness.searchDocuments).toHaveBeenCalled());
+    },
+  );
+
   it("names a Thread in the scope chip and widens to global search when cleared", async () => {
     const harness = await renderDialog({
       room: {
@@ -708,13 +756,14 @@ describe("Global search dialog", () => {
 
     // Tab narrows to the highlighted row's type.
     await hover(results().getByRole("option", { name: /Jenny's Delegate/ }));
-    fireEvent.keyDown(input, { key: "Tab" });
+    expect(fireEvent.keyDown(input, { key: "Tab" })).toBe(false);
     expect(
       screen.getByRole("button", { name: "Remove Members scope" }),
     ).toBeVisible();
     expect(
       results().getByRole("option", { name: /Jenny's Delegate/ }),
     ).toBeVisible();
+    expect(fireEvent.keyDown(input, { key: "Tab" })).toBe(true);
   });
 
   it.each([
@@ -810,6 +859,49 @@ describe("Global search dialog", () => {
     ).toBeVisible();
     fireEvent.keyDown(input, { key: "Escape" });
     expect(harness.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("consumes only plain Tab that changes scope and otherwise allows native focus movement", async () => {
+    await renderDialog();
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    for (const modifiers of [
+      { shiftKey: true },
+      { altKey: true },
+      { ctrlKey: true },
+      { metaKey: true },
+      { isComposing: true },
+      { keyCode: 229 },
+    ]) {
+      expect(fireEvent.keyDown(input, { key: "Tab", ...modifiers })).toBe(true);
+      expect(
+        screen.queryByRole("button", { name: "Remove Messages scope" }),
+      ).toBeNull();
+    }
+
+    expect(fireEvent.keyDown(input, { key: "Tab" })).toBe(false);
+    expect(
+      screen.getByRole("button", { name: "Remove Messages scope" }),
+    ).toBeVisible();
+    expect(fireEvent.keyDown(input, { key: "Tab" })).toBe(true);
+    expect(fireEvent.keyDown(input, { key: "Tab", shiftKey: true })).toBe(true);
+  });
+
+  it("allows Tab to leave a selected recent query without changing scope", async () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seededStore()));
+    await renderDialog();
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    for (let step = 0; step < 4; step += 1) {
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+    }
+    expect(results().getByRole("option", { name: "deploy" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    expect(fireEvent.keyDown(input, { key: "Tab" })).toBe(true);
+    expect(
+      screen.queryByRole("button", { name: /Remove .* scope/ }),
+    ).toBeNull();
   });
 
   it("drops the highlight when the pointer leaves the list and keeps Enter on the active row", async () => {

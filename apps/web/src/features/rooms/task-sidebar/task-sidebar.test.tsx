@@ -11,6 +11,7 @@ import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { NavigationDrawer } from "@/components/ui/navigation-drawer";
 import {
   createDocumentTestRuntime,
   seedRoomUpload,
@@ -1383,6 +1384,32 @@ describe("TaskSidebar", () => {
 
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onCollapse).toHaveBeenCalled();
+  });
+
+  it("handles Escape from the desktop navigation presentation", () => {
+    const onCollapse = vi.fn();
+    renderSidebar({
+      activeTabId: null,
+      onCollapse,
+      tabs: [],
+    });
+    render(
+      <NavigationDrawer
+        ariaLabel="Room navigation"
+        closeLabel="Close Room navigation"
+        onClose={vi.fn()}
+        open={false}
+      >
+        <button type="button">Desktop navigation control</button>
+      </NavigationDrawer>,
+    );
+    expect(document.querySelector("dialog[open]")).toBeNull();
+    const control = screen.getByRole("button", {
+      name: "Desktop navigation control",
+    });
+    control.focus();
+    fireEvent.keyDown(control, { key: "Escape" });
+    expect(onCollapse).toHaveBeenCalledOnce();
   });
 
   it("closes the active tab on Escape without collapsing when tabs remain", () => {
