@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from "react";
 
+import type { TeamHubArtifactContentLocation } from "@/features/teamhub/teamhub-types";
+
 import {
   DEFAULT_MEETING_PLAYBACK_RATE,
   isMeetingPlaybackRate,
@@ -13,22 +15,10 @@ export interface PlaybackLeave {
   seconds: number;
 }
 
-/** The recording and the meeting it belongs to, before a blob URL exists. */
-export interface CarriedMeetingDraft {
-  accountId?: string;
-  blob: Blob;
-  filename: string;
-  href: string;
-  mediaType: string;
-  meetingId: string;
-  rate: MeetingPlaybackRate;
-  seconds: number;
-  title: string;
-}
-
 /** One recording that kept playing after its meeting page closed. */
 export interface CarriedMeeting {
   accountId?: string;
+  dispose: () => void;
   filename: string;
   href: string;
   mediaType: string;
@@ -46,21 +36,21 @@ export interface CarriedMeeting {
 export function carriedMeetingFromLeave(
   source: {
     accountId?: string;
-    blob?: Blob;
     filename: string;
     href: string;
     mediaType?: string;
     meetingId: string;
+    playback?: TeamHubArtifactContentLocation;
     title: string;
   },
   leave: PlaybackLeave,
-): CarriedMeetingDraft | undefined {
-  if (!leave.playing || !source.blob) return;
+): CarriedMeeting | undefined {
+  if (!leave.playing || !source.playback) return;
   if (!source.mediaType?.toLowerCase().startsWith("audio/")) return;
   if (!Number.isFinite(leave.seconds) || leave.seconds < 0) return;
   return {
     accountId: source.accountId,
-    blob: source.blob,
+    dispose: source.playback.dispose,
     filename: source.filename,
     href: source.href,
     mediaType: source.mediaType,
@@ -69,19 +59,17 @@ export function carriedMeetingFromLeave(
       ? leave.rate
       : DEFAULT_MEETING_PLAYBACK_RATE,
     seconds: leave.seconds,
+    src: source.playback.url,
     title: source.title,
   };
 }
 
 let carried: CarriedMeeting | undefined;
+let playbackSession = Symbol();
 const listeners = new Set<() => void>();
 
 function emit() {
   for (const listener of listeners) listener();
-}
-
-function revoke(meeting: CarriedMeeting | undefined) {
-  if (meeting) URL.revokeObjectURL(meeting.src);
 }
 
 /** The recording still playing away from its meeting, if there is one. */
@@ -98,28 +86,30 @@ export function useCarriedMeeting() {
   return useSyncExternalStore(subscribeCarriedMeeting, carriedMeetingSnapshot);
 }
 
-/** Keeps at most one recording. A newer one replaces whatever was playing. */
-export function carryMeeting(draft: CarriedMeetingDraft) {
-  const src = URL.createObjectURL(draft.blob);
-  revoke(carried);
-  carried = {
-    accountId: draft.accountId,
-    filename: draft.filename,
-    href: draft.href,
-    mediaType: draft.mediaType,
-    meetingId: draft.meetingId,
-    rate: draft.rate,
-    seconds: draft.seconds,
-    src,
-    title: draft.title,
-  };
-  emit();
+/** A player captures this identity before its authenticated page can leave. */
+export function currentMeetingPlaybackSession() {
+  return playbackSession;
 }
 
-/** Stops the recording that followed the listener and frees its blob URL. */
+/** Authentication cleanup also invalidates players that have yet to unmount. */
+export function resetMeetingPlaybackSession() {
+  playbackSession = Symbol();
+  releaseCarriedMeeting();
+}
+
+/** Accepts ownership only within the player's Session; newer audio replaces it. */
+export function carryMeeting(meeting: CarriedMeeting, session: symbol) {
+  if (session !== playbackSession) return false;
+  carried?.dispose();
+  carried = meeting;
+  emit();
+  return true;
+}
+
+/** Stops the recording that followed the listener and releases its playback. */
 export function releaseCarriedMeeting() {
   if (!carried) return;
-  revoke(carried);
+  carried.dispose();
   carried = undefined;
   emit();
 }

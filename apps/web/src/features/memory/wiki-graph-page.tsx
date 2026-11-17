@@ -5,7 +5,7 @@ import {
   RefreshIcon,
 } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, Suspense, useMemo } from "react";
 import { useParams, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -21,11 +21,12 @@ import { wikiPreviewPages } from "@/features/wiki/wiki-preview-pages";
 import { graphWithPagesBeingWritten } from "./graph-being-written";
 import { WikiRefreshBanner } from "@/features/wiki/wiki-refresh-status";
 import { useAnotherMeActorId } from "@/features/wiki/wiki-working-card";
+import { isCalendarDay } from "./day-review";
 import { nodeMoments, parseEmbeddedWikiGraph } from "./wiki-graph-model";
 import { WikiBack } from "@/features/wiki/wiki-home-page";
 import { WikiFlashbackCard } from "./wiki-flashback-card";
 import { WikiKnowledgeGraph } from "./wiki-knowledge-graph";
-import { usePeriodReports } from "./wiki-period-reports";
+import { usePeriodReports, type PeriodReportKind } from "./wiki-period-reports";
 
 const DailyPanel = lazy(async () => {
   const { WikiGraphDailyPanel } = await import("./wiki-graph-daily-panel");
@@ -40,21 +41,16 @@ const ReportCards = lazy(async () => {
 export function WikiGraphPage() {
   const { client } = useTeamHubRuntime();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
-  const [searchParams] = useSearchParams();
-  const initialDay = searchParams.get("day");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const reportDay = searchParams.get("day") ?? searchParams.get("week");
+  const reportKind: PeriodReportKind = searchParams.has("day")
+    ? "daily"
+    : "weekly";
+  const selectedReport = isCalendarDay(reportDay)
+    ? { kind: reportKind, day: reportDay }
+    : undefined;
   const reports = usePeriodReports(tenantId, "daily");
   const anotherMe = useAnotherMeActorId(tenantId);
-  const [selectedReport, setSelectedReport] = useState<
-    | {
-        kind: "daily" | "weekly";
-        day: string;
-      }
-    | undefined
-  >(() =>
-    initialDay && /^\d{4}-\d{2}-\d{2}$/.test(initialDay)
-      ? { kind: "daily", day: initialDay }
-      : undefined,
-  );
   const graph = useQuery({
     queryFn: () => client.getPersonalKnowledgeGraphVisualization(tenantId),
     queryKey: ["teamhub", tenantId, "personal-wiki", "graph"],
@@ -90,6 +86,29 @@ export function WikiGraphPage() {
         return title ? [title] : [];
       })
     : [];
+
+  function selectReport(kind: PeriodReportKind, day: string) {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete("day");
+      next.delete("week");
+      next.set(kind === "daily" ? "day" : "week", day);
+      return next;
+    });
+  }
+
+  function closeReport() {
+    if (!searchParams.has("day") && !searchParams.has("week")) return;
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("day");
+        next.delete("week");
+        return next;
+      },
+      { replace: true },
+    );
+  }
 
   return (
     <main className="wiki-graph-page flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-app-surface">
@@ -162,12 +181,12 @@ export function WikiGraphPage() {
             graph={filteredGraph}
             timelineMoments={timelineMoments}
             key={`${tenantId}:${graph.dataUpdatedAt}`}
-            onReadingModeChange={() => setSelectedReport(undefined)}
+            onReadingModeChange={closeReport}
             renderTimeline={(pages, granularity, navigation) => (
               <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                 <WikiFlashbackCard
                   reports={reports.data}
-                  onOpen={(day) => setSelectedReport({ kind: "daily", day })}
+                  onOpen={(day) => selectReport("daily", day)}
                 />
                 <Suspense
                   fallback={
@@ -183,9 +202,7 @@ export function WikiGraphPage() {
                     granularity={granularity}
                     focus={navigation.focus}
                     onPeriodChange={navigation.onPeriodChange}
-                    onSelectReport={(kind, day) =>
-                      setSelectedReport({ kind, day })
-                    }
+                    onSelectReport={selectReport}
                   />
                 </Suspense>
               </div>
@@ -204,11 +221,10 @@ export function WikiGraphPage() {
                     day={selectedReport.day}
                     kind={selectedReport.kind}
                     tenantId={tenantId}
-                    onClose={() => setSelectedReport(undefined)}
+                    onClose={closeReport}
                     onOpenDay={
                       selectedReport.kind === "daily"
-                        ? (next) =>
-                            setSelectedReport({ kind: "daily", day: next })
+                        ? (next) => selectReport("daily", next)
                         : undefined
                     }
                   />

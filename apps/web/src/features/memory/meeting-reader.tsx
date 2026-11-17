@@ -36,6 +36,7 @@ import { timedTranscriptTurns, wordsInTopic } from "./topic-words";
 import {
   carriedMeetingFromLeave,
   carryMeeting,
+  currentMeetingPlaybackSession,
   useCarriedMeeting,
 } from "./meeting-carry";
 import { meetingPace, type MeetingPacePoint } from "./meeting-pace";
@@ -673,7 +674,9 @@ export function MeetingReader({
                             : undefined
                         }
                         onReadSpoken={
-                          meeting.transcript_document_id ? readSpoken : undefined
+                          meeting.transcript_document_id
+                            ? readSpoken
+                            : undefined
                         }
                         topics={block.topics}
                       />
@@ -782,10 +785,7 @@ export function MeetingReader({
               filename="transcript.md"
               meetingLineUrl={(seconds) =>
                 new URL(
-                  meetingLineOpenUrl(
-                    meetingPath(tenantId, entry.id),
-                    seconds,
-                  ),
+                  meetingLineOpenUrl(meetingPath(tenantId, entry.id), seconds),
                   window.location.origin,
                 ).toString()
               }
@@ -862,8 +862,12 @@ function MeetingVersionReader({
 }) {
   const { client } = useTeamHubRuntime();
   const speakerNames = useSpeakerNames(captureId);
+  const [carrySession] = useState(currentMeetingPlaybackSession);
   const [preview, setPreview] = useState<LoadedArtifactPreview>();
   const previewRef = useRef(preview);
+  const carriedPreviewRef = useRef<LoadedArtifactPreview | undefined>(
+    undefined,
+  );
   const carryRef = useRef(carry);
   useEffect(() => {
     previewRef.current = preview;
@@ -1003,7 +1007,7 @@ function MeetingVersionReader({
   useEffect(() => {
     const controller = new AbortController();
     transfer.current = controller;
-    let dispose: (() => void) | undefined;
+    let loadedPreview: LoadedArtifactPreview | undefined;
     setPreview(undefined);
     setCopyState(undefined);
     setError(undefined);
@@ -1018,7 +1022,7 @@ function MeetingVersionReader({
           result.dispose();
           return;
         }
-        dispose = result.dispose;
+        loadedPreview = result;
         setPreview(result);
       })
       .catch((failure: unknown) => {
@@ -1041,7 +1045,7 @@ function MeetingVersionReader({
       });
     return () => {
       controller.abort();
-      dispose?.();
+      if (loadedPreview !== carriedPreviewRef.current) loadedPreview?.dispose();
     };
   }, [client, documentId, versionId, attempt]);
   async function download() {
@@ -1245,16 +1249,20 @@ function MeetingVersionReader({
           const draft = carriedMeetingFromLeave(
             {
               accountId,
-              blob: loaded?.blob,
               filename,
               href: request.href,
               mediaType: loaded?.version.media_type,
               meetingId,
+              playback: loaded?.objectUrl
+                ? { dispose: loaded.dispose, url: loaded.objectUrl }
+                : undefined,
               title: request.title,
             },
             leave,
           );
-          if (draft) carryMeeting(draft);
+          if (draft && carryMeeting(draft, carrySession)) {
+            carriedPreviewRef.current = loaded;
+          }
         }}
         onRecordingEnded={onRecordingEnded}
         onTime={onTime}

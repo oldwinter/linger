@@ -4,16 +4,21 @@ import {
   carriedMeetingFromLeave,
   carriedMeetingSnapshot,
   carryMeeting,
+  currentMeetingPlaybackSession,
   releaseCarriedMeeting,
+  resetMeetingPlaybackSession,
 } from "./meeting-carry";
 
 const source = {
   accountId: "account-jenny",
-  blob: new Blob(["audio"], { type: "audio/mp4" }),
   filename: "recording.m4a",
   href: "/t/tenant-northstar/library/meetings?entry=meeting-1",
   mediaType: "audio/mp4",
   meetingId: "meeting-1",
+  playback: {
+    dispose: () => undefined,
+    url: "/v0/document-versions/audio-version/content",
+  },
   title: "Monday standup",
 };
 
@@ -44,7 +49,7 @@ describe("carriedMeetingFromLeave", () => {
     ).toBeUndefined();
     expect(
       carriedMeetingFromLeave(
-        { ...source, blob: undefined },
+        { ...source, playback: undefined },
         { playing: true, rate: 1, seconds: 4 },
       ),
     ).toBeUndefined();
@@ -58,24 +63,86 @@ describe("carriedMeetingFromLeave", () => {
 });
 
 describe("carryMeeting", () => {
-  it("holds one recording and frees its blob URL when it is left behind", () => {
-    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:carried");
-    const revoke = vi
-      .spyOn(URL, "revokeObjectURL")
-      .mockImplementation(() => undefined);
+  it("rejects a late handoff from a cleared Session and accepts a new one", () => {
+    const staleSession = currentMeetingPlaybackSession();
+    const carriedDispose = vi.fn();
+    const staleDispose = vi.fn();
+    const freshDispose = vi.fn();
+    const meeting = carriedMeetingFromLeave(
+      { ...source, playback: { ...source.playback, dispose: carriedDispose } },
+      { playing: true, rate: 1, seconds: 8 },
+    )!;
+    expect(carryMeeting(meeting, staleSession)).toBe(true);
+
+    resetMeetingPlaybackSession();
+    resetMeetingPlaybackSession();
+    expect(carriedMeetingSnapshot()).toBeUndefined();
+    expect(carriedDispose).toHaveBeenCalledOnce();
+    expect(
+      carryMeeting({ ...meeting, dispose: staleDispose }, staleSession),
+    ).toBe(false);
+    expect(staleDispose).not.toHaveBeenCalled();
+    expect(carriedMeetingSnapshot()).toBeUndefined();
+
+    expect(
+      carryMeeting(
+        { ...meeting, dispose: freshDispose },
+        currentMeetingPlaybackSession(),
+      ),
+    ).toBe(true);
+    releaseCarriedMeeting();
+    expect(freshDispose).toHaveBeenCalledOnce();
+    expect(carriedDispose).toHaveBeenCalledOnce();
+  });
+
+  it("holds one recording and releases its playback when it is left behind", () => {
+    const dispose = vi.fn();
     carryMeeting(
-      carriedMeetingFromLeave(source, {
-        playing: true,
-        rate: 1,
-        seconds: 8,
-      })!,
+      carriedMeetingFromLeave(
+        { ...source, playback: { ...source.playback, dispose } },
+        { playing: true, rate: 1, seconds: 8 },
+      )!,
+      currentMeetingPlaybackSession(),
     );
     expect(carriedMeetingSnapshot()).toMatchObject({
       meetingId: "meeting-1",
-      src: "blob:carried",
+      src: source.playback.url,
     });
     releaseCarriedMeeting();
     expect(carriedMeetingSnapshot()).toBeUndefined();
-    expect(revoke).toHaveBeenCalledWith("blob:carried");
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it("releases each playback once when another recording replaces it", () => {
+    const firstDispose = vi.fn();
+    const secondDispose = vi.fn();
+    carryMeeting(
+      carriedMeetingFromLeave(
+        { ...source, playback: { ...source.playback, dispose: firstDispose } },
+        { playing: true, rate: 1, seconds: 8 },
+      )!,
+      currentMeetingPlaybackSession(),
+    );
+    carryMeeting(
+      carriedMeetingFromLeave(
+        {
+          ...source,
+          meetingId: "meeting-2",
+          playback: { ...source.playback, dispose: secondDispose },
+        },
+        { playing: true, rate: 1, seconds: 24 },
+      )!,
+      currentMeetingPlaybackSession(),
+    );
+
+    expect(carriedMeetingSnapshot()?.meetingId).toBe("meeting-2");
+    expect(firstDispose).toHaveBeenCalledOnce();
+    expect(secondDispose).not.toHaveBeenCalled();
+
+    releaseCarriedMeeting();
+    releaseCarriedMeeting();
+    expect(carriedMeetingSnapshot()).toBeUndefined();
+    expect(firstDispose).toHaveBeenCalledOnce();
+    expect(secondDispose).toHaveBeenCalledOnce();
   });
 });

@@ -6,6 +6,7 @@ import {
   carriedMeetingFromLeave,
   carriedMeetingSnapshot,
   carryMeeting,
+  currentMeetingPlaybackSession,
   releaseCarriedMeeting,
 } from "./meeting-carry";
 import {
@@ -744,21 +745,23 @@ describe("MeetingAudioPlayer speed memory", () => {
   });
 
   it("stops a recording that followed you when this one starts", () => {
-    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:carried");
-    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
     carryMeeting(
       carriedMeetingFromLeave(
         {
-          blob: new Blob(["audio"], { type: "audio/mp4" }),
           filename: "other.m4a",
           href: "/meetings?entry=other",
           mediaType: "audio/mp4",
           meetingId: "other",
+          playback: {
+            dispose: () => undefined,
+            url: "/v0/document-versions/other-version/content",
+          },
           title: "Other",
         },
         { playing: true, rate: 1, seconds: 3 },
       )!,
+      currentMeetingPlaybackSession(),
     );
     render(
       <MeetingAudioPlayer

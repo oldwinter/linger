@@ -9,7 +9,6 @@ import {
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Icon } from "@/components/ui/icon";
 import { useEffect, useRef, useState, type PointerEvent } from "react";
-import { createPortal } from "react-dom";
 import { Link } from "react-router";
 import {
   extractRenderedDocumentHeadings,
@@ -19,6 +18,7 @@ import { ReadOnlyBlockNoteDocument } from "@/components/read-only-blocknote-docu
 import { useDocumentAnchorLinks } from "@/components/document-anchor-links";
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
 import { Button, buttonClassName } from "@/components/ui/button";
+import { ModalDialog } from "@/components/ui/modal-dialog";
 import { roomMessageSender } from "@/features/rooms/chat/room-message-sender";
 import { tenantRoomsQueryOptions } from "@/features/rooms/room-queries";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
@@ -349,17 +349,13 @@ export function WikiGraphDailyPanel({
     }, 3_000);
   }
 
-  return createPortal(
-    <>
-      {/* Blurs the page behind the report, as the app's modal dialogs do;
-          clicking it closes the report. */}
-      <button
-        aria-hidden="true"
-        className="wiki-graph-daily-backdrop fixed inset-0 z-40 bg-[var(--app-overlay)] backdrop-blur-sm"
-        onClick={onClose}
-        tabIndex={-1}
-        type="button"
-      />
+  return (
+    <ModalDialog
+      ariaLabel={`${label} report for ${periodLabel(day, kind)}`}
+      className="wiki-graph-daily-dialog"
+      closeOnBackdrop
+      onClose={onClose}
+    >
       <aside
         ref={windowRef}
         aria-label={`${label} report`}
@@ -588,7 +584,6 @@ export function WikiGraphDailyPanel({
           />
         ))}
       </aside>
-    </>,
-    document.body,
+    </ModalDialog>
   );
 }

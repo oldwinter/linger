@@ -87,6 +87,11 @@
 - Leaving a meeting while its recording is playing keeps that recording
   playing in a bar on this computer. Closing the bar leaves it behind, and the
   meeting page does not start a second player for the recording the bar has.
+  The bar takes ownership of the loaded playback URL before the reader releases
+  its preview. Route changes do not download the file again. Closing the bar,
+  reaching the end, or replacing the recording releases that ownership.
+  Clearing the authenticated session also releases playback and invalidates
+  late handoffs from the departing reader, so a later sign-in cannot resume it.
 - While the person is inside the meeting, Space plays or pauses the recording
   and the left and right arrows move five seconds, stopping at either end. Keys
   pressed in a field, inside a dialog, or on a focused control stay with it, and
@@ -122,5 +127,10 @@
   and data key. Keep/Delete stay browser-local display decisions through
   `features/wiki/wiki-display-state.ts`: filter displayed graph nodes and edges
   only and never issue backend mutations for them.
+- Daily and Weekly reports open in a native modal that contains keyboard focus.
+  Escape, Close, and the backdrop dismiss it and return focus to its opener.
+  The `day` and `week` query parameters own the selection, including browser
+  Back and Forward. Dismissal removes only those parameters, preserving the
+  rest of the graph URL.
 - `meeting-page.css` and `wiki-knowledge-graph.css` predate the Web rule
   against feature-level `.css`; do not add more.

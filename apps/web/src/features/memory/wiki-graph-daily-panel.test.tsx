@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -41,12 +47,51 @@ const sharedText = [
   "",
   "- Finalized the release scope.",
 ].join("\n");
+const nativeShowModal = HTMLDialogElement.prototype.showModal;
 
 afterEach(() => {
   Reflect.deleteProperty(navigator, "clipboard");
+  HTMLDialogElement.prototype.showModal = nativeShowModal;
 });
 
 describe("WikiGraphDailyPanel report sharing", () => {
+  it("owns a native modal and keeps the Room menu inside it until the menu closes", async () => {
+    const runtime = serveReport();
+    mockRoomList(runtime);
+    const onClose = vi.fn();
+    // jsdom has no native modal focus lifecycle.
+    const showModal = vi.fn(function (this: HTMLDialogElement) {
+      this.open = true;
+      this.querySelector<HTMLElement>("button")?.focus();
+    });
+    HTMLDialogElement.prototype.showModal = showModal;
+    renderPanel(runtime, onClose);
+
+    const dialog = screen.getByRole("dialog", {
+      name: `Daily report for ${day}`,
+    });
+    expect(showModal).toHaveBeenCalledOnce();
+    expect(dialog).toHaveAttribute("open");
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(dialog.parentElement).toBe(document.body);
+    fireEvent.click(
+      await within(dialog).findByRole("button", { name: "Send to Room" }),
+    );
+    const menu = await within(dialog).findByRole("menu", {
+      name: "Send to Room",
+    });
+    fireEvent.keyDown(within(menu).getByRole("menuitem", { name: "all" }), {
+      key: "Escape",
+    });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(
+      within(dialog).getByRole("button", { name: "Send to Room" }),
+    ).toHaveFocus();
+    fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it("copies the report as Markdown without frontmatter, markers, or sources", async () => {
     const runtime = serveReport();
     const writeText = stubClipboard(() => Promise.resolve());
@@ -218,7 +263,10 @@ function stubClipboard(writeText: () => Promise<void>) {
   return spy;
 }
 
-function renderPanel(runtime: TestTeamHubRuntime) {
+function renderPanel(
+  runtime: TestTeamHubRuntime,
+  onClose: () => void = () => undefined,
+) {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
@@ -230,7 +278,7 @@ function renderPanel(runtime: TestTeamHubRuntime) {
         >
           <WikiGraphDailyPanel
             day={day}
-            onClose={() => undefined}
+            onClose={onClose}
             tenantId="tenant-northstar"
           />
         </MemoryRouter>
