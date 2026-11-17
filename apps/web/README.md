@@ -6,12 +6,19 @@ Commands, conventions and boundaries are in [AGENTS.md](./AGENTS.md).
 
 ## Interaction behavior
 
-The Room header keeps the Room identity and conversation controls visible on
-narrow screens. More actions contains document sharing and Room management
-links. Watch the work remains available as an icon while a run is active.
+The Room header adapts to the width left by navigation and side panels. More
+actions contains document sharing and Room management links. Below 960 pixels,
+Room search and deleted-Agent Room deletion also move into More actions so the
+Room identity and conversation controls remain reachable. Watch the work
+remains available as an icon while a run is active.
 Pinned messages opens a panel within the window; long lists scroll beneath its
 title and search. Close or Escape returns focus to the trigger. The first
 Escape clears a nonempty pin search.
+
+Pocket notes save edits in order. Closing the editor waits for its latest text to
+save; a failed save keeps the editor open and offers Retry. This protects the
+mounted editor's draft, but does not provide recovery after a browser reload or
+coordinate writes from another tab.
 
 The Work Item peek asks before discarding an unsent comment or changed
 description when the reader closes it or opens the full page. Continue editing
@@ -24,6 +31,10 @@ confirms discard. Escape and Close default to continuing the edit. Pending
 creation prevents dismissal and repeated submission; failure keeps the draft,
 and retrying unchanged details reuses its idempotency key. Success focuses the
 new issue on the Dashboard.
+
+Room creation dialogs remain open while creation is pending.
+Routine dialogs also disable editing and competing actions during create, save,
+run, or delete. A failed request preserves the form for retry.
 
 Room name and description stay fixed while their save is pending. Repeated
 submission and the editor's close actions wait for the result. A failed save

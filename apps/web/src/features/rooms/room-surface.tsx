@@ -46,6 +46,7 @@ import { useCloseDepartedProfile } from "./close-departed-profile";
 import { RouteContentBoundary } from "@/features/rooms/route-content-boundary";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { cn } from "@/lib/cn";
 import type {
   RoomShellOutletContext,
   SearchRoomScope,
@@ -830,6 +831,24 @@ function RoomHeader({
       room.name === GENERAL_AGENT_DEFAULT_NAME)
       ? headerPeer.display_name
       : room.name;
+  const headerRef = useRef<HTMLElement>(null);
+  const [compact, setCompact] = useState(false);
+
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+    function updateWidth(width: number) {
+      // Side panels reduce the Room column even on a wide desktop window.
+      if (width > 0) setCompact(width < 960);
+    }
+    updateWidth(header.getBoundingClientRect().width);
+    const observer = new ResizeObserver(() =>
+      updateWidth(header.getBoundingClientRect().width),
+    );
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
+
   const roomActions = [
     {
       icon: FileAddIcon,
@@ -883,6 +902,7 @@ function RoomHeader({
 
   return (
     <header
+      ref={headerRef}
       className={`room-chat-header room-header ${isChatView ? "room-header--chat" : ""} grid h-(--app-header-height) shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b border-transparent bg-app-surface pl-3 pr-4`}
     >
       <div className="flex min-w-0 items-center">
@@ -941,7 +961,12 @@ function RoomHeader({
           </span>
         ) : null}
       </div>
-      <div className="flex shrink-0 items-center justify-end gap-1">
+      <div
+        className={cn(
+          "flex shrink-0 items-center justify-end",
+          compact ? "gap-3" : "gap-1",
+        )}
+      >
         <RoomWatchLink roomId={roomId} tenantId={tenantId} />
         {/* Bootstrap sync is background work; the header shows nothing for it. */}
         <Suspense fallback={null}>
@@ -962,23 +987,25 @@ function RoomHeader({
             }
           </Await>
         </Suspense>
-        <Button
-          aria-label="Search this Room"
-          className="!rounded-lg border-0 text-app-muted"
-          onClick={() => onOpenSearch?.({ id: roomId, name: headerName })}
-          size="compactIcon"
-          title="Search this Room"
-          tone="ghost"
-        >
-          <Icon icon={Search01Icon} size={16} />
-        </Button>
+        {!compact ? (
+          <Button
+            aria-label="Search this Room"
+            className="!rounded-lg border-0 text-app-muted"
+            onClick={() => onOpenSearch?.({ id: roomId, name: headerName })}
+            size="compactIcon"
+            title="Search this Room"
+            tone="ghost"
+          >
+            <Icon icon={Search01Icon} size={16} />
+          </Button>
+        ) : null}
         <PinnedMessagesControl
           onJump={onJumpToPinnedMessage}
           roomId={roomId}
           roomName={headerName}
           tenantId={tenantId}
         />
-        {canDeleteDeletedAgentRoom ? (
+        {!compact && canDeleteDeletedAgentRoom ? (
           <Button
             aria-label="Delete Room"
             className="!rounded-lg border-0 text-app-muted"
@@ -991,7 +1018,29 @@ function RoomHeader({
           </Button>
         ) : null}
         <RoomHeaderMenu
-          actions={roomActions}
+          actions={[
+            ...(compact
+              ? [
+                  {
+                    icon: <Icon icon={Search01Icon} size={14} />,
+                    label: "Search this Room",
+                    onSelect: () =>
+                      onOpenSearch?.({ id: roomId, name: headerName }),
+                  },
+                ]
+              : []),
+            ...roomActions,
+            ...(compact && canDeleteDeletedAgentRoom
+              ? [
+                  {
+                    danger: true,
+                    icon: <Icon icon={Delete02Icon} size={14} />,
+                    label: "Delete Room",
+                    onSelect: onOpenDelete,
+                  },
+                ]
+              : []),
+          ]}
           name={headerName}
           roomId={roomId}
           tenantId={tenantId}
