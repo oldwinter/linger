@@ -117,8 +117,12 @@ func TestRefreshMapsLibraryStatusToTheWireSnapshot(t *testing.T) {
 	if len(record.snapshots) != 1 {
 		t.Fatalf("published %d snapshots", len(record.snapshots))
 	}
+	resolvedModuleDirectory, err := filepath.EvalSymlinks(fake.tool.ModuleDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
 	call := fake.calls()[0]
-	if !strings.HasPrefix(call, "status --base-dir "+fake.tool.BaseDirectory+" --json|PYTHONPATH="+fake.tool.ModuleDirectory+"|cwd="+fake.tool.ModuleDirectory) {
+	if !strings.HasPrefix(call, "status --base-dir "+fake.tool.BaseDirectory+" --json|PYTHONPATH="+fake.tool.ModuleDirectory+"|cwd="+resolvedModuleDirectory) {
 		t.Fatalf("status call = %q", call)
 	}
 }

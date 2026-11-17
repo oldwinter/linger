@@ -264,8 +264,12 @@ func TestInstalledToolsInTheDesktopLayout(t *testing.T) {
 	if err := os.WriteFile(node, []byte("fixture"), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	resolvedTools, err := filepath.EvalSymlinks(tools)
+	if err != nil {
+		t.Fatal(err)
+	}
 	result, err := Installed(executable)
-	if err != nil || result == nil || result.NodePath != node || result.PlaywrightEntry != filepath.Join(tools, filepath.FromSlash(entries[0])) {
+	if err != nil || result == nil || result.NodePath != node || result.PlaywrightEntry != filepath.Join(resolvedTools, filepath.FromSlash(entries[0])) {
 		t.Fatalf("desktop installation: %+v %v", result, err)
 	}
 }
