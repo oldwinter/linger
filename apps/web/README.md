@@ -2,6 +2,11 @@
 
 Web is the Room-centered React/Vite product client, built on React Router Data Mode and TanStack Query. Active product data comes only from TeamHub.
 
+Pocket notes save edits in order. Closing the editor waits for its latest text to
+save; a failed save keeps the editor open and offers Retry. This protects the
+mounted editor's draft, but does not provide recovery after a browser reload or
+coordinate writes from another tab.
+
 Commands, conventions and boundaries are in [AGENTS.md](./AGENTS.md).
 
 ## Interaction behavior

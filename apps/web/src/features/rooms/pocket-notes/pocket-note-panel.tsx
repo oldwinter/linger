@@ -83,16 +83,16 @@ type PocketNoteView =
   | { kind: "all" }
   | { kind: "past"; note: TeamHubPocketNote };
 
-/** Lets the open page finish dictation before Escape or a close acts. */
+/** Keeps the page open until its last words have been saved. */
 interface CloseGuard {
-  /** Still recording or draining the last words. */
-  dictating: () => boolean;
   /** The microphone is still open; Escape stops it before anything else. */
   listening: () => boolean;
   /** Handles an inner step (clearing a dialog/filter) before closing the panel. */
   onEscape?: () => boolean;
   /** Settles the last words into the page; it may be about to close. */
   stop: () => Promise<void>;
+  /** A failed save leaves the editor available for recovery. */
+  beforeLeave?: () => Promise<void> | undefined;
 }
 
 export default function PocketNotePanel({
@@ -119,17 +119,26 @@ export default function PocketNotePanel({
   const panelRef = useRef<HTMLDivElement>(null);
   const position = usePanelPosition(anchor);
   const closeGuard = useRef<CloseGuard | undefined>(undefined);
-  // Dictation in progress settles its last words into the page first.
   const close = () => {
-    const guard = closeGuard.current;
-    if (guard?.dictating()) void guard.stop().finally(onClose);
-    else onClose();
+    const pending = closeGuard.current?.beforeLeave?.();
+    if (pending) {
+      return pending.then(
+        () => {
+          if (!panelRef.current) return false;
+          onClose();
+          return true;
+        },
+        () => false,
+      );
+    }
+    onClose();
+    return true;
   };
   const latestClose = useRef(close);
   useLayoutEffect(() => {
     latestClose.current = close;
-    closeRef.current = close;
-    registerPocketNoteClose(close);
+    closeRef.current = () => void close();
+    registerPocketNoteClose(() => void close());
     return () => registerPocketNoteClose(undefined);
   });
   useLayoutEffect(
@@ -145,7 +154,7 @@ export default function PocketNotePanel({
       if (panelRef.current?.contains(target) || anchor?.contains(target)) {
         return;
       }
-      latestClose.current();
+      void latestClose.current();
     }
     function closeOnEscape(event: KeyboardEvent) {
       if (
@@ -164,8 +173,9 @@ export default function PocketNotePanel({
         return;
       }
       if (guard?.onEscape?.()) return;
-      latestClose.current();
-      anchor?.focus();
+      void Promise.resolve(latestClose.current()).then((closed) => {
+        if (closed) anchor?.focus();
+      });
     }
     document.addEventListener("pointerdown", closeOnOutside);
     document.addEventListener("keydown", closeOnEscape);
@@ -265,8 +275,8 @@ export default function PocketNotePanel({
           anotherMeRoomId={anotherMeRoomId}
           closeGuard={closeGuard}
           earlier={pocketNoteBefore(items, today)}
-          key={today}
-          onClose={close}
+          key={`${tenantId}:${today}`}
+          onClose={() => void close()}
           onOpenChat={onOpenChat}
           onShowAll={() => setView({ kind: "all" })}
           storedText={todayNote?.text ?? ""}
@@ -313,8 +323,8 @@ function TodayPocketNote({
   const [text, setText] = useState(storedText);
   const textRef = useRef(storedText);
   const savedText = useRef(storedText);
-  const pendingText = useRef(storedText);
   const storedRef = useRef(storedText);
+  const saving = useRef<Promise<void> | undefined>(undefined);
   const editorRef = useRef<PocketNoteEditorHandle>(null);
   const liveRef = useRef<HTMLSpanElement>(null);
   const anchor = useRef(0);
@@ -335,11 +345,12 @@ function TodayPocketNote({
       storeTodayPocketNote(queryClient, tenantId, note);
     },
   });
-  const persist = useEffectEvent((value: string) => save.mutate(value));
+  const persist = useEffectEvent(() => {
+    void ensureSaved().catch(() => {});
+  });
 
   function update(value: string) {
     textRef.current = value;
-    pendingText.current = value;
     setText(value);
   }
 
@@ -391,7 +402,7 @@ function TodayPocketNote({
 
   useLayoutEffect(() => {
     closeGuard.current = {
-      dictating: () => dictation.active,
+      beforeLeave,
       listening: () => dictation.active && !dictation.stopping,
       stop: stopDictation,
     };
@@ -409,7 +420,6 @@ function TodayPocketNote({
     storedRef.current = storedText;
     if (textRef.current === savedText.current) {
       savedText.current = storedText;
-      pendingText.current = storedText;
       textRef.current = storedText;
       setText(storedText);
       return;
@@ -420,22 +430,20 @@ function TodayPocketNote({
       storedText.slice(previous.length),
     );
     textRef.current = merged;
-    pendingText.current = merged;
     setText(merged);
   }, [storedText]);
 
   useEffect(() => {
-    pendingText.current = text;
     if (text === savedText.current) return;
-    const timer = window.setTimeout(() => persist(text), autosaveDelayMs);
+    const timer = window.setTimeout(() => persist(), autosaveDelayMs);
     return () => window.clearTimeout(timer);
   }, [text]);
 
   // Closing the notepad inside the autosave delay must not drop the last words.
   useEffect(
     () => () => {
-      if (pendingText.current !== savedText.current) {
-        persist(pendingText.current);
+      if (textRef.current !== savedText.current) {
+        persist();
       }
     },
     [],
@@ -469,10 +477,34 @@ function TodayPocketNote({
     }
     startDictation();
   }
-  async function ensureSaved() {
-    const value = textRef.current;
-    if (value === savedText.current) return;
-    await save.mutateAsync(value);
+  function ensureSaved(): Promise<void> {
+    if (saving.current) return saving.current;
+    // Only one full-text write may be in flight. Edits made while it saves
+    // become the next write instead of racing the previous version.
+    const pending = (async () => {
+      while (textRef.current !== savedText.current) {
+        await save.mutateAsync(textRef.current);
+      }
+    })();
+    saving.current = pending;
+    const settled = () => {
+      saving.current = undefined;
+    };
+    void pending.then(settled, settled);
+    return pending;
+  }
+
+  function beforeLeave() {
+    if (dictation.active) return stopDictation().then(ensureSaved);
+    if (saving.current || textRef.current !== savedText.current) {
+      return ensureSaved();
+    }
+  }
+
+  function showAll() {
+    const pending = beforeLeave();
+    if (pending) void pending.then(onShowAll, () => {});
+    else onShowAll();
   }
 
   function startDictation() {
@@ -482,6 +514,8 @@ function TodayPocketNote({
     dictation.start();
   }
 
+  const unsaved = text !== savedText.current;
+  const saveFailed = save.isError && unsaved;
   const status = dictation.error
     ? dictation.error
     : truncated
@@ -492,9 +526,9 @@ function TodayPocketNote({
           ? "Saving…"
           : dictating
             ? "Listening…"
-            : save.isError
-              ? "Couldn’t save · keep typing to retry"
-              : save.isPending || text !== savedText.current
+            : saveFailed
+              ? "Couldn’t save"
+              : save.isPending || unsaved
                 ? "Saving…"
                 : "Saved";
   // While speaking, the words still being recognized sit at the anchor.
@@ -506,9 +540,23 @@ function TodayPocketNote({
   return (
     <>
       <PocketNoteHeader
-        action={<PocketNoteCopyAction text={text} />}
+        action={
+          <>
+            {saveFailed ? (
+              <Button
+                aria-label="Retry saving note"
+                onClick={() => void ensureSaved().catch(() => {})}
+                size="compact"
+                tone="secondary"
+              >
+                Retry
+              </Button>
+            ) : null}
+            <PocketNoteCopyAction text={text} />
+          </>
+        }
         leading={
-          <HeaderButton label="All notes" onClick={onShowAll}>
+          <HeaderButton label="All notes" onClick={showAll}>
             <Icon icon={GridViewIcon} size={16} />
           </HeaderButton>
         }
@@ -719,7 +767,6 @@ function AllPocketNotes({
   const [query, setQuery] = useState("");
   useLayoutEffect(() => {
     closeGuard.current = {
-      dictating: () => false,
       listening: () => false,
       onEscape: () => {
         if (confirming) {
@@ -1025,7 +1072,12 @@ function PocketNoteHeader({
         <p className="truncate text-sm font-medium leading-5 text-app-ink">
           {title}
         </p>
-        <p className="truncate text-xs leading-4 text-app-muted">{subtitle}</p>
+        <p
+          aria-live="polite"
+          className="truncate text-xs leading-4 text-app-muted"
+        >
+          {subtitle}
+        </p>
       </div>
       {action}
       <HeaderButton label="Close notes" onClick={onClose}>

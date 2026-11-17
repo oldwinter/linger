@@ -6,7 +6,15 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { MemoryRouter } from "react-router";
 
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
@@ -49,6 +57,10 @@ beforeEach(() => {
         return { commit: async () => undefined, close: voice.close };
       },
     );
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 const page: TeamHubPocketNotePage = {
@@ -213,6 +225,178 @@ describe("PocketNoteLauncher", () => {
     expect(putTodayPocketNote).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the latest words saved when an earlier autosave is slow", async () => {
+    let releaseFirst = () => {};
+    const firstSave = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let storedText = "";
+    const putTodayPocketNote = vi.fn(
+      async (_tenantId: string, text: string) => {
+        if (text === "First draft") await firstSave;
+        storedText = text;
+        return {
+          date: page.today,
+          text,
+          updated_at: "2026-10-01T02:00:00Z",
+        };
+      },
+    );
+    renderLauncher({
+      listPocketNotes: vi.fn(async () => page),
+      putTodayPocketNote,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Pocket Notes" }));
+    const editor = await screen.findByRole("textbox", {
+      name: "Today’s note",
+    });
+    vi.useFakeTimers();
+
+    pasteText(editor, "First draft");
+    await act(() => vi.advanceTimersByTimeAsync(801));
+    expect(putTodayPocketNote).toHaveBeenCalledWith("tenant-1", "First draft");
+
+    pasteText(editor, " with the final detail");
+    await act(() => vi.advanceTimersByTimeAsync(801));
+    await act(async () => {
+      releaseFirst();
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    vi.useRealTimers();
+
+    await waitFor(() =>
+      expect(storedText).toBe("First draft with the final detail"),
+    );
+    expect(editor).toHaveTextContent("First draft with the final detail");
+    expect(await screen.findByText("Saved")).toBeInTheDocument();
+  });
+
+  it.each(["Close notes", "All notes", "Pocket Notes", "Escape", "outside"])(
+    "keeps failed changes editable when %s is requested",
+    async (action) => {
+      let failing = true;
+      let storedText = "";
+      const putTodayPocketNote = vi.fn(
+        async (_tenantId: string, text: string) => {
+          if (failing) throw new Error("Connection unavailable");
+          storedText = text;
+          return {
+            date: page.today,
+            text,
+            updated_at: "2026-10-01T02:00:00Z",
+          };
+        },
+      );
+      renderLauncher({
+        listPocketNotes: vi.fn(async () => page),
+        putTodayPocketNote,
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Pocket Notes" }));
+      const editor = await screen.findByRole("textbox", {
+        name: "Today’s note",
+      });
+      vi.useFakeTimers();
+      pasteText(editor, "Keep these words");
+      await act(() => vi.advanceTimersByTimeAsync(801));
+      vi.useRealTimers();
+      await screen.findByText(/Couldn’t save/);
+
+      if (action === "Escape") {
+        fireEvent.keyDown(document, { key: "Escape" });
+      } else if (action === "outside") {
+        fireEvent.pointerDown(document.body);
+      } else {
+        fireEvent.click(screen.getByRole("button", { name: action }));
+      }
+      await waitFor(() => expect(putTodayPocketNote).toHaveBeenCalledTimes(2));
+
+      expect(
+        screen.getByRole("textbox", { name: "Today’s note" }),
+      ).toHaveTextContent("Keep these words");
+      failing = false;
+      fireEvent.click(
+        screen.getByRole("button", { name: "Retry saving note" }),
+      );
+      await waitFor(() => expect(storedText).toBe("Keep these words"));
+      expect(await screen.findByText("Saved")).toBeInTheDocument();
+    },
+  );
+
+  it("waits for every edit made during a save before closing", async () => {
+    let releaseFirst = () => {};
+    const firstSave = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const putTodayPocketNote = vi.fn(
+      async (_tenantId: string, text: string) => {
+        if (text === "First draft") await firstSave;
+        return {
+          date: page.today,
+          text,
+          updated_at: "2026-10-01T02:00:00Z",
+        };
+      },
+    );
+    renderLauncher({
+      listPocketNotes: vi.fn(async () => page),
+      putTodayPocketNote,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Pocket Notes" }));
+    const editor = await screen.findByRole("textbox", {
+      name: "Today’s note",
+    });
+    vi.useFakeTimers();
+    pasteText(editor, "First draft");
+    await act(() => vi.advanceTimersByTimeAsync(801));
+    fireEvent.click(screen.getByRole("button", { name: "Close notes" }));
+    expect(editor).toBeVisible();
+
+    pasteText(editor, " with one more detail");
+    await act(() => vi.advanceTimersByTimeAsync(801));
+    expect(putTodayPocketNote).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      releaseFirst();
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    vi.useRealTimers();
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(putTodayPocketNote).toHaveBeenCalledTimes(2);
+    expect(putTodayPocketNote).toHaveBeenLastCalledWith(
+      "tenant-1",
+      "First draft with one more detail",
+    );
+  });
+
+  it("clears failed-save feedback when the edit is undone", async () => {
+    const putTodayPocketNote = vi.fn(async () => {
+      throw new Error("Connection unavailable");
+    });
+    renderLauncher({
+      listPocketNotes: vi.fn(async () => page),
+      putTodayPocketNote,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Pocket Notes" }));
+    const editor = await screen.findByRole("textbox", {
+      name: "Today’s note",
+    });
+    vi.useFakeTimers();
+    pasteText(editor, "Unsent edit");
+    await act(() => vi.advanceTimersByTimeAsync(801));
+    vi.useRealTimers();
+    await screen.findByRole("button", { name: "Retry saving note" });
+
+    fireEvent.keyDown(editor, { key: "z", ctrlKey: true });
+
+    expect(editor).toHaveTextContent("");
+    expect(screen.getByText("Saved")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Retry saving note" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("lists every page and opens a past day read-only", async () => {
     renderLauncher({
       listPocketNotes: vi.fn(async () => page),
@@ -306,7 +490,9 @@ describe("PocketNoteLauncher", () => {
     );
     fireEvent.keyDown(document, { key: "Escape" });
 
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
     await waitFor(() =>
       expect(putTodayPocketNote).toHaveBeenCalledWith(
         "tenant-1",
@@ -445,7 +631,9 @@ describe("PocketNoteLauncher", () => {
       await editorReturns();
       expect(screen.getByRole("dialog")).toBeInTheDocument();
       fireEvent.keyDown(document, { key: "Escape" });
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+      );
       await waitFor(() =>
         expect(putTodayPocketNote).toHaveBeenCalledWith(
           "tenant-1",
