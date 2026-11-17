@@ -80,6 +80,10 @@ export function WorkItemCreateDialog({
   const formId = useId();
   const titleInputRef = useRef<HTMLInputElement>(null);
   const idempotency = useRef<{ content: string; key: string } | null>(null);
+  const submitting = useRef(false);
+  const dismissalFocus = useRef<HTMLElement | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [closeBlocked, setCloseBlocked] = useState(false);
   const [title, setTitle] = useState(initial?.title ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [priority, setPriority] = useState<TeamHubWorkItemPriority>(
@@ -110,11 +114,19 @@ export function WorkItemCreateDialog({
       onClose();
       await navigate(dashboardWorkItemPath(tenantId, item.id));
     },
+    onSettled: () => {
+      submitting.current = false;
+    },
   });
 
   const trimmedTitle = title.trim();
   const titleTooLong = trimmedTitle.length > WORK_ITEM_TITLE_LIMIT;
   const canSubmit = trimmedTitle.length > 0 && !titleTooLong;
+  const dirty =
+    title !== (initial?.title ?? "") ||
+    description !== (initial?.description ?? "") ||
+    priority !== (initial?.priority ?? "medium") ||
+    originRoomId !== (initial?.originRoomId ?? "");
   const failure = createIssue.error
     ? classifyTeamHubCommandFailure(
         createIssue.error,
@@ -135,7 +147,7 @@ export function WorkItemCreateDialog({
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canSubmit || createIssue.isPending) return;
+    if (!canSubmit || submitting.current || createIssue.isPending) return;
 
     const content = JSON.stringify([
       trimmedTitle,
@@ -148,6 +160,8 @@ export function WorkItemCreateDialog({
     if (idempotency.current?.content !== content) {
       idempotency.current = { content, key: createTeamHubIdempotencyKey() };
     }
+    submitting.current = true;
+    setCloseBlocked(false);
     createIssue.mutate({
       body: {
         description: description.trim(),
@@ -160,9 +174,31 @@ export function WorkItemCreateDialog({
     });
   }
 
-  return (
+  function requestClose() {
+    if (submitting.current || createIssue.isPending) {
+      setCloseBlocked(true);
+      return;
+    }
+    setCloseBlocked(false);
+    if (!dirty) {
+      onClose();
+      return;
+    }
+    dismissalFocus.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    setConfirmDiscard(true);
+  }
+
+  function continueEditing() {
+    setConfirmDiscard(false);
+    requestAnimationFrame(() => dismissalFocus.current?.focus());
+  }
+
+  const dialog = (
     <ModalDialog
-      onClose={onClose}
+      onClose={requestClose}
       size="sm"
       title="New issue"
       footer={
@@ -255,7 +291,44 @@ export function WorkItemCreateDialog({
             {failure.message}
           </p>
         ) : null}
+        {closeBlocked && createIssue.isPending ? (
+          <p className="mt-3 text-sm text-app-muted" role="status">
+            Wait for issue creation to finish before closing.
+          </p>
+        ) : null}
       </form>
     </ModalDialog>
+  );
+
+  return (
+    <>
+      {dialog}
+      {confirmDiscard ? (
+        <ModalDialog
+          closeOnBackdrop
+          description="Closing will discard the title, description, and other details entered here."
+          footer={
+            <>
+              <Button
+                // eslint-disable-next-line jsx-a11y/no-autofocus -- keeping the draft is the safe default for this dismissal decision
+                autoFocus
+                onClick={continueEditing}
+                tone="primary"
+              >
+                Continue editing
+              </Button>
+              <Button onClick={onClose} tone="danger">
+                Discard and close
+              </Button>
+            </>
+          }
+          onClose={continueEditing}
+          size="sm"
+          title="Discard new issue details?"
+        >
+          {null}
+        </ModalDialog>
+      ) : null}
+    </>
   );
 }

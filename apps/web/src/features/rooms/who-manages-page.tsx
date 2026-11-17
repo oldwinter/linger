@@ -131,7 +131,10 @@ export function WhoManagesPage() {
                         {`${person.name} takes part. Agents do not manage the room.`}
                       </p>
                     ) : (
-                      <fieldset aria-label={person.name} disabled={!isOwner}>
+                      <fieldset
+                        aria-label={person.name}
+                        disabled={!isOwner || pending}
+                      >
                         <legend className="text-sm text-foreground">
                           {person.name}
                         </legend>

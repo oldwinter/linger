@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -134,6 +135,7 @@ describe("Work Item creation", () => {
     await waitFor(() => expect(create).toHaveBeenCalledTimes(3));
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discard and close" }));
     fireEvent.click(screen.getByRole("button", { name: "New issue" }));
     fireEvent.change(screen.getByLabelText("Title"), {
       target: { value: "Login is broken" },
@@ -147,6 +149,150 @@ describe("Work Item creation", () => {
     expect(keys[1]).toBe(keys[0]);
     expect(keys[2]).not.toBe(keys[1]);
     expect(keys[3]).not.toBe(keys[1]);
+  });
+
+  it.each(["Escape", "Close"])(
+    "keeps entered issue details when %s is dismissed without discarding",
+    async (action) => {
+      const runtime = createTestTeamHubRuntime();
+      renderAction(runtime);
+      fireEvent.click(screen.getByRole("button", { name: "New issue" }));
+      const dialog = screen.getByRole("dialog", { name: "New issue" });
+      const description = screen.getByLabelText("Description");
+      fireEvent.change(screen.getByLabelText("Title"), {
+        target: { value: "Review keyboard navigation" },
+      });
+      fireEvent.change(description, {
+        target: { value: "Keep the reproduction details and expected focus." },
+      });
+      fireEvent.click(screen.getByRole("combobox", { name: "Issue priority" }));
+      fireEvent.click(await screen.findByRole("option", { name: "High" }));
+      fireEvent.click(screen.getByRole("combobox", { name: "Origin Room" }));
+      fireEvent.click(await screen.findByRole("option", { name: "#Design" }));
+      description.focus();
+
+      if (action === "Escape") {
+        fireEvent(dialog, new Event("cancel", { cancelable: true }));
+      } else {
+        fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+      }
+      const confirmation = screen.getByRole("dialog", {
+        name: "Discard new issue details?",
+      });
+      expect(confirmation).toBeVisible();
+      expect(
+        within(confirmation).getByRole("button", { name: "Continue editing" }),
+      ).toHaveFocus();
+      fireEvent(confirmation, new Event("cancel", { cancelable: true }));
+
+      expect(
+        screen.queryByRole("dialog", { name: "Discard new issue details?" }),
+      ).toBeNull();
+      expect(screen.getByLabelText("Title")).toHaveValue(
+        "Review keyboard navigation",
+      );
+      expect(description).toHaveValue(
+        "Keep the reproduction details and expected focus.",
+      );
+      expect(
+        screen.getByRole("combobox", { name: "Issue priority" }),
+      ).toHaveTextContent("High");
+      expect(
+        screen.getByRole("combobox", { name: "Origin Room" }),
+      ).toHaveTextContent("#Design");
+      await waitFor(() => expect(description).toHaveFocus());
+    },
+  );
+
+  it("closes an untouched issue immediately and clears a draft only after discard", () => {
+    const runtime = createTestTeamHubRuntime();
+    renderAction(runtime);
+    fireEvent.click(screen.getByRole("button", { name: "New issue" }));
+    fireEvent(
+      screen.getByRole("dialog", { name: "New issue" }),
+      new Event("cancel", { cancelable: true }),
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "New issue" }));
+    fireEvent.change(screen.getByLabelText("Description"), {
+      target: { value: "Details written before choosing a title." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discard and close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "New issue" }));
+    expect(screen.getByLabelText("Title")).toHaveValue("");
+    expect(screen.getByLabelText("Description")).toHaveValue("");
+  });
+
+  it("guards immediate repeat submit and close, then retains the failed draft for the same retry", async () => {
+    const runtime = createTestTeamHubRuntime();
+    let release = () => {};
+    const create = vi.fn<TestRouteHandler>(
+      () =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve(
+              teamHubErrorResponse(
+                503,
+                "SERVICE_UNAVAILABLE",
+                "The service is temporarily unavailable.",
+              ),
+            );
+        }),
+    );
+    runtime.server.on("POST", WORK_ITEMS_PATH, create);
+    renderAction(runtime);
+    fireEvent.click(screen.getByRole("button", { name: "New issue" }));
+    const dialog = screen.getByRole("dialog", { name: "New issue" });
+    const title = screen.getByLabelText("Title");
+    fireEvent.change(title, {
+      target: { value: "Review keyboard navigation" },
+    });
+    fireEvent.change(screen.getByLabelText("Description"), {
+      target: { value: "The draft must stay available after this request." },
+    });
+
+    act(() => {
+      fireEvent.submit(title.closest("form")!);
+      fireEvent.submit(title.closest("form")!);
+      fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    });
+    await waitFor(() => expect(create).toHaveBeenCalledOnce());
+    expect(dialog).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(
+      screen.getByText("Wait for issue creation to finish before closing."),
+    ).toHaveAttribute("role", "status");
+    expect(
+      screen.queryByRole("dialog", { name: "Discard new issue details?" }),
+    ).toBeNull();
+
+    release();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The service is temporarily unavailable.",
+    );
+    expect(title).toBeEnabled();
+    expect(title).toHaveValue("Review keyboard navigation");
+    expect(screen.getByLabelText("Description")).toHaveValue(
+      "The draft must stay available after this request.",
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue editing" }));
+    create.mockImplementation(() => createdWorkItem({}));
+    fireEvent.click(screen.getByRole("button", { name: "Create issue" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/t/tenant-northstar/dashboard/workitem-created",
+      ),
+    );
+    expect(create).toHaveBeenCalledTimes(2);
+    const [first, retry] = create.mock.calls.map(([request]) => request);
+    expect(retry!.body).toEqual(first!.body);
+    expect(retry!.request.headers.get("Idempotency-Key")).toBe(
+      first!.request.headers.get("Idempotency-Key"),
+    );
   });
 
   it("opens the created issue and refreshes the board and its target", async () => {

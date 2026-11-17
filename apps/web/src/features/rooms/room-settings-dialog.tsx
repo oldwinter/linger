@@ -79,6 +79,7 @@ export function RoomSettingsDialog({
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (updateRoom.isPending) return;
     if (name.trim() && dirty) {
       const input = {
         description: description.trim(),
@@ -86,6 +87,10 @@ export function RoomSettingsDialog({
       };
       updateRoom.mutate(input);
     }
+  }
+
+  function handleClose() {
+    if (!updateRoom.isPending) onClose();
   }
 
   const fields = (
@@ -96,6 +101,7 @@ export function RoomSettingsDialog({
           <input
             aria-label="Room name"
             className="ui-field-control w-full"
+            disabled={updateRoom.isPending}
             maxLength={120}
             onChange={(event) => setName(event.target.value)}
             ref={nameInputRef}
@@ -113,6 +119,7 @@ export function RoomSettingsDialog({
           <textarea
             aria-label="Room description"
             className="ui-field-control min-h-24 w-full resize-none"
+            disabled={updateRoom.isPending}
             maxLength={2000}
             onChange={(event) => setDescription(event.target.value)}
             placeholder="What is this Room for?"
@@ -133,7 +140,7 @@ export function RoomSettingsDialog({
 
   const actions = (
     <>
-      <Button disabled={updateRoom.isPending} onClick={onClose}>
+      <Button disabled={updateRoom.isPending} onClick={handleClose}>
         Cancel
       </Button>
       <Button
@@ -167,7 +174,7 @@ export function RoomSettingsDialog({
   return (
     <ModalDialog
       description="Update the name and description shown to Room members."
-      onClose={onClose}
+      onClose={handleClose}
       size="md"
       title="Room settings"
       footer={actions}

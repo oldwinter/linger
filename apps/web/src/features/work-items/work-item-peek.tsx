@@ -7,12 +7,13 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import {
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
   type FormEvent,
 } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 
 import { Button, buttonClassName } from "@/components/ui/button";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
@@ -30,7 +31,10 @@ import type {
 import { dateTimeFormat } from "@/lib/date-format";
 
 import { WorkItemAssigneePicker } from "./work-item-assignee-picker";
-import { WorkItemCommentComposer } from "./work-item-comment-composer";
+import {
+  WorkItemCommentComposer,
+  type WorkItemDraftStatus,
+} from "./work-item-comment-composer";
 import { workItemCommentsMarkdown } from "./work-item-comments-markdown";
 import { WorkItemCopyStatus } from "./work-item-copy-status";
 import { WORK_ITEM_TITLE_LIMIT } from "./work-item-create-draft";
@@ -80,6 +84,8 @@ interface PeekTransition {
   state: TeamHubWorkItem["state"];
 }
 
+type PeekDismissal = "close" | "full-page" | "cancel-edit";
+
 /**
  * The board's peek: the Work Item's own facts, its recent conversation and
  * activity, and the moves TeamHub allows from its current state. The full page
@@ -98,6 +104,7 @@ export function WorkItemPeek({
   workItem: TeamHubWorkItem;
 }) {
   const { client } = useTeamHubRuntime();
+  const navigate = useNavigate();
   const target = useQuery(
     tenantWorkItemTargetQueryOptions(client, tenantId, workItem.id),
   );
@@ -118,6 +125,59 @@ export function WorkItemPeek({
     : undefined;
   const item = target.data ?? workItem;
   const [editing, setEditing] = useState(false);
+  const editButtonId = useId();
+  const [editStatus, setEditStatus] = useState<WorkItemDraftStatus>("clean");
+  const [commentStatus, setCommentStatus] =
+    useState<WorkItemDraftStatus>("clean");
+  const [dismissal, setDismissal] = useState<PeekDismissal>();
+  const [closeBlocked, setCloseBlocked] = useState(false);
+  const dismissalFocus = useRef<HTMLElement | null>(null);
+  const draftPending = editStatus === "pending" || commentStatus === "pending";
+
+  function finishEditing() {
+    setEditing(false);
+    setEditStatus("clean");
+    requestAnimationFrame(() => document.getElementById(editButtonId)?.focus());
+  }
+
+  function finishDismissal(action: PeekDismissal) {
+    setDismissal(undefined);
+    if (action === "cancel-edit") {
+      finishEditing();
+      return;
+    }
+    onClose();
+    if (action === "full-page") {
+      void navigate({
+        pathname: dashboardWorkItemPath(tenantId, item.id),
+        search,
+      });
+    }
+  }
+
+  function requestDismissal(action: PeekDismissal) {
+    const cancelEdit = action === "cancel-edit";
+    if (editStatus === "pending" || (!cancelEdit && draftPending)) {
+      setCloseBlocked(true);
+      return;
+    }
+    setCloseBlocked(false);
+    if (editStatus === "dirty" || (!cancelEdit && commentStatus === "dirty")) {
+      dismissalFocus.current =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
+      setDismissal(action);
+      return;
+    }
+    finishDismissal(action);
+  }
+
+  function continueEditing() {
+    setDismissal(undefined);
+    requestAnimationFrame(() => dismissalFocus.current?.focus());
+  }
+
   // Both lists open short; expanding is a view of what is already loaded, so it
   // sends no request and stays with this peek's lifetime.
   const [allComments, setAllComments] = useState(false);
@@ -192,60 +252,68 @@ export function WorkItemPeek({
     );
   }
 
-  return (
+  const peek = (
     <ModalDialog
       className="work-item-peek"
       closeOnBackdrop
       description={`${item.kind === "issue" ? "Issue" : "Task"} #${item.number}`}
       footer={
-        <>
-          <Link
-            className={`${buttonClassName({ size: "compact" })} mr-auto`}
-            onClick={(event) => {
-              if (
-                event.button === 0 &&
-                !event.metaKey &&
-                !event.ctrlKey &&
-                !event.shiftKey &&
-                !event.altKey
-              ) {
-                onClose();
-              }
-            }}
-            to={{
-              pathname: dashboardWorkItemPath(tenantId, item.id),
-              search,
-            }}
-          >
-            Open full page
-          </Link>
-          {transitions.map((option) => (
-            <Button
-              disabled={transition.isPending}
-              key={option.state}
-              onClick={() =>
-                transition.mutate({
-                  expectedVersion: item.version,
-                  resolution: option.resolution,
-                  state: option.state,
-                })
-              }
-              size="compact"
-              tone={option.state === "resolved" ? "primary" : "secondary"}
+        <div className="flex w-full flex-col gap-3">
+          {closeBlocked && draftPending ? (
+            <p className="text-sm text-app-muted" role="status">
+              Wait for saving or sending to finish before leaving.
+            </p>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              className={`${buttonClassName({ size: "compact" })} mr-auto`}
+              onClick={(event) => {
+                if (
+                  event.button === 0 &&
+                  !event.metaKey &&
+                  !event.ctrlKey &&
+                  !event.shiftKey &&
+                  !event.altKey
+                ) {
+                  event.preventDefault();
+                  requestDismissal("full-page");
+                }
+              }}
+              to={{
+                pathname: dashboardWorkItemPath(tenantId, item.id),
+                search,
+              }}
             >
-              {option.label}
+              Open full page
+            </Link>
+            {transitions.map((option) => (
+              <Button
+                disabled={transition.isPending}
+                key={option.state}
+                onClick={() =>
+                  transition.mutate({
+                    expectedVersion: item.version,
+                    resolution: option.resolution,
+                    state: option.state,
+                  })
+                }
+                size="compact"
+                tone={option.state === "resolved" ? "primary" : "secondary"}
+              >
+                {option.label}
+              </Button>
+            ))}
+            <Button
+              aria-busy={archivePending || undefined}
+              disabled={archivePending}
+              onClick={toggleArchive}
+              size="compact"
+              tone="secondary"
+            >
+              {archived ? "Unarchive" : "Archive"}
             </Button>
-          ))}
-          <Button
-            aria-busy={archivePending || undefined}
-            disabled={archivePending}
-            onClick={toggleArchive}
-            size="compact"
-            tone="secondary"
-          >
-            {archived ? "Unarchive" : "Archive"}
-          </Button>
-        </>
+          </div>
+        </div>
       }
       headerActions={
         <>
@@ -254,7 +322,7 @@ export function WorkItemPeek({
           <WorkItemShareAction item={item} tenantId={tenantId} />
         </>
       }
-      onClose={onClose}
+      onClose={() => requestDismissal("close")}
       title={item.title}
     >
       <div className="space-y-5 px-5 py-4">
@@ -284,7 +352,9 @@ export function WorkItemPeek({
         {editing ? (
           <WorkItemEditForm
             item={item}
-            onDone={() => setEditing(false)}
+            onCancel={() => requestDismissal("cancel-edit")}
+            onDone={finishEditing}
+            onDraftStatusChange={setEditStatus}
             tenantId={tenantId}
           />
         ) : (
@@ -293,6 +363,7 @@ export function WorkItemPeek({
               {item.description || "No description."}
             </p>
             <Button
+              id={editButtonId}
               onClick={() => setEditing(true)}
               size="compact"
               tone="secondary"
@@ -387,7 +458,11 @@ export function WorkItemPeek({
           ) : null}
         </section>
 
-        <WorkItemCommentComposer tenantId={tenantId} workItemId={workItem.id} />
+        <WorkItemCommentComposer
+          onDraftStatusChange={setCommentStatus}
+          tenantId={tenantId}
+          workItemId={workItem.id}
+        />
 
         <section aria-label="Timeline" className="space-y-2">
           <h3 className="text-xs font-medium text-app-muted">Timeline</h3>
@@ -442,6 +517,48 @@ export function WorkItemPeek({
         ) : null}
       </div>
     </ModalDialog>
+  );
+
+  return (
+    <>
+      {peek}
+      {dismissal ? (
+        <ModalDialog
+          closeOnBackdrop
+          description={
+            editStatus === "dirty"
+              ? dismissal !== "cancel-edit" && commentStatus === "dirty"
+                ? "Your changes and comment have not been saved or sent."
+                : "Your changes have not been saved."
+              : "Your comment has not been sent."
+          }
+          footer={
+            <>
+              <Button
+                // eslint-disable-next-line jsx-a11y/no-autofocus -- keeping the draft is the safe default for this explicit dismissal decision
+                autoFocus
+                onClick={continueEditing}
+                tone="primary"
+              >
+                Continue editing
+              </Button>
+              <Button onClick={() => finishDismissal(dismissal)} tone="danger">
+                {dismissal === "cancel-edit"
+                  ? "Discard edits"
+                  : dismissal === "full-page"
+                    ? "Discard and open page"
+                    : "Discard and close"}
+              </Button>
+            </>
+          }
+          onClose={continueEditing}
+          size="sm"
+          title="Discard unsaved work?"
+        >
+          {null}
+        </ModalDialog>
+      ) : null}
+    </>
   );
 }
 
@@ -615,11 +732,15 @@ function PeekListToggle({
  */
 function WorkItemEditForm({
   item,
+  onCancel,
   onDone,
+  onDraftStatusChange,
   tenantId,
 }: {
   item: TeamHubWorkItem;
+  onCancel: () => void;
   onDone: () => void;
+  onDraftStatusChange: (status: WorkItemDraftStatus) => void;
   tenantId: string;
 }) {
   const update = useUpdateWorkItem(tenantId, item.id);
@@ -628,6 +749,7 @@ function WorkItemEditForm({
   const [title, setTitle] = useState(item.title);
   const [description, setDescription] = useState(item.description);
   const [priority, setPriority] = useState(item.priority);
+  const submitting = useRef(false);
 
   useEffect(() => {
     titleInputRef.current?.focus();
@@ -644,18 +766,35 @@ function WorkItemEditForm({
     ...(priority === baseline.priority ? {} : { priority }),
   };
   const canSave = trimmedTitle.length > 0 && !titleTooLong;
+  const draftStatus = update.isPending
+    ? "pending"
+    : Object.keys(changes).length
+      ? "dirty"
+      : "clean";
+
+  useEffect(() => {
+    onDraftStatusChange(draftStatus);
+  }, [draftStatus, onDraftStatusChange]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canSave || update.isPending) return;
+    if (!canSave || submitting.current) return;
     // An edit that ends where it started has nothing to send.
     if (!Object.keys(changes).length) {
       onDone();
       return;
     }
+    submitting.current = true;
+    onDraftStatusChange("pending");
     update.mutate(
       { ...changes, expectedVersion: baseline.version },
-      { onSuccess: onDone },
+      {
+        onError: () => onDraftStatusChange("dirty"),
+        onSettled: () => {
+          submitting.current = false;
+        },
+        onSuccess: onDone,
+      },
     );
   }
 
@@ -733,7 +872,7 @@ function WorkItemEditForm({
         </Button>
         <Button
           disabled={update.isPending}
-          onClick={onDone}
+          onClick={onCancel}
           size="compact"
           tone="secondary"
         >
