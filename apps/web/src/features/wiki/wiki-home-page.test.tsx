@@ -31,10 +31,13 @@ vi.mock("@/components/read-only-blocknote-document-loader", () => ({
 
 afterEach(() => {
   clearAllRecentWikiPages();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
 it("waits with the page Another Me finished yesterday until it is opened", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(2026, 10, 16, 12));
   const runtime = createTestTeamHubRuntime();
   const page = wikiDocument("project-one", "Launch.md", "wiki_page");
   page.from[0]!.page_key = "projects/launch.md";

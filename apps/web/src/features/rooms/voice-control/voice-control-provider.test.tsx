@@ -714,11 +714,26 @@ describe("LiveKit voice input lifecycle", () => {
         return Object.assign(closed, { catchUp: async () => undefined });
       }),
     };
-    const getCapture = spyVoiceRoute(
+    const start = spyVoiceRoute(
       runtime,
       accepted,
+      "POST",
+      "/v0/voice-sessions/{voiceSessionId}/captures",
+    );
+    let releaseCaptureReads!: () => void;
+    const captureReads = new Promise<void>((resolve) => {
+      releaseCaptureReads = resolve;
+    });
+    let completedCaptureReads = 0;
+    const getCapture = vi.fn(async (request: TestRouteRequest) => {
+      await captureReads;
+      completedCaptureReads += 1;
+      return accepted("GET", "/v0/voice-captures/{captureSessionId}")(request);
+    });
+    runtime.server.on(
       "GET",
       "/v0/voice-captures/{captureSessionId}",
+      getCapture,
     );
     const tree = (label: string) => (
       <TeamHubRuntimeProvider runtime={runtime}>
@@ -740,15 +755,8 @@ describe("LiveKit voice input lifecycle", () => {
     view.rerender(tree("second"));
     expect(subscriptions).toHaveLength(1);
     expect(closed).not.toHaveBeenCalled();
-    const captureId = screen
-      .getByLabelText("capture")
-      .textContent.split(":")[1]!;
-    const capture = await teamHubData(
-      runtime.client.api.GET("/v0/voice-captures/{captureSessionId}", {
-        params: { path: { captureSessionId: captureId } },
-      }),
-    );
-    const before = getCapture.mock.calls.length;
+    const capture = (await start.mock.results[0]!.value) as TeamHubVoiceCapture;
+    await waitFor(() => expect(getCapture).toHaveBeenCalled());
     act(() =>
       subscriptions[0]!.onEvents({
         next_cursor: `${capture.voice_session_id}:2`,
@@ -768,11 +776,12 @@ describe("LiveKit voice input lifecycle", () => {
     await waitFor(() =>
       expect(screen.getByLabelText("capture")).toHaveTextContent("finalizing:"),
     );
-    expect(getCapture).toHaveBeenCalledTimes(before);
     await waitFor(() => expect(media.stop).toHaveBeenCalledOnce());
+    expect(completedCaptureReads).toBe(0);
     expect(subscriptions).toHaveLength(1);
     view.unmount();
     expect(closed).toHaveBeenCalledOnce();
+    releaseCaptureReads();
   });
 
   it("records into a selected general Agent room and refuses to retarget an active Capture", async () => {
