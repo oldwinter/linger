@@ -3,3 +3,46 @@
 Web is the Room-centered React/Vite product client, built on React Router Data Mode and TanStack Query. Active product data comes only from TeamHub.
 
 Commands, conventions and boundaries are in [AGENTS.md](./AGENTS.md).
+
+## Interaction behavior
+
+The Room header keeps the Room identity and conversation controls visible on
+narrow screens. More actions contains document sharing and Room management
+links. Watch the work remains available as an icon while a run is active.
+Pinned messages opens a panel within the window; long lists scroll beneath its
+title and search. Close or Escape returns focus to the trigger. The first
+Escape clears a nonempty pin search.
+
+The Work Item peek asks before discarding an unsent comment or changed
+description when the reader closes it or opens the full page. Continue editing
+is the default. Cancel in the description editor discards only that edit.
+Pending saves and comments keep the peek open, and failed submissions retain
+their input. These drafts do not survive a reload or a closed browser tab.
+
+Creating an issue keeps entered details until creation succeeds or the reader
+confirms discard. Escape and Close default to continuing the edit. Pending
+creation prevents dismissal and repeated submission; failure keeps the draft,
+and retrying unchanged details reuses its idempotency key. Success focuses the
+new issue on the Dashboard.
+
+Room name and description stay fixed while their save is pending. Repeated
+submission and the editor's close actions wait for the result. A failed save
+keeps the entered values available to edit and retry.
+
+Who can manage keeps role choices and Save disabled until submitted changes
+and the membership refresh finish. A rejected save retains the selected roles
+for correction or retry.
+
+Editing a rule keeps the submitted text fixed until its save finishes. Save,
+Cancel, and the editor's keyboard shortcuts cannot discard or submit it again
+while pending. A failed save keeps the draft available for correction or retry.
+
+Forwarding to several targets waits for every response. Confirmed targets are
+marked Forwarded; only unconfirmed targets stay selected for retry. Each target
+keeps its request key while the dialog is open, so retrying a lost response
+reuses the committed message. Pending forwarding prevents selection changes
+and dismissal. The footer reports partial results beside the retry action.
+
+Search uses Tab to choose a narrower result category when one is available.
+Otherwise Tab and Shift+Tab move focus normally. Backspace in an empty query
+removes the displayed Room or Thread scope.
