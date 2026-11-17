@@ -99,8 +99,6 @@ export function RoutineDialog({
   const formId = useId();
   const [pickDate, setPickDate] = useState(Boolean(routine));
   const [error, setError] = useState<string | null>(null);
-  const update = (patch: Partial<RoutineDraft>) =>
-    setDraft((current) => ({ ...current, ...patch }));
   const fail = (fallback: string) => (cause: unknown) =>
     setError(cause instanceof Error ? cause.message : fallback);
 
@@ -168,6 +166,15 @@ export function RoutineDialog({
     onSuccess: onSaved,
     onError: fail("Could not run routine."),
   });
+  const busy = save.isPending || remove.isPending || runNow.isPending;
+
+  function update(patch: Partial<RoutineDraft>) {
+    if (!busy) setDraft((current) => ({ ...current, ...patch }));
+  }
+
+  function requestClose() {
+    if (!busy) onClose();
+  }
 
   const cadence = (() => {
     try {
@@ -194,110 +201,134 @@ export function RoutineDialog({
           {routine ? (
             <Button
               className="mr-auto text-destructive hover:text-destructive"
-              disabled={remove.isPending}
-              onClick={() => remove.mutate()}
+              disabled={busy}
+              loading={remove.isPending}
+              onClick={() => {
+                if (busy) return;
+                setError(null);
+                remove.mutate();
+              }}
               tone="ghost"
               type="button"
             >
-              Delete
+              {remove.isPending ? "Deleting…" : "Delete"}
             </Button>
           ) : null}
           {routine ? (
             <Button
-              disabled={runNow.isPending}
-              onClick={() => runNow.mutate()}
+              disabled={busy}
+              loading={runNow.isPending}
+              onClick={() => {
+                if (busy) return;
+                setError(null);
+                runNow.mutate();
+              }}
               type="button"
             >
-              Run now
+              {runNow.isPending ? "Running…" : "Run now"}
             </Button>
           ) : null}
           <Button
-            disabled={save.isPending}
+            disabled={busy}
             form={formId}
+            loading={save.isPending}
             tone="primary"
             type="submit"
           >
-            {routine ? "Save" : "Create"}
+            {save.isPending
+              ? routine
+                ? "Saving…"
+                : "Creating…"
+              : routine
+                ? "Save"
+                : "Create"}
           </Button>
         </>
       }
-      onClose={onClose}
+      onClose={requestClose}
       size="md"
       title={routine ? "Edit routine" : "New routine"}
     >
       <form
-        className="flex flex-col gap-4 px-5 py-4"
+        aria-busy={busy || undefined}
+        className="px-5 py-4"
         id={formId}
         onSubmit={(event) => {
           event.preventDefault();
+          if (busy) return;
           setError(null);
           save.mutate();
         }}
       >
-        <div>
-          <span className="block text-xs font-medium text-foreground">
-            When
-          </span>
-          <WhenEditor
-            draft={draft}
-            onPickDate={setPickDate}
-            pickDate={pickDate}
-            update={update}
-          />
-          <p className="mt-2 truncate text-xs tabular-nums text-muted-foreground">
-            {cadence ? cadenceLabel(cadence) : "Choose a time"}
-            {cadence && nextRun ? ` · ${nextRun}` : ""}
-          </p>
-        </div>
-        <label className="block text-xs font-medium text-foreground">
-          Instruction
-          <textarea
-            className={`${FIELD} mt-1 min-h-28 w-full py-2 leading-relaxed`}
-            onChange={(event) => update({ instruction: event.target.value })}
-            placeholder="What should it do then?"
-            required
-            value={draft.instruction}
-          />
-        </label>
-        {!agentScoped ? (
+        <fieldset className="flex min-w-0 flex-col gap-4" disabled={busy}>
+          <div>
+            <span className="block text-xs font-medium text-foreground">
+              When
+            </span>
+            <WhenEditor
+              disabled={busy}
+              draft={draft}
+              onPickDate={setPickDate}
+              pickDate={pickDate}
+              update={update}
+            />
+            <p className="mt-2 truncate text-xs tabular-nums text-muted-foreground">
+              {cadence ? cadenceLabel(cadence) : "Choose a time"}
+              {cadence && nextRun ? ` · ${nextRun}` : ""}
+            </p>
+          </div>
           <label className="block text-xs font-medium text-foreground">
-            Name (optional)
-            <input
-              className={`${FIELD} mt-1 h-9 w-full`}
-              maxLength={120}
-              onChange={(event) => setName(event.target.value)}
-              value={name}
+            Instruction
+            <textarea
+              className={`${FIELD} mt-1 min-h-28 w-full py-2 leading-relaxed`}
+              onChange={(event) => update({ instruction: event.target.value })}
+              placeholder="What should it do then?"
+              required
+              value={draft.instruction}
             />
           </label>
-        ) : null}
-        {!agentScoped && (mentionOptions.length > 0 || mention) ? (
-          <label className="block text-xs font-medium text-foreground">
-            Mention
-            <Select
-              aria-label="Mention"
-              className="mt-1 w-full font-normal"
-              disabled={!routine && Boolean(mentionActorId)}
-              onValueChange={setMention}
-              value={mention}
-            >
-              <SelectItem value="">None</SelectItem>
-              {mentionOptions.map((agent) => (
-                <SelectItem key={agent.id} value={agent.id}>
-                  {agent.display_name}
-                </SelectItem>
-              ))}
-              {mention &&
-              !mentionOptions.some((agent) => agent.id === mention) ? (
-                <SelectItem value={mention}>Current Agent</SelectItem>
-              ) : null}
-            </Select>
-          </label>
-        ) : null}
-        {error ? (
-          <p className="text-xs text-destructive" role="alert">
-            {error}
-          </p>
-        ) : null}
+          {!agentScoped ? (
+            <label className="block text-xs font-medium text-foreground">
+              Name (optional)
+              <input
+                className={`${FIELD} mt-1 h-9 w-full`}
+                maxLength={120}
+                onChange={(event) => setName(event.target.value)}
+                value={name}
+              />
+            </label>
+          ) : null}
+          {!agentScoped && (mentionOptions.length > 0 || mention) ? (
+            <label className="block text-xs font-medium text-foreground">
+              Mention
+              <Select
+                aria-label="Mention"
+                className="mt-1 w-full font-normal"
+                disabled={busy || (!routine && Boolean(mentionActorId))}
+                onValueChange={(value) => {
+                  if (!busy) setMention(value);
+                }}
+                value={mention}
+              >
+                <SelectItem value="">None</SelectItem>
+                {mentionOptions.map((agent) => (
+                  <SelectItem key={agent.id} value={agent.id}>
+                    {agent.display_name}
+                  </SelectItem>
+                ))}
+                {mention &&
+                !mentionOptions.some((agent) => agent.id === mention) ? (
+                  <SelectItem value={mention}>Current Agent</SelectItem>
+                ) : null}
+              </Select>
+            </label>
+          ) : null}
+          {error ? (
+            <p className="text-xs text-destructive" role="alert">
+              {error}
+            </p>
+          ) : null}
+        </fieldset>
       </form>
     </ModalDialog>
   );
@@ -307,11 +338,13 @@ const FIELD =
   "rounded-md border border-input bg-card px-3 text-sm font-normal text-foreground transition-colors duration-150 placeholder:text-muted-foreground hover:border-border-hover focus:border-foreground focus:outline-none focus:ring-2 focus:ring-ring";
 
 function WhenEditor({
+  disabled,
   draft,
   onPickDate,
   pickDate,
   update,
 }: {
+  disabled: boolean;
   draft: RoutineDraft;
   onPickDate: (pickDate: boolean) => void;
   pickDate: boolean;
@@ -354,7 +387,10 @@ function WhenEditor({
       <Select
         aria-label="When"
         className="w-full font-normal"
-        onValueChange={(value) => choose(value as When)}
+        disabled={disabled}
+        onValueChange={(value) => {
+          if (!disabled) choose(value as When);
+        }}
         value={when}
       >
         {WHENS.map(([value, label]) => (

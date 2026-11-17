@@ -110,6 +110,49 @@ describe("Room creation", () => {
     );
   });
 
+  it("keeps a pending Room creation open and preserves its name after failure", async () => {
+    const runtime = createTestTeamHubRuntime();
+    let finish!: (response: Response) => void;
+    const response = new Promise<Response>((resolve) => {
+      finish = resolve;
+    });
+    const create = vi.fn<TestRouteHandler>(() => response);
+    runtime.server.on("POST", "/v0/tenants/{tenantId}/rooms", create);
+    const onClose = vi.fn();
+
+    render(
+      <QueryClientProvider client={createAppQueryClient()}>
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <MemoryRouter>
+            <RoomCreateDialog onClose={onClose} tenantId="tenant-northstar" />
+          </MemoryRouter>
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    const name = screen.getByLabelText("Room name");
+    fireEvent.change(name, { target: { value: "Release planning" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Create Room$/ }));
+    await waitFor(() => expect(create).toHaveBeenCalledOnce());
+
+    const dialog = screen.getByRole("dialog", { name: "Create Room" });
+    expect(name).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.submit(name.closest("form")!);
+    expect(create).toHaveBeenCalledOnce();
+
+    finish(
+      teamHubErrorResponse(409, "ROOM_NAME_TAKEN", "This Room name is taken."),
+    );
+    await screen.findByRole("alert");
+    expect(name).toBeEnabled();
+    expect(name).toHaveValue("Release planning");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it("adds Humans and Agents in a separate dialog after the Room already exists", async () => {
     const runtime = createTestTeamHubRuntime();
     acceptRoomCreation(runtime);

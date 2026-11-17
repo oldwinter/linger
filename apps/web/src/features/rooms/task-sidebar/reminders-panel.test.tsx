@@ -11,9 +11,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubRoutine } from "@/features/teamhub/teamhub-types";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
-import type {
-  TestRouteHandler,
-  TestRouteRequest,
+import {
+  teamHubErrorResponse,
+  type TestRouteHandler,
+  type TestRouteRequest,
 } from "@/test/teamhub-test-server";
 
 import { formatTimeOfDay } from "./routine-cadence";
@@ -47,6 +48,7 @@ interface RoutineRoutes {
   createRoomRoutine?: TestRouteHandler;
   deleteRoutine?: TestRouteHandler;
   listRoomRoutines: TestRouteHandler;
+  runRoutine?: TestRouteHandler;
   updateRoutine?: TestRouteHandler;
 }
 
@@ -74,6 +76,12 @@ function renderPanel(routes: RoutineRoutes, agentScoped = true) {
       "DELETE",
       "/v0/routines/{routineId}",
       routes.deleteRoutine,
+    );
+  if (routes.runRoutine)
+    runtime.server.on(
+      "POST",
+      "/v0/routines/{routineId}/run",
+      routes.runRoutine,
     );
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -355,6 +363,85 @@ describe("RemindersPanel", () => {
     );
   });
 
+  it.each(["Save", "Run now", "Delete"])(
+    "protects edits and other commands while %s is pending",
+    async (action) => {
+      let finish!: (response: Response) => void;
+      const response = new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+      const pending = vi.fn<TestRouteHandler>(() => response);
+      renderPanel(
+        {
+          listRoomRoutines: list([{ ...reminder, mention_actor_id: AGENT }]),
+          updateRoutine: pending,
+          runRoutine: pending,
+          deleteRoutine: pending,
+        },
+        false,
+      );
+      const dialog = await openRoutine(/Daily brief/);
+      const instruction = within(dialog).getByLabelText("Instruction");
+      fireEvent.change(instruction, {
+        target: { value: "Prepare the updated brief" },
+      });
+      await chooseWhen(dialog, "Weekdays");
+      const buttons = ["Save", "Run now", "Delete"].map((name) =>
+        within(dialog).getByRole("button", { name }),
+      );
+      fireEvent.click(within(dialog).getByRole("button", { name: action }));
+      await waitFor(() => expect(pending).toHaveBeenCalledOnce());
+
+      for (const label of [
+        "Instruction",
+        "Name (optional)",
+        "Hour",
+        "Minute",
+      ]) {
+        expect(within(dialog).getByLabelText(label)).toBeDisabled();
+      }
+      for (const name of ["When", "Mention"]) {
+        expect(within(dialog).getByRole("combobox", { name })).toBeDisabled();
+      }
+      expect(
+        within(dialog).getByRole("checkbox", { name: "Friday" }),
+      ).toBeDisabled();
+      expect(
+        within(dialog).getByRole("button", { name: "9 AM" }),
+      ).toBeDisabled();
+      for (const button of buttons) {
+        expect(button).toBeDisabled();
+        fireEvent.click(button);
+      }
+      fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+      fireEvent(
+        dialog,
+        new Event("cancel", { bubbles: true, cancelable: true }),
+      );
+      fireEvent.click(dialog);
+      fireEvent.submit(instruction.closest("form")!);
+      expect(dialog).toBeInTheDocument();
+      expect(pending).toHaveBeenCalledOnce();
+
+      finish(
+        teamHubErrorResponse(
+          409,
+          "ROUTINE_CONFLICT",
+          "This routine changed. Try again.",
+        ),
+      );
+      expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+        "This routine changed. Try again.",
+      );
+      expect(instruction).toHaveValue("Prepare the updated brief");
+      expect(instruction).toBeEnabled();
+      expect(within(dialog).getByLabelText("Hour")).toBeEnabled();
+      for (const button of buttons) expect(button).toBeEnabled();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+      expect(dialog).not.toBeInTheDocument();
+    },
+  );
+
   it("preserves the name and target when editing an Agent's routine", async () => {
     const updateRoutine = vi.fn<TestRouteHandler>(() => reminder);
     renderPanel({
@@ -409,6 +496,50 @@ describe("RemindersPanel", () => {
         weekdays: ["monday", "tuesday", "wednesday", "thursday", "friday"],
       },
     });
+  });
+
+  it("keeps a new routine editable after a failed creation", async () => {
+    let finish!: (response: Response) => void;
+    const response = new Promise<Response>((resolve) => {
+      finish = resolve;
+    });
+    const create = vi.fn<TestRouteHandler>().mockReturnValueOnce(response);
+    create.mockReturnValue(reminder);
+    renderPanel({
+      listRoomRoutines: list([]),
+      createRoomRoutine: create,
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "New routine" }));
+    const dialog = screen.getByRole("dialog", { name: "New routine" });
+    const instruction = within(dialog).getByLabelText("Instruction");
+    fireEvent.change(instruction, {
+      target: { value: "Review the launch brief tomorrow." },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(create).toHaveBeenCalledOnce());
+
+    expect(
+      within(dialog).getByRole("button", { name: "Creating…" }),
+    ).toBeDisabled();
+    expect(instruction).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    expect(dialog).toBeInTheDocument();
+
+    finish(
+      teamHubErrorResponse(
+        503,
+        "SERVICE_UNAVAILABLE",
+        "Routines are unavailable. Try again.",
+      ),
+    );
+    await within(dialog).findByRole("alert");
+    expect(instruction).toBeEnabled();
+    expect(instruction).toHaveValue("Review the launch brief tomorrow.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(sentBody(create, 1)).toEqual(sentBody(create, 0));
   });
 
   it("lets an app listener only pause and resume", async () => {

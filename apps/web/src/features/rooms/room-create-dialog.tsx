@@ -81,7 +81,7 @@ export function RoomCreateDialog({
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (name.trim() && !duplicateName) {
+    if (name.trim() && !duplicateName && !createRoom.isPending) {
       const input: TeamHubRoomCreateInput = {
         name: name.trim(),
       };
@@ -89,9 +89,13 @@ export function RoomCreateDialog({
     }
   }
 
+  function requestClose() {
+    if (!createRoom.isPending) onClose();
+  }
+
   return (
     <ModalDialog
-      onClose={onClose}
+      onClose={requestClose}
       size="md"
       title="Create Room"
       footer={
