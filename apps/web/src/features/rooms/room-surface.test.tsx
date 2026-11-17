@@ -108,6 +108,117 @@ describe("RoomSurface command availability", () => {
     );
   });
 
+  it("keeps Room commands available in the compact header menu", async () => {
+    const geometry = mockRoomHeaderWidth(390);
+    const openRoomSearch = vi.fn();
+    try {
+      const router = await renderRoomSurface(
+        "room-all",
+        "",
+        surfaceRuntime(),
+        <div />,
+        openRoomSearch,
+      );
+      const header = await screen.findByRole("banner");
+      expect(
+        within(header).getByRole("button", { name: "Open Room navigation" }),
+      ).toBeEnabled();
+      expect(
+        within(header).getByRole("heading", { name: "all" }),
+      ).toBeInTheDocument();
+      expect(
+        within(header).queryByRole("link", { name: "Add a document" }),
+      ).not.toBeInTheDocument();
+      fireEvent.click(
+        within(header).getByRole("button", { name: "More actions for all" }),
+      );
+      for (const name of [
+        "Search this Room",
+        "Add a document",
+        "How work moves",
+        "Who can manage",
+        "Hand off",
+        "Step out",
+        "Copy Room link",
+      ]) {
+        expect(screen.getByRole("menuitem", { name })).toBeEnabled();
+      }
+      fireEvent.click(
+        screen.getByRole("menuitem", { name: "Search this Room" }),
+      );
+      expect(openRoomSearch).toHaveBeenCalledWith({
+        id: "room-all",
+        name: "all",
+      });
+      fireEvent.click(
+        within(header).getByRole("button", { name: "More actions for all" }),
+      );
+      fireEvent.click(screen.getByRole("menuitem", { name: "Add a document" }));
+      expect(router.state.location.pathname).toBe(
+        "/t/tenant-northstar/rooms/room-all/add-document",
+      );
+    } finally {
+      geometry.mockRestore();
+    }
+  });
+
+  it("keeps Watch visible beside compact actions while the Room is working", async () => {
+    const geometry = mockRoomHeaderWidth(320);
+    try {
+      const runtime = surfaceRuntime();
+      runtime.server.on("GET", "/v0/tenants/{tenantId}/room-activity", () => ({
+        failed_room_ids: [],
+        running_room_ids: ["room-all"],
+      }));
+      await renderRoomSurface("room-all", "", runtime);
+      const header = await screen.findByRole("banner");
+      expect(
+        await within(header).findByRole("link", { name: "Watch the work" }),
+      ).toHaveAttribute("href", "/t/tenant-northstar/rooms/room-all/working");
+      expect(
+        within(header).queryByRole("button", { name: "Search this Room" }),
+      ).not.toBeInTheDocument();
+      fireEvent.click(
+        within(header).getByRole("button", { name: "More actions for all" }),
+      );
+      expect(
+        screen.getByRole("menuitem", { name: "Steer this run" }),
+      ).toBeEnabled();
+    } finally {
+      geometry.mockRestore();
+    }
+  });
+
+  it("opens deleted-Agent Room deletion from the compact menu", async () => {
+    const geometry = mockRoomHeaderWidth(320);
+    try {
+      const runtime = surfaceRuntime();
+      const room = await teamHubData(
+        runtime.client.api.GET("/v0/rooms/{roomId}", {
+          params: { path: { roomId: "room-dm-codex" } },
+        }),
+      );
+      runtime.server.on("GET", "/v0/rooms/{roomId}", () => ({
+        ...room,
+        direct_peer_active: false,
+      }));
+      await renderRoomSurface(room.id, "", runtime);
+      const header = await screen.findByRole("banner");
+      expect(
+        within(header).queryByRole("button", { name: "Delete Room" }),
+      ).not.toBeInTheDocument();
+      fireEvent.click(
+        within(header).getByRole("button", { name: "More actions for Codex" }),
+      );
+      fireEvent.click(screen.getByRole("menuitem", { name: "Delete Room" }));
+      expect(
+        await screen.findByRole("dialog", { name: "Delete Room" }),
+      ).toBeVisible();
+    } finally {
+      geometry.mockRestore();
+    }
+  });
+
   it("opens Room-scoped search from the keyboard and keeps the browser find bar closed", async () => {
     const openRoomSearch = vi.fn();
     await renderRoomSurface(
@@ -1247,6 +1358,17 @@ describe("RoomSurface command availability", () => {
     expect(within(sidebar).getByRole("tab", { name: /Files/ })).toBeVisible();
   });
 });
+
+function mockRoomHeaderWidth(width: number) {
+  const getBounds = HTMLElement.prototype.getBoundingClientRect;
+  return vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      return this.tagName === "HEADER"
+        ? new DOMRect(0, 0, width, 57)
+        : getBounds.call(this);
+    });
+}
 
 async function openPanelLauncher() {
   const room = await screen.findByRole("region", { name: "Room all" });
