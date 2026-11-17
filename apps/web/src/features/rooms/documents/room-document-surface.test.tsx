@@ -52,6 +52,7 @@ import {
   commentActor,
   commentThreadResponse,
 } from "./document-comment-test-data";
+import { DocumentMentionMessageComposer } from "./room-document-comment-composer";
 
 // PDF canvas rendering belongs to its adapter tests, not Document controls.
 vi.mock("@/features/rooms/files/pdf-preview-adapter-loader", () => ({
@@ -158,7 +159,12 @@ vi.mock("./room-document-blocknote-editor-loader", () => ({
           </>
         ) : null}
         {commentsOpen ? (
-          <aside aria-label="All Document comments">Comments</aside>
+          <aside aria-label="All Document comments">
+            <DocumentMentionMessageComposer
+              mentionOptions={[]}
+              onSubmit={async () => undefined}
+            />
+          </aside>
         ) : null}
         <button
           onClick={() =>
@@ -2018,6 +2024,40 @@ describe("Unified Document page", () => {
     ).toBeVisible();
   });
 
+  it("protects an entered native comment from the page header's Comments toggle", async () => {
+    const runtime = createDocumentTestRuntime();
+    const document = seedNativeDocument(runtime, "comment-close-draft", {
+      representation_format: "markdown",
+    });
+    renderUnifiedDocumentPage(
+      runtime,
+      `/t/tenant-northstar/documents/${document.id}`,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Comments" }));
+    const input = await screen.findByRole("textbox", {
+      name: "New Document comment",
+    });
+    fireEvent.change(input, {
+      target: { value: "Keep these review details while I check the page." },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Comments" }));
+
+    const confirmation = screen.getByRole("dialog", {
+      name: "Discard comment drafts?",
+    });
+    fireEvent(
+      confirmation,
+      new Event("cancel", { bubbles: false, cancelable: true }),
+    );
+    expect(input).toHaveValue(
+      "Keep these review details while I check the page.",
+    );
+    expect(
+      screen.getByRole("complementary", { name: "All Document comments" }),
+    ).toBeVisible();
+  });
+
   it("commits the native logical title when the user presses Enter", async () => {
     const runtime = createDocumentTestRuntime();
 
@@ -2059,6 +2099,57 @@ describe("Unified Document page", () => {
       await screen.findByRole("heading", { name: "Enter title" }),
     ).toBeVisible();
   });
+
+  it.each([
+    { key: "Enter", isComposing: true, keyCode: 13 },
+    { key: "Escape", isComposing: true, keyCode: 27 },
+    { key: "Enter", isComposing: false, keyCode: 229 },
+    { key: "Escape", isComposing: false, keyCode: 229 },
+  ])(
+    "keeps the native title draft for composing $key (isComposing=$isComposing, keyCode=$keyCode)",
+    async (keyEvent) => {
+      const runtime = createDocumentTestRuntime();
+      const document = seedNativeDocument(runtime, "composing-title", {
+        representation_format: "markdown",
+      });
+      const renamed = { ...document, title: "Composing title" };
+      const updateTitle = vi.fn<(request: TestRouteRequest) => unknown>();
+      runtime.server.on(
+        "PATCH",
+        "/v0/documents/{documentId}/draft-title",
+        updateTitle,
+      );
+      respond(updateTitle, renamed, () => showDocument(runtime, renamed));
+      renderUnifiedDocumentPage(
+        runtime,
+        `/t/tenant-northstar/documents/${document.id}`,
+      );
+
+      await screen.findByText("Room BlockNote editor");
+      fireEvent.click(screen.getByTitle("Rename document"));
+      const input = screen.getByRole("textbox", { name: "Document title" });
+      fireEvent.compositionStart(input);
+      fireEvent.change(input, { target: { value: renamed.title } });
+      await act(async () => {
+        fireEvent.keyDown(input, keyEvent);
+      });
+
+      expect(input).toBeEnabled();
+      expect(input).toHaveFocus();
+      expect(input).toHaveValue(renamed.title);
+      expect(updateTitle).not.toHaveBeenCalled();
+
+      fireEvent.compositionEnd(input);
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(
+        await screen.findByRole("heading", { name: renamed.title }),
+      ).toBeVisible();
+      expect(updateTitle).toHaveBeenCalledTimes(1);
+      expect(updateTitle.mock.calls[0]?.[0].body).toEqual({
+        title: renamed.title,
+      });
+    },
+  );
 
   it("shows a History author and timestamp without exposing checkpoint trigger copy", async () => {
     const runtime = createDocumentTestRuntime();
@@ -2406,15 +2497,39 @@ describe("Unified Document page", () => {
     );
     expect(tree).toContainElement(current);
     expect(scrollIntoView).not.toHaveBeenCalled();
+  });
 
-    const treeToggle = screen.getByRole("button", {
-      name: "Open Library pages",
-    });
-    expect(treeToggle).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(treeToggle);
-    expect(treeToggle).toHaveAttribute("aria-expanded", "true");
-    fireEvent.click(screen.getByRole("button", { name: "Close Owned by Me" }));
-    expect(treeToggle).toHaveAttribute("aria-expanded", "false");
+  it("opens and dismisses Library pages from a mobile Document header", async () => {
+    const matchMedia = window.matchMedia.bind(window);
+    const viewport = vi
+      .spyOn(window, "matchMedia")
+      .mockImplementation((query) => ({
+        ...matchMedia(query),
+        matches: query === "(width < 40rem)",
+      }));
+    try {
+      const runtime = createDocumentTestRuntime();
+      const document = seedNativeDocument(runtime, "mobile-tree");
+      renderUnifiedDocumentPage(
+        runtime,
+        `/t/tenant-northstar/documents/${document.id}`,
+      );
+      const treeToggle = await screen.findByRole("button", {
+        name: "Open Library pages",
+      });
+      expect(treeToggle).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(treeToggle);
+      expect(treeToggle).toHaveAttribute("aria-expanded", "true");
+      expect(
+        screen.getByRole("dialog", { name: "Library pages" }),
+      ).toBeVisible();
+      fireEvent.click(
+        screen.getByRole("button", { name: "Close Library pages" }),
+      );
+      expect(treeToggle).toHaveAttribute("aria-expanded", "false");
+    } finally {
+      viewport.mockRestore();
+    }
   });
 });
 

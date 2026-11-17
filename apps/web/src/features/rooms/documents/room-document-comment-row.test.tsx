@@ -1,6 +1,7 @@
 import type { CommentData } from "@blocknote/core/comments";
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import type { TeamHubActorRef } from "@/features/teamhub/teamhub-types";
 import { commentBodyFromComposition } from "./room-document-comment-body";
@@ -20,7 +21,10 @@ const human: TeamHubActorRef = {
   display_name: "Alice",
 };
 
-function renderComment(body: string) {
+function renderComment(
+  body: string,
+  updateComment?: TeamHubDocumentThreadStore["updateComment"],
+) {
   const comment: CommentData = {
     type: "comment",
     id: "comment_1",
@@ -35,27 +39,63 @@ function renderComment(body: string) {
     auth: {
       canDeleteReaction: () => false,
       canAddReaction: () => false,
-      canUpdateComment: () => false,
+      canUpdateComment: () => Boolean(updateComment),
       canDeleteComment: () => false,
     },
+    updateComment,
   } as unknown as TeamHubDocumentThreadStore;
   return render(
-    <RoomDocumentCommentRow
-      actors={
-        new Map([
-          [author.id, author],
-          [human.id, human],
-        ])
-      }
-      comment={comment}
-      mentionOptions={[human]}
-      threadId="thread_1"
-      threadStore={threadStore}
-    />,
+    <QueryClientProvider client={new QueryClient()}>
+      <RoomDocumentCommentRow
+        actors={
+          new Map([
+            [author.id, author],
+            [human.id, human],
+          ])
+        }
+        comment={comment}
+        mentionOptions={[human]}
+        threadId="thread_1"
+        threadStore={threadStore}
+      />
+    </QueryClientProvider>,
   );
 }
 
 describe("Document comment Markdown", () => {
+  it("keeps failed edits available for retry and leaves editing only after success", async () => {
+    const updateComment = vi
+      .fn<TeamHubDocumentThreadStore["updateComment"]>()
+      .mockRejectedValueOnce(new Error("Comment update failed"))
+      .mockResolvedValue(undefined);
+    renderComment("Published comment", updateComment);
+    fireEvent.click(screen.getByRole("button", { name: "Edit comment" }));
+    const input = screen.getByRole("textbox", {
+      name: "Edit comment by Reviewer",
+    });
+    fireEvent.change(input, {
+      target: { value: "Revised comment with details that must not be lost." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Comment update failed",
+    );
+    expect(input).toHaveValue(
+      "Revised comment with details that must not be lost.",
+    );
+    expect(input).not.toHaveAttribute("readonly");
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(updateComment).toHaveBeenCalledTimes(2));
+    expect(updateComment.mock.calls[1]).toEqual(updateComment.mock.calls[0]);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("textbox", { name: "Edit comment by Reviewer" }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
   it("renders Agent Markdown with the Room message renderer and retains structured mentions", () => {
     const { container } = renderComment(
       "@Alice **Check passed**\n\n- First item\n- Second item\n\n> A quote\n\n```ts\nconst ready = true;\n```\n\n| Item | Status |\n| --- | --- |\n| Review | Done |",

@@ -151,23 +151,24 @@ export function bindSharedPassage(
     );
   };
 
+  let attachedDom: HTMLElement | undefined;
   const attach = () => {
     const view = getView();
-    if (!view) return false;
-    view.dom.addEventListener("beforeinput", onBeforeInput);
-    view.dom.addEventListener("compositionstart", onCompositionStart);
-    return true;
+    if (!view) return;
+    attachedDom = view.dom;
+    attachedDom.addEventListener("beforeinput", onBeforeInput);
+    attachedDom.addEventListener("compositionstart", onCompositionStart);
   };
-  let attached = attach();
+  attach();
   const retry = window.setTimeout(() => {
-    if (!attached) attached = attach();
+    if (!attachedDom) attach();
   }, 0);
 
   return () => {
     window.clearTimeout(retry);
     awareness.off("change", onAwareness);
-    const view = getView();
-    view?.dom.removeEventListener("beforeinput", onBeforeInput);
-    view?.dom.removeEventListener("compositionstart", onCompositionStart);
+    // React may unmount the editor view before releasing this binding.
+    attachedDom?.removeEventListener("beforeinput", onBeforeInput);
+    attachedDom?.removeEventListener("compositionstart", onCompositionStart);
   };
 }

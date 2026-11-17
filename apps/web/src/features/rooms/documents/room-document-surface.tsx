@@ -25,6 +25,7 @@ import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { TeamHubDocument } from "@/features/teamhub/teamhub-types";
 
 import { DocumentVersionSelectionCommentControl } from "./document-version-selection-comment-control";
+import { DocumentCommentDraftGuard } from "./document-comment-draft-guard";
 import { DocumentShareDialog } from "./document-share-dialog";
 import { UnifiedDocumentBody } from "./unified-document-body";
 import { UnifiedDocumentPageHeader } from "./unified-document-header";
@@ -55,7 +56,11 @@ export function UnifiedDocumentPage() {
 function UnifiedDocumentPageContent() {
   const model = useUnifiedDocumentPageModel();
   useRecordRecentDocument(model.document);
-  return <UnifiedDocumentPageView model={model} />;
+  return (
+    <DocumentCommentDraftGuard>
+      <UnifiedDocumentPageView model={model} />
+    </DocumentCommentDraftGuard>
+  );
 }
 
 export function UnifiedDocumentSidebar({
@@ -82,7 +87,9 @@ export function UnifiedDocumentSidebar({
       inert={hidden || undefined}
     >
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        <UnifiedDocumentPageView model={model} />
+        <DocumentCommentDraftGuard>
+          <UnifiedDocumentPageView model={model} />
+        </DocumentCommentDraftGuard>
       </div>
       {!hidden && model.document && !model.error ? (
         <DocumentVoiceSelectionControl

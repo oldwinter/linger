@@ -1,6 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { materializeRoomDocument } from "@linger/document-model";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
@@ -16,6 +23,116 @@ import type {
 import { UnifiedDocumentTimelineDialog } from "./unified-document-timeline-dialog";
 
 describe("UnifiedDocumentTimelineDialog", () => {
+  it("previews and restores the oldest checkpoint in a long history", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const actor = {
+      display_name: "Jenny Bin",
+      id: "actor-jenny",
+      kind: "human" as const,
+      tenant_id: "tenant-northstar",
+    };
+    const entries: TeamHubDocumentHistoryEntry[] = Array.from(
+      { length: 11 },
+      (_, index) => ({
+        contributors: [actor],
+        created_at: new Date(
+          Date.UTC(2026, 7, 27, 12, 10 - index),
+        ).toISOString(),
+        created_by: actor,
+        document_id: "document-long-history",
+        id: `history-checkpoint-${10 - index}`,
+        persisted_seq: 11 - index,
+        revision_id: `revision-checkpoint-${10 - index}`,
+        trigger: "manual",
+      }),
+    );
+    const oldestEntry = entries[entries.length - 1]!;
+    const states = await Promise.all(
+      entries.map((entry, index) =>
+        materializeRoomDocument({
+          materializationId: entry.id,
+          schemaVersion: 1,
+          sourceBytes: new TextEncoder().encode(
+            `# Release notes\n\nSaved checkpoint ${10 - index}.`,
+          ),
+          sourceKind: "markdown",
+        }),
+      ),
+    );
+    runtime.server.on("GET", "/v0/documents/{documentId}/history", () => ({
+      items: entries,
+      page: { has_more: false },
+    }));
+    runtime.server.on(
+      "GET",
+      "/v0/document-history/{historyEntryId}/content",
+      ({ params }) => {
+        const index = entries.findIndex(
+          (entry) => entry.id === params.historyEntryId,
+        );
+        const entry = entries[index];
+        const state = states[index];
+        if (!entry || !state) throw new Error("Unexpected History entry.");
+        return historyContent(entry, state.stateBytes, state.bytesSha256);
+      },
+    );
+    const restore = vi.fn(() => ({
+      history_entry: oldestEntry,
+      status: "restored" as const,
+    }));
+    runtime.server.on(
+      "POST",
+      "/v0/documents/{documentId}/history/{historyEntryId}/restore",
+      restore,
+    );
+
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <UnifiedDocumentTimelineDialog
+          client={runtime.client}
+          documentId={oldestEntry.document_id}
+          onClose={() => undefined}
+          tenantId="tenant-northstar"
+        />
+      </QueryClientProvider>,
+    );
+
+    const list = screen.getByRole("complementary");
+    const checkpoints = await within(list).findAllByRole("button");
+    expect(checkpoints).toHaveLength(11);
+    fireEvent.click(checkpoints[checkpoints.length - 1]!);
+
+    const preview = screen.getByRole("region", { name: "History preview" });
+    expect(
+      await within(preview).findByText("Saved checkpoint 0."),
+    ).toBeVisible();
+    expect(checkpoints[checkpoints.length - 1]).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(
+      within(preview).queryByRole("checkbox", { name: "Highlight changes" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      within(preview).getByRole("button", { name: "Restore checkpoint" }),
+    );
+
+    expect(await within(preview).findByText("Restored.")).toBeVisible();
+    expect(restore).toHaveBeenCalledTimes(1);
+    expect(restore).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: {
+          documentId: oldestEntry.document_id,
+          historyEntryId: oldestEntry.id,
+        },
+      }),
+    );
+  });
+
   it("waits for the previous Revision before showing a highlighted diff", async () => {
     const runtime = createTestTeamHubRuntime();
 

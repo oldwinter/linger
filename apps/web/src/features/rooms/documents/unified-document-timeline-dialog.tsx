@@ -120,7 +120,7 @@ export function UnifiedDocumentTimelineDialog({
   return (
     <ModalDialog
       ariaLabel="Page history"
-      className="fixed inset-0 z-50 m-0 max-h-none max-w-none overflow-hidden border-0 bg-popover p-0 shadow-lg backdrop:bg-[var(--app-overlay)] backdrop:backdrop-blur-sm sm:inset-0 sm:m-auto sm:h-[min(640px,82dvh)] sm:w-[calc(100%-2.5rem)] sm:max-w-3xl sm:rounded-lg"
+      className="fixed inset-0 z-50 m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden border-0 bg-popover p-0 shadow-lg backdrop:bg-[var(--app-overlay)] backdrop:backdrop-blur-sm sm:inset-0 sm:m-auto sm:h-[min(640px,82dvh)] sm:w-[calc(100%-2.5rem)] sm:max-w-3xl sm:rounded-lg"
       onClose={onClose}
     >
       <div className="flex h-full min-h-0 flex-col">
@@ -138,8 +138,8 @@ export function UnifiedDocumentTimelineDialog({
           </div>
         </header>
         <div className="min-h-0 flex-1 overflow-hidden">
-          <div className="grid h-full min-h-0 sm:grid-cols-[200px_minmax(0,1fr)]">
-            <aside className="workspace-scrollbar min-h-0 overflow-y-auto border-b border-app-border p-3 sm:border-r sm:border-b-0">
+          <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_minmax(0,2fr)] max-sm:landscape:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] max-sm:landscape:grid-rows-1 sm:grid-cols-[200px_minmax(0,1fr)] sm:grid-rows-1">
+            <aside className="workspace-scrollbar min-h-0 overflow-y-auto border-b border-app-border p-3 max-sm:landscape:border-r max-sm:landscape:border-b-0 sm:border-r sm:border-b-0">
               <TimelineList
                 empty="No page history saved yet."
                 error={history.error}
