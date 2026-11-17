@@ -23,6 +23,19 @@ describe("isShortcutKeyEvent", () => {
     expect(isShortcutKeyEvent(press(document.body))).toBe(true);
   });
 
+  it("claims a key from desktop navigation and defers when it becomes a modal", () => {
+    const sidebar = document.createElement("dialog");
+    sidebar.setAttribute("role", "presentation");
+    sidebar.style.display = "contents";
+    const control = document.createElement("button");
+    sidebar.append(control);
+    document.body.append(sidebar);
+
+    expect(isShortcutKeyEvent(press(control))).toBe(true);
+    sidebar.open = true;
+    expect(isShortcutKeyEvent(press(control))).toBe(false);
+  });
+
   it("leaves keys typed into a field to the field", () => {
     const input = document.createElement("input");
     const textarea = document.createElement("textarea");

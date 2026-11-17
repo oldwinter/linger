@@ -1,5 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,6 +14,7 @@ import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 
 import { LibraryLayout } from "./library-layout";
+import { useWorkspaceTree } from "./workspace-tree";
 
 function createTestStorage(): Storage {
   const values = new Map<string, string>();
@@ -142,6 +150,59 @@ describe("Library layout", () => {
     ).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("opens one mobile dialog and closes it on Escape, dismissal, and navigation", async () => {
+    const matchMedia = window.matchMedia.bind(window);
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      ...matchMedia(query),
+      matches: query === "(width < 40rem)",
+    }));
+    const { router } = renderWorkspace(
+      "/t/tenant-northstar/documents/document-plan",
+    );
+    const opener = screen.getByRole("button", { name: "Open Library pages" });
+    expect(opener).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.queryByRole("complementary", { name: "Library sidebar" }),
+    ).toBeNull();
+
+    fireEvent.click(opener);
+    const dialog = screen.getByRole("dialog", { name: "Library pages" });
+    expect(opener).toHaveAttribute("aria-expanded", "true");
+    expect(
+      within(dialog).getByRole("complementary", { name: "Library sidebar" }),
+    ).toBeVisible();
+    expect(
+      within(dialog).getAllByRole("button", { name: "Close Library pages" }),
+    ).toHaveLength(1);
+    const cancel = new Event("cancel", { cancelable: true });
+    fireEvent(dialog, cancel);
+    expect(cancel.defaultPrevented).toBe(true);
+    expect(opener).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(opener);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close Library pages" }),
+    );
+    expect(opener).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(opener);
+    fireEvent.click(screen.getByRole("link", { name: "Back to Library" }));
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(
+        "/t/tenant-northstar/library",
+      ),
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await act(() =>
+      router.navigate("/t/tenant-northstar/documents/document-plan"),
+    );
+    expect(
+      screen.getByRole("button", { name: "Open Library pages" }),
+    ).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("opens My pages to show where an opened Document of mine is kept", async () => {
     renderWorkspace("/t/tenant-northstar/documents/document-room-agent-flow");
 
@@ -201,7 +262,7 @@ function renderWorkspace(initialEntry: string) {
     ],
     { initialEntries: [initialEntry] },
   );
-  return render(
+  const view = render(
     <QueryClientProvider
       client={
         new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -212,8 +273,21 @@ function renderWorkspace(initialEntry: string) {
       </TeamHubRuntimeProvider>
     </QueryClientProvider>,
   );
+  return { ...view, router };
 }
 
 function TestLibrarySurface({ children }: { children: string }) {
-  return <p>{children}</p>;
+  const tree = useWorkspaceTree();
+  return (
+    <>
+      <button
+        aria-expanded={tree.open}
+        onClick={() => tree.setOpen(true)}
+        type="button"
+      >
+        Open Library pages
+      </button>
+      <p>{children}</p>
+    </>
+  );
 }

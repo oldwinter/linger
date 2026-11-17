@@ -16,6 +16,41 @@ import { RoomNavigation } from "./room-navigation";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 
 describe("Room navigation", () => {
+  it("opens the mobile navigation in one dialog with one close action", async () => {
+    const matchMedia = window.matchMedia.bind(window);
+    const viewport = vi
+      .spyOn(window, "matchMedia")
+      .mockImplementation((query) => ({
+        ...matchMedia(query),
+        matches: query === "(width < 48rem)",
+      }));
+    try {
+      const fixture = await navigationFixture();
+      renderNavigation(fixture, new QueryClient());
+      const dialog = screen.getByRole("dialog", { name: "Room navigation" });
+      expect(
+        within(dialog).getByRole("navigation", {
+          name: "Primary navigation",
+        }),
+      ).toBeVisible();
+      expect(
+        await within(dialog).findByRole("navigation", {
+          name: "Room navigation",
+        }),
+      ).toBeVisible();
+      expect(
+        within(dialog).getAllByRole("button", {
+          name: "Close Room navigation",
+        }),
+      ).toHaveLength(1);
+      expect(
+        within(dialog).getByRole("link", { name: fixture.rooms[0]!.name }),
+      ).toHaveAttribute("aria-current", "page");
+    } finally {
+      viewport.mockRestore();
+    }
+  });
+
   it("opens the Room list at the threads sidebar width and preserves resize preferences", async () => {
     const fixture = await navigationFixture();
     const key = `linger:room-list-width:${fixture.tenant.id}`;

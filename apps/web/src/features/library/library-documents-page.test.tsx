@@ -19,13 +19,13 @@ import {
   QueryClientProvider,
 } from "@tanstack/react-query";
 import {
+  act,
   fireEvent,
   render,
   screen,
   waitFor,
   within,
 } from "@testing-library/react";
-import { useState } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -56,6 +56,13 @@ import {
 } from "./library-documents-page";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import { formatUpdatedAt } from "@/lib/date-format";
+
+const composingRenameKeys = [
+  { key: "Enter", isComposing: true, keyCode: 13 },
+  { key: "Escape", isComposing: true, keyCode: 27 },
+  { key: "Enter", isComposing: false, keyCode: 229 },
+  { key: "Escape", isComposing: false, keyCode: 229 },
+];
 
 describe("Library Documents", () => {
   it("titles the Workspace home without Wiki entry points or a sidebar", async () => {
@@ -163,16 +170,6 @@ describe("Library Documents", () => {
     expect(
       within(sidebar).queryByRole("link", { name: "Shared with me" }),
     ).toBeNull();
-    const openPages = screen.getByRole("button", {
-      name: "Open Library pages",
-    });
-    expect(openPages).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(openPages);
-    expect(openPages).toHaveAttribute("aria-expanded", "true");
-    expect(sidebar).toHaveClass("max-sm:block");
-    expect(
-      within(sidebar).getByRole("button", { name: "Close Owned by Me" }),
-    ).toBeVisible();
   });
 
   it("preserves the Owned by Me collection collapse state across route remounts", async () => {
@@ -1076,6 +1073,109 @@ describe("Library Documents", () => {
       ]),
     });
   });
+
+  it.each(composingRenameKeys)(
+    "keeps a personal Folder draft for composing $key (isComposing=$isComposing, keyCode=$keyCode)",
+    async (keyEvent) => {
+      const runtime = await signedInRuntime();
+      const folder = seedFolder(runtime, "folder-composing-rename", {
+        name: "Plans",
+      });
+      const updated = { ...folder, name: "Composing folder" };
+      respondToPlacementUpdate(runtime, () => {
+        documentSeeds(runtime).tree.items = [updated];
+        return updated;
+      });
+      const requests = () =>
+        runtime.server.requestsTo(
+          "PATCH",
+          "/v0/tenants/{tenantId}/me/document-placements/{placementId}",
+        );
+      renderTree(runtime);
+
+      await chooseNodeAction("Plans", "Rename");
+      const input = screen.getByRole("textbox", { name: "Rename folder" });
+      fireEvent.compositionStart(input);
+      fireEvent.change(input, { target: { value: updated.name } });
+      await act(async () => {
+        fireEvent.keyDown(input, keyEvent);
+      });
+
+      expect(input).toHaveFocus();
+      expect(input).toHaveValue(updated.name);
+      expect(requests()).toHaveLength(0);
+
+      fireEvent.compositionEnd(input);
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(
+        await screen.findByRole("treeitem", { name: updated.name }),
+      ).toBeVisible();
+      expect(requests()).toHaveLength(1);
+      expect(await requests()[0]?.json()).toEqual({ name: updated.name });
+    },
+  );
+
+  it.each(composingRenameKeys)(
+    "keeps a shared Folder draft for composing $key (isComposing=$isComposing, keyCode=$keyCode)",
+    async (keyEvent) => {
+      const runtime = await signedInRuntime();
+      let folder: Extract<
+        TeamHubDocumentPlacementNode,
+        { node_kind: "folder" }
+      > = {
+        created_at: "2026-08-26T10:00:00.000Z",
+        id: "shared-folder-composing",
+        name: "Shared plans",
+        node_kind: "folder",
+        sort_key: "shared-folder-composing",
+        updated_at: "2026-08-26T10:00:00.000Z",
+      };
+      const name = "Composing shared folder";
+      runtime.server.on(
+        "GET",
+        "/v0/tenants/{tenantId}/me/shared-document-tree",
+        () => ({ items: [folder] }),
+      );
+      runtime.server.on(
+        "PATCH",
+        "/v0/tenants/{tenantId}/me/shared-document-folders/{folderId}",
+        () => {
+          folder = { ...folder, name };
+          return folder;
+        },
+      );
+      const requests = () =>
+        runtime.server.requestsTo(
+          "PATCH",
+          "/v0/tenants/{tenantId}/me/shared-document-folders/{folderId}",
+        );
+      renderTree(runtime);
+
+      await screen.findByRole("treeitem", { name: folder.name });
+      await chooseMenuAction(
+        `Actions for shared folder ${folder.name}`,
+        "Rename",
+      );
+      const input = screen.getByRole("textbox", {
+        name: "Rename shared folder",
+      });
+      fireEvent.compositionStart(input);
+      fireEvent.change(input, { target: { value: name } });
+      await act(async () => {
+        fireEvent.keyDown(input, keyEvent);
+      });
+
+      expect(input).toHaveFocus();
+      expect(input).toHaveValue(name);
+      expect(requests()).toHaveLength(0);
+
+      fireEvent.compositionEnd(input);
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(await screen.findByRole("treeitem", { name })).toBeVisible();
+      expect(requests()).toHaveLength(1);
+      expect(await requests()[0]?.json()).toEqual({ name });
+    },
+  );
 
   it("cancels a Folder rename with Escape", async () => {
     const runtime = await signedInRuntime();
@@ -2736,7 +2836,6 @@ function renderTree(
 function TreeSurface() {
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
-  const [mobileOpen, setMobileOpen] = useState(false);
   const queryKey = ["teamhub", "tenant-northstar", "document-tree"];
   const tree = useQuery({
     queryKey,
@@ -2748,29 +2847,15 @@ function TreeSurface() {
       ),
   });
   return (
-    <>
-      <button
-        aria-label="Open Library pages"
-        aria-expanded={mobileOpen}
-        onClick={() => setMobileOpen(!mobileOpen)}
-      >
-        Pages
-      </button>
-      <LibrarySidebar
-        active="overview"
-        mobileOpen={mobileOpen}
-        onMobileClose={() => setMobileOpen(false)}
+    <LibrarySidebar active="overview" tenantId="tenant-northstar">
+      <MyDocumentsTree
+        items={tree.data?.items ?? []}
+        loadError={tree.error}
+        pending={tree.isPending}
         tenantId="tenant-northstar"
-      >
-        <MyDocumentsTree
-          items={tree.data?.items ?? []}
-          loadError={tree.error}
-          pending={tree.isPending}
-          tenantId="tenant-northstar"
-          onChanged={() => queryClient.invalidateQueries({ queryKey })}
-        />
-      </LibrarySidebar>
-    </>
+        onChanged={() => queryClient.invalidateQueries({ queryKey })}
+      />
+    </LibrarySidebar>
   );
 }
 

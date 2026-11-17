@@ -31,6 +31,7 @@ import type { TeamHubActorRef } from "@/features/teamhub/teamhub-types";
 import { scrollDocumentPaneIndependently } from "./room-document-scroll";
 import { resolveCommentAnchorPosition } from "./room-document-comment-position";
 import { useAnchoredCommentLane } from "./room-document-comment-anchoring";
+import { useDocumentCommentsClose } from "./document-comment-draft-guard";
 import { RoomDocumentCommentThread } from "./room-document-comment-thread";
 import {
   visibleThreadComments,
@@ -97,16 +98,21 @@ export function RoomDocumentCommentsController({
   const [internalOpen, setInternalOpen] = useState(false);
   const [showResolved, setShowResolved] = useState(false);
   const sharedOpen = useContext(CommentsOpenContext);
+  const requestClose = useDocumentCommentsClose();
   const setSharedOpen = sharedOpen?.setOpen;
   const open = sharedOpen?.open ?? controlledOpen ?? internalOpen;
   const setOpen = (next: boolean) => {
-    if (!next) {
-      comments.stopPendingComment();
-      onCancelSelection?.();
-    }
-    setInternalOpen(next);
-    if (sharedOpen) sharedOpen.setOpen(next);
-    else onOpenChange?.(next);
+    const changeOpen = () => {
+      if (!next) {
+        comments.stopPendingComment();
+        onCancelSelection?.();
+      }
+      setInternalOpen(next);
+      if (sharedOpen) sharedOpen.setOpen(next);
+      else onOpenChange?.(next);
+    };
+    if (next) changeOpen();
+    else requestClose(changeOpen);
   };
 
   useEffect(() => {

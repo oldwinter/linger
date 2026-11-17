@@ -7,15 +7,19 @@ import {
   carriedMeetingFromLeave,
   carriedMeetingSnapshot,
   carryMeeting,
+  currentMeetingPlaybackSession,
   releaseCarriedMeeting,
 } from "./meeting-carry";
 
 const source = {
-  blob: new Blob(["audio"], { type: "audio/mp4" }),
   filename: "recording.m4a",
   href: "/t/tenant-northstar/library/meetings?entry=meeting-1",
   mediaType: "audio/mp4",
   meetingId: "meeting-1",
+  playback: {
+    dispose: () => undefined,
+    url: "/v0/document-versions/audio-version/content",
+  },
   title: "Monday standup",
 };
 
@@ -25,11 +29,10 @@ afterEach(() => {
 });
 
 function renderBar() {
-  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:carried");
-  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
   carryMeeting(
     carriedMeetingFromLeave(source, { playing: true, rate: 1, seconds: 12 })!,
+    currentMeetingPlaybackSession(),
   );
   const router = createMemoryRouter([
     { path: "/", element: <MeetingCarryBar /> },

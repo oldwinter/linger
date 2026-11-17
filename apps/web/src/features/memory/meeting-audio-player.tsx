@@ -10,6 +10,7 @@ import {
   useCallback,
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -209,8 +210,8 @@ export function MeetingAudioPlayer({
       seconds: current,
     };
   });
-  // Unmount is the moment the recording either stops or leaves with the listener.
-  useEffect(() => () => onLeaveRef.current?.(leaveRef.current), []);
+  // Transfer playback before the parent releases its preview in passive cleanup.
+  useLayoutEffect(() => () => onLeaveRef.current?.(leaveRef.current), []);
 
   // A topic's clock starts the recording there, once the file can be seeked.
   useEffect(() => {

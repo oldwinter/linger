@@ -238,6 +238,7 @@ describe("Room shell Account menu", () => {
   });
 
   it("opens the Account menu from the mobile rail and opens the Settings page", async () => {
+    mockMobileViewport();
     const { router, identity } = await renderAccountShell();
     fireEvent.click(await shellControl("Open Room navigation"));
     const trigger = screen.getByRole("button", { name: "Account menu" });
@@ -273,6 +274,7 @@ describe("Room shell Account menu", () => {
   }, 20_000);
 
   it("keeps logout failure visible after the menu and mobile rail close, then retries without duplicates", async () => {
+    mockMobileViewport();
     const { runtime, router } = await renderAccountShell();
     vi.spyOn(browserRoomMessageOutbox, "clearAccount").mockResolvedValue();
     let failLogout!: (error: Error) => void;
@@ -317,6 +319,14 @@ describe("Room shell Account menu", () => {
     expect(logout).toHaveBeenCalledTimes(2);
   });
 });
+
+function mockMobileViewport() {
+  const matchMedia = window.matchMedia.bind(window);
+  vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+    ...matchMedia(query),
+    matches: query === "(width < 48rem)",
+  }));
+}
 
 describe("Room shell mention notifications", () => {
   it("opens the announced Message in the Room that is already showing", async () => {

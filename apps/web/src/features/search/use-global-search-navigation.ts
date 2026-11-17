@@ -22,6 +22,7 @@ import {
  */
 export function useActiveRow({
   layoutKey,
+  onClearScope,
   onClose,
   onRemoveRecentQuery,
   openResult,
@@ -32,6 +33,7 @@ export function useActiveRow({
   tab,
 }: {
   layoutKey: string;
+  onClearScope: () => void;
   onClose: () => void;
   onRemoveRecentQuery: (text: string) => void;
   openResult: (result: SearchResult) => Promise<void>;
@@ -84,7 +86,7 @@ export function useActiveRow({
     }
     if (event.key === "Backspace" && query === "" && tab !== "all") {
       event.preventDefault();
-      setTab("all");
+      onClearScope();
       return;
     }
     if (event.key === "Delete" && query === "") {
@@ -97,9 +99,18 @@ export function useActiveRow({
     }
     if (event.key === "Tab") {
       // Tab narrows the search to the type of the highlighted row.
-      event.preventDefault();
       const scope = rowScope(rows[activeIndex]);
-      if (scope && scope !== tab) setTab(scope);
+      if (
+        !event.shiftKey &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        scope &&
+        scope !== tab
+      ) {
+        event.preventDefault();
+        setTab(scope);
+      }
       return;
     }
     if (rows.length === 0) return;

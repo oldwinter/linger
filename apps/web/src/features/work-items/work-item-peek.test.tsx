@@ -168,6 +168,63 @@ describe("Work Item peek", () => {
     expect(card).toHaveFocus();
   });
 
+  it.each(["Escape", "backdrop", "Close", "Open full page"])(
+    "protects an unsent comment when leaving through %s",
+    async (exit) => {
+      const runtime = await testRuntime();
+      const human = runtime.seed.identity.actors[0]!;
+      seedWorkItems(runtime, [workItem(human, { title: "Fix login failure" })]);
+
+      renderPage(runtime);
+      const dialog = await openPeek("Fix login failure");
+      const textarea = within(dialog).getByRole("textbox", {
+        name: "Add a comment",
+      });
+      fireEvent.change(textarea, {
+        target: { value: "Keep these details until I finish checking." },
+      });
+      textarea.focus();
+
+      if (exit === "Escape") {
+        fireEvent(
+          dialog,
+          new Event("cancel", { bubbles: true, cancelable: true }),
+        );
+      } else if (exit === "backdrop") {
+        fireEvent.click(dialog);
+      } else {
+        fireEvent.click(
+          within(dialog).getByRole(exit === "Close" ? "button" : "link", {
+            name: exit,
+          }),
+        );
+      }
+
+      const confirmation = await screen.findByRole("dialog", {
+        name: "Discard unsaved work?",
+      });
+      expect(
+        within(confirmation).getByText("Your comment has not been sent."),
+      ).toBeVisible();
+      expect(
+        within(confirmation).getByRole("button", { name: "Continue editing" }),
+      ).toHaveFocus();
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/t/tenant-northstar/dashboard",
+      );
+      fireEvent.click(
+        within(confirmation).getByRole("button", { name: "Continue editing" }),
+      );
+
+      expect(confirmation).not.toBeInTheDocument();
+      expect(textarea).toHaveValue(
+        "Keep these details until I finish checking.",
+      );
+      await waitFor(() => expect(textarea).toHaveFocus());
+      expect(runtime.server.requestsTo("POST", COMMENTS_PATH)).toHaveLength(0);
+    },
+  );
+
   it("opens from a filtered board and keeps the filter on the full page", async () => {
     const runtime = await testRuntime();
     const human = runtime.seed.identity.actors[0]!;
@@ -207,6 +264,53 @@ describe("Work Item peek", () => {
       "/t/tenant-northstar/dashboard/workitem-human?room=room-all",
     );
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("opens the full page only after discarding both unsaved inputs", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        origin_room_id: "room-all",
+        title: "Fix login failure",
+      }),
+    ]);
+
+    renderPage(runtime, "/t/tenant-northstar/dashboard?room=room-all");
+    const dialog = await openPeek("Fix login failure");
+    fireEvent.change(
+      within(dialog).getByRole("textbox", { name: "Add a comment" }),
+      { target: { value: "Check this in the morning." } },
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit" }));
+    fireEvent.change(within(dialog).getByLabelText("Description"), {
+      target: { value: "My revised investigation notes." },
+    });
+    fireEvent.click(
+      within(dialog).getByRole("link", { name: "Open full page" }),
+    );
+
+    const confirmation = await screen.findByRole("dialog", {
+      name: "Discard unsaved work?",
+    });
+    expect(confirmation).toHaveTextContent(
+      "Your changes and comment have not been saved or sent.",
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/t/tenant-northstar/dashboard?room=room-all",
+    );
+    fireEvent.click(
+      within(confirmation).getByRole("button", {
+        name: "Discard and open page",
+      }),
+    );
+
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/t/tenant-northstar/dashboard/workitem-login?room=room-all",
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(runtime.server.requestsTo("POST", COMMENTS_PATH)).toHaveLength(0);
+    expect(runtime.server.requestsTo("PATCH", WORK_ITEM_PATH)).toHaveLength(0);
   });
 
   it("surfaces a failed transition without closing the drawer", async () => {
@@ -293,7 +397,7 @@ describe("Work Item peek", () => {
     );
     expect(request?.headers.get("Idempotency-Key")).toMatch(/^web:/u);
     expect(textarea).toHaveValue("");
-    expect(textarea).toHaveFocus();
+    await waitFor(() => expect(textarea).toHaveFocus());
     await waitFor(() =>
       expect(
         runtime.server.requestsTo("GET", COMMENTS_PATH).length,
@@ -348,13 +452,36 @@ describe("Work Item peek", () => {
     expect(submit).toBeEnabled();
 
     fireEvent.click(submit);
+    fireEvent.click(submit);
     await waitFor(() => expect(submit).toBeDisabled());
     expect(submit).toHaveAttribute("aria-busy", "true");
     expect(textarea).toBeDisabled();
 
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    fireEvent.click(
+      within(dialog).getByRole("link", { name: "Open full page" }),
+    );
+    expect(within(dialog).getByRole("status")).toHaveTextContent(
+      "Wait for saving or sending to finish before leaving.",
+    );
+    expect(
+      screen.queryByRole("dialog", { name: "Discard unsaved work?" }),
+    ).not.toBeInTheDocument();
+    expect(textarea).toHaveValue("Thanks, looking now.");
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/t/tenant-northstar/dashboard",
+    );
+    await waitFor(() =>
+      expect(runtime.server.requestsTo("POST", COMMENTS_PATH)).toHaveLength(1),
+    );
+
     finish();
     await waitFor(() => expect(textarea).toHaveValue(""));
     expect(textarea).toBeEnabled();
+    expect(within(dialog).queryByRole("status")).not.toBeInTheDocument();
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("retries a failed comment with its key and shows why it failed", async () => {
@@ -400,6 +527,17 @@ describe("Work Item peek", () => {
     );
     expect(textarea).toHaveValue("Thanks, looking now.");
     expect(submit).toBeEnabled();
+
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    const confirmation = await screen.findByRole("dialog", {
+      name: "Discard unsaved work?",
+    });
+    fireEvent(
+      confirmation,
+      new Event("cancel", { bubbles: true, cancelable: true }),
+    );
+    expect(confirmation).not.toBeInTheDocument();
+    expect(textarea).toHaveValue("Thanks, looking now.");
 
     fireEvent.click(submit);
     await waitFor(() =>
@@ -1230,7 +1368,7 @@ describe("Work Item peek", () => {
     expect(runtime.server.requestsTo("PATCH", WORK_ITEM_PATH)).toHaveLength(0);
   });
 
-  it("cancels back to the saved values without a request", async () => {
+  it("confirms discarding edits without losing a separate comment", async () => {
     const runtime = await testRuntime();
     const human = runtime.seed.identity.actors[0]!;
     seedWorkItems(runtime, [
@@ -1251,14 +1389,38 @@ describe("Work Item peek", () => {
     fireEvent.change(within(dialog).getByLabelText("Title"), {
       target: { value: "Draft title" },
     });
+    const commentInput = within(dialog).getByRole("textbox", {
+      name: "Add a comment",
+    });
+    fireEvent.change(commentInput, {
+      target: { value: "Keep my separate comment." },
+    });
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
 
+    const confirmation = await screen.findByRole("dialog", {
+      name: "Discard unsaved work?",
+    });
+    expect(confirmation).toHaveTextContent("Your changes have not been saved.");
+    fireEvent.click(
+      within(confirmation).getByRole("button", { name: "Continue editing" }),
+    );
+    expect(within(dialog).getByLabelText("Title")).toHaveValue("Draft title");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Discard edits" }),
+    );
     expect(within(dialog).queryByRole("button", { name: "Save" })).toBeNull();
     expect(within(dialog).getByText("Email login returns 500.")).toBeVisible();
     expect(screen.getByRole("dialog")).toHaveAccessibleName(
       "Fix login failure",
     );
     expect(runtime.server.requestsTo("PATCH", WORK_ITEM_PATH)).toHaveLength(0);
+    expect(commentInput).toHaveValue("Keep my separate comment.");
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("button", { name: "Edit" }),
+      ).toHaveFocus(),
+    );
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Edit" }));
     expect(within(dialog).getByLabelText("Title")).toHaveValue(
@@ -1300,9 +1462,93 @@ describe("Work Item peek", () => {
     expect(
       screen.getByRole("link", { name: /Fix login failure/ }),
     ).toBeVisible();
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    const confirmation = await screen.findByRole("dialog", {
+      name: "Discard unsaved work?",
+    });
+    fireEvent.click(
+      within(confirmation).getByRole("button", { name: "Continue editing" }),
+    );
+    expect(within(dialog).getByLabelText("Title")).toHaveValue(
+      "Fix login redirect",
+    );
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(
+      "Work Item changed elsewhere.",
+    );
   });
 
-  it("discards a half-typed edit when the peek closes", async () => {
+  it("keeps an in-flight edit open and submits it only once", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const item = workItem(human, { title: "Fix login failure" });
+    seedWorkItems(runtime, [item]);
+    let finish: () => void = () => undefined;
+    runtime.server.on(
+      "PATCH",
+      WORK_ITEM_PATH,
+      () =>
+        new Promise((resolve) => {
+          finish = () => {
+            const updated = {
+              ...item,
+              description: "The response never arrives.",
+              version: 2,
+            };
+            runtime.seed.workItems = [updated];
+            resolve(updated);
+          };
+        }),
+    );
+
+    renderPage(runtime);
+    const dialog = await openPeek("Fix login failure");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit" }));
+    const description = within(dialog).getByLabelText("Description");
+    fireEvent.change(description, {
+      target: { value: "The response never arrives." },
+    });
+    const save = within(dialog).getByRole("button", { name: "Save" });
+    fireEvent.click(save);
+    fireEvent.click(save);
+
+    await waitFor(() => expect(save).toBeDisabled());
+    expect(description).toBeDisabled();
+    expect(
+      within(dialog).getByRole("button", { name: "Cancel" }),
+    ).toBeDisabled();
+    fireEvent.click(dialog);
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    fireEvent.click(
+      within(dialog).getByRole("link", { name: "Open full page" }),
+    );
+    expect(within(dialog).getByRole("status")).toHaveTextContent(
+      "Wait for saving or sending to finish before leaving.",
+    );
+    expect(description).toHaveValue("The response never arrives.");
+    expect(
+      screen.queryByRole("dialog", { name: "Discard unsaved work?" }),
+    ).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(runtime.server.requestsTo("PATCH", WORK_ITEM_PATH)).toHaveLength(
+        1,
+      ),
+    );
+
+    finish();
+    await waitFor(() =>
+      expect(
+        within(dialog).queryByRole("button", { name: "Save" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      within(dialog).getByText("The response never arrives."),
+    ).toBeVisible();
+    expect(within(dialog).queryByRole("status")).not.toBeInTheDocument();
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("protects a half-typed edit until the person chooses to discard it", async () => {
     const runtime = await testRuntime();
     const human = runtime.seed.identity.actors[0]!;
     seedWorkItems(runtime, [workItem(human, { title: "Fix login failure" })]);
@@ -1320,6 +1566,20 @@ describe("Work Item peek", () => {
     });
 
     fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    const confirmation = await screen.findByRole("dialog", {
+      name: "Discard unsaved work?",
+    });
+    expect(within(dialog).getByLabelText("Title")).toHaveValue("Draft title");
+    fireEvent.click(
+      within(confirmation).getByRole("button", { name: "Continue editing" }),
+    );
+    expect(confirmation).not.toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Title")).toHaveValue("Draft title");
+
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Discard and close" }),
+    );
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
     );

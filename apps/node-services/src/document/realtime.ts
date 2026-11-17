@@ -142,7 +142,7 @@ export function createDocumentRealtimeServer(
     getResidentDocument: (documentId) => {
       const loading = loadingResidentDocuments.get(documentId);
       if (loading !== undefined) {
-        return loadingResident(loading);
+        return { waitForBroadcast: async () => undefined };
       }
       const active = server.hocuspocus.documents.get(documentId);
       return active === undefined ? undefined : activeResident(active);
@@ -430,7 +430,6 @@ function activeResident(
   },
 ) {
   return {
-    state: document,
     waitForBroadcast: async () => {
       await Promise.all(
         [...document.getConnections()].map((connection) =>
@@ -438,13 +437,6 @@ function activeResident(
         ),
       );
     },
-  };
-}
-
-function loadingResident(document: Y.Doc) {
-  return {
-    state: document,
-    waitForBroadcast: async () => undefined,
   };
 }
 

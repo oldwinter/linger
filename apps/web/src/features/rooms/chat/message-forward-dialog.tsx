@@ -4,7 +4,7 @@ import {
   SentIcon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/ui/icon";
 import { useQuery } from "@tanstack/react-query";
 
@@ -13,7 +13,6 @@ import { ModalDialog } from "@/components/ui/modal-dialog";
 import { idempotencyHeader, teamHubData } from "@/features/teamhub/teamhub-api";
 import {
   createTeamHubIdempotencyKey,
-  TeamHubError,
   type TeamHubClient,
 } from "@/features/teamhub/teamhub-client";
 import type { TeamHubMessage } from "@/features/teamhub/teamhub-types";
@@ -38,6 +37,9 @@ export function MessageForwardDialog({
   const [query, setQuery] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const sendingRef = useRef(false);
+  const requestKeys = useRef(new Map<string, string>());
+  const [forwarded, setForwarded] = useState<string[]>([]);
   const actors = useQuery(tenantActorsQueryOptions(client, tenantId));
   const rooms = useQuery({
     queryFn: () =>
@@ -70,32 +72,66 @@ export function MessageForwardDialog({
   const selectedSet = new Set(selected);
   const targetById = new Map(targets.map((target) => [target.id, target]));
 
+  function close() {
+    if (!sendingRef.current) onClose();
+  }
+
+  function toggleTarget(targetId: string) {
+    if (sendingRef.current || forwarded.includes(`${kind}:${targetId}`)) return;
+    setSelected((current) =>
+      current.includes(targetId)
+        ? current.filter((id) => id !== targetId)
+        : [...current, targetId],
+    );
+  }
+
   async function forward() {
-    if (!selected.length || sending) return;
+    if (!selected.length || sendingRef.current) return;
+    sendingRef.current = true;
     setSending(true);
     setError(null);
     try {
-      await Promise.all(
-        selected.map((targetId) =>
-          teamHubData(
+      const results = await Promise.allSettled(
+        selected.map((targetId) => {
+          const targetKey = `${kind}:${targetId}`;
+          let requestKey = requestKeys.current.get(targetKey);
+          if (!requestKey) {
+            requestKey = createTeamHubIdempotencyKey();
+            requestKeys.current.set(targetKey, requestKey);
+          }
+          return teamHubData(
             client.api.POST("/v0/rooms/{roomId}/messages/{messageId}/forward", {
               params: {
                 path: { roomId: message.room_id, messageId: message.id },
-                header: idempotencyHeader(createTeamHubIdempotencyKey()),
+                header: idempotencyHeader(requestKey),
               },
               body: { target: { id: targetId, kind } },
             }),
-          ),
-        ),
+          );
+        }),
       );
-      onClose();
-    } catch (forwardError) {
+      const confirmed = selected.filter(
+        (_, index) => results[index]?.status === "fulfilled",
+      );
+      const remaining = selected.filter(
+        (_, index) => results[index]?.status === "rejected",
+      );
+      setForwarded((current) => [
+        ...current,
+        ...confirmed.map((targetId) => `${kind}:${targetId}`),
+      ]);
+      setSelected(remaining);
+      if (!remaining.length) {
+        onClose();
+        return;
+      }
       setError(
-        forwardError instanceof TeamHubError && forwardError.status === 409
-          ? "A target changed while forwarding. Refresh and try again."
-          : "The message could not be forwarded. You may not have permission to share one of its documents.",
+        confirmed.length
+          ? `Forwarded to ${confirmed.length} of ${selected.length} targets. Retry the ${remaining.length} remaining ${remaining.length === 1 ? "target" : "targets"}.`
+          : "Could not confirm forwarding. Retry the selected targets.",
       );
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   }
@@ -103,22 +139,29 @@ export function MessageForwardDialog({
   return (
     <ModalDialog
       closeOnBackdrop
-      onClose={onClose}
+      onClose={close}
       size="lg"
       title="Forward to"
       footer={
-        <>
-          <Button onClick={onClose} tone="ghost">
-            Cancel
-          </Button>
-          <Button
-            disabled={!selected.length}
-            loading={sending}
-            onClick={() => void forward()}
-          >
-            <Icon icon={SentIcon} size={16} /> Forward
-          </Button>
-        </>
+        <div className="w-full">
+          {error ? (
+            <p className="mb-3 text-sm text-app-danger" role="alert">
+              {error}
+            </p>
+          ) : null}
+          <div className="flex items-center justify-end gap-2">
+            <Button disabled={sending} onClick={close} tone="ghost">
+              Cancel
+            </Button>
+            <Button
+              disabled={!selected.length}
+              loading={sending}
+              onClick={() => void forward()}
+            >
+              <Icon icon={SentIcon} size={16} /> Forward
+            </Button>
+          </div>
+        </div>
       }
     >
       <div className="px-5 py-4">
@@ -132,6 +175,7 @@ export function MessageForwardDialog({
           <input
             aria-label="Search forward targets"
             className="h-11 min-w-0 flex-1 rounded-md border border-app-border px-3 text-sm outline-none focus:border-app-focus"
+            disabled={sending}
             onChange={(event) => setSearchInput(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") setQuery(searchInput);
@@ -141,6 +185,7 @@ export function MessageForwardDialog({
           />
           <Button
             aria-label="Search"
+            disabled={sending}
             size="icon"
             tone="secondary"
             type="submit"
@@ -152,9 +197,12 @@ export function MessageForwardDialog({
           {(["agent", "room"] as const).map((targetKind) => (
             <Button
               key={targetKind}
+              disabled={sending}
               onClick={() => {
+                if (sendingRef.current) return;
                 setKind(targetKind);
                 setSelected([]);
+                setError(null);
               }}
               size="compact"
               tone={kind === targetKind ? "primary" : "secondary"}
@@ -174,12 +222,9 @@ export function MessageForwardDialog({
                 <button
                   aria-pressed="true"
                   className="inline-flex items-center gap-1 rounded-full bg-app-selected px-2.5 py-1 text-xs text-app-ink"
+                  disabled={sending}
                   key={targetId}
-                  onClick={() =>
-                    setSelected((current) =>
-                      current.filter((id) => id !== targetId),
-                    )
-                  }
+                  onClick={() => toggleTarget(targetId)}
                   title="Remove selected target"
                   type="button"
                 >
@@ -194,32 +239,23 @@ export function MessageForwardDialog({
         <div className="mt-3 divide-y divide-app-border border-y border-app-border">
           {targets.map((target) => {
             const checked = selectedSet.has(target.id);
+            const confirmed = forwarded.includes(`${kind}:${target.id}`);
             return (
               <button
-                className="flex min-h-14 w-full items-center justify-between px-3 text-left hover:bg-app-hover"
+                className="flex min-h-14 w-full items-center justify-between px-3 text-left hover:bg-app-hover disabled:cursor-default disabled:opacity-50"
+                disabled={sending || confirmed}
                 key={target.id}
-                onClick={() =>
-                  setSelected((current) =>
-                    checked
-                      ? current.filter((id) => id !== target.id)
-                      : [...current, target.id],
-                  )
-                }
+                onClick={() => toggleTarget(target.id)}
                 type="button"
               >
                 <span className="text-sm text-app-ink">{target.label}</span>
                 <span className="text-xs text-app-muted">
-                  {checked ? "Selected" : "Select"}
+                  {confirmed ? "Forwarded" : checked ? "Selected" : "Select"}
                 </span>
               </button>
             );
           })}
         </div>
-        {error ? (
-          <p className="mt-3 text-sm text-app-danger" role="alert">
-            {error}
-          </p>
-        ) : null}
       </div>
     </ModalDialog>
   );

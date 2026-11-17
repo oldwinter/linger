@@ -3,6 +3,20 @@
  * dividers, solid dots, tabular numerals and Information Blue for time and
  * selection. Follows the No Glow rule: no colored shadows, gradients or glass.
  */
+.app-dialog.wiki-graph-daily-dialog {
+  position: fixed;
+  inset: 0;
+  width: 100dvw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+  box-shadow: none;
+}
+
 .wiki-graph-surface,
 .wiki-graph-daily-panel {
   --surface: hsl(var(--town-card));
@@ -834,18 +848,5 @@
 @container wiki-graph (max-width: 42rem) {
   .wiki-report-card {
     flex-basis: 100%;
-  }
-}
-.wiki-graph-daily-backdrop {
-  animation: wiki-graph-backdrop-in 180ms ease-out backwards;
-}
-@keyframes wiki-graph-backdrop-in {
-  from {
-    opacity: 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .wiki-graph-daily-backdrop {
-    animation: none;
   }
 }

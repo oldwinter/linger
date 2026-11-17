@@ -1,9 +1,14 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ActionMenu } from "./action-menu";
+import { ActionMenu, type MenuPlacement } from "./action-menu";
 
 describe("ActionMenu", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it("keeps hover menus reachable without stealing focus and closes after leaving", async () => {
     render(
       <>
@@ -146,6 +151,81 @@ describe("ActionMenu", () => {
     },
   );
 
+  it.each<MenuPlacement>([
+    "bottom-end",
+    "bottom-start",
+    "right-start",
+    "top-start",
+  ])(
+    "keeps %s within a narrow viewport during its entrance animation",
+    (placement) => {
+      vi.stubGlobal("innerWidth", 390);
+      vi.stubGlobal("innerHeight", 640);
+      vi.spyOn(
+        HTMLElement.prototype,
+        "getBoundingClientRect",
+      ).mockImplementation(function (this: HTMLElement) {
+        return this.tagName === "BUTTON"
+          ? new DOMRect(350, 590, 32, 32)
+          : new DOMRect(0, 0, 220.4, 425.6);
+      });
+      vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(
+        232,
+      );
+      vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(
+        448,
+      );
+      render(
+        <ActionMenu
+          placement={placement}
+          label="Send to Room"
+          items={[{ label: "product-v0" }]}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Send to Room" }));
+
+      const menu = screen.getByRole("menu");
+      expect(Number.parseFloat(menu.style.left)).toBeGreaterThanOrEqual(8);
+      expect(Number.parseFloat(menu.style.left) + 232).toBeLessThanOrEqual(382);
+      expect(Number.parseFloat(menu.style.top)).toBeGreaterThanOrEqual(8);
+      expect(Number.parseFloat(menu.style.top) + 448).toBeLessThanOrEqual(632);
+    },
+  );
+
+  it("lets keyboard users reach the last room in a long scrollable menu", async () => {
+    const send = vi.fn();
+    render(
+      <ActionMenu
+        label="Send to Room"
+        items={Array.from({ length: 30 }, (_, index) => ({
+          label: `Room ${index + 1}`,
+          onSelect: () => send(index + 1),
+        }))}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Send to Room" }));
+    const menu = screen.getByRole("menu");
+    const scroller = menu.firstElementChild;
+    expect(scroller).toHaveClass(
+      "max-h-[min(28rem,calc(100dvh-32px))]",
+      "overflow-y-auto",
+    );
+    await vi.waitFor(() =>
+      expect(screen.getByRole("menuitem", { name: "Room 1" })).toHaveFocus(),
+    );
+
+    fireEvent.keyDown(menu, { key: "End" });
+    const lastRoom = screen.getByRole("menuitem", { name: "Room 30" });
+    expect(lastRoom).toHaveFocus();
+    fireEvent.scroll(scroller!);
+    expect(menu).toBeVisible();
+    fireEvent.click(lastRoom);
+
+    expect(send).toHaveBeenCalledWith(30);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it("opens nested choices with pointer and keyboard navigation", async () => {
     const selectMarkdown = vi.fn();
     render(
@@ -154,6 +234,7 @@ describe("ActionMenu", () => {
           {
             children: [
               { label: "md", onSelect: selectMarkdown },
+              { label: "pdf", disabled: true },
               { label: "html", onSelect: vi.fn() },
             ],
             label: "New File",
@@ -170,12 +251,26 @@ describe("ActionMenu", () => {
     fireEvent.keyDown(newFile, { key: "ArrowRight" });
 
     let submenu = await screen.findByRole("menu", { name: "New File" });
-    expect(submenu).toHaveClass("max-sm:static", "max-sm:w-full");
+    expect(submenu).toHaveClass("fixed", "overflow-y-auto");
+    expect(menu).not.toContainElement(submenu);
+    expect(submenu.parentElement).toBe(menu.parentElement);
     await vi.waitFor(() =>
       expect(
         within(submenu).getByRole("menuitem", { name: "md" }),
       ).toHaveFocus(),
     );
+    fireEvent.keyDown(submenu, { key: "ArrowDown" });
+    expect(
+      within(submenu).getByRole("menuitem", { name: "html" }),
+    ).toHaveFocus();
+    fireEvent.keyDown(submenu, { key: "Home" });
+    expect(within(submenu).getByRole("menuitem", { name: "md" })).toHaveFocus();
+    fireEvent.keyDown(submenu, { key: "End" });
+    expect(
+      within(submenu).getByRole("menuitem", { name: "html" }),
+    ).toHaveFocus();
+    fireEvent.scroll(submenu);
+    expect(submenu).toBeVisible();
     fireEvent.keyDown(submenu, { key: "ArrowLeft" });
     expect(screen.queryByRole("menu", { name: "New File" })).toBeNull();
     expect(newFile).toHaveFocus();
@@ -186,25 +281,21 @@ describe("ActionMenu", () => {
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
-  it("opens a nested menu inward when the trigger is near the right edge", async () => {
-    const originalInnerWidth = window.innerWidth;
-    const bounds = vi
-      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
-      .mockReturnValue({
-        bottom: 48,
-        height: 40,
-        left: 760,
-        right: 992,
-        top: 8,
-        width: 232,
-        x: 760,
-        y: 8,
-        toJSON: () => undefined,
-      });
-    Object.defineProperty(window, "innerWidth", {
-      configurable: true,
-      value: 1024,
-    });
+  it("keeps a nested menu inside the right and bottom edges", async () => {
+    vi.stubGlobal("innerWidth", 1024);
+    vi.stubGlobal("innerHeight", 600);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        if (this.getAttribute("aria-label") === "Create") {
+          return this.tagName === "BUTTON"
+            ? new DOMRect(960, 8, 32, 32)
+            : new DOMRect(760, 46, 232, 448);
+        }
+        return this.getAttribute("role") === "menu"
+          ? new DOMRect(0, 0, 180, 200)
+          : new DOMRect(764, 450, 224, 33);
+      },
+    );
     render(
       <ActionMenu
         items={[{ children: [{ label: "md" }], label: "New Page" }]}
@@ -215,13 +306,57 @@ describe("ActionMenu", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "New Page" }));
 
-    expect(screen.getByRole("menu", { name: "New Page" })).toHaveClass(
-      "right-[calc(100%+4px)]",
+    expect(screen.getByRole("menu", { name: "New Page" })).toHaveStyle({
+      left: "574px",
+      top: "392px",
+    });
+  });
+
+  it("repositions an open submenu with a following parent menu", () => {
+    vi.stubGlobal("innerWidth", 1024);
+    vi.stubGlobal("innerHeight", 768);
+    let triggerLeft = 40;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        if (this.getAttribute("aria-label") === "Create") {
+          return this.tagName === "BUTTON"
+            ? new DOMRect(triggerLeft, 40, 32, 32)
+            : new DOMRect(
+                Number.parseFloat(this.style.left),
+                Number.parseFloat(this.style.top),
+                232,
+                120,
+              );
+        }
+        return this.getAttribute("role") === "menu"
+          ? new DOMRect(0, 0, 180, 90)
+          : new DOMRect(triggerLeft + 4, 82, 224, 33);
+      },
     );
-    bounds.mockRestore();
-    Object.defineProperty(window, "innerWidth", {
-      configurable: true,
-      value: originalInnerWidth,
+    render(
+      <ActionMenu
+        followAnchor
+        items={[{ children: [{ label: "md" }], label: "New Page" }]}
+        label="Create"
+        placement="bottom-start"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "New Page" }));
+    expect(screen.getByRole("menu", { name: "New Page" })).toHaveStyle({
+      left: "278px",
+      top: "82px",
+    });
+
+    triggerLeft = 680;
+    fireEvent.scroll(window);
+
+    expect(screen.getByRole("menu", { name: "Create" })).toHaveStyle({
+      left: "680px",
+    });
+    expect(screen.getByRole("menu", { name: "New Page" })).toHaveStyle({
+      left: "494px",
+      top: "82px",
     });
   });
 
@@ -267,16 +402,32 @@ describe("ActionMenu", () => {
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
-  it("keeps a menu for a trigger inside an open dialog in the dialog", () => {
+  it("keeps scrollable menus and nested choices inside the open dialog", () => {
     render(
       <dialog aria-label="Peek" open>
-        <ActionMenu label="Send to Room" items={[{ label: "product-v0" }]} />
+        <ActionMenu
+          label="Send to Room"
+          items={[
+            {
+              label: "Project",
+              children: [{ label: "product-v0" }],
+            },
+          ]}
+        />
       </dialog>,
     );
     fireEvent.click(screen.getByRole("button", { name: "Send to Room" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Project" }));
 
-    expect(screen.getByRole("dialog", { name: "Peek" })).toContainElement(
-      screen.getByRole("menu"),
-    );
+    const dialog = screen.getByRole("dialog", { name: "Peek" });
+    const menu = screen.getByRole("menu", { name: "Send to Room" });
+    const submenu = screen.getByRole("menu", { name: "Project" });
+    expect(dialog).toContainElement(menu);
+    expect(dialog).toContainElement(submenu);
+    expect(menu).not.toContainElement(submenu);
+
+    fireEvent.scroll(menu.firstElementChild!);
+    expect(screen.queryByRole("menu", { name: "Project" })).toBeNull();
+    expect(menu).toBeVisible();
   });
 });

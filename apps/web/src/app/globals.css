@@ -753,7 +753,7 @@ a[href][aria-disabled="true"],
 
 /* Every modal is one surface, one position and one entrance. ModalDialog
    applies this; a caller only picks a size and supplies content. The dialog
-   is centred on screen and fades in from 95% over a pale frosted scrim. */
+   fades in without a transform so its fixed menus use viewport coordinates. */
 .app-dialog {
   border: 0;
   border-radius: var(--app-modal-radius);
@@ -801,7 +801,6 @@ a[href][aria-disabled="true"],
 @keyframes app-dialog-enter {
   from {
     opacity: 0;
-    transform: scale(0.95);
   }
 }
 
@@ -2198,7 +2197,6 @@ a[href][aria-disabled="true"],
 @keyframes work-item-peek-enter {
   from {
     opacity: 0;
-    transform: translateX(24px);
   }
 }
 
@@ -4304,12 +4302,6 @@ button.question-choice:focus-visible {
   }
 }
 
-@media (max-width: 47.999rem) {
-  .room-nav-controls {
-    padding-top: 6px;
-  }
-}
-
 @media (max-width: 63.999rem) {
   .app-room-layout[data-detail-open="true"] .app-room-surface {
     display: none;
@@ -4813,10 +4805,6 @@ button.question-choice:focus-visible {
 .app-navigation[data-expanded="true"] .primary-navigation-footer {
   align-items: flex-start;
   padding-inline: 12px;
-}
-
-.app-navigation .room-nav-controls {
-  padding-top: 0;
 }
 
 @media (max-width: 767px), (pointer: coarse) {

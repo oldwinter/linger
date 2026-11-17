@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -159,7 +160,11 @@ describe("WikiGraphPage", () => {
     expect(first).not.toHaveTextContent("Private source scaffolding");
     expect(first).not.toHaveTextContent("Hidden session details");
     const panel = screen.getByRole("complementary", { name: "Daily report" });
-    expect(panel.parentElement).toBe(document.body);
+    const dialog = screen.getByRole("dialog", {
+      name: "Daily report for 2026-09-01",
+    });
+    expect(panel.parentElement).toBe(dialog);
+    expect(dialog.parentElement).toBe(document.body);
     const toc = await screen.findByRole("navigation", {
       name: "Daily contents",
     });
@@ -192,6 +197,7 @@ describe("WikiGraphPage", () => {
       params: { tenantId: "tenant-northstar" },
       query: { kind: "daily", limit: "100", cursor: "next" },
     });
+    fireEvent.click(screen.getByRole("button", { name: "Close Daily" }));
     fireEvent.click(
       screen.getByRole("button", { name: "Open Daily for 2026-09-02" }),
     );
@@ -204,9 +210,6 @@ describe("WikiGraphPage", () => {
     expect(
       screen.getAllByRole("complementary", { name: "Daily report" }),
     ).toHaveLength(1);
-    expect(screen.getByRole("complementary", { name: "Daily report" })).toBe(
-      panel,
-    );
     fireEvent.click(screen.getByRole("button", { name: "Close Daily" }));
     expect(
       screen.queryByRole("complementary", { name: "Daily report" }),
@@ -219,13 +222,12 @@ describe("WikiGraphPage", () => {
       await screen.findByRole("article", { name: "2026-09-02 Daily content" }),
     ).toBeVisible();
     // The page behind an open report is blurred; clicking it closes the report.
-    const backdrop = document.querySelector(".wiki-graph-daily-backdrop")!;
-    expect(backdrop).toHaveClass("backdrop-blur-sm");
-    fireEvent.click(backdrop);
+    fireEvent.click(
+      screen.getByRole("dialog", { name: "Daily report for 2026-09-02" }),
+    );
     expect(
       screen.queryByRole("complementary", { name: "Daily report" }),
     ).toBeNull();
-    expect(document.querySelector(".wiki-graph-daily-backdrop")).toBeNull();
     fireEvent.click(
       screen.getByRole("button", { name: "Open Daily for 2026-09-03" }),
     );
@@ -235,6 +237,7 @@ describe("WikiGraphPage", () => {
       ).findByText("No Daily report for this day."),
     ).toBeVisible();
     expect(get).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole("button", { name: "Close Daily" }));
     fireEvent.click(screen.getByRole("radio", { name: "Week" }));
     expect(
       screen.queryByRole("complementary", { name: "Daily report" }),
@@ -257,6 +260,7 @@ describe("WikiGraphPage", () => {
       params: { tenantId: "tenant-northstar" },
       query: { kind: "weekly", limit: "100" },
     });
+    fireEvent.click(screen.getByRole("button", { name: "Close Weekly" }));
     fireEvent.click(screen.getByRole("radio", { name: "Day" }));
     expect(
       screen.queryByRole("complementary", { name: "Weekly report" }),
@@ -264,6 +268,72 @@ describe("WikiGraphPage", () => {
     expect(
       screen.getByRole("slider", { name: "Timeline playhead" }),
     ).toBeVisible();
+  });
+  it("keeps report selection aligned with deep links, dismissal, and browser history", async () => {
+    const runtime = await loggedInRuntime();
+    serveWikiStatus(runtime).mockResolvedValue(wikiStatus());
+    vi.spyOn(
+      runtime.client,
+      "getPersonalKnowledgeGraphVisualization",
+    ).mockResolvedValue(embeddedGraph());
+    const entries = [
+      dailyEntry("2026-09-01", "## Work\n\nFirst report."),
+      dailyEntry("2026-09-02", "## Work\n\nSecond report."),
+    ];
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/memory", () => ({
+      items: entries,
+    }));
+    runtime.server.on(
+      "GET",
+      "/v0/tenants/{tenantId}/memory/{entryId}",
+      ({ params }) => entries.find((entry) => entry.id === params.entryId),
+    );
+    const { router } = renderPage(
+      runtime,
+      "/t/tenant-northstar/library/wiki/graph?view=reading&day=2026-09-01",
+    );
+    const first = await screen.findByRole("dialog", {
+      name: "Daily report for 2026-09-01",
+    });
+    fireEvent(first, new Event("cancel", { cancelable: true }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(router.state.location.search).toBe("?view=reading");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Daily for 2026-09-02" }),
+    );
+    expect(
+      await screen.findByRole("dialog", {
+        name: "Daily report for 2026-09-02",
+      }),
+    ).toBeVisible();
+    expect(router.state.location.search).toBe("?view=reading&day=2026-09-02");
+    await act(() => router.navigate(-1));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(router.state.location.search).toBe("?view=reading");
+    await act(() => router.navigate(1));
+    expect(
+      await screen.findByRole("dialog", {
+        name: "Daily report for 2026-09-02",
+      }),
+    ).toBeVisible();
+
+    await act(() =>
+      router.navigate(
+        "/t/tenant-northstar/library/wiki/graph?view=reading&week=2026-08-31",
+      ),
+    );
+    expect(
+      await screen.findByRole("dialog", {
+        name: "Weekly report for 2026-08-31 – 2026-09-06",
+      }),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Close Weekly" }));
+    expect(router.state.location.search).toBe("?view=reading");
+    await act(() =>
+      router.navigate("/t/tenant-northstar/library/wiki/graph?week=2026-99-99"),
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
   it("keeps the existing graph while an update fails", async () => {
     const runtime = await loggedInRuntime();
@@ -571,7 +641,10 @@ async function loggedInRuntime() {
   return runtime;
 }
 
-function renderPage(runtime: ReturnType<typeof createTestTeamHubRuntime>) {
+function renderPage(
+  runtime: ReturnType<typeof createTestTeamHubRuntime>,
+  initialEntry = "/t/tenant-northstar/library/wiki/graph",
+) {
   window.sessionStorage.setItem(
     "linger:library-owned-collapsed:v2:tenant-northstar",
     "false",
@@ -595,7 +668,7 @@ function renderPage(runtime: ReturnType<typeof createTestTeamHubRuntime>) {
         ],
       },
     ],
-    { initialEntries: ["/t/tenant-northstar/library/wiki/graph"] },
+    { initialEntries: [initialEntry] },
   );
   render(
     <QueryClientProvider client={queryClient}>
@@ -604,5 +677,5 @@ function renderPage(runtime: ReturnType<typeof createTestTeamHubRuntime>) {
       </TeamHubRuntimeProvider>
     </QueryClientProvider>,
   );
-  return { queryClient };
+  return { queryClient, router };
 }

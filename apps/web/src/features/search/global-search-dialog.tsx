@@ -112,6 +112,7 @@ export function GlobalSearchDialog({
   });
   const activeRow = useActiveRow({
     layoutKey,
+    onClearScope: roomScope ? clearRoomScope : () => setTab("all"),
     onClose,
     onRemoveRecentQuery: forgetRecentQuery,
     openResult,

@@ -48,6 +48,7 @@ import { collaborationColor } from "./room-document-presence-model";
 import { DocumentActionsMenu } from "./room-document-actions-menu";
 import { RoomDocumentShareAction } from "./room-document-share-action";
 import type { UnifiedDocumentPageModel } from "./use-unified-document-page-model";
+import { useDocumentCommentsClose } from "./document-comment-draft-guard";
 
 interface UnifiedDocumentPageHeaderProps {
   documentContentRef: MutableRefObject<HTMLDivElement | null>;
@@ -61,6 +62,7 @@ export function UnifiedDocumentPageHeader({
   isWikiPage,
   model,
 }: UnifiedDocumentPageHeaderProps) {
+  const requestCommentsClose = useDocumentCommentsClose();
   const {
     actor,
     sidebar,
@@ -101,7 +103,10 @@ export function UnifiedDocumentPageHeader({
       exportPending={exportPending}
       canvasSent={canvasSent}
       isEditing={isEditing}
-      onComments={() => setCommentsOpen((value) => !value)}
+      onComments={() => {
+        if (commentsOpen) requestCommentsClose(() => setCommentsOpen(false));
+        else setCommentsOpen(true);
+      }}
       onCopyLink={() =>
         void writeDocumentLinkClipboard({
           documentId,

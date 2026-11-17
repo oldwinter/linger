@@ -6,7 +6,7 @@ const fieldSelector = [
   "input",
   "textarea",
   "select",
-  "dialog",
+  "dialog[open]",
   "[contenteditable='true']",
   "[role='menu']",
   "[role='listbox']",

@@ -10,6 +10,7 @@ import {
 } from "../chat/message-composer";
 
 import { commentBodyFromComposition } from "./room-document-comment-body";
+import { useDocumentCommentDraft } from "./document-comment-draft-guard";
 
 interface DocumentMentionComposerProps {
   ariaLabel?: string;
@@ -65,11 +66,27 @@ export function DocumentMentionMessageComposer({
   onSubmitted?: () => void;
 }) {
   const composerRef = useRef<MessageComposerHandle>(null);
+  const pendingSubmission = useRef<Promise<void> | null>(null);
+  const draft = useDocumentCommentDraft(initialValue);
   useEffect(() => {
     // Native autofocus runs before the anchored card is positioned and can
     // scroll the shared document container back to the top.
     if (autoFocus) composerRef.current?.focus({ preventScroll: true });
   }, [autoFocus]);
+
+  function submit(composition: MessageComposition) {
+    if (pendingSubmission.current) return pendingSubmission.current;
+    draft.onSubmittingChange(true);
+    const submission = Promise.resolve()
+      .then(() => onSubmit(composition))
+      .then(() => onSubmitted?.())
+      .finally(() => {
+        draft.onSubmittingChange(false);
+        pendingSubmission.current = null;
+      });
+    pendingSubmission.current = submission;
+    return submission;
+  }
 
   return (
     <div
@@ -84,11 +101,9 @@ export function DocumentMentionMessageComposer({
         initialValue={initialValue}
         mentionOptions={mentionOptions}
         onCancel={onCancel}
+        onDraftStateChange={draft.onDraftStateChange}
         submitLabel={submitLabel}
-        onSend={async (composition) => {
-          await onSubmit(composition);
-          onSubmitted?.();
-        }}
+        onSend={submit}
         placeholder={placeholder}
       />
       {mentionDirectoryError ? (

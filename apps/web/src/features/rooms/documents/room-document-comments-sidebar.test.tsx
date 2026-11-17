@@ -12,6 +12,8 @@ import { useCallback, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TeamHubDocumentThreadStore } from "./room-document-comments";
+import { RoomDocumentCommentComposer } from "./room-document-comment-composer";
+import { DocumentCommentDraftGuard } from "./document-comment-draft-guard";
 import {
   RoomDocumentCommentsController,
   RoomDocumentCommentsOpenProvider,
@@ -25,6 +27,8 @@ const blockNote = vi.hoisted(() => ({
   selectedThreadId: undefined as string | undefined,
   pendingComment: false,
   stopPendingComment: vi.fn(),
+  createThread: vi.fn(),
+  focus: vi.fn(),
   selectThread: vi.fn(),
   threadPositions: new Map<string, { from: number; to: number }>(),
   threads: new Map<string, ThreadData>(),
@@ -33,6 +37,7 @@ const blockNote = vi.hoisted(() => ({
 vi.mock("@blocknote/react", () => ({
   getReferenceText: () => "selected text",
   useBlockNoteEditor: () => ({
+    focus: blockNote.focus,
     prosemirrorState: { selection: blockNote.selection, doc: blockNote.doc },
     prosemirrorView: {
       coordsAtPos: blockNote.coordsAtPos,
@@ -42,6 +47,7 @@ vi.mock("@blocknote/react", () => ({
   useExtension: () => ({
     selectThread: blockNote.selectThread,
     stopPendingComment: blockNote.stopPendingComment,
+    createThread: blockNote.createThread,
   }),
   useExtensionState: () => ({
     selectedThreadId: blockNote.selectedThreadId,
@@ -57,6 +63,8 @@ describe("Room Document Comments popover", () => {
     blockNote.pendingComment = false;
     blockNote.doc = undefined;
     blockNote.stopPendingComment.mockReset();
+    blockNote.createThread.mockReset().mockResolvedValue(undefined);
+    blockNote.focus.mockReset();
     blockNote.selectThread.mockReset();
     blockNote.threadPositions.clear();
     blockNote.threads.clear();
@@ -106,6 +114,46 @@ describe("Room Document Comments popover", () => {
     expect(blockNote.threads.size).toBe(0);
     fireEvent.click(screen.getByRole("button", { name: "Close comments" }));
     expect(onCancelSelection).toHaveBeenCalledOnce();
+  });
+
+  it("keeps an entered native comment and its selection until discard is confirmed", async () => {
+    blockNote.pendingComment = true;
+    renderController({
+      composer: <RoomDocumentCommentComposer mentionOptions={[]} />,
+    });
+    const input = await screen.findByRole("textbox", {
+      name: "New Document comment",
+    });
+    fireEvent.change(input, {
+      target: { value: "Check this paragraph before sharing the document." },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Close comments" }));
+
+    const confirmation = screen.getByRole("dialog", {
+      name: "Discard comment drafts?",
+    });
+    expect(
+      within(confirmation).getByRole("button", { name: "Continue editing" }),
+    ).toHaveFocus();
+    expect(blockNote.stopPendingComment).not.toHaveBeenCalled();
+    fireEvent(
+      confirmation,
+      new Event("cancel", { bubbles: false, cancelable: true }),
+    );
+    expect(input).toHaveValue(
+      "Check this paragraph before sharing the document.",
+    );
+    expect(
+      screen.getByRole("complementary", { name: "All Document comments" }),
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close comments" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discard and close" }));
+    expect(
+      screen.queryByRole("textbox", { name: "New Document comment" }),
+    ).not.toBeInTheDocument();
+    expect(blockNote.stopPendingComment).toHaveBeenCalledOnce();
   });
 
   it("explains how to create the first anchored comment", () => {
@@ -409,11 +457,13 @@ function renderController(
   const { threadStore = controllerThreadStore(), ...controllerProps } = props;
   return render(
     <QueryClientProvider client={new QueryClient()}>
-      <RoomDocumentCommentsController
-        mentionOptions={[]}
-        {...controllerProps}
-        threadStore={threadStore}
-      />
+      <DocumentCommentDraftGuard>
+        <RoomDocumentCommentsController
+          mentionOptions={[]}
+          {...controllerProps}
+          threadStore={threadStore}
+        />
+      </DocumentCommentDraftGuard>
     </QueryClientProvider>,
   );
 }

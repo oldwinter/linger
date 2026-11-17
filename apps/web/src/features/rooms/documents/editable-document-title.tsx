@@ -148,6 +148,7 @@ export function EditableDocumentTitle({
         onBlur={() => void commit()}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
           if (event.key !== "Enter") return;
           event.preventDefault();
           void commitAndContinue();

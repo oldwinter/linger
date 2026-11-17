@@ -1,18 +1,22 @@
-import { useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { createTeamHubIdempotencyKey } from "@/features/teamhub/teamhub-client";
 
 import { useCreateWorkItemComment } from "./work-item-queries";
 
+export type WorkItemDraftStatus = "clean" | "dirty" | "pending";
+
 /**
  * Adds one Comment to the open Work Item. The text keeps its idempotency key
  * until it changes, so retrying a failed send cannot post it twice.
  */
 export function WorkItemCommentComposer({
+  onDraftStatusChange,
   tenantId,
   workItemId,
 }: {
+  onDraftStatusChange: (status: WorkItemDraftStatus) => void;
   tenantId: string;
   workItemId: string;
 }) {
@@ -20,15 +24,31 @@ export function WorkItemCommentComposer({
   const [body, setBody] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const intent = useRef<{ body: string; key: string } | undefined>(undefined);
+  const submitting = useRef(false);
   const inputId = useId();
   const text = body.trim();
+  const draftStatus = createComment.isPending
+    ? "pending"
+    : text
+      ? "dirty"
+      : "clean";
+
+  useEffect(() => {
+    onDraftStatusChange(draftStatus);
+  }, [draftStatus, onDraftStatusChange]);
+
+  useEffect(() => {
+    if (createComment.isSuccess) textareaRef.current?.focus();
+  }, [createComment.isSuccess]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!text || createComment.isPending) return;
+    if (!text || submitting.current) return;
+    submitting.current = true;
     if (intent.current?.body !== text) {
       intent.current = { body: text, key: createTeamHubIdempotencyKey() };
     }
+    onDraftStatusChange("pending");
     try {
       await createComment.mutateAsync({
         body: text,
@@ -37,9 +57,12 @@ export function WorkItemCommentComposer({
       // The sent text is done; the next one is a new comment, not a replay.
       intent.current = undefined;
       setBody("");
-      textareaRef.current?.focus();
+      onDraftStatusChange("clean");
     } catch {
       // The text and its key stay for a retry; the error line explains why.
+      onDraftStatusChange("dirty");
+    } finally {
+      submitting.current = false;
     }
   }
 

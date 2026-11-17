@@ -15,7 +15,7 @@ import {
 } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import { MemoryRouter } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createHttpTeamHubClient } from "@/features/teamhub/teamhub-client";
 import {
@@ -105,6 +105,246 @@ function deferred() {
 }
 
 describe("PinnedMessagesControl", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    { width: 320, height: 640, anchorLeft: 185, pinCount: 0 },
+    { width: 390, height: 640, anchorLeft: 225, pinCount: 30 },
+    { width: 768, height: 240, anchorLeft: 600, pinCount: 30 },
+    { width: 1440, height: 900, anchorLeft: 950, pinCount: 0 },
+  ])(
+    "keeps $pinCount pins within a $width by $height viewport",
+    async ({ width, height, anchorLeft, pinCount }) => {
+      vi.stubGlobal("innerWidth", width);
+      vi.stubGlobal("innerHeight", height);
+      const { client, queryClient } = setup((server) =>
+        server.on("GET", pinsPath, () =>
+          pinList(
+            Array.from({ length: pinCount }, (_, index) => ({
+              message: message({
+                id: `message-${index}`,
+                raw_message: `Pinned message ${index}`,
+              }),
+              pinned_at: "2026-10-09T08:00:00.000Z",
+              pinned_by_actor_id: "human-1",
+            })),
+          ),
+        ),
+      );
+      const onJump = vi.fn();
+      render(
+        <header>
+          <PinnedMessagesControl
+            onJump={onJump}
+            roomId="room-1"
+            roomName="Design"
+            tenantId="tenant-1"
+          />
+        </header>,
+        { wrapper: wrapper(queryClient, client) },
+      );
+      const trigger = screen.getByRole("button", {
+        name: "Pinned messages",
+      });
+      const anchor = trigger.parentElement!;
+      // jsdom has no layout. Model the panel's natural content size and the
+      // browser's application of the viewport limits before measuring it.
+      vi.spyOn(
+        HTMLElement.prototype,
+        "getBoundingClientRect",
+      ).mockImplementation(function (this: HTMLElement) {
+        if (this === anchor) return new DOMRect(anchorLeft, 8, 32, 32);
+        if (this.getAttribute("role") === "dialog") {
+          return new DOMRect(
+            Number.parseFloat(this.style.left) || 0,
+            Number.parseFloat(this.style.top) || 0,
+            Math.min(
+              320,
+              Number.parseFloat(this.style.maxWidth) ||
+                Number.POSITIVE_INFINITY,
+            ),
+            Math.min(
+              pinCount ? 1200 : 80,
+              Number.parseFloat(this.style.maxHeight) ||
+                Number.POSITIVE_INFINITY,
+            ),
+          );
+        }
+        return new DOMRect();
+      });
+
+      fireEvent.click(trigger);
+      const panel = screen.getByRole("dialog", { name: "Pinned messages" });
+      if (pinCount) {
+        const rows = await within(panel).findAllByRole("listitem");
+        expect(rows).toHaveLength(pinCount);
+        fireEvent.pointerDown(rows.at(-1)!);
+        expect(panel).toBeInTheDocument();
+      } else {
+        await within(panel).findByText("No pinned messages yet.");
+      }
+      const bounds = panel.getBoundingClientRect();
+      expect(bounds.left).toBeGreaterThanOrEqual(8);
+      expect(bounds.right).toBeLessThanOrEqual(width - 8);
+      expect(bounds.top).toBeGreaterThanOrEqual(8);
+      expect(bounds.bottom).toBeLessThanOrEqual(height - 8);
+      expect(panel).toHaveFocus();
+      expect(anchor).not.toContainElement(panel);
+
+      if (pinCount) {
+        fireEvent.click(
+          within(within(panel).getAllByRole("listitem").at(-1)!).getByRole(
+            "button",
+            { name: "Go to message" },
+          ),
+        );
+        expect(onJump).toHaveBeenCalledWith(`message-${pinCount - 1}`);
+        expect(panel).not.toBeInTheDocument();
+      } else {
+        fireEvent.click(
+          within(panel).getByRole("button", { name: "Close pinned messages" }),
+        );
+        expect(panel).not.toBeInTheDocument();
+        expect(trigger).toHaveFocus();
+      }
+    },
+  );
+
+  it("follows header and viewport changes without resubscribing while filtering", async () => {
+    vi.stubGlobal("innerWidth", 1024);
+    vi.stubGlobal("innerHeight", 768);
+    const callbacks: Array<() => void> = [];
+    const disconnect = vi.fn();
+    const observe = vi.fn();
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          callbacks.push(callback);
+        }
+        observe = observe;
+        disconnect = disconnect;
+      },
+    );
+    const { client, queryClient } = setup((server) =>
+      server.on("GET", pinsPath, () =>
+        pinList([
+          {
+            message: message(),
+            pinned_at: "2026-10-09T08:00:00.000Z",
+            pinned_by_actor_id: "human-1",
+          },
+        ]),
+      ),
+    );
+    const view = render(
+      <header>
+        <PinnedMessagesControl
+          onJump={vi.fn()}
+          roomId="room-1"
+          roomName="Design"
+          tenantId="tenant-1"
+        />
+      </header>,
+      { wrapper: wrapper(queryClient, client) },
+    );
+    const trigger = screen.getByRole("button", { name: "Pinned messages" });
+    const anchor = trigger.parentElement!;
+    let anchorLeft = 500;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        if (this === anchor) return new DOMRect(anchorLeft, 8, 32, 32);
+        return new DOMRect(
+          0,
+          0,
+          Math.min(
+            320,
+            Number.parseFloat(this.style.maxWidth) || Number.POSITIVE_INFINITY,
+          ),
+          180,
+        );
+      },
+    );
+    fireEvent.click(trigger);
+    const panel = screen.getByRole("dialog", { name: "Pinned messages" });
+    const search = await within(panel).findByRole("searchbox");
+    expect(panel).toHaveStyle({ left: "212px" });
+    expect(observe).toHaveBeenCalledWith(screen.getByRole("banner"));
+    expect(callbacks).toHaveLength(1);
+
+    search.focus();
+    fireEvent.change(search, { target: { value: "release" } });
+    expect(callbacks).toHaveLength(1);
+    anchorLeft = 400;
+    act(() => callbacks[0]!());
+    expect(panel).toHaveStyle({ left: "112px" });
+    expect(search).toHaveFocus();
+
+    vi.stubGlobal("innerWidth", 320);
+    anchorLeft = 200;
+    fireEvent.resize(window);
+    expect(panel).toHaveStyle({ left: "8px", maxWidth: "304px" });
+    expect(callbacks).toHaveLength(1);
+    expect(disconnect).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      within(panel).getByRole("button", { name: "Close pinned messages" }),
+    );
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    fireEvent.click(trigger);
+    expect(callbacks).toHaveLength(2);
+    view.unmount();
+    expect(disconnect).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves Escape to a modal opened over the panel", async () => {
+    const { client, queryClient } = setup((server) =>
+      server.on("GET", pinsPath, () => pinList([])),
+    );
+    render(
+      <PinnedMessagesControl
+        onJump={vi.fn()}
+        roomId="room-1"
+        roomName="Design"
+        tenantId="tenant-1"
+      />,
+      { wrapper: wrapper(queryClient, client) },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Pinned messages" }));
+    const panel = screen.getByRole("dialog", { name: "Pinned messages" });
+    await within(panel).findByText("No pinned messages yet.");
+    const modal = document.createElement("dialog");
+    modal.open = true;
+    document.body.append(modal);
+    try {
+      const escape = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "Escape",
+      });
+      fireEvent(modal, escape);
+      expect(escape.defaultPrevented).toBe(false);
+      expect(panel).toBeInTheDocument();
+    } finally {
+      modal.remove();
+    }
+
+    const escape = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Escape",
+    });
+    fireEvent(panel, escape);
+    expect(escape.defaultPrevented).toBe(true);
+    expect(panel).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Pinned messages" }),
+    ).toHaveFocus();
+  });
+
   it("lists pinned Messages newest first and jumps to one", async () => {
     const { client, queryClient } = setup((server) =>
       server.on("GET", pinsPath, () =>

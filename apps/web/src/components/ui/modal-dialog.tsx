@@ -4,8 +4,10 @@ import {
   useEffect,
   useEffectEvent,
   useId,
+  useLayoutEffect,
   useRef,
 } from "react";
+import { createPortal } from "react-dom";
 
 import { Icon } from "@/components/ui/icon";
 
@@ -69,7 +71,7 @@ export function ModalDialog({
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const standard = title !== undefined;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const dialog = dialogRef.current;
 
     if (!dialog) {
@@ -114,13 +116,14 @@ export function ModalDialog({
     return () => dialog.removeEventListener("click", handleBackdropClick);
   }, [closeOnBackdrop]);
 
-  return (
+  return createPortal(
     <dialog
       aria-label={standard ? undefined : ariaLabel}
       aria-labelledby={standard ? headingId : undefined}
       className={`app-dialog ${standard ? "app-dialog-standard" : ""} ${className}`}
       data-size={size}
       onCancel={(event) => {
+        if (event.target !== event.currentTarget) return;
         event.preventDefault();
         onClose();
       }}
@@ -158,6 +161,7 @@ export function ModalDialog({
       ) : (
         children
       )}
-    </dialog>
+    </dialog>,
+    document.body,
   );
 }

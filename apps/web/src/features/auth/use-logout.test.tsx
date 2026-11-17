@@ -12,6 +12,12 @@ import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import { browserRoomMessageOutbox } from "@/features/rooms/chat/room-message-outbox";
 import {
+  carriedMeetingSnapshot,
+  carryMeeting,
+  currentMeetingPlaybackSession,
+  releaseCarriedMeeting,
+} from "@/features/memory/meeting-carry";
+import {
   readRoomComposerDraft,
   writeRoomComposerDraft,
 } from "@/features/rooms/room-drafts";
@@ -51,10 +57,34 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  releaseCarriedMeeting();
+  vi.restoreAllMocks();
+});
+
+function carryRecording() {
+  const dispose = vi.fn();
+  carryMeeting(
+    {
+      accountId: "account-jenny",
+      dispose,
+      filename: "recording.mp3",
+      href: "/t/tenant-northstar/library/meetings?entry=meeting-1",
+      mediaType: "audio/mpeg",
+      meetingId: "meeting-1",
+      rate: 1,
+      seconds: 42,
+      src: "/v0/document-versions/recording-version/content",
+      title: "Private meeting",
+    },
+    currentMeetingPlaybackSession(),
+  );
+  return dispose;
+}
 
 describe("useLogout", () => {
   it("keeps the authenticated state when TeamHub cannot revoke the Session", async () => {
+    const disposeRecording = carryRecording();
     const runtime = await testRuntime();
     const clearOutbox = vi
       .spyOn(browserRoomMessageOutbox, "clearAccount")
@@ -95,9 +125,12 @@ describe("useLogout", () => {
     expect(clearOutbox).toHaveBeenCalledOnce();
     expect(clearOutbox).toHaveBeenCalledWith(identity.account.id);
     expect(screen.getByRole("button", { name: "Log out" })).toBeEnabled();
+    expect(carriedMeetingSnapshot()?.title).toBe("Private meeting");
+    expect(disposeRecording).not.toHaveBeenCalled();
   });
 
   it("orders outbox, revocation, navigation, local cleanup and broadcast; ignores duplicate requests", async () => {
+    const disposeRecording = carryRecording();
     const runtime = await testRuntime();
     const identity = runtime.seed.identity;
     const queryClient = new QueryClient();
@@ -182,6 +215,7 @@ describe("useLogout", () => {
     expect(localCopies.delete).not.toHaveBeenCalled();
     expect(queryClient.getQueryData(["teamhub", "private"])).toBe("cached");
     expect(broadcast).not.toHaveBeenCalled();
+    expect(disposeRecording).not.toHaveBeenCalled();
     await act(async () => finishLogout());
     await waitFor(() => expect(broadcast).toHaveBeenCalledOnce());
     expect(
@@ -203,6 +237,8 @@ describe("useLogout", () => {
       ),
     ).toBeNull();
     expect(clearOutbox).toHaveBeenCalledWith(identity.account.id);
+    expect(carriedMeetingSnapshot()).toBeUndefined();
+    expect(disposeRecording).toHaveBeenCalledOnce();
   });
 
   it("does not retry ambiguous logout failures even when global mutation retries are enabled", async () => {

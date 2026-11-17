@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -418,6 +419,104 @@ describe("My Rules", () => {
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
     expect(await row("Client replies → remind directly")).toBeTruthy();
+  });
+
+  it.each(["success", "failure"] as const)(
+    "locks the submitted rule draft until a held save settles with %s",
+    async (outcome) => {
+      let resolveSave!: (response: Response) => void;
+      const pendingSave = new Promise<Response>((resolve) => {
+        resolveSave = resolve;
+      });
+      const text = "Client replies → review after saving";
+      const savedBook: TeamHubProactiveRuleBook = {
+        ...book,
+        rules: [{ ...book.rules[0]!, text, source: "user" }, book.rules[1]!],
+      };
+      const runtime = renderPage();
+      runtime.server.on("PATCH", rulePath, () => pendingSave);
+      const active = await row("Client replies → remind directly");
+      fireEvent.click(
+        within(active).getByRole("button", { name: "Edit rule" }),
+      );
+      const field = screen.getByRole("textbox", { name: "Rule text" });
+      fireEvent.change(field, { target: { value: text } });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => expect(field).toBeDisabled());
+      expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+      fireEvent.keyDown(field, { key: "Escape" });
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(screen.getByRole("textbox", { name: "Rule text" })).toHaveValue(
+        text,
+      );
+      expect(runtime.server.requestsTo("PATCH", rulePath)).toHaveLength(1);
+
+      resolveSave(
+        outcome === "success"
+          ? Response.json(savedBook)
+          : teamHubErrorResponse(503, "SERVICE_UNAVAILABLE"),
+      );
+      if (outcome === "failure") {
+        expect(
+          await screen.findByText("The change was not saved. Try again."),
+        ).toBeTruthy();
+        expect(field).toBeEnabled();
+        expect(field).toHaveValue(text);
+        expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
+        runtime.server.on("PATCH", rulePath, () => savedBook);
+        fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      }
+
+      expect(await row(text)).toBeTruthy();
+      expect(screen.queryByRole("textbox", { name: "Rule text" })).toBeNull();
+      expect(
+        await Promise.all(
+          runtime.server
+            .requestsTo("PATCH", rulePath)
+            .map((request) => request.clone().json()),
+        ),
+      ).toEqual(outcome === "success" ? [{ text }] : [{ text }, { text }]);
+    },
+  );
+
+  it("guards rapid save, edit, and dismissal events before the pending state renders", async () => {
+    let resolveSave!: (response: Response) => void;
+    const pendingSave = new Promise<Response>((resolve) => {
+      resolveSave = resolve;
+    });
+    const runtime = renderPage();
+    runtime.server.on("PATCH", rulePath, () => pendingSave);
+    const active = await row("Client replies → remind directly");
+    fireEvent.click(within(active).getByRole("button", { name: "Edit rule" }));
+    const field = screen.getByRole("textbox", { name: "Rule text" });
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    const text = "Client replies → preserve this submitted draft";
+    fireEvent.change(field, { target: { value: text } });
+
+    act(() => {
+      fireEvent.keyDown(field, { ctrlKey: true, key: "Enter" });
+      fireEvent.keyDown(field, { ctrlKey: true, key: "Enter" });
+      fireEvent.change(field, {
+        target: { value: "A newer unsubmitted revision" },
+      });
+      fireEvent.keyDown(field, { key: "Escape" });
+      fireEvent.click(cancel);
+    });
+
+    await waitFor(() =>
+      expect(runtime.server.requestsTo("PATCH", rulePath)).toHaveLength(1),
+    );
+    expect(screen.getByRole("textbox", { name: "Rule text" })).toHaveValue(
+      text,
+    );
+    resolveSave(teamHubErrorResponse(503, "SERVICE_UNAVAILABLE"));
+    expect(
+      await screen.findByText("The change was not saved. Try again."),
+    ).toBeTruthy();
+    expect(field).toHaveValue(text);
+    expect(field).toBeEnabled();
   });
 
   it("keeps the edit draft on save failure and supports Escape and Ctrl+Enter shortcuts", async () => {

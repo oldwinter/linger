@@ -24,6 +24,22 @@
 - Keep protocol and persistence lifecycle behind the collaboration-session
   interface. React components render that interface and must not parse durable
   ACK envelopes or construct IndexedDB keys themselves.
+- Editor DOM listeners retain the element they were attached to for cleanup.
+  BlockNote may release its editor view before a React effect cleans up.
+- Document title editing ignores Enter and Escape during input-method
+  composition, then handles submission or cancellation after composition ends.
+- Closing native Document comments protects unsent comments, replies, and
+  changed comment text. The Comments toggle and Close comments ask before
+  discarding input and default to continuing the edit. A pending request blocks
+  closing; a failed request keeps the input and error available for retry.
+  Protection ends when a composer succeeds or leaves the panel. Explicit
+  editor Cancel discards that edit. Anchor reselection retains its own lifecycle;
+  panel protection does not persist drafts across navigation or revive an old
+  selection.
+- Page history stays within the viewport. Its checkpoint list and preview
+  scroll independently, with stacked panes on narrow portrait screens and
+  side-by-side panes in landscape, so older checkpoints and Restore remain
+  reachable.
 - Only an editing session keeps a local copy, one per Actor and Document; a
   reopened session saves it under its new token. `room-document-local-copies.ts`
   owns copy names and deletion: a Document's copies go when TeamHub denies

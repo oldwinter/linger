@@ -36,6 +36,18 @@ build:assets` to check the initial JS budget.
 
 ## Important Conventions
 
+- Room navigation uses a modal drawer below 768px; Library navigation uses one
+  below 640px. `NavigationDrawer` preserves the sidebar tree across breakpoints,
+  contains focus while modal, and returns focus to the opener on dismissal.
+  Desktop sidebars are ordinary navigation, so modal detection checks
+  `dialog[open]`, never every `dialog` element.
+- `ModalDialog` portals to `document.body` so a closed navigation wrapper cannot
+  hide a nested dialog. Action menus portal into their nearest open native
+  dialog or the body and constrain both parent and child menus to the viewport.
+  Native dialog animations must not transform the coordinate space used by
+  those fixed menus. Close native dialogs before React removes their DOM so the
+  browser can return focus to a connected opener. Handle only the dialog's own
+  cancel event; a nested dialog's Escape must not dismiss its parent.
 - Active product data comes from TeamHub, never retired Workspace APIs. Web has
   no fixture backend and no build mode that swaps TeamHub out.
 - Unit tests that need TeamHub use `createTestTeamHubRuntime`

@@ -735,6 +735,8 @@ function renderSharedTreeLevel(input: {
                   className="h-[33px] min-w-0 flex-1 rounded-md border border-app-focus bg-app-surface px-2 text-[14px] leading-[18px] outline-none"
                   onChange={(event) => input.onRenameChange(event.target.value)}
                   onKeyDown={(event) => {
+                    if (event.nativeEvent.isComposing || event.keyCode === 229)
+                      return;
                     if (event.key === "Enter") input.onRenameSubmit();
                     if (event.key === "Escape") input.onRenameCancel();
                   }}

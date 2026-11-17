@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -146,6 +152,74 @@ describe("Room settings", () => {
     });
   });
 
+  it.each([false, true])(
+    "locks submitted fields until the update settles (embedded: %s)",
+    async (embedded) => {
+      const runtime = createTestTeamHubRuntime();
+      const room = await getRoom(runtime, "room-all");
+      const onClose = vi.fn();
+      let release = () => {};
+      const update = vi.fn<TestRouteHandler>(
+        () =>
+          new Promise((resolve) => {
+            release = () =>
+              resolve({
+                ...room,
+                description: "The description being saved.",
+                name: "Room being saved",
+              });
+          }),
+      );
+      runtime.server.on("PATCH", "/v0/rooms/{roomId}", update);
+
+      render(
+        <QueryClientProvider client={new QueryClient()}>
+          <TeamHubRuntimeProvider runtime={runtime}>
+            <RoomSettingsDialog
+              embedded={embedded}
+              onClose={onClose}
+              onDelete={vi.fn()}
+              room={room}
+              tenantId="tenant-northstar"
+            />
+          </TeamHubRuntimeProvider>
+        </QueryClientProvider>,
+      );
+
+      const name = screen.getByRole("textbox", { name: "Room name" });
+      const description = screen.getByRole("textbox", {
+        name: "Room description",
+      });
+      fireEvent.change(name, { target: { value: "Room being saved" } });
+      fireEvent.change(description, {
+        target: { value: "The description being saved." },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+      await waitFor(() => expect(update).toHaveBeenCalledOnce());
+
+      expect(name).toBeDisabled();
+      expect(description).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+      await act(async () => {
+        fireEvent.submit(name.closest("form")!);
+      });
+      expect(update).toHaveBeenCalledOnce();
+      if (!embedded) {
+        fireEvent(
+          screen.getByRole("dialog"),
+          new Event("cancel", { cancelable: true }),
+        );
+        fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      }
+      expect(onClose).not.toHaveBeenCalled();
+      expect(name).toHaveValue("Room being saved");
+      expect(description).toHaveValue("The description being saved.");
+
+      release();
+      await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    },
+  );
+
   it("retries the same update after an unknown outcome", async () => {
     const runtime = createTestTeamHubRuntime();
     acceptRoomUpdates(runtime);
@@ -175,6 +249,12 @@ describe("Room settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await screen.findByText(
       /did not confirm whether these Room changes were committed/,
+    );
+    expect(screen.getByLabelText("Room name")).toBeEnabled();
+    expect(screen.getByLabelText("Room name")).toHaveValue("release-room");
+    expect(screen.getByLabelText("Room description")).toBeEnabled();
+    expect(screen.getByLabelText("Room description")).toHaveValue(
+      room.description ?? "",
     );
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 

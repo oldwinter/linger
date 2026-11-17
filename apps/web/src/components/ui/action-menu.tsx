@@ -6,7 +6,9 @@ import {
   type KeyboardEvent,
   type ReactNode,
   type Ref,
+  type RefObject,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useRef,
   useState,
@@ -68,7 +70,6 @@ export function ActionMenu({
     undefined,
   );
   const [activeSubmenu, setActiveSubmenu] = useState<number | null>(null);
-  const [submenuSide, setSubmenuSide] = useState<"left" | "right">("right");
   const [position, setPosition] = useState({ left: 8, top: 8 });
   const [menuSide, setMenuSide] = useState<"bottom" | "right" | "top">(
     "bottom",
@@ -85,7 +86,11 @@ export function ActionMenu({
     if (!openOnHover) return;
     cancelHoverClose();
     hoverCloseTimer.current = setTimeout(() => {
-      if (!menuRef.current?.contains(document.activeElement)) setOpen(false);
+      if (
+        !menuRef.current?.contains(document.activeElement) &&
+        !submenuRef.current?.contains(document.activeElement)
+      )
+        setOpen(false);
     }, 150);
   }
   useEffect(() => () => clearTimeout(hoverCloseTimer.current), []);
@@ -97,7 +102,7 @@ export function ActionMenu({
       if (!triggerRect) return;
       const next = computeMenuPosition(
         triggerRect,
-        menuRef.current?.getBoundingClientRect(),
+        menuSize(menuRef.current),
         placement,
       );
       setPosition(next);
@@ -110,9 +115,10 @@ export function ActionMenu({
       );
     };
     updatePosition();
-    if (!followAnchor) return;
-    window.addEventListener("scroll", updatePosition, true);
-    window.addEventListener("resize", updatePosition);
+    if (followAnchor) {
+      window.addEventListener("scroll", updatePosition, true);
+      window.addEventListener("resize", updatePosition);
+    }
     const observer =
       typeof ResizeObserver === "undefined"
         ? undefined
@@ -133,7 +139,7 @@ export function ActionMenu({
         preferred && !preferred.disabled
           ? preferred
           : itemRefs.current.find((item) => item && !item.disabled);
-      target?.focus({ preventScroll: true });
+      target?.focus();
     });
     return () => cancelAnimationFrame(frame);
   }, [open, focusOnOpen, initialFocusIndex]);
@@ -161,7 +167,8 @@ export function ActionMenu({
       if (
         openOnHover &&
         event.key === "Escape" &&
-        !menuRef.current?.contains(event.target as Node)
+        !menuRef.current?.contains(event.target as Node) &&
+        !submenuRef.current?.contains(event.target as Node)
       ) {
         event.preventDefault();
         setActiveSubmenu(null);
@@ -185,14 +192,6 @@ export function ActionMenu({
     setOpen(false);
   }
 
-  function openSubmenu(index: number) {
-    const menuRect = menuRef.current?.getBoundingClientRect();
-    setSubmenuSide(
-      menuRect && menuRect.right + 184 > window.innerWidth ? "left" : "right",
-    );
-    setActiveSubmenu(index);
-  }
-
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -204,18 +203,7 @@ export function ActionMenu({
       closeMenu();
       return;
     }
-    const direction =
-      event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
-    if (!direction) return;
-    event.preventDefault();
-    const enabled = itemRefs.current.filter((item): item is HTMLButtonElement =>
-      Boolean(item && !item.disabled),
-    );
-    const current = enabled.indexOf(
-      document.activeElement as HTMLButtonElement,
-    );
-    const next = (current + direction + enabled.length) % enabled.length;
-    enabled[next]?.focus();
+    moveMenuFocus(event);
   }
 
   const submenuItems =
@@ -270,7 +258,7 @@ export function ActionMenu({
               {/* eslint-disable-next-line jsx-a11y/interactive-supports-focus -- composite widget: focus is managed on its child items */}
               <div
                 aria-label={label}
-                className={`town-dropdown-enter ${menuClassName}`}
+                className={`town-dropdown-enter max-w-[calc(100vw-16px)] ${menuClassName}`}
                 data-side={menuSide}
                 onPointerEnter={cancelHoverClose}
                 onPointerLeave={scheduleHoverClose}
@@ -279,53 +267,62 @@ export function ActionMenu({
                 role="menu"
                 style={position}
               >
-                {header ? (
-                  <div className="-mx-1 mb-1 border-b border-border px-3 py-2">
-                    {header}
-                  </div>
-                ) : null}
-                {items.map((item, index) => (
-                  <ActionMenuItemButton
-                    className={itemClassName}
-                    iconClassName={iconClassName}
-                    item={item}
-                    key={item.label}
-                    onOpenSubmenu={(focusFirstChild) => {
-                      openSubmenu(index);
-                      if (!focusFirstChild) return;
-                      requestAnimationFrame(() =>
-                        submenuRef.current
-                          ?.querySelector<HTMLButtonElement>(
-                            '[role="menuitem"]:not(:disabled)',
-                          )
-                          ?.focus(),
-                      );
-                    }}
-                    onSelect={() => {
-                      if (!item.keepOpen) closeMenu();
-                      item.onSelect?.();
-                    }}
-                    ref={(node) => {
-                      itemRefs.current[index] = node;
-                    }}
-                    submenuOpen={activeSubmenu === index}
-                  />
-                ))}
-                {submenuItems ? (
-                  <ActionSubmenu
-                    items={submenuItems}
-                    label={items[activeSubmenu!]?.label}
-                    onBack={() => {
-                      const parentIndex = activeSubmenu;
-                      setActiveSubmenu(null);
-                      itemRefs.current[parentIndex ?? -1]?.focus();
-                    }}
-                    onClose={closeMenu}
-                    ref={submenuRef}
-                    side={submenuSide}
-                  />
-                ) : null}
+                <div
+                  className="workspace-scrollbar max-h-[min(28rem,calc(100dvh-32px))] overflow-x-hidden overflow-y-auto overscroll-contain"
+                  onScroll={() => setActiveSubmenu(null)}
+                >
+                  {header ? (
+                    <div className="-mx-1 mb-1 border-b border-border px-3 py-2">
+                      {header}
+                    </div>
+                  ) : null}
+                  {items.map((item, index) => (
+                    <ActionMenuItemButton
+                      className={itemClassName}
+                      iconClassName={iconClassName}
+                      item={item}
+                      key={item.label}
+                      onOpenSubmenu={(focusFirstChild) => {
+                        setActiveSubmenu(index);
+                        if (!focusFirstChild) return;
+                        requestAnimationFrame(() =>
+                          submenuRef.current
+                            ?.querySelector<HTMLButtonElement>(
+                              '[role="menuitem"]:not(:disabled)',
+                            )
+                            ?.focus(),
+                        );
+                      }}
+                      onSelect={() => {
+                        if (!item.keepOpen) closeMenu();
+                        item.onSelect?.();
+                      }}
+                      ref={(node) => {
+                        itemRefs.current[index] = node;
+                      }}
+                      submenuOpen={activeSubmenu === index}
+                    />
+                  ))}
+                </div>
               </div>
+              {submenuItems ? (
+                <ActionSubmenu
+                  anchor={itemRefs.current[activeSubmenu ?? -1] ?? null}
+                  items={submenuItems}
+                  label={items[activeSubmenu ?? -1]?.label}
+                  onBack={() => {
+                    const parentIndex = activeSubmenu;
+                    setActiveSubmenu(null);
+                    itemRefs.current[parentIndex ?? -1]?.focus();
+                  }}
+                  onClose={closeMenu}
+                  onPointerEnter={cancelHoverClose}
+                  onPointerLeave={scheduleHoverClose}
+                  parentMenu={menuRef.current}
+                  parentPosition={position}
+                  ref={submenuRef}
+                />
+              ) : null}
             </>,
             // A modal dialog makes everything outside it inert, so a menu for a
             // trigger inside one stays in the dialog to be visible and clickable.
@@ -345,13 +342,43 @@ function isViewportScrollTarget(target: EventTarget | null): boolean {
   );
 }
 
+function moveMenuFocus(event: KeyboardEvent<HTMLDivElement>) {
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const enabled = Array.from(
+    event.currentTarget.querySelectorAll<HTMLButtonElement>(
+      '[role="menuitem"]:not(:disabled)',
+    ),
+  );
+  const current = enabled.findIndex((item) => item === document.activeElement);
+  const next =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? enabled.length - 1
+        : (current + (event.key === "ArrowDown" ? 1 : -1) + enabled.length) %
+          enabled.length;
+  enabled[next]?.focus();
+}
+
+function menuSize(menu: HTMLElement | null) {
+  if (!menu) return undefined;
+  const bounds = menu.getBoundingClientRect();
+  // Layout dimensions do not shrink during the menu's entrance animation.
+  return {
+    width: menu.offsetWidth || bounds.width,
+    height: menu.offsetHeight || bounds.height,
+  };
+}
+
 /** One gap between a menu and its trigger; one margin to the viewport edge. */
 const MENU_GAP = 6;
 const MENU_MARGIN = 8;
 
 function computeMenuPosition(
   triggerRect: DOMRect,
-  menuRect: DOMRect | undefined,
+  menuRect: Pick<DOMRect, "width" | "height"> | undefined,
   placement: MenuPlacement,
 ) {
   const width = menuRect?.width ?? 232;
@@ -446,7 +473,9 @@ function ActionMenuItemButton({
         >
           {item.icon}
         </span>
-        <span className="whitespace-nowrap">{item.label}</span>
+        <span className="min-w-0 flex-1 truncate" title={item.label}>
+          {item.label}
+        </span>
         {item.children ? (
           <Icon
             className="ml-auto text-muted-foreground"
@@ -460,36 +489,87 @@ function ActionMenuItemButton({
 }
 
 function ActionSubmenu({
+  anchor,
   items,
   label,
   onBack,
   onClose,
+  onPointerEnter,
+  onPointerLeave,
+  parentMenu,
+  parentPosition,
   ref,
-  side,
 }: {
+  anchor: HTMLButtonElement | null;
   items: ActionMenuItem[];
   label?: string;
   onBack: () => void;
   onClose: () => void;
-  ref: Ref<HTMLDivElement>;
-  side: "left" | "right";
+  onPointerEnter: () => void;
+  onPointerLeave: () => void;
+  parentMenu: HTMLDivElement | null;
+  parentPosition: Pick<DOMRect, "left" | "top">;
+  ref: RefObject<HTMLDivElement | null>;
 }) {
+  const [position, setPosition] = useState({ left: 8, top: 8 });
+  const updatePosition = useEffectEvent(() => {
+    if (!anchor || !parentMenu) return;
+    const parentBounds = parentMenu.getBoundingClientRect();
+    const anchorBounds = anchor.getBoundingClientRect();
+    const next = computeMenuPosition(
+      new DOMRect(
+        parentBounds.left,
+        anchorBounds.top,
+        parentBounds.width,
+        anchorBounds.height,
+      ),
+      menuSize(ref.current),
+      "right-start",
+    );
+    setPosition((current) =>
+      current.left === next.left && current.top === next.top ? current : next,
+    );
+  });
+  useLayoutEffect(() => {
+    updatePosition();
+  }, [anchor, parentMenu, parentPosition]);
+  useLayoutEffect(() => {
+    const update = () => updatePosition();
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? undefined
+        : new ResizeObserver(update);
+    if (ref.current) observer?.observe(ref.current);
+    if (parentMenu) {
+      observer?.observe(parentMenu);
+      parentMenu.addEventListener("animationend", update);
+    }
+    return () => {
+      observer?.disconnect();
+      parentMenu?.removeEventListener("animationend", update);
+    };
+  }, [parentMenu, ref]);
+
   return (
     // eslint-disable-next-line jsx-a11y/interactive-supports-focus -- composite widget: focus is managed on its child items
     <div
       aria-label={label}
-      className={`app-popover-card absolute top-0 w-[180px] p-1 max-sm:static max-sm:mt-1 max-sm:w-full ${
-        side === "left" ? "right-[calc(100%+4px)]" : "left-[calc(100%+4px)]"
-      }`}
+      className="app-popover-card workspace-scrollbar fixed z-[101] max-h-[min(28rem,calc(100dvh-16px))] w-[180px] max-w-[calc(100vw-16px)] overflow-y-auto overscroll-contain p-1"
       onKeyDown={(event) => {
         if (event.key === "ArrowLeft" || event.key === "Escape") {
           event.preventDefault();
           event.stopPropagation();
           onBack();
+          return;
         }
+        if (event.key === "Tab") onClose();
+        moveMenuFocus(event);
       }}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
       ref={ref}
       role="menu"
+      style={position}
     >
       {items.map((child) => (
         <button
@@ -499,7 +579,7 @@ function ActionSubmenu({
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            onClose();
+            if (!child.keepOpen) onClose();
             child.onSelect?.();
           }}
           role="menuitem"
@@ -509,7 +589,9 @@ function ActionSubmenu({
           <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
             {child.icon}
           </span>
-          {child.label}
+          <span className="min-w-0 truncate" title={child.label}>
+            {child.label}
+          </span>
         </button>
       ))}
     </div>

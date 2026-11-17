@@ -30,7 +30,6 @@ export function RoomDocumentCommentRow({
   threadStore: TeamHubDocumentThreadStore;
 }) {
   const [editing, setEditing] = useState(false);
-  const [error, setError] = useState<string>();
   const author = (comment.metadata as { author?: TeamHubActorRef } | undefined)
     ?.author;
   const actor = author ?? actors.get(comment.userId);
@@ -43,19 +42,12 @@ export function RoomDocumentCommentRow({
     : undefined;
 
   async function save(body: CommentBody) {
-    setError(undefined);
-    try {
-      await threadStore.updateComment({
-        comment: { body },
-        commentId: comment.id,
-        threadId,
-      });
-      setEditing(false);
-    } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Comment action failed",
-      );
-    }
+    await threadStore.updateComment({
+      comment: { body },
+      commentId: comment.id,
+      threadId,
+    });
+    setEditing(false);
   }
 
   return (
@@ -109,7 +101,6 @@ export function RoomDocumentCommentRow({
           threadStore={threadStore}
         />
       ) : null}
-      {error ? <p role="alert">{error}</p> : null}
     </div>
   );
 }

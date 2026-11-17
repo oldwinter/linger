@@ -344,11 +344,9 @@ describe("RoomSurface command availability", () => {
     const settings = within(header).getByRole("button", {
       name: "Open all settings from avatar",
     });
-    const handOff = within(header).getByRole("link", { name: "Hand off" });
-    expect(handOff).toHaveAttribute(
-      "href",
-      "/t/tenant-northstar/rooms/room-all/hand-off",
-    );
+    expect(
+      within(header).queryByRole("link", { name: "Hand off" }),
+    ).not.toBeInTheDocument();
     const sidebar = within(header).getByRole("button", {
       name: "Show sidebar",
     });
@@ -356,6 +354,88 @@ describe("RoomSurface command availability", () => {
     expect(settings.compareDocumentPosition(sidebar)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+  });
+
+  it.each([
+    ["Add a document", "add-document"],
+    ["How work moves", "how-work-moves"],
+    ["Who can manage", "who-manages"],
+    ["Hand off", "hand-off"],
+    ["Step out", "step-out"],
+  ])("opens %s from the Room actions menu", async (label, path) => {
+    const router = await renderRoomSurface();
+    const header = await screen.findByRole("banner");
+    fireEvent.click(
+      within(header).getByRole("button", { name: "More actions for all" }),
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: label }));
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(
+        `/t/tenant-northstar/rooms/room-all/${path}`,
+      ),
+    );
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("keeps the overflow actions keyboard reachable and returns focus on Escape", async () => {
+    await renderRoomSurface();
+    const more = await screen.findByRole("button", {
+      name: "More actions for all",
+    });
+    more.focus();
+    fireEvent.click(more);
+    const addDocument = await screen.findByRole("menuitem", {
+      name: "Add a document",
+    });
+    await waitFor(() => expect(addDocument).toHaveFocus());
+    fireEvent.keyDown(addDocument, { key: "ArrowDown" });
+    const workMoves = screen.getByRole("menuitem", { name: "How work moves" });
+    expect(workMoves).toHaveFocus();
+    fireEvent.keyDown(workMoves, { key: "Escape" });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(more).toHaveFocus();
+  });
+
+  it("keeps Watch visible and offers Steer in the menu only while this Room is working", async () => {
+    const runtime = surfaceRuntime();
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/room-activity", () => ({
+      failed_room_ids: [],
+      running_room_ids: ["room-all"],
+    }));
+    const router = await renderRoomSurface("room-all", "", runtime);
+    const watch = await screen.findByRole("link", { name: "Watch the work" });
+    expect(watch).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/rooms/room-all/working",
+    );
+    expect(watch).toHaveAttribute("title", "Watch the work");
+    fireEvent.click(
+      screen.getByRole("button", { name: "More actions for all" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Steer this run" }),
+    );
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(
+        "/t/tenant-northstar/rooms/room-all/steer",
+      ),
+    );
+  });
+
+  it("omits inactive run commands and room participation from a direct chat menu", async () => {
+    await renderRoomSurface("room-dm-codex");
+    fireEvent.click(
+      await screen.findByRole("button", { name: "More actions for Codex" }),
+    );
+    expect(screen.queryByRole("link", { name: "Watch the work" })).toBeNull();
+    expect(
+      screen.queryByRole("menuitem", { name: "Steer this run" }),
+    ).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Step out" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Hand off" })).toBeVisible();
+    expect(
+      screen.getByRole("menuitem", { name: "Copy Room link" }),
+    ).toBeVisible();
   });
 
   it("keeps long Room titles inside the Room column when the panel opens", async () => {
@@ -375,7 +455,9 @@ describe("RoomSurface command availability", () => {
       "[data-panel-trigger-slot]",
     )?.parentElement;
 
+    expect(header).toHaveClass("grid-cols-[auto_minmax(0,1fr)_auto]");
     expect(titleRegion).toHaveClass("min-w-0");
+    expect(titleRegion).toHaveClass("max-w-full");
     expect(titleRegion).not.toHaveClass("md:shrink-0");
     expect(title).toHaveClass("truncate");
     expect(actions).toHaveClass("shrink-0");
@@ -1224,6 +1306,15 @@ async function renderRoomSurface(
             children: [
               { element: roomElement, path: "chat" },
               { element: roomElement, path: "files" },
+              ...[
+                "add-document",
+                "hand-off",
+                "how-work-moves",
+                "steer",
+                "step-out",
+                "who-manages",
+                "working",
+              ].map((path) => ({ element: <div>{path}</div>, path })),
             ],
           },
         ],

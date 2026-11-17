@@ -6,7 +6,7 @@ import {
   PinOffIcon,
 } from "@hugeicons/core-free-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 
 import { QuietRemindersControl } from "@/features/rooms/another-me-quiet-control";
@@ -253,13 +253,23 @@ function RuleRow({
   tenantId: string;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
+  const savingRef = useRef(false);
   const shadow = rule.status === "shadow";
   const save = async () => {
+    if (busy || savingRef.current) return;
     const text = draft?.trim() ?? "";
     if (!text) return;
-    if (await onCommand({ kind: "edit", ruleId: rule.id, text })) {
-      setDraft(null);
+    savingRef.current = true;
+    try {
+      if (await onCommand({ kind: "edit", ruleId: rule.id, text })) {
+        setDraft(null);
+      }
+    } finally {
+      savingRef.current = false;
     }
+  };
+  const cancelEdit = () => {
+    if (!busy && !savingRef.current) setDraft(null);
   };
   // The page reports a failed command, so the confirmation closes either way.
   const confirmDelete = () => {
@@ -348,15 +358,18 @@ function RuleRow({
           <textarea
             aria-label="Rule text"
             className="min-h-16 w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            disabled={busy}
             maxLength={200}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              if (!busy && !savingRef.current) setDraft(event.target.value);
+            }}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing || event.keyCode === 229)
                 return;
               if (event.key === "Escape") {
                 event.preventDefault();
                 event.stopPropagation();
-                setDraft(null);
+                cancelEdit();
                 return;
               }
               if (
@@ -372,7 +385,7 @@ function RuleRow({
             value={draft}
           />
           <div className="flex justify-end gap-2">
-            <Button onClick={() => setDraft(null)} tone="ghost">
+            <Button disabled={busy} onClick={cancelEdit} tone="ghost">
               Cancel
             </Button>
             <Button
