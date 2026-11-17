@@ -392,6 +392,9 @@ export class DocumentDurabilityCoordinator {
     queue.durableDocument = candidate;
     queue.durableStateBytes = Y.encodeStateAsUpdate(candidate);
     queue.head = { ...input.committedHead };
+    if (input.update.byteLength > 0) {
+      this.#onNewerBody(input.documentId, input.update);
+    }
     this.#onCommitted(input.documentId, queue.head);
   }
 

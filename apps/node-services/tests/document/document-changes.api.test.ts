@@ -1,4 +1,7 @@
-import { readRoomDocumentBlocks } from "@linger/document-model";
+import {
+  readRoomDocumentBlocks,
+  restoreRoomDocumentRevision,
+} from "@linger/document-model";
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
@@ -88,6 +91,79 @@ describe("Document Runtime server changes", () => {
     } finally {
       client.provider.destroy();
       client.document.destroy();
+      await realtime.destroy();
+    }
+  });
+
+  it("delivers restored content before its durable acknowledgement", async () => {
+    const { bodies, initial } = await memoryBodies();
+    const realtime = await startRealtimeServer(bodies);
+    const document = new Y.Doc({ gc: true });
+    const acknowledgements: Array<{
+      envelope: unknown;
+      content: unknown;
+    }> = [];
+    let observing = false;
+    const client = await connectRealtimeClient({
+      document,
+      token: "human_a",
+      url: wsUrl(realtime.address),
+      onStateless: (payload) => {
+        if (observing) {
+          acknowledgements.push({
+            envelope: JSON.parse(payload),
+            content: firstText(Y.encodeStateAsUpdate(document)),
+          });
+        }
+      },
+    });
+    try {
+      observing = true;
+      appendToFirstText(document, " changed");
+      await expect.poll(() => bodies.rows.get(documentId)!.seq).toBe(1);
+      await expect(
+        realtime.changes.apply({
+          documentId,
+          operationId: "operation_restore",
+          actorId: "actor_human_a",
+          expectedSeq: 1,
+          compute: async (currentStateBytes) => {
+            const restored = restoreRoomDocumentRevision({
+              restoreOperationId: "operation_restore",
+              currentStateBytes,
+              targetStateBytes: initial.stateBytes,
+            });
+            return {
+              update: restored.update,
+              stateBytes: restored.stateBytes,
+              stateVector: restored.endStateVector,
+              title: "",
+              assetIds: restored.completeReferences.documentAssetIds,
+              threadIds: restored.completeReferences.documentThreadIds,
+            };
+          },
+        }),
+      ).resolves.toMatchObject({ status: "applied", seq: 2 });
+      await expect
+        .poll(() => firstText(Y.encodeStateAsUpdate(document)))
+        .toMatchObject([{ text: "Durable initial state" }]);
+
+      expect(acknowledgements).toEqual(
+        expect.arrayContaining([
+          {
+            envelope: expect.objectContaining({
+              type: "durability_ack",
+              head: expect.objectContaining({ persisted_seq: 2 }),
+            }),
+            content: expect.arrayContaining([
+              expect.objectContaining({ text: "Durable initial state" }),
+            ]),
+          },
+        ]),
+      );
+    } finally {
+      client.provider.destroy();
+      document.destroy();
       await realtime.destroy();
     }
   });

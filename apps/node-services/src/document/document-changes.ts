@@ -3,7 +3,6 @@ import {
   ROOM_DOCUMENT_STATE_HASH_VERSION,
 } from "@linger/document-model";
 import { sha256Hex } from "@linger/service-kit/node";
-import * as Y from "yjs";
 
 import type { DocumentBodyStore } from "./bodies.js";
 import type { DocumentDurabilityCoordinator } from "./realtime-durability.js";
@@ -20,7 +19,6 @@ type ChangeDurability = Pick<
 >;
 
 interface ResidentDocument {
-  state: Y.Doc;
   waitForBroadcast(): Promise<void>;
 }
 
@@ -206,9 +204,6 @@ export class DocumentChangeCoordinator {
     }
     const resident = this.#getResidentDocument(documentId);
     if (resident === undefined || computed.update.byteLength === 0) return;
-    Y.applyUpdate(resident.state, computed.update, {
-      kind: "document_change",
-    });
     await resident.waitForBroadcast();
   }
 }

@@ -84,7 +84,10 @@
   under the Document's mutation order: it computes on the resident Y.Doc, or
   the loaded body when the Document is not open, saves it with the same
   sequence-checked UPDATE, retries a stale save on the newer body, and then
-  applies the update to the resident Y.Doc and broadcasts it. The save appends
+  applies the update to the resident Y.Doc and broadcasts it. For an open
+  Document, the Runtime broadcasts the saved state update before its durable
+  ACK, so the browser can confirm the restored content without treating the
+  acknowledged update as a new unsaved change. The save appends
   the change's `operation_id` to the body's `server_operations` (the latest
   32); a change whose ID is already there returns the sequence and title it
   saved without applying it again, so TeamHub's retry after a lost commit is
