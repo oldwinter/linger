@@ -5,9 +5,10 @@ import {
 } from "@hugeicons/core-free-icons";
 import type { QueryClient } from "@tanstack/react-query";
 import { useSyncExternalStore, type MutableRefObject } from "react";
+import { Link } from "react-router";
 import type * as Y from "yjs";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonClassName } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Spinner } from "@/components/ui/spinner";
 import { documentLogicalTitle } from "@/features/library/document-display-name";
@@ -53,13 +54,16 @@ export function UnifiedDocumentBody({
 }: UnifiedDocumentBodyProps) {
   const {
     actor,
+    canRetryLoad,
     client,
     currentVersion,
     document,
     documentActionError,
     error,
     exportError,
+    retryLoad,
     session,
+    tenantId,
   } = model;
   return (
     <div
@@ -87,11 +91,27 @@ export function UnifiedDocumentBody({
         </p>
       ) : null}
       {error ? (
-        <div className="flex h-full items-center justify-center px-6 text-center">
-          <p className="max-w-md text-sm text-app-danger" role="alert">
+        <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
+          <div className="max-w-md text-sm text-app-danger" role="alert">
             <Icon icon={Alert02Icon} size={20} className="mx-auto mb-3" />
             {error}
-          </p>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {canRetryLoad ? (
+              <Button onClick={retryLoad} size="compact" tone="secondary">
+                Retry
+              </Button>
+            ) : null}
+            <Link
+              className={buttonClassName({
+                size: "compact",
+                tone: "secondary",
+              })}
+              to={`/t/${tenantId}/library`}
+            >
+              Back to Library
+            </Link>
+          </div>
         </div>
       ) : document &&
         (document.format !== "blocknote" ||
@@ -176,10 +196,6 @@ function UnifiedDocumentEditorLayout({
       <div
         className={`room-document-content-lane mx-auto ${mailCanvas ? "" : knowledgeTitle !== undefined ? "mb-6 border-b border-app-border pb-5" : "mb-3"}`}
       >
-        <RoomDocumentConnectionStatus
-          onRetry={resyncSession}
-          session={session}
-        />
         {!mailCanvas ? (
           <UnifiedDocumentDraftTitle
             // eslint-disable-next-line jsx-a11y/no-autofocus -- the field is focused on purpose because the user just opened this dialog or inline editor
@@ -198,19 +214,8 @@ function UnifiedDocumentEditorLayout({
       {knowledgeTitle === undefined && !mailCanvas ? (
         <div className="room-document-content-lane mx-auto mb-8 flex min-h-8 flex-wrap items-center gap-2 text-sm text-app-muted">
           <span>By {document.owner.display_name}</span>
-          <span aria-hidden="true">·</span>
-          <RoomDocumentSaveIndicator
-            alwaysVisible
-            isEditing={isEditing}
-            session={session}
-          />
         </div>
       ) : null}
-      <div
-        className={`room-document-content-lane mx-auto${mailCanvas ? "" : " mb-4"}`}
-      >
-        <RoomDocumentRecoveryButton name={document.title} session={session} />
-      </div>
       <ActiveRoomDocumentEditor
         canComment={!isWikiPage && document.capabilities.comment}
         client={client}
@@ -348,11 +353,18 @@ function focusDocumentBody(editor: RoomDocumentEditor | null) {
   editor.focus();
 }
 
-function RoomDocumentRecoveryButton({
+/**
+ * Non-scrolling session status banner pinned directly beneath the Document
+ * header so connection failures and protocol errors stay visible and
+ * recoverable from any scroll position.
+ */
+export function RoomDocumentSessionBanner({
   name,
+  onRetry,
   session,
 }: {
   name: string;
+  onRetry: () => void;
   session: RoomDocumentCollaborationSession;
 }) {
   const save = useSyncExternalStore(
@@ -360,21 +372,60 @@ function RoomDocumentRecoveryButton({
     session.getSaveSnapshot,
     session.getSaveSnapshot,
   );
-  if (save.protocolError !== "durable_save_failed") {
+  if (save.status === "Connection failed") {
+    return (
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-app-border bg-app-sidebar px-4 py-2 text-sm text-app-danger">
+        <span aria-label="Document connection status" role="status">
+          Connection failed
+        </span>
+        <button
+          className="text-xs font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+          onClick={onRetry}
+          type="button"
+        >
+          Retry connection
+        </button>
+      </div>
+    );
+  }
+  if (!save.protocolError) {
     return null;
   }
+  const message =
+    save.protocolError === "durable_save_failed"
+      ? "Recent edits could not be saved durably. Editing is paused to protect your work."
+      : save.protocolError === "durable_ack_conflict"
+        ? "This document diverged from the server state. Reload to continue editing."
+        : "The server returned an unexpected save acknowledgement. Reload to continue editing.";
   return (
-    <Button
-      aria-label="Download recovery copy"
-      onClick={() => {
-        void downloadRecoveryCopy(name, session.document);
-      }}
-      title="Download recovery copy"
-      tone="ghost"
+    <div
+      className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-app-border bg-app-sidebar px-4 py-2 text-sm text-app-danger"
+      role="alert"
     >
-      <Icon icon={Download04Icon} />
-      Recovery copy
-    </Button>
+      <span className="flex min-w-0 items-center gap-2">
+        <Icon icon={Alert02Icon} size={14} className="shrink-0" />
+        <span>{message}</span>
+      </span>
+      <div className="flex shrink-0 items-center gap-2">
+        {save.protocolError === "durable_save_failed" ? (
+          <Button
+            aria-label="Download recovery copy"
+            onClick={() => {
+              void downloadRecoveryCopy(name, session.document);
+            }}
+            size="compact"
+            title="Download recovery copy"
+            tone="secondary"
+          >
+            <Icon icon={Download04Icon} size={14} />
+            Recovery copy
+          </Button>
+        ) : null}
+        <Button onClick={onRetry} size="compact" tone="secondary">
+          Reload document
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -463,31 +514,6 @@ function ActiveRoomDocumentEditor({
   );
 }
 
-function RoomDocumentConnectionStatus({
-  onRetry,
-  session,
-}: {
-  onRetry(): void;
-  session: RoomDocumentCollaborationSession;
-}) {
-  const save = useSyncExternalStore(
-    session.subscribeSaveState,
-    session.getSaveSnapshot,
-    session.getSaveSnapshot,
-  );
-  if (save.status !== "Connection failed") return null;
-  return (
-    <div className="mb-3 flex items-center gap-2 text-sm text-app-danger">
-      <span aria-label="Document connection status" role="status">
-        Connection failed
-      </span>
-      <button className="underline" onClick={onRetry} type="button">
-        Retry connection
-      </button>
-    </div>
-  );
-}
-
 export function RoomDocumentSaveIndicator({
   alwaysVisible = false,
   isEditing,
@@ -514,7 +540,11 @@ export function RoomDocumentSaveIndicator({
   if (save.status === "Connection failed") return saveStatusProbe;
   if (session.readOnly) {
     return (
-      <span aria-label="Document access mode" role="status">
+      <span
+        aria-label="Document access mode"
+        className="inline-flex h-5 items-center gap-1 whitespace-nowrap text-xs leading-4 text-app-muted"
+        role="status"
+      >
         Read only
       </span>
     );
@@ -532,7 +562,11 @@ export function RoomDocumentSaveIndicator({
     return (
       <>
         {saveStatusProbe}
-        <span aria-label="Document save status" role="status">
+        <span
+          aria-label="Document save status"
+          className="inline-flex h-5 items-center gap-1 whitespace-nowrap text-xs leading-4 text-app-muted"
+          role="status"
+        >
           Saved
         </span>
       </>
@@ -572,9 +606,9 @@ export function RoomDocumentSaveIndicator({
   return (
     <>
       {saveStatusProbe}
-      <p
+      <span
         aria-label="Document save status"
-        className={`mt-0.5 flex items-center gap-1 text-[12px] leading-4 ${indicator.tone}`}
+        className={`inline-flex h-5 items-center gap-1 whitespace-nowrap text-xs leading-4 ${indicator.tone}`}
         role="status"
       >
         {indicator.icon ? (
@@ -583,7 +617,7 @@ export function RoomDocumentSaveIndicator({
           <Spinner size={12} />
         )}
         {indicator.label}
-      </p>
+      </span>
     </>
   );
 }

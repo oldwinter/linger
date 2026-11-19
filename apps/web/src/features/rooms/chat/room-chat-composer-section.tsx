@@ -10,8 +10,15 @@ import { MessageComposer } from "./message-composer";
 import type { MessageDocumentOption } from "./message-composer-references";
 import { RoomChatComposerNotices } from "./room-chat-composer-notices";
 import { BackgroundTasksIndicator } from "./background-tasks-indicator";
-import { SharedStreamingStatus } from "./shared-streaming-status";
-import { AgentStreamingStatusDock } from "./message-timeline";
+import {
+  SharedStreamingStatus,
+  useSharedStreamingStatusActive,
+} from "./shared-streaming-status";
+import {
+  AgentStreamingStatusDock,
+  hasAgentStreamingDockEntries,
+} from "./message-timeline";
+import { useRoomBackgroundTasks } from "./use-room-background-tasks";
 import { roomOffersVoiceMaterials } from "./voice-mode/voice-materials-context";
 import { RoomComposerDock } from "./room-composer-dock";
 import type { RoomChatData } from "./use-room-chat-data";
@@ -75,6 +82,11 @@ export function RoomChatComposerSection({
     () => new Set(members.items.map((member) => member.actor.id)),
     [members.items],
   );
+  const backgroundTasks = useRoomBackgroundTasks({ client, roomId, tenantId });
+  const hasChatDock = useMemo(() => hasAgentStreamingDockEntries(dock), [dock]);
+  const sharedDockActive = useSharedStreamingStatusActive();
+  const peekSuppressed =
+    hasChatDock || sharedDockActive || backgroundTasks.length > 0;
   return room.participation === "left" ? (
     <RoomRejoinBanner room={room} />
   ) : (
@@ -99,7 +111,7 @@ export function RoomChatComposerSection({
         roomId={roomId}
         tenantId={tenantId}
       />
-      <SharedStreamingStatus surface="chat">
+      <SharedStreamingStatus active={hasChatDock} surface="chat">
         <AgentStreamingStatusDock {...dock} />
       </SharedStreamingStatus>
       <RoomMessageComposer
@@ -111,6 +123,7 @@ export function RoomChatComposerSection({
             room.kind === "direct" && room.direct_peer?.kind === "agent"
               ? room.direct_peer
               : undefined,
+          suppressed: peekSuppressed,
         }}
         agentOptionsReady={agentDirectory.isSuccess}
         agentDirectoryError={agentDirectory.isError}

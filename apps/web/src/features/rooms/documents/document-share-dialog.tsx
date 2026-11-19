@@ -2,13 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Alert02Icon,
   ArrowLeft01Icon,
+  Cancel01Icon,
   Copy01Icon,
   RefreshIcon,
   UserAdd01Icon,
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Select, SelectItem } from "@/components/ui/select";
@@ -22,6 +23,7 @@ import type { TeamHubDocumentShareViewV2 } from "@/features/teamhub/teamhub-type
 
 const roles = ["viewer", "editor", "manager"] as const;
 type DirectRole = (typeof roles)[number];
+const LINK_COPIED_MS = 1200;
 
 export function DocumentShareDialog({
   client,
@@ -38,7 +40,10 @@ export function DocumentShareDialog({
 }) {
   const [pendingSourceId, setPendingSourceId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const linkCopiedTimerRef = useRef<number | undefined>(undefined);
   const [view, setView] = useState<"share" | "manage">("share");
+  useEffect(() => () => window.clearTimeout(linkCopiedTimerRef.current), []);
   const share = useQuery({
     queryFn: () =>
       teamHubData(
@@ -82,6 +87,8 @@ export function DocumentShareDialog({
 
   async function copyCanonicalLink() {
     if (!share.data?.general_access?.canonical_url) return;
+    window.clearTimeout(linkCopiedTimerRef.current);
+    setLinkCopied(false);
     setActionError(null);
     try {
       await writeClipboardText(
@@ -89,6 +96,11 @@ export function DocumentShareDialog({
           share.data.general_access.canonical_url,
           window.location.origin,
         ).toString(),
+      );
+      setLinkCopied(true);
+      linkCopiedTimerRef.current = window.setTimeout(
+        () => setLinkCopied(false),
+        LINK_COPIED_MS,
       );
     } catch {
       setActionError("The Document link could not be copied.");
@@ -139,10 +151,10 @@ export function DocumentShareDialog({
       );
       await share.refetch();
     } catch {
-      setActionError(
-        "The Document could not be removed from this Room. Refresh and try again.",
-      );
-      throw new Error("Remove from Room failed");
+      const message =
+        "The Document could not be removed from this Room. Refresh and try again.";
+      setActionError(message);
+      throw new Error(message);
     } finally {
       setPendingSourceId(null);
     }
@@ -228,6 +240,15 @@ export function DocumentShareDialog({
               </p>
             ) : null}
           </div>
+          <Button
+            aria-label="Close"
+            onClick={onClose}
+            size="compactIcon"
+            title="Close"
+            tone="ghost"
+          >
+            <Icon icon={Cancel01Icon} size={16} />
+          </Button>
         </header>
 
         <div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
@@ -263,6 +284,7 @@ export function DocumentShareDialog({
                 actorsError={actors.error}
                 actorsPending={actors.isPending}
                 availableActors={availableActors}
+                linkCopied={linkCopied}
                 onInvite={inviteCollaborators}
                 onManage={() => setView("manage")}
                 onCopyLink={() => void copyCanonicalLink()}
@@ -297,6 +319,7 @@ function ShareContent({
   actorsError,
   actorsPending,
   availableActors,
+  linkCopied,
   onInvite,
   onManage,
   onCopyLink,
@@ -315,6 +338,7 @@ function ShareContent({
     id: string;
     kind: "human" | "agent";
   }[];
+  linkCopied: boolean;
   onInvite: (targetIds: string[], role: DirectRole) => Promise<void>;
   onManage: () => void;
   onCopyLink: () => void;
@@ -391,7 +415,7 @@ function ShareContent({
           rooms={rooms}
         />
       ) : null}
-      <CopyLinkSection onCopyLink={onCopyLink} />
+      <CopyLinkSection copied={linkCopied} onCopyLink={onCopyLink} />
     </div>
   );
 }
@@ -604,6 +628,34 @@ function RoomBindingSection({
   const [selected, setSelected] = useState<
     TeamHubDocumentShareViewV2["sources"][number] | null
   >(null);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+
+  function closeConfirm() {
+    if (removing) return;
+    setSelected(null);
+    setRemoveError(null);
+  }
+
+  async function confirmRemove() {
+    const roomId = selected?.source.provenance.context_id;
+    if (!selected || !roomId || removing) return;
+    setRemoving(true);
+    setRemoveError(null);
+    try {
+      await onRemove(roomId, selected.source.source_version);
+      setSelected(null);
+    } catch (cause) {
+      setRemoveError(
+        cause instanceof Error
+          ? cause.message
+          : "The Document could not be removed from this Room.",
+      );
+    } finally {
+      setRemoving(false);
+    }
+  }
+
   return (
     <section
       aria-labelledby="shared-rooms-heading"
@@ -631,7 +683,10 @@ function RoomBindingSection({
             </div>
             <Button
               disabled={disabled}
-              onClick={() => setSelected(room)}
+              onClick={() => {
+                setRemoveError(null);
+                setSelected(room);
+              }}
               size="compact"
               tone="ghost"
             >
@@ -642,23 +697,19 @@ function RoomBindingSection({
       </div>
       {selected?.source.provenance.context_id ? (
         <ModalDialog
-          closeOnBackdrop
-          onClose={() => setSelected(null)}
+          closeOnBackdrop={!removing}
+          onClose={closeConfirm}
           size="sm"
           title={`Remove from ${selected.label}?`}
           footer={
             <>
-              <Button onClick={() => setSelected(null)} tone="ghost">
+              <Button disabled={removing} onClick={closeConfirm} tone="ghost">
                 Cancel
               </Button>
               <Button
-                disabled={disabled}
-                onClick={() => {
-                  void onRemove(
-                    selected.source.provenance.context_id!,
-                    selected.source.source_version,
-                  ).then(() => setSelected(null));
-                }}
+                disabled={disabled || removing}
+                loading={removing}
+                onClick={() => void confirmRemove()}
                 tone="danger"
               >
                 Remove
@@ -670,13 +721,24 @@ function RoomBindingSection({
             Room members will lose this source. Direct, Task, and Wiki access
             are not affected.
           </p>
+          {removeError ? (
+            <p className="px-5 pb-4 text-sm text-app-danger" role="alert">
+              {removeError}
+            </p>
+          ) : null}
         </ModalDialog>
       ) : null}
     </section>
   );
 }
 
-function CopyLinkSection({ onCopyLink }: { onCopyLink: () => void }) {
+function CopyLinkSection({
+  copied,
+  onCopyLink,
+}: {
+  copied: boolean;
+  onCopyLink: () => void;
+}) {
   return (
     <section className="border-t border-app-border pt-5">
       <div className="flex items-center justify-between gap-4">
@@ -686,9 +748,16 @@ function CopyLinkSection({ onCopyLink }: { onCopyLink: () => void }) {
             Copying the link does not change who can access this document.
           </p>
         </div>
-        <Button onClick={onCopyLink} tone="secondary">
-          <Icon icon={Copy01Icon} size={14} /> Copy link
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {copied ? (
+            <span className="text-xs text-app-muted" role="status">
+              Copied
+            </span>
+          ) : null}
+          <Button onClick={onCopyLink} tone="secondary">
+            <Icon icon={Copy01Icon} size={14} /> Copy link
+          </Button>
+        </div>
       </div>
     </section>
   );

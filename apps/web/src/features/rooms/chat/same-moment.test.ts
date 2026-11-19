@@ -57,4 +57,13 @@ describe("sameMomentStarts", () => {
     ];
     expect(sameMomentStarts(messages)).toEqual([0]);
   });
+
+  it("skips pairs that touch excluded indices", () => {
+    const messages = [
+      message("a", "alice", "2026-10-22T10:00:00.000Z"),
+      message("b", "bob", "2026-10-22T10:00:02.000Z"),
+      message("c", "cara", "2026-10-22T10:00:05.000Z"),
+    ];
+    expect(sameMomentStarts(messages, new Set([1, 2]))).toEqual([]);
+  });
 });

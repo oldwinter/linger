@@ -5,28 +5,43 @@ import type { NavigateFunction } from "react-router";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
 
+import {
+  quietRoomIds,
+  readRoomMentionMute,
+  readRoomMentionSnooze,
+} from "./room-mention-snooze";
 import { tenantRoomsQueryOptions } from "./room-queries";
+import { readRoomSnooze, roomSnoozedIds } from "./room-snooze";
 import {
   AWAY_BEFORE_RETURN_MS,
   roomToOpenOnReturn,
   type RoomReturnFact,
 } from "./return-to-arrived-room";
 
+const OPEN_MODAL_SELECTOR = 'dialog[open], [role="dialog"][aria-modal="true"]';
+
 /**
  * After this window has been hidden long enough, open the one room that moved.
- * A crowd stays listed by the recap. Writing and an open dialog keep the page.
+ * A crowd stays listed by the recap. Writing, an open dialog, the setup gate,
+ * and non-Room pages keep the person where they are.
  */
 export function useReturnToArrivedRoom({
+  accountId,
   activeRoomId,
   client,
+  gated = false,
+  onRoomRoute = Boolean(activeRoomId),
   queryClient,
   rooms,
   tenantId,
   navigate,
 }: {
+  accountId?: string;
   activeRoomId?: string;
   client: TeamHubClient;
+  gated?: boolean;
   navigate: NavigateFunction;
+  onRoomRoute?: boolean;
   queryClient: QueryClient;
   rooms: readonly TeamHubRoomListItem[] | undefined;
   tenantId: string;
@@ -35,11 +50,17 @@ export function useReturnToArrivedRoom({
   const snapshot = useRef<RoomReturnFact[] | undefined>(undefined);
   const roomsRef = useRef(rooms);
   const activeRef = useRef(activeRoomId);
+  const accountIdRef = useRef(accountId);
+  const gatedRef = useRef(gated);
+  const onRoomRouteRef = useRef(onRoomRoute);
 
   useEffect(() => {
     roomsRef.current = rooms;
     activeRef.current = activeRoomId;
-  }, [activeRoomId, rooms]);
+    accountIdRef.current = accountId;
+    gatedRef.current = gated;
+    onRoomRouteRef.current = onRoomRoute;
+  }, [accountId, activeRoomId, gated, onRoomRoute, rooms]);
 
   useEffect(() => {
     function onVisibility() {
@@ -53,6 +74,7 @@ export function useReturnToArrivedRoom({
       hiddenAt.current = undefined;
       snapshot.current = undefined;
       if (leftAt === undefined || !before) return;
+      if (!onRoomRouteRef.current || gatedRef.current) return;
       const hiddenForMs = Date.now() - leftAt;
       if (hiddenForMs < AWAY_BEFORE_RETURN_MS) return;
       const active = activeRef.current;
@@ -61,12 +83,19 @@ export function useReturnToArrivedRoom({
           const fresh = await queryClient.fetchQuery(
             tenantRoomsQueryOptions(client, tenantId),
           );
+          if (!onRoomRouteRef.current || gatedRef.current) return;
+          const now = new Date(Date.now());
+          const ignoredRoomIds = ignoredReturnRoomIds(
+            accountIdRef.current,
+            now,
+          );
           const next = roomToOpenOnReturn({
             activeRoomId: active,
             after: roomReturnFacts(fresh.items),
             before,
-            dialogOpen: document.querySelector("dialog[open]") !== null,
+            dialogOpen: document.querySelector(OPEN_MODAL_SELECTOR) !== null,
             hiddenForMs,
+            ignoredRoomIds,
             writing: personIsWriting(),
           });
           if (!next || activeRef.current !== active) return;
@@ -83,6 +112,20 @@ export function useReturnToArrivedRoom({
   }, [client, navigate, queryClient, tenantId]);
 }
 
+function ignoredReturnRoomIds(
+  accountId: string | undefined,
+  now: Date,
+): ReadonlySet<string> {
+  if (!accountId) return new Set();
+  const snoozed = roomSnoozedIds(readRoomSnooze(accountId, now), now);
+  const quiet = quietRoomIds(
+    readRoomMentionSnooze(accountId, now),
+    readRoomMentionMute(accountId),
+    now,
+  );
+  return new Set([...snoozed, ...quiet]);
+}
+
 function roomReturnFacts(
   rooms: readonly TeamHubRoomListItem[] | undefined,
 ): RoomReturnFact[] {
@@ -96,7 +139,9 @@ function roomReturnFacts(
 function personIsWriting() {
   const current = document.activeElement;
   return (
-    current instanceof HTMLElement &&
-    current.matches("input, textarea, [contenteditable='true']")
+    current instanceof Element &&
+    current.closest(
+      "input, textarea, select, [contenteditable]:not([contenteditable='false'])",
+    ) !== null
   );
 }

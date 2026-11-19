@@ -86,6 +86,32 @@ it("keeps a thread with its room", async () => {
   ).not.toBeInTheDocument();
 });
 
+it("matches the current actor by tenant and focuses the title field once loaded", async () => {
+  const runtime = createTestTeamHubRuntime();
+  runtime.server.on("GET", "/v0/me", () => ({
+    ...runtime.seed.identity,
+    actors: [
+      {
+        display_name: "Other Tenant Jenny",
+        id: "actor-other-tenant",
+        kind: "human",
+        tenant_id: "tenant-other",
+      },
+      ...runtime.seed.identity.actors,
+    ],
+  }));
+  renderPage(runtime, "/t/tenant-northstar/rooms/room-gtm-launch/hand-off");
+
+  const field = await screen.findByLabelText("What needs doing");
+  expect(field).toHaveFocus();
+  expect(
+    screen.queryByRole("button", { name: "Hand it to Jenny Bin" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "Hand it to Maya Chen" }),
+  ).toBeVisible();
+});
+
 function renderPage(
   runtime: ReturnType<typeof createTestTeamHubRuntime>,
   initialEntry: string,

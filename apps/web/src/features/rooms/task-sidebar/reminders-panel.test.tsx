@@ -903,4 +903,22 @@ describe("minute-interval routines", () => {
       cadence: { kind: "every_n_hours", interval_hours: 2 },
     });
   });
+
+  it("shows an error alert when toggling a routine switch fails", async () => {
+    renderPanel({
+      listRoomRoutines: list([reminder]),
+      updateRoutine: vi.fn<TestRouteHandler>(() =>
+        teamHubErrorResponse(
+          503,
+          "ROUTINE_UNAVAILABLE",
+          "Could not pause this routine.",
+        ),
+      ),
+    });
+    const toggle = await screen.findByRole("switch", { name: "Pause routine" });
+    fireEvent.click(toggle);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not pause this routine.",
+    );
+  });
 });

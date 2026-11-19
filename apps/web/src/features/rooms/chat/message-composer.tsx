@@ -214,6 +214,7 @@ export interface MessageComposerProps {
   agentPeek?: {
     busyAgentIds: readonly string[];
     directAgent?: ComposerPeekAgent;
+    suppressed?: boolean;
   };
   /** Direct Agent chats render model and thinking-effort controls here. */
   modelSwitch?: ReactNode;
@@ -508,6 +509,7 @@ function MessageComposerView({
         blink={peek.blink}
         onDismiss={peek.dismiss}
         onReturnFocus={() => textareaRef.current?.focus()}
+        suppressed={agentPeek?.suppressed}
         visible={peek.visible}
       />
       <ComposerPickerMenus controller={controller} />

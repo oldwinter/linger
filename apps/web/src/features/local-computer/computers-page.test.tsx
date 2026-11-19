@@ -60,7 +60,9 @@ describe("ComputersPage", () => {
       "/t/tenant-northstar/settings/models?computer=computer-offline-lab",
     );
     fireEvent.click(within(detail).getByRole("button", { name: "Advanced" }));
-    fireEvent.click(within(detail).getByRole("button", { name: "Remove" }));
+    fireEvent.click(
+      within(detail).getByRole("button", { name: "Remove computer" }),
+    );
     expect(
       await screen.findByRole("dialog", { name: "Remove Local Computer" }),
     ).toBeVisible();
@@ -115,7 +117,9 @@ describe("ComputersPage", () => {
       within(assigned).getByRole("button", { name: /Offline Local Reviewer/ }),
     ).toBeVisible();
     fireEvent.click(within(assigned).getByRole("button", { name: "Advanced" }));
-    fireEvent.click(within(assigned).getByRole("button", { name: "Remove" }));
+    fireEvent.click(
+      within(assigned).getByRole("button", { name: "Remove computer" }),
+    );
     const removeDialog = await screen.findByRole("dialog", {
       name: "Remove Local Computer",
     });
@@ -489,7 +493,7 @@ describe("ComputersPage", () => {
 
     await renderPage(runtime);
     fireEvent.click(await screen.findByRole("button", { name: "Advanced" }));
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove computer" }));
     const dialog = await screen.findByRole("dialog", {
       name: "Remove Local Computer",
     });
@@ -533,7 +537,7 @@ describe("ComputersPage", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "Advanced" }));
-    const remove = screen.getByRole("button", { name: "Remove" });
+    const remove = screen.getByRole("button", { name: "Remove computer" });
     expect(remove).toBeEnabled();
     fireEvent.click(remove);
     const dialog = await screen.findByRole("dialog", {

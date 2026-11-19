@@ -397,6 +397,9 @@ function RoomSurfaceContent({
     }),
     [identity.account.id, roomId, tenantId],
   );
+  const [reportedActiveTabId, setReportedActiveTabId] = useState<string | null>(
+    null,
+  );
   const {
     closePanel,
     focusMessageId,
@@ -415,6 +418,11 @@ function RoomSurfaceContent({
     searchParams,
     setSearchParams,
   });
+  const activePanelTabId = useMemo(() => {
+    void panelTabRevision;
+    void reportedActiveTabId;
+    return readPanelTabState(scope).activeTabId;
+  }, [panelTabRevision, reportedActiveTabId, scope]);
   const detailOpen =
     Boolean(legacyProfileActor) || panelVisible || sidebarMounted;
   // Narrow layouts hide the chat behind the panel; follow the requested state so
@@ -535,6 +543,7 @@ function RoomSurfaceContent({
                 onTogglePanel={togglePanel}
                 onStatusChange={setRealtimeStatus}
                 canDeleteDeletedAgentRoom={canDeleteDeletedAgentRoom}
+                activePanelTabId={activePanelTabId}
                 panelOpen={panelOpen}
                 room={presentationRoom}
                 roomId={roomId}
@@ -580,6 +589,7 @@ function RoomSurfaceContent({
                   focusMessageId={focusMessageId}
                   messagePresentations={messagePresentations}
                   onActiveMessageChange={onActiveMessageChange}
+                  onActiveTabChange={setReportedActiveTabId}
                   onCollapse={closePanel}
                   onExitAnimationEnd={onPanelExitAnimationEnd}
                   onOpenProfile={openProfile}
@@ -773,6 +783,7 @@ function RoomPanelSidebarFallback({
 }
 
 function RoomHeader({
+  activePanelTabId,
   canDeleteDeletedAgentRoom,
   currentActorId,
   directAgent,
@@ -796,6 +807,7 @@ function RoomHeader({
   roomId,
   tenantId,
 }: {
+  activePanelTabId: string | null;
   canDeleteDeletedAgentRoom: boolean;
   currentActorId?: string;
   directAgent?: TeamHubTenantAgent;
@@ -900,6 +912,11 @@ function RoomHeader({
       onSelect: () => void navigate(path),
     }));
 
+  const detailsTabId = headerPeer
+    ? panelTabKey("agentInfo", { actorId: headerPeer.id })
+    : panelTabKey("roomSettings", {});
+  const detailsOpen = panelOpen && activePanelTabId === detailsTabId;
+
   return (
     <header
       ref={headerRef}
@@ -910,18 +927,19 @@ function RoomHeader({
       </div>
       <div className="flex min-w-0 items-center gap-2">
         {/* Avatar + name chip; the avatar button covers the whole chip and
-            toggles the Agent or Room page in the side panel. */}
+            opens the Agent or Room page in the side panel, collapsing only
+            when that page is already active. */}
         <div
           className="relative flex h-8 min-w-0 max-w-full items-center gap-2 rounded-full bg-card pl-1 pr-3 shadow-outline transition-colors duration-150 hover:bg-accent"
           title={headerName}
         >
           <button
             type="button"
-            aria-expanded={panelOpen}
-            aria-label={`Open ${headerName} settings from avatar`}
+            aria-expanded={detailsOpen}
+            aria-label={`${detailsOpen ? "Close" : "Open"} ${headerName} details`}
             className="flex shrink-0 items-center justify-center rounded-full after:absolute after:inset-0 after:rounded-full after:content-[''] focus-visible:outline-none focus-visible:after:outline-2 focus-visible:after:outline-app-focus"
             onClick={() => {
-              if (panelOpen) onTogglePanel();
+              if (detailsOpen) onTogglePanel();
               else if (headerPeer) onOpenAgent(headerPeer.id);
               else onOpenSettings();
             }}
@@ -964,7 +982,7 @@ function RoomHeader({
       <div
         className={cn(
           "flex shrink-0 items-center justify-end",
-          compact ? "gap-3" : "gap-1",
+          compact ? "gap-1" : "gap-3",
         )}
       >
         <RoomWatchLink roomId={roomId} tenantId={tenantId} />

@@ -18,8 +18,12 @@ export function ThreadTimeline({
   canLoadEarlier,
   children,
   hasPending,
+  isError = false,
   loadingEarlier,
   onLoadEarlier,
+  onRetry,
+  onRetryOpen,
+  openError,
   opening,
   renderMessage,
   replies,
@@ -29,8 +33,12 @@ export function ThreadTimeline({
   agentWorking: boolean;
   canLoadEarlier: boolean;
   hasPending: boolean;
+  isError?: boolean;
   loadingEarlier: boolean;
   onLoadEarlier: () => void;
+  onRetry?: () => void;
+  onRetryOpen?: () => void;
+  openError?: string | null;
   opening: boolean;
   renderMessage: (
     message: TeamHubMessage,
@@ -62,6 +70,34 @@ export function ThreadTimeline({
             </p>
             <div className="h-16 animate-pulse rounded-lg bg-app-hover" />
             <div className="h-16 animate-pulse rounded-lg bg-app-hover" />
+          </div>
+        ) : null}
+        {openError ? (
+          <div
+            className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-app-border bg-app-surface-soft px-3 py-2.5 text-xs text-app-danger"
+            role="alert"
+          >
+            <p className="min-w-0 flex-1">{openError}</p>
+            {onRetryOpen ? (
+              <Button onClick={onRetryOpen} size="compact" tone="secondary">
+                Retry
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+        {!openError && !opening && isError ? (
+          <div
+            className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-app-border bg-app-surface-soft px-3 py-2.5 text-xs text-app-danger"
+            role="alert"
+          >
+            <p className="min-w-0 flex-1">
+              Replies could not be loaded. Try again.
+            </p>
+            {onRetry ? (
+              <Button onClick={onRetry} size="compact" tone="secondary">
+                Retry
+              </Button>
+            ) : null}
           </div>
         ) : null}
         {replies.length || hasPending ? (

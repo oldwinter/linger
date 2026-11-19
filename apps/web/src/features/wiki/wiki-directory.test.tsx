@@ -455,6 +455,25 @@ describe("Wiki directory", () => {
     expect(await screen.findByText("No generated projects yet.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Copy list" })).toBeDisabled();
   });
+  it("uses display labels for empty People and Companies collections", async () => {
+    const first = await setup(
+      "/t/tenant-northstar/library/wiki/contacts",
+      undefined,
+      { alpha: "topics/alpha.md", beta: "topics/beta.md" },
+    );
+    expect(await screen.findByText("No generated people yet.")).toBeVisible();
+    expect(screen.queryByText("No generated contacts yet.")).toBeNull();
+    first.unmount();
+
+    await setup("/t/tenant-northstar/library/wiki/clients", undefined, {
+      alpha: "topics/alpha.md",
+      beta: "topics/beta.md",
+    });
+    expect(
+      await screen.findByText("No generated companies yet."),
+    ).toBeVisible();
+    expect(screen.queryByText("No generated clients yet.")).toBeNull();
+  });
   it("reports a refused clipboard write", async () => {
     stubClipboard(() => Promise.reject(new Error("Clipboard is denied")));
     Object.defineProperty(document, "execCommand", {

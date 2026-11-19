@@ -9,12 +9,15 @@ import { cn } from "@/lib/cn";
 export function Hint({
   children,
   className,
+  display = "inline-flex",
   focusable = false,
   placement = "top",
   text,
 }: {
   children: ReactNode;
   className?: string;
+  /** Chooses the wrapper display class without stacking competing Tailwind utilities. */
+  display?: "flex" | "inline-flex";
   /** Lets keyboard users reach a hint whose content is not itself a control. */
   focusable?: boolean;
   placement?: "top" | "bottom";
@@ -25,7 +28,11 @@ export function Hint({
   return (
     <span
       aria-describedby={focusable ? tooltipId : undefined}
-      className={cn("group/hint relative inline-flex", className)}
+      className={cn(
+        "group/hint relative",
+        display === "flex" ? "flex" : "inline-flex",
+        className,
+      )}
       // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- the focusable wrapper reveals its hint for keyboard users
       tabIndex={focusable ? 0 : undefined}
     >

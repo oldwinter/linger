@@ -241,13 +241,12 @@ export function WorkItemsPage() {
     workItemDashboardFiltersSearch(filters),
     sort,
   );
-  const showFilterBar =
-    items.length > 0 || hasWorkItemDashboardFilters(filters);
+  const hasActiveFilters = hasWorkItemDashboardFilters(filters);
+  const showFilterBar = items.length > 0 || hasActiveFilters;
   const showClearFilters = hasWorkItemDashboardNarrowingFilters(filters);
-  // Empty columns would look like missing data, so a query that hides every
-  // card says why and offers its own way back.
-  const textHidesBoard =
-    Boolean(filters.text.trim()) && filteredItems.length === 0;
+  // Empty columns would look like missing data, so any active filter that
+  // hides every card says why and offers one way back.
+  const filtersHideBoard = hasActiveFilters && filteredItems.length === 0;
   // The columns render these exact lists, so the copied Markdown matches them.
   const boardSections: BoardSection[] = dashboardColumns.map((column) => {
     const columnItems = orderedItems.filter(
@@ -334,7 +333,7 @@ export function WorkItemsPage() {
               <Icon icon={Search01Icon} size={14} />
               <input
                 aria-label="Filter by title"
-                className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+                className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-app-placeholder"
                 onChange={(event) =>
                   updateFilters({ ...filters, text: event.target.value })
                 }
@@ -459,25 +458,29 @@ export function WorkItemsPage() {
         ) : null}
       </header>
 
-      {textHidesBoard ? (
+      {filtersHideBoard ? (
         <section
-          aria-label="No matching Work Items"
+          aria-label="No matching items"
           className="flex min-h-0 flex-1 items-center justify-center px-6 py-12 text-center"
         >
           <div>
             <h2 className="text-sm font-semibold text-app-ink">
-              No Work Items match
+              No matching items
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Only Work Item titles are searched.
+              {filters.text.trim()
+                ? "Only Work Item titles are searched. Try adjusting or clearing your filters."
+                : "No Work Items match the active filters."}
             </p>
             <Button
               className="mt-4"
-              onClick={() => updateFilters({ ...filters, text: "" })}
+              onClick={() =>
+                updateFilters(clearWorkItemDashboardFilters(filters))
+              }
               size="compact"
               tone="secondary"
             >
-              Clear filter
+              Clear filters
             </Button>
           </div>
         </section>
@@ -501,6 +504,13 @@ export function WorkItemsPage() {
             <h2 className="mt-3 text-sm font-semibold text-app-ink">
               No Work Items yet
             </h2>
+            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+              Track issues and Agent tasks across your Rooms. Create your first
+              issue to get started.
+            </p>
+            <div className="mt-4 flex justify-center">
+              <WorkItemCreateAction rooms={rooms.items} tenantId={tenantId} />
+            </div>
           </div>
         </section>
       )}

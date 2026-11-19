@@ -583,7 +583,29 @@ describe("TeamHub routes", () => {
       }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "TeamHub unavailable" }),
+      screen.getByRole("heading", { name: "Linger unavailable" }),
+    ).toBeVisible();
+  });
+
+  it("shows a reload hint instead of Back to my Rooms for non-restricted Room errors", async () => {
+    const runtime = createTestTeamHubRuntime();
+    runtime.server.on("GET", "/v0/tenants/{tenantId}", () =>
+      teamHubErrorResponse(500, "INTERNAL", "Server unavailable."),
+    );
+    const queryClient = testQueryClient();
+    const router = createMemoryRouter(createAppRoutes(queryClient, runtime), {
+      initialEntries: ["/t/tenant-northstar/rooms/room-all/chat"],
+    });
+
+    renderApp(queryClient, runtime, router);
+
+    expect(
+      await screen.findByRole("heading", { name: "Linger unavailable" }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
+    expect(screen.queryByText(/Back to my Rooms/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Use “Try again” to reload this view\./),
     ).toBeVisible();
   });
 

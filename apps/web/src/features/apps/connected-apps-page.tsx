@@ -53,18 +53,19 @@ export function ConnectedAppsPage() {
   const groups = groupCatalogApps(allApps);
   const catalogApps = groups.flatMap((entry) => entry.apps);
   // Apps outside the groups are not offered, but an account already connected
-  // to one stays reachable here so it can be managed or disconnected.
+  // or needing reconnection stays reachable here so it can be repaired or disconnected.
   const connectedApps = [
     ...catalogApps,
     ...allApps.filter((app) => !catalogApps.includes(app)),
-  ].filter(
-    (app) =>
-      activeExternalConnections(
-        visibleConnections.filter(
-          (connection) => connection.provider === app.key,
-        ),
-      ).length > 0,
-  );
+  ].filter((app) => {
+    const appConnections = visibleConnections.filter(
+      (connection) => connection.provider === app.key,
+    );
+    return (
+      activeExternalConnections(appConnections).length > 0 ||
+      appConnections.some(externalConnectionNeedsAttention)
+    );
+  });
   const filters = [
     { id: "all", label: "All" },
     ...groups.map(({ group }) => ({ id: group.id, label: group.title })),
@@ -230,16 +231,19 @@ function CatalogAppCard({
   const pending = openPendingExternalConnection(connections, app.key);
   const canConnect = app.availability === "available";
   const canStart = connectFlow.canStart(app);
-  const needsReconnecting = connections.filter(
-    externalConnectionNeedsAttention,
-  ).length;
+  const attention = connections.filter(externalConnectionNeedsAttention);
+  const needsReconnecting = attention.length;
   const connectedLabel = active.length
     ? `${active.length === 1 ? "Connected" : `${active.length} accounts`}${
         needsReconnecting
           ? `, ${needsReconnecting} ${needsReconnecting === 1 ? "needs" : "need"} reconnecting`
           : ""
       }`
-    : null;
+    : needsReconnecting
+      ? needsReconnecting === 1
+        ? "Needs reconnecting"
+        : `${needsReconnecting} need reconnecting`
+      : null;
   const authorizing =
     createConnection.isPending || Boolean(createConnection.blockedConnectUrl);
   const summary =
@@ -276,7 +280,12 @@ function CatalogAppCard({
             {connectedLabel ? (
               <span
                 aria-hidden
-                className="size-1.5 shrink-0 rounded-full bg-[var(--app-status-success-text)]"
+                className={cn(
+                  "size-1.5 shrink-0 rounded-full",
+                  needsReconnecting > 0
+                    ? "bg-app-warning"
+                    : "bg-[var(--app-status-success-text)]",
+                )}
               />
             ) : null}
             <span
@@ -290,7 +299,30 @@ function CatalogAppCard({
           </span>
         </span>
       </button>
-      {canStart && active.length === 0 ? (
+      {canStart && needsReconnecting > 0 ? (
+        <Button
+          aria-label={`Reconnect ${app.display_name}`}
+          className="px-2.5"
+          disabled={createConnection.isPending}
+          onClick={(event) => {
+            stopCardClick(event);
+            if (attention.length === 1) {
+              const broken = attention[0]!;
+              if (app.supports_reauthorization === false) {
+                connectFlow.start(app, pending);
+              } else {
+                connectFlow.reconnect(broken);
+              }
+            } else {
+              onOpen();
+            }
+          }}
+          size="compact"
+          tone="secondary"
+        >
+          Reconnect
+        </Button>
+      ) : canStart && active.length === 0 ? (
         <Button
           aria-label={`Connect ${app.display_name}`}
           className="px-2.5"
@@ -305,17 +337,21 @@ function CatalogAppCard({
           Connect
         </Button>
       ) : null}
-      {canConnect && active.length === 1 ? (
+      {canConnect && active.length >= 1 ? (
         // Disconnecting is destructive, so it sits in a menu, not beside Connect.
         <ActionMenu
-          items={[
-            { label: "Manage", onSelect: onOpen },
-            {
-              danger: true,
-              label: "Disconnect",
-              onSelect: () => setDisconnecting(active[0] ?? null),
-            },
-          ]}
+          items={
+            active.length === 1
+              ? [
+                  { label: "Manage", onSelect: onOpen },
+                  {
+                    danger: true,
+                    label: "Disconnect",
+                    onSelect: () => setDisconnecting(active[0] ?? null),
+                  },
+                ]
+              : [{ label: "Manage", onSelect: onOpen }]
+          }
           label={`Actions for ${app.display_name}`}
         />
       ) : null}

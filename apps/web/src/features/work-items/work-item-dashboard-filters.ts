@@ -113,21 +113,20 @@ export function hasWorkItemDashboardFilters(
 }
 
 /**
- * Whether anything besides the Room scope narrows the board, which is what
- * "Clear filters" offers to undo. Room is the board's scope, and sort only
- * reorders the same cards, so neither one counts.
+ * Whether any filter narrows the board, which is what "Clear filters" offers
+ * to undo. Sort only reorders the same cards, so it does not count.
  */
 export function hasWorkItemDashboardNarrowingFilters(
   filters: WorkItemDashboardFilters,
 ): boolean {
-  return workItemDashboardFiltersSearch({ ...filters, room: "" }) !== "";
+  return hasWorkItemDashboardFilters(filters);
 }
 
-/** Every filter back at its default, keeping the Room scope. */
+/** Every filter back at its default, including Room. */
 export function clearWorkItemDashboardFilters(
-  filters: WorkItemDashboardFilters,
+  _filters?: WorkItemDashboardFilters,
 ): WorkItemDashboardFilters {
-  return { ...EMPTY_WORK_ITEM_DASHBOARD_FILTERS, room: filters.room };
+  return { ...EMPTY_WORK_ITEM_DASHBOARD_FILTERS };
 }
 
 /**

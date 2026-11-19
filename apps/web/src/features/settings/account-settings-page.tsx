@@ -21,7 +21,7 @@ export function AccountSettingsPage() {
   return (
     <div className="mx-auto flex w-full max-w-(--app-settings-width) flex-col gap-8 pb-4">
       <SettingsPageHeading
-        description="Photo, name, and connected accounts used across this space."
+        description="Photo, name, bio, notifications, and browser preferences for this space."
         title="Profile"
       />
 

@@ -25,17 +25,31 @@ describe("OAuth completion page", () => {
     return complete;
   }
 
-  it("asks TeamHub to check the returned account, then closes", async () => {
+  it("shows Finishing authorization while pending, then Authorization complete and closes on success", async () => {
     window.history.replaceState(
       null,
       "",
       "/oauth/composio-complete?status=success&connected_account_id=ca_returned",
     );
     const close = vi.spyOn(window, "close").mockImplementation(() => undefined);
+    let resolveComplete!: () => void;
+    const outcome = new Promise<void>((resolve) => {
+      resolveComplete = resolve;
+    });
 
-    const complete = renderPage();
+    const complete = renderPage(outcome);
 
     expect(complete).toHaveBeenCalledWith("ca_returned");
+    expect(
+      screen.getByRole("heading", { name: "Finishing authorization…" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "Authorization complete" }),
+    ).toBeNull();
+    expect(close).not.toHaveBeenCalled();
+
+    resolveComplete();
+
     await waitFor(() => expect(close).toHaveBeenCalled());
     expect(
       screen.getByRole("heading", { name: "Authorization complete" }),
@@ -43,7 +57,7 @@ describe("OAuth completion page", () => {
     expect(screen.getByText("You can close this window.")).toBeVisible();
   });
 
-  it("checks every pending authorization when the callback names none, and closes on failure", async () => {
+  it("checks every pending authorization when the callback names none, shows an error state, and closes on failure", async () => {
     window.history.replaceState(null, "", "/oauth/composio-complete");
     const close = vi.spyOn(window, "close").mockImplementation(() => undefined);
 
@@ -51,5 +65,11 @@ describe("OAuth completion page", () => {
 
     expect(complete).toHaveBeenCalledWith(undefined);
     await waitFor(() => expect(close).toHaveBeenCalled());
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Authorization could not be confirmed",
+    );
+    expect(
+      screen.queryByRole("heading", { name: "Authorization complete" }),
+    ).toBeNull();
   });
 });

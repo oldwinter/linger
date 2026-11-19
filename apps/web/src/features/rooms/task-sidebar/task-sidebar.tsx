@@ -88,13 +88,24 @@ function resolvePanelAgentActor(
 
 function isEditableTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
-  if (target.isContentEditable) return true;
+  if (
+    target.isContentEditable ||
+    Boolean(target.closest("[contenteditable=''], [contenteditable='true']"))
+  ) {
+    return true;
+  }
   const tag = target.tagName;
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
 }
 
 function shouldDeferEscape(event: KeyboardEvent) {
   if (event.defaultPrevented || event.isComposing || event.keyCode === 229) {
+    return true;
+  }
+  if (
+    isEditableTarget(event.target) ||
+    isEditableTarget(document.activeElement)
+  ) {
     return true;
   }
   if (
@@ -281,6 +292,7 @@ export function TaskSidebar({
       else collapseSidebar();
     },
     onRestoreClosed,
+    open,
     openTabIds,
   });
 
@@ -470,6 +482,7 @@ function usePanelKeyboardShortcuts({
   onActiveChange,
   onCollapse,
   onRestoreClosed,
+  open,
   openTabIds,
 }: {
   activeTabId: string | null;
@@ -477,6 +490,7 @@ function usePanelKeyboardShortcuts({
   onActiveChange: (tabId: string) => void;
   onCollapse: () => void;
   onRestoreClosed?: () => void;
+  open: boolean;
   openTabIds: string[];
 }) {
   const handleKeyDown = useEffectEvent((event: KeyboardEvent) => {
@@ -484,7 +498,7 @@ function usePanelKeyboardShortcuts({
     if (meta && event.key.toLowerCase() === "k") return;
 
     if (event.key === "Escape") {
-      if (shouldDeferEscape(event)) return;
+      if (!open || shouldDeferEscape(event)) return;
       event.preventDefault();
       if (activeTabId) closeActiveTab(activeTabId);
       else onCollapse();

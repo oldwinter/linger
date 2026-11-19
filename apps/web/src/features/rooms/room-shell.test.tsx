@@ -211,6 +211,94 @@ describe("Room shell Account menu", () => {
     expect(screen.queryByRole("dialog", { name: "Search" })).toBeNull();
   });
 
+  it("toggles global search closed on Cmd/Ctrl+K and ignores Cmd/Ctrl+K and Cmd/Ctrl+J when another modal is open", async () => {
+    const { router } = await renderAccountShell({
+      initialEntry: "/t/tenant-northstar/rooms/room-all/chat",
+    });
+    await act(async () => {
+      await import("@/features/search/global-search-dialog");
+    });
+
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    expect(await screen.findByRole("dialog", { name: "Search" })).toBeVisible();
+
+    // Cmd+J is ignored while Search is open.
+    fireEvent.keyDown(window, { key: "j", metaKey: true });
+    expect(router.state.location.pathname).toBe(
+      "/t/tenant-northstar/rooms/room-all/chat",
+    );
+
+    // Cmd+K toggles Search closed when it is the active dialog.
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Search" }),
+      ).not.toBeInTheDocument(),
+    );
+
+    // Another modal dialog blocks both Cmd+K and Cmd+J.
+    const modal = document.createElement("div");
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    document.body.append(modal);
+    try {
+      fireEvent.keyDown(window, { key: "k", metaKey: true });
+      fireEvent.keyDown(window, { key: "j", metaKey: true });
+      expect(screen.queryByRole("dialog", { name: "Search" })).toBeNull();
+      expect(router.state.location.pathname).toBe(
+        "/t/tenant-northstar/rooms/room-all/chat",
+      );
+    } finally {
+      modal.remove();
+    }
+  });
+
+  it("disables Cmd/Ctrl+K and Cmd/Ctrl+J while the LocalComputerGate is active", async () => {
+    const { router } = await renderAccountShell({
+      initialEntry: "/t/tenant-northstar/rooms/room-all/chat",
+      configureRuntime: (runtime) => {
+        runtime.server.on(
+          "GET",
+          "/v0/tenants/{tenantId}/another-me",
+          () => ({}),
+        );
+      },
+    });
+    await act(async () => {
+      await import("@/features/search/global-search-dialog");
+    });
+    // Wait for the shell to mark itself inert under the setup gate.
+    await waitFor(() =>
+      expect(document.querySelector(".app-shell")?.hasAttribute("inert")).toBe(
+        true,
+      ),
+    );
+
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    fireEvent.keyDown(window, { key: "j", metaKey: true });
+    expect(screen.queryByRole("dialog", { name: "Search" })).toBeNull();
+    expect(router.state.location.pathname).toBe(
+      "/t/tenant-northstar/rooms/room-all/chat",
+    );
+  });
+
+  it("lets Settings › Shortcuts rehearse Cmd+K and Cmd+J without opening search or jumping", async () => {
+    const { router } = await renderAccountShell({
+      initialEntry: "/t/tenant-northstar/rooms/room-all/chat",
+    });
+    await act(async () => {
+      await import("@/features/search/global-search-dialog");
+      await router.navigate("/t/tenant-northstar/settings/shortcuts");
+    });
+
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    fireEvent.keyDown(window, { key: "j", metaKey: true });
+    expect(screen.queryByRole("dialog", { name: "Search" })).toBeNull();
+    expect(router.state.location.pathname).toBe(
+      "/t/tenant-northstar/settings/shortcuts",
+    );
+  });
+
   it("lets Live voice switch pages and open a search already filled in", async () => {
     await renderAccountShell({
       initialEntry: "/t/tenant-northstar/rooms/room-all/chat",

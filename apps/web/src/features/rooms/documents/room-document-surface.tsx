@@ -305,6 +305,11 @@ function UnifiedDocumentPageDialogs({
           }
         >
           <UnifiedDocumentTimelineDialog
+            canWrite={Boolean(
+              document?.capabilities.write &&
+              document.status === "active" &&
+              !isWikiPage,
+            )}
             client={client}
             documentId={documentId}
             onClose={() => setHistoryOpen(false)}

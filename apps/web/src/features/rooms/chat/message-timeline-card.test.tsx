@@ -1530,9 +1530,10 @@ describe("Room Message timeline cards", () => {
           />
         </MemoryRouter>,
       );
-      expect(
-        screen.getByTestId("agent-streaming-status-dock"),
-      ).toHaveTextContent(text);
+      const dock = screen.getByTestId("agent-streaming-status-dock");
+      expect(dock).toHaveTextContent(text);
+      expect(dock).not.toHaveClass("absolute");
+      expect(dock.parentElement).not.toHaveClass("h-0");
     },
   );
 

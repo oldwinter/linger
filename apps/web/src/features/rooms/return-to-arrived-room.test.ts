@@ -76,4 +76,16 @@ describe("roomToOpenOnReturn", () => {
       }),
     ).toBeUndefined();
   });
+
+  it("excludes snoozed or muted rooms", () => {
+    expect(
+      roomToOpenOnReturn({
+        ...away,
+        activeRoomId: "here",
+        after: [room("here", 1), room("quiet", 2)],
+        before: [room("here", 1), room("quiet", 1)],
+        ignoredRoomIds: new Set(["quiet"]),
+      }),
+    ).toBeUndefined();
+  });
 });

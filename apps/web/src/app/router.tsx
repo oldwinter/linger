@@ -121,8 +121,13 @@ export function createAppRoutes(
       }),
       path: "/login",
     },
-    { lazy: loadSharedDocumentPage, path: "/shared-documents" },
     {
+      ErrorBoundary: FullPageRouteErrorSurface,
+      lazy: loadSharedDocumentPage,
+      path: "/shared-documents",
+    },
+    {
+      ErrorBoundary: FullPageRouteErrorSurface,
       path: "/shared-room-history",
       lazy: async () => {
         const { SharedRoomHistoryPage } =
@@ -131,6 +136,7 @@ export function createAppRoutes(
       },
     },
     {
+      ErrorBoundary: FullPageRouteErrorSurface,
       element: <OAuthCompletePage />,
       path: OAUTH_COMPLETE_PATH,
     },
@@ -1082,11 +1088,11 @@ export function InitialAppLoading() {
   return (
     <main
       aria-busy="true"
-      aria-label="Loading TeamHub"
+      aria-label="Loading Linger"
       className="flex min-h-dvh items-center justify-center gap-2 bg-app-canvas text-sm text-app-muted"
     >
       <Spinner />
-      Loading Room...
+      Loading Linger…
     </main>
   );
 }

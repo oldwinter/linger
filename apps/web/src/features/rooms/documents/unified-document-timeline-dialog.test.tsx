@@ -104,9 +104,12 @@ describe("UnifiedDocumentTimelineDialog", () => {
     const list = screen.getByRole("complementary");
     const checkpoints = await within(list).findAllByRole("button");
     expect(checkpoints).toHaveLength(11);
+    const preview = screen.getByRole("region", { name: "History preview" });
+    expect(
+      within(preview).getByRole("button", { name: "Restore checkpoint" }),
+    ).toBeDisabled();
     fireEvent.click(checkpoints[checkpoints.length - 1]!);
 
-    const preview = screen.getByRole("region", { name: "History preview" });
     expect(
       await within(preview).findByText("Saved checkpoint 0."),
     ).toBeVisible();
@@ -119,6 +122,13 @@ describe("UnifiedDocumentTimelineDialog", () => {
     ).not.toBeInTheDocument();
     fireEvent.click(
       within(preview).getByRole("button", { name: "Restore checkpoint" }),
+    );
+    expect(restore).not.toHaveBeenCalled();
+    const confirmDialog = screen.getByRole("dialog", {
+      name: "Restore checkpoint?",
+    });
+    fireEvent.click(
+      within(confirmDialog).getByRole("button", { name: "Restore" }),
     );
 
     expect(await within(preview).findByText("Restored.")).toBeVisible();
@@ -356,6 +366,76 @@ describe("UnifiedDocumentTimelineDialog", () => {
     expect(
       screen.queryByLabelText("Historical Document content"),
     ).not.toBeInTheDocument();
+  });
+
+  it("hides Restore checkpoint when the viewer cannot write", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const state = await materializeRoomDocument({
+      materializationId: "history-readonly",
+      schemaVersion: 1,
+      sourceBytes: new TextEncoder().encode("# Read-only checkpoint"),
+      sourceKind: "markdown",
+    });
+    const actor = {
+      display_name: "Jenny Bin",
+      id: "actor-jenny",
+      kind: "human" as const,
+      tenant_id: "tenant-northstar",
+    };
+    const latestEntry: TeamHubDocumentHistoryEntry = {
+      contributors: [actor],
+      created_at: "2026-08-27T12:01:00.000Z",
+      created_by: actor,
+      document_id: "document-readonly-history",
+      id: "history-readonly-latest",
+      persisted_seq: 2,
+      revision_id: "revision-latest",
+      trigger: "manual",
+    };
+    const olderEntry: TeamHubDocumentHistoryEntry = {
+      ...latestEntry,
+      created_at: "2026-08-27T12:00:00.000Z",
+      id: "history-readonly-older",
+      persisted_seq: 1,
+      revision_id: "revision-older",
+    };
+    runtime.server.on("GET", "/v0/documents/{documentId}/history", () => ({
+      items: [latestEntry, olderEntry],
+      page: { has_more: false },
+    }));
+    runtime.server.on(
+      "GET",
+      "/v0/document-history/{historyEntryId}/content",
+      ({ params }) =>
+        historyContent(
+          params.historyEntryId === latestEntry.id ? latestEntry : olderEntry,
+          state.stateBytes,
+          state.bytesSha256,
+        ),
+    );
+
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <UnifiedDocumentTimelineDialog
+          canWrite={false}
+          client={runtime.client}
+          documentId={latestEntry.document_id}
+          onClose={() => undefined}
+          tenantId="tenant-northstar"
+        />
+      </QueryClientProvider>,
+    );
+
+    const list = screen.getByRole("complementary");
+    const checkpoints = await within(list).findAllByRole("button");
+    fireEvent.click(checkpoints[1]!);
+    expect(
+      screen.queryByRole("button", { name: "Restore checkpoint" }),
+    ).toBeNull();
   });
 });
 

@@ -74,6 +74,7 @@ export function Select({
       <button
         aria-controls={open ? listboxId : undefined}
         aria-expanded={open}
+        aria-haspopup="listbox"
         aria-describedby={ariaDescribedBy}
         aria-invalid={ariaInvalid || undefined}
         aria-label={ariaLabel}

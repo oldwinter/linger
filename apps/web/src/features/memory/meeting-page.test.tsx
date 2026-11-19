@@ -25,6 +25,7 @@ import {
   readRoomComposerDraft,
   writeRoomComposerDraft,
 } from "@/features/rooms/room-drafts";
+import { seedRoomUpload } from "@/test/document-scenarios";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import {
   teamHubErrorResponse,
@@ -242,7 +243,17 @@ describe("MeetingPage", () => {
       vi.useRealTimers();
     });
     const runtime = await loggedInRuntime();
-    const entry = meetingEntry();
+    const recording = await seedRoomUpload(runtime, "meeting-audio", {
+      file: new File(["audio"], "recording.m4a", { type: "audio/mp4" }),
+      representationFormat: "m4a",
+    });
+    const entry = meetingEntry({
+      meeting: {
+        ...meetingEntry().meeting!,
+        recording_document_id: recording.id,
+        recording_version_id: "version-meeting-audio",
+      },
+    });
     serveMeetings(runtime, [entry]);
     const download = vi.spyOn(runtime.client, "downloadDocumentVersion");
     const router = renderPage(runtime);
@@ -266,11 +277,16 @@ describe("MeetingPage", () => {
         level: 2,
       }),
     ).toBeVisible();
+    // Secondary actions live in the Meeting actions menu so the title stays readable.
+    fireEvent.click(
+      within(reader).getByRole("button", { name: "Meeting actions" }),
+    );
     expect(
-      within(reader).getByRole("link", { name: "Ask the recording" }),
-    ).toHaveAttribute(
-      "href",
-      `/t/tenant-northstar/library/meetings/ask?entry=${entry.id}`,
+      screen.getByRole("menuitem", { name: "Ask the recording" }),
+    ).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeVisible();
+    fireEvent.click(
+      within(reader).getByRole("button", { name: "Meeting actions" }),
     );
     // The transcript carries the recording so the spoken line can follow it.
     expect(
@@ -328,9 +344,10 @@ describe("MeetingPage", () => {
         name: /Edit|Rename|Move|Upload/,
       }),
     ).toBeNull();
-    expect(
-      within(reader).getByRole("button", { name: "Delete" }),
-    ).toBeVisible();
+    fireEvent.click(
+      within(reader).getByRole("button", { name: "Meeting actions" }),
+    );
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeVisible();
   });
 
   it("adds summary only when ready and never sends it to the Document editor", async () => {
@@ -343,7 +360,7 @@ describe("MeetingPage", () => {
       true,
     );
     serveMeetings(runtime, [entry]);
-    renderPage(runtime, `?entry=${entry.id}&file=summary`);
+    const router = renderPage(runtime, `?entry=${entry.id}&file=summary`);
     expect(
       await screen.findByRole("article", { name: "Meeting summary" }),
     ).toHaveAttribute("data-editable", "false");
@@ -372,12 +389,15 @@ describe("MeetingPage", () => {
       await screen.findByRole("button", { name: "To-do list" }),
     ).toBeVisible();
     expect(screen.queryByRole("button", { name: "Document mode" })).toBeNull();
-    expect(
-      await screen.findByRole("link", { name: "Turn to-dos into reminders" }),
-    ).toHaveAttribute(
-      "href",
-      `/t/tenant-northstar/library/meeting-reminders?entry=${entry.id}`,
+    fireEvent.click(screen.getByRole("button", { name: "Meeting actions" }));
+    fireEvent.click(
+      await screen.findByRole("menuitem", {
+        name: "Turn to-dos into reminders",
+      }),
     );
+    expect(
+      `${router.state.location.pathname}${router.state.location.search}`,
+    ).toBe(`/t/tenant-northstar/library/meeting-reminders?entry=${entry.id}`);
   });
 
   it("keeps checked follow-ups for this meeting on this computer", async () => {
@@ -1127,8 +1147,11 @@ describe("MeetingPage", () => {
     serveMeetings(runtime, [entry]);
     renderPage(runtime, `?entry=${entry.id}&file=summary`);
 
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Meeting actions" }),
+    );
     expect(
-      await screen.findByRole("button", { name: "Download summary" }),
+      screen.getByRole("menuitem", { name: "Download summary" }),
     ).toBeVisible();
     expect(screen.queryByRole("button", { name: "Copy summary" })).toBeNull();
   });
@@ -1312,7 +1335,10 @@ describe("MeetingPage", () => {
       await screen.findByRole("article", { name: "Meeting" }),
     ).toBeVisible();
     expect(screen.queryByRole("button", { name: "Send to Room" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Keep as a page" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Meeting actions" }));
+    expect(
+      screen.queryByRole("menuitem", { name: "Keep as a page" }),
+    ).toBeNull();
   });
 
   it("disables the Rooms while the summary is being sent", async () => {
@@ -1331,12 +1357,13 @@ describe("MeetingPage", () => {
     );
     renderPage(runtime, `?entry=${entry.id}`);
 
-    expect(
-      await screen.findByRole("link", { name: "Keep as a page" }),
-    ).toHaveAttribute(
-      "href",
-      `/t/tenant-northstar/library/meetings/keep?entry=${entry.id}`,
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Meeting actions" }),
     );
+    expect(
+      screen.getByRole("menuitem", { name: "Keep as a page" }),
+    ).toBeVisible();
+    fireEvent.keyDown(document, { key: "Escape" });
     fireEvent.click(
       await screen.findByRole("button", { name: "Send to Room" }),
     );
@@ -1417,6 +1444,61 @@ describe("MeetingPage", () => {
     await queryClient.invalidateQueries();
     expect(await screen.findByText("We shipped the beta.")).toBeVisible();
     expect(scroller?.scrollTop).toBe(0);
+  });
+
+  it("shows loading, error retry, and missing states instead of a blank screen", async () => {
+    const runtime = await loggedInRuntime();
+    let releaseList = () => {};
+    const listHeld = new Promise<void>((resolve) => {
+      releaseList = resolve;
+    });
+    const entry = meetingEntry({ content: "# Meeting\n\nLoaded." }, true);
+    let attempt = 0;
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/memory", async () => {
+      attempt += 1;
+      if (attempt === 1) {
+        await listHeld;
+        return teamHubErrorResponse(
+          500,
+          "MEETINGS_UNAVAILABLE",
+          "Meetings list unavailable.",
+        );
+      }
+      return { items: [entry] };
+    });
+    serveMemoryEntry(runtime, () => entry);
+
+    renderPage(runtime, `?entry=${entry.id}`);
+    expect(
+      screen.getByRole("button", { name: "Open Library pages" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading meeting...");
+
+    releaseList();
+    expect(
+      await screen.findByRole("alert", { name: "Meetings list unavailable." }),
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(
+      await screen.findByRole("article", { name: "Meeting" }),
+    ).toBeVisible();
+  });
+
+  it("shows a Meeting not found state with a link back to Meetings when the entry is missing", async () => {
+    const runtime = await loggedInRuntime();
+    serveMeetings(runtime, []);
+    renderPage(runtime, "?entry=meeting_missing");
+
+    expect(
+      await screen.findByRole("heading", { name: "Meeting not found" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "Back to Meetings" }),
+    ).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/library?tab=meetings&meetings=7d",
+    );
   });
 });
 
@@ -1546,6 +1628,10 @@ function mountMeetingPage(
       {
         element: <p>Another Me chat</p>,
         path: "/t/:tenantId/rooms/:roomId/chat",
+      },
+      {
+        element: <p>Meeting reminders</p>,
+        path: "/t/:tenantId/library/meeting-reminders",
       },
     ],
     {

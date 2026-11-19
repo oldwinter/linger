@@ -4,6 +4,7 @@ import { type ReactNode, useState } from "react";
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
+import { FormFeedback } from "@/components/ui/form-feedback";
 import { Icon } from "@/components/ui/icon";
 import { Spinner } from "@/components/ui/spinner";
 import { anotherMeQueryOptions } from "@/features/rooms/room-queries";
@@ -95,6 +96,28 @@ export function LocalComputerGate({
           )}
         </header>
 
+        {computers.isError ? (
+          <div className="px-6 pt-4">
+            <FormFeedback tone="danger">
+              <span className="flex flex-wrap items-center gap-2">
+                <span>
+                  {computers.error instanceof Error && computers.error.message
+                    ? computers.error.message
+                    : "Could not check your computers right now."}
+                </span>
+                <button
+                  className="font-medium underline underline-offset-2 disabled:opacity-50"
+                  disabled={computers.isFetching}
+                  onClick={() => void computers.refetch()}
+                  type="button"
+                >
+                  {computers.isFetching ? "Retrying…" : "Retry"}
+                </button>
+              </span>
+            </FormFeedback>
+          </div>
+        ) : null}
+
         {ready ? (
           <p
             className="flex items-center justify-center gap-2 px-6 py-10 text-sm"
@@ -131,7 +154,11 @@ export function LocalComputerGate({
                   title="Connect this computer"
                 >
                   <CommandLine command={`${command} login`} />
-                  <ConnectionStatus command={command} computer={computer} />
+                  <ConnectionStatus
+                    command={command}
+                    computer={computer}
+                    hasError={computers.isError}
+                  />
                 </GateStep>
               </>
             )}
@@ -169,11 +196,14 @@ export function LocalComputerGate({
 function ConnectionStatus({
   command,
   computer,
+  hasError,
 }: {
   command: string;
   computer: LocalComputer | undefined;
+  hasError: boolean;
 }) {
-  if (!computer)
+  if (!computer) {
+    if (hasError) return null;
     return (
       <p
         className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground"
@@ -184,6 +214,7 @@ function ConnectionStatus({
         browser.
       </p>
     );
+  }
   if (computer.upgrade_required)
     return (
       <p className="mt-2 text-xs text-app-warning" role="status">

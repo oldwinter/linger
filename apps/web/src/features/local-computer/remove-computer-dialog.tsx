@@ -124,22 +124,25 @@ export function RemoveComputerDialog({
     if (complete) onConfirm();
   }
 
+  function requestClose() {
+    if (!busy) onClose();
+  }
+
   return (
     <ModalDialog
+      closeOnBackdrop={!busy}
       description={
         <>
           This revokes <strong>{computer.display_name}</strong> and removes it
           from this workspace. Reconnecting requires a new setup.
         </>
       }
-      onClose={() => {
-        if (!move.running) onClose();
-      }}
+      onClose={requestClose}
       size="md"
       title="Remove Local Computer"
       footer={
         <>
-          <Button disabled={move.running} onClick={onClose}>
+          <Button disabled={busy} onClick={requestClose}>
             Cancel
           </Button>
           <Button
@@ -160,7 +163,7 @@ export function RemoveComputerDialog({
             role="status"
           >
             <p>{NO_OTHER_COMPUTER_NOTICE}</p>
-            <Button onClick={onConnect} size="compact">
+            <Button disabled={busy} onClick={onConnect} size="compact">
               Connect a computer
             </Button>
           </div>

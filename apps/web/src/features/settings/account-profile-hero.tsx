@@ -85,7 +85,7 @@ export function AccountProfileHero({
   }
   return (
     <section aria-label="Profile appearance">
-      <div className="relative flex min-h-64 items-center justify-center overflow-hidden rounded-2xl border border-border bg-muted px-4 py-8">
+      <div className="relative flex min-h-64 items-center justify-center overflow-hidden rounded-2xl border border-border bg-muted px-4 pt-16 pb-8 sm:py-8">
         <img
           alt=""
           src={account.background_image || background}

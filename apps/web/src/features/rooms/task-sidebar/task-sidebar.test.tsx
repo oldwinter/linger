@@ -1455,6 +1455,53 @@ describe("TaskSidebar", () => {
     }
   });
 
+  it("ignores Escape while focus is in an editable input, textarea, or contenteditable editor", () => {
+    const onCloseTab = vi.fn();
+    const onCollapse = vi.fn();
+    renderSidebar({
+      activeTabId: panelTabKey("thread", { anchorMessageId: "msg-a" }),
+      onCloseTab,
+      onCollapse,
+      tabs: [threadTab("msg-a", "Alpha task", 1)],
+    });
+
+    const textarea = document.createElement("textarea");
+    const input = document.createElement("input");
+    const editor = document.createElement("div");
+    editor.setAttribute("contenteditable", "true");
+    document.body.append(textarea, input, editor);
+    try {
+      textarea.focus();
+      fireEvent.keyDown(textarea, { key: "Escape" });
+      input.focus();
+      fireEvent.keyDown(input, { key: "Escape" });
+      editor.focus();
+      fireEvent.keyDown(editor, { key: "Escape" });
+      expect(onCloseTab).not.toHaveBeenCalled();
+      expect(onCollapse).not.toHaveBeenCalled();
+    } finally {
+      textarea.remove();
+      input.remove();
+      editor.remove();
+    }
+  });
+
+  it("ignores Escape when the sidebar is closed", () => {
+    const onCloseTab = vi.fn();
+    const onCollapse = vi.fn();
+    renderSidebar({
+      activeTabId: panelTabKey("thread", { anchorMessageId: "msg-a" }),
+      onCloseTab,
+      onCollapse,
+      open: false,
+      tabs: [threadTab("msg-a", "Alpha task", 1)],
+    });
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onCloseTab).not.toHaveBeenCalled();
+    expect(onCollapse).not.toHaveBeenCalled();
+  });
+
   it("moves the active tab on Cmd+Alt+ArrowRight", () => {
     const onActiveChange = vi.fn();
     renderSidebar({

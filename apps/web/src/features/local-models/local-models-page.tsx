@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { FormFeedback } from "@/components/ui/form-feedback";
 import { Icon } from "@/components/ui/icon";
 import { Select, SelectItem } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
 import { relativeTime } from "@/features/local-computer/computer-relative-time";
 import { useDesktopComputer } from "@/features/local-computer/desktop-computer";
 import { localComputersQueryOptions } from "@/features/local-computer/local-computer-queries";
@@ -79,6 +80,7 @@ import {
 } from "./local-models-rules";
 import {
   activeSourceLabel,
+  type ByokDraft,
   ByokPanel,
   ModelSourceTabs,
   SwitchToLocalNotice,
@@ -149,7 +151,7 @@ export function ModelsPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-0 w-full max-w-(--app-settings-width) flex-col pb-4">
+    <div className="mx-auto flex min-h-0 w-full max-w-(--app-settings-width) flex-col pb-4">
       {sharedId ? (
         <ComputerModels
           computerId={sharedId}
@@ -189,7 +191,7 @@ export function ModelsPage() {
           </EmptyState>
         </>
       )}
-    </main>
+    </div>
   );
 }
 
@@ -293,6 +295,7 @@ function ComputerModels({
   ]);
   const status = source.data?.status;
   const [tab, setTab] = useState<ModelSourceMode | null>(null);
+  const [byokDraft, setByokDraft] = useState<ByokDraft | undefined>(undefined);
   // A Computer on a subscription opens on Local model, which offers the way
   // off it; the Subscription tab is not offered.
   const shownTab = tab ?? (status?.mode === "byok" ? "byok" : "local");
@@ -301,6 +304,7 @@ function ComputerModels({
   const { feedback, switcher } = useModelSourceSwitch({
     computerId,
     computerName,
+    onSwitched: () => setByokDraft(undefined),
     tenantId,
   });
   const switching = switcher.pending !== undefined;
@@ -334,6 +338,7 @@ function ComputerModels({
   const computerPicker = showComputerPicker ? (
     <Select
       aria-label="Computer"
+      disabled={switching}
       onValueChange={onSelectComputer}
       value={computerId}
       variant="pill"
@@ -371,7 +376,7 @@ function ComputerModels({
               Agents on {computerName} use {activeSourceLabel(status)}
             </p>
           ) : null}
-          {summary?.totalBytes ? (
+          {shownTab === "local" && summary?.totalBytes ? (
             <>
               <p className="mt-1.5 text-sm text-muted-foreground">
                 {formatGigabytes(summary.usedBytes)} of{" "}
@@ -389,7 +394,7 @@ function ComputerModels({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {computerPicker}
-          {canRecheck ? (
+          {shownTab === "local" && canRecheck ? (
             <Button
               loading={refresh.isPending}
               onClick={() => refresh.mutate()}
@@ -452,7 +457,11 @@ function ComputerModels({
         </div>
       ) : null}
       {switching ? (
-        <p className="mt-4 text-sm text-muted-foreground" role="status">
+        <p
+          className="mt-4 flex items-center gap-2 text-sm text-muted-foreground"
+          role="status"
+        >
+          <Spinner size={14} />
           Switching {computerName}. This can take a few minutes the first time.
         </p>
       ) : null}
@@ -481,7 +490,9 @@ function ComputerModels({
           <ByokPanel
             computerId={computerId}
             disabled={switching || offline}
+            draft={byokDraft}
             key={`${status.mode}:${switcher.saveRevision}`}
+            onDraftChange={setByokDraft}
             status={status}
             switcher={switcher}
             tenantId={tenantId}

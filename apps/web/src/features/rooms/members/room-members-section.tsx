@@ -191,7 +191,7 @@ export function RoomMembersSection({
             <Icon icon={Search01Icon} size={14} />
             <input
               aria-label="Search members"
-              className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+              className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-app-placeholder"
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search members"
               role="searchbox"
@@ -507,7 +507,11 @@ function AddMemberDialog({
                   {actor.display_name}
                 </span>
                 <span className="block truncate text-xs text-muted-foreground">
-                  {sponsoredAgentIds.has(actor.id) ? "Yours" : "Human"}
+                  {sponsoredAgentIds.has(actor.id)
+                    ? "Yours"
+                    : actor.kind === "agent"
+                      ? "Agent"
+                      : "Human"}
                 </span>
               </span>
               <Icon
@@ -519,7 +523,7 @@ function AddMemberDialog({
           ))
         ) : (
           <p className="p-4 text-center text-sm text-muted-foreground">
-            Every Tenant Actor is already in this Room.
+            Everyone in this space is already in this Room.
           </p>
         )}
       </div>

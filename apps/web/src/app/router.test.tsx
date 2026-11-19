@@ -1,4 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
+import { render, screen } from "@testing-library/react";
 import {
   matchRoutes,
   RouterContextProvider,
@@ -11,7 +12,7 @@ import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { teamHubErrorResponse } from "@/test/teamhub-test-server";
 import { teamHubSessionQueryKey } from "@/features/rooms/room-queries";
 
-import { createAppRoutes } from "./router";
+import { createAppRoutes, InitialAppLoading } from "./router";
 
 afterEach(() => vi.useRealTimers());
 
@@ -174,6 +175,25 @@ describe("Web app route contract", () => {
     expect((thrown as Response).headers.get("Location")).toBe(
       "/t/tenant-a/settings/models?computer=comp-1",
     );
+  });
+
+  it("attaches full-page error boundaries to public standalone routes and labels initial loading for Linger", () => {
+    const routes = createAppRoutes(
+      new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+      createTestTeamHubRuntime(),
+    );
+    for (const path of [
+      "/shared-documents",
+      "/shared-room-history",
+      "/oauth/composio-complete",
+    ]) {
+      const route = routes.find((entry) => entry.path === path);
+      expect(route?.ErrorBoundary).toBeTypeOf("function");
+    }
+
+    render(<InitialAppLoading />);
+    const main = screen.getByRole("main", { name: "Loading Linger" });
+    expect(main).toHaveTextContent("Loading Linger…");
   });
 });
 

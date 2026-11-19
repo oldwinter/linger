@@ -37,6 +37,7 @@ import {
 } from "./another-me-quiet";
 import * as avatarImages from "./members/actor-avatar-image";
 import { writeRoomComposerDraft, type RoomComposerDraft } from "./room-drafts";
+import { writeCatchUpWalk } from "./catch-up";
 import { clearRoomUnreadFilter } from "./room-unread-filter";
 import { RoomSecondaryNavigation } from "./room-secondary-navigation";
 import { tenantRoomsQueryKey } from "./room-queries";
@@ -301,6 +302,60 @@ describe("RoomSecondaryNavigation attention", () => {
       "href",
       "/t/tenant-a/rooms/catch-up",
     );
+  });
+
+  it("keeps Resume catch up visible when all unread badges cleared during an unfinished walk", () => {
+    window.sessionStorage.clear();
+    writeCatchUpWalk("account-jenny", "tenant-a", {
+      index: 0,
+      rooms: [
+        {
+          id: "room-active",
+          name: "Active",
+          preview: "Done",
+          unreadMentions: 0,
+          unreadMessages: 1,
+        },
+      ],
+    });
+    try {
+      render(
+        <TeamHubRuntimeProvider runtime={liveRuntime()}>
+          <MemoryRouter initialEntries={["/t/tenant-a/rooms/room-active/chat"]}>
+            <Routes>
+              <Route
+                element={
+                  <RoomSecondaryNavigation
+                    accountId="account-jenny"
+                    onCloseMobile={() => undefined}
+                    onCreateRoom={() => undefined}
+                    rooms={[room("room-active", 0, 0)]}
+                    tenant={{
+                      created_at: "2026-07-24T09:00:00Z",
+                      id: "tenant-a",
+                      name: "Northstar",
+                    }}
+                  />
+                }
+                path="/t/:tenantId/rooms/:roomId/chat"
+              />
+            </Routes>
+          </MemoryRouter>
+        </TeamHubRuntimeProvider>,
+      );
+
+      const resume = screen.getByRole("link", {
+        name: "Resume catch up, 1 chat left",
+      });
+      expect(resume).toHaveAttribute("href", "/t/tenant-a/rooms/catch-up");
+      expect(resume).toHaveTextContent("Resume catch up");
+      expect(screen.getByRole("button", { name: "All" })).toHaveClass(
+        "bg-primary",
+        "text-primary-foreground",
+      );
+    } finally {
+      window.sessionStorage.clear();
+    }
   });
 
   it("keeps a Mention visible when the Room has no unread Messages", () => {

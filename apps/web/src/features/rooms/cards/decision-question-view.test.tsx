@@ -211,4 +211,49 @@ describe("QuestionDecision", () => {
   it("keeps a waiting question a card", () => {
     expect(settledCardNotice(questionsCard("pending"), assignee.id)).toBeNull();
   });
+
+  it("prevents rapid double-submit on radio options, submits Other… on Enter, and marks errors as alerts", async () => {
+    const onDecision = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Save failed."))
+      .mockResolvedValueOnce(undefined);
+    const singleQuestionCard: DecisionMessageCard = {
+      ...questionsCard("pending"),
+      question: {
+        questions: [
+          {
+            id: "choice",
+            input: "radio",
+            options: [
+              { id: "a", label: "Option A" },
+              { id: "b", label: "Option B" },
+            ],
+            prompt: "Pick one",
+          },
+        ],
+      },
+    };
+    renderCard(singleQuestionCard, onDecision);
+    fireEvent.click(screen.getByRole("button", { name: "Option A" }));
+    fireEvent.click(screen.getByRole("button", { name: "Option B" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Save failed.");
+    expect(onDecision).toHaveBeenCalledTimes(1);
+    expect(onDecision).toHaveBeenCalledWith(
+      expect.objectContaining({ answers: { choice: "b" } }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Other…" }));
+    const input = screen.getByRole("textbox", {
+      name: "Your own answer to Pick one",
+    });
+    fireEvent.change(input, { target: { value: "Custom choice" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await vi.waitFor(() => expect(onDecision).toHaveBeenCalledTimes(2));
+    expect(onDecision).toHaveBeenLastCalledWith(
+      expect.objectContaining({ answers: { choice: "Custom choice" } }),
+    );
+  });
 });

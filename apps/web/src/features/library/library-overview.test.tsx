@@ -54,7 +54,7 @@ describe("Library Home", () => {
     renderHome(runtime);
 
     expect(
-      await screen.findByRole("heading", { level: 2, name: "Library" }),
+      await screen.findByRole("heading", { level: 1, name: "Library" }),
     ).toBeVisible();
     const tabs = within(
       screen.getByRole("tablist", { name: "Library views" }),

@@ -2,7 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonClassName } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
@@ -47,8 +48,12 @@ export function CatchUpPage() {
     if (started.current || !accountId || !rooms.data) return;
     started.current = true;
     const stored = readCatchUpWalk(accountId, tenantId);
-    const next = stored ?? beginCatchUp(rooms.data.items);
-    if (!stored && next.rooms.length > 0) {
+    const fresh = beginCatchUp(rooms.data.items);
+    const storedFinished =
+      stored !== undefined && stored.index >= stored.rooms.length;
+    const next =
+      stored && !(storedFinished && fresh.rooms.length > 0) ? stored : fresh;
+    if (next !== stored && next.rooms.length > 0) {
       writeCatchUpWalk(accountId, tenantId, next);
     }
     setWalk(next);
@@ -63,6 +68,7 @@ export function CatchUpPage() {
 
   function startOver() {
     if (!rooms.data) return;
+    setKept(undefined);
     replaceWalk(beginCatchUp(rooms.data.items));
   }
 
@@ -97,7 +103,13 @@ export function CatchUpPage() {
             </Button>
           </p>
         ) : !walk ? (
-          <p className="text-sm text-app-muted">Loading chats</p>
+          <div
+            className="flex items-center gap-2 text-sm text-app-muted"
+            role="status"
+          >
+            <Spinner />
+            <span>Loading chats…</span>
+          </div>
         ) : current ? (
           <section aria-label={current.name} className="flex flex-col gap-4">
             <p className="text-sm text-app-muted">
@@ -112,9 +124,23 @@ export function CatchUpPage() {
             <p className="text-sm text-app-muted">
               {catchUpAttention(current)}
             </p>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              {walk.index > 0 ? (
+                <Button
+                  onClick={() =>
+                    replaceWalk({ ...walk, index: walk.index - 1 })
+                  }
+                  size="compact"
+                  tone="secondary"
+                >
+                  Previous
+                </Button>
+              ) : null}
               <Link
-                className="inline-flex h-9 items-center rounded-lg bg-app-ink px-3 text-sm text-app-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                className={buttonClassName({
+                  size: "compact",
+                  tone: "primary",
+                })}
                 to={`/t/${encodeURIComponent(tenantId)}/rooms/${encodeURIComponent(current.id)}/chat`}
               >
                 Open
@@ -148,7 +174,7 @@ export function CatchUpPage() {
               kept !== "kept" &&
               kept !== "already" ? (
                 <Button
-                  disabled={keep.isPending}
+                  loading={keep.isPending}
                   onClick={() => {
                     const note = catchUpNote(walk.rooms);
                     if (note) keep.mutate(note);

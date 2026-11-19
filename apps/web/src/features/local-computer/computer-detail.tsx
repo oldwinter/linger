@@ -136,7 +136,7 @@ export function ComputerDetail({
         onUpdate={() => setUpdateOpen(true)}
         readiness={readiness}
       />
-      {canDoHref ? (
+      {canDoHref && computer.platform === "darwin" ? (
         <p className="px-2 pt-3">
           <Link
             className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -828,7 +828,6 @@ function AdvancedRows({
         <div className={row}>
           <span className={label} />
           <Button
-            aria-label="Remove"
             className="-ml-3 border-transparent"
             onClick={onRemove}
             tone="danger"

@@ -178,22 +178,26 @@ export function ComposerAgentPeek({
   blink,
   onDismiss,
   onReturnFocus,
+  suppressed = false,
   visible,
 }: {
   agents: readonly ComposerPeekAgent[];
   blink: number;
   onDismiss: () => void;
   onReturnFocus?: () => void;
+  /** Keeps avatars tucked away while a dock or pill occupies the top edge. */
+  suppressed?: boolean;
   visible: boolean;
 }) {
   if (!agents.length || prefersReducedMotion()) return null;
+  const shownVisible = visible && !suppressed;
   const shown = agents.slice(0, PEEK_MAX_AGENTS);
   const hidden = agents.length - shown.length;
   return (
     <div
-      className="pointer-events-none absolute bottom-full right-6 flex h-11 flex-row-reverse items-end overflow-hidden"
+      className="pointer-events-none absolute bottom-full right-6 z-0 flex h-11 flex-row-reverse items-end overflow-hidden"
       data-testid="composer-agent-peek"
-      data-visible={visible || undefined}
+      data-visible={shownVisible || undefined}
     >
       {shown.map((agent, index) => (
         <PeekingAgent
@@ -203,14 +207,14 @@ export function ComposerAgentPeek({
           key={agent.id}
           onDismiss={onDismiss}
           onReturnFocus={onReturnFocus}
-          visible={visible}
+          visible={shownVisible}
         />
       ))}
       {hidden > 0 ? (
         <span
           className="mb-1 mr-1 rounded-full border border-app-border bg-app-surface px-1.5 text-[12px] leading-[18px] text-app-subtle transition-transform duration-300"
           style={{
-            transform: visible ? "translateY(0)" : "translateY(140%)",
+            transform: shownVisible ? "translateY(0)" : "translateY(140%)",
             transitionDelay: `${shown.length * PEEK_STAGGER_MS}ms`,
           }}
         >

@@ -240,7 +240,7 @@ export function PinnedMessagesControl({
                   <Icon icon={Search01Icon} size={14} />
                   <input
                     aria-label="Search pinned messages"
-                    className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+                    className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-app-placeholder"
                     onChange={(event) => changeQuery(event.target.value)}
                     placeholder="Search pinned messages"
                     ref={searchInputRef}

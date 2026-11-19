@@ -30,6 +30,9 @@ export function useMyDocumentsFolderEdits({
   } | null>(null);
   const [movingPlacement, setMovingPlacement] =
     useState<TeamHubDocumentPlacementNode | null>(null);
+  const [confirmingDeleteFolderId, setConfirmingDeleteFolderId] = useState<
+    string | null
+  >(null);
   const [deletingFolderId, setDeletingFolderId] = useState<string | null>(null);
   const treeQueryKey = myDocumentTreeQueryKey(tenantId);
 
@@ -141,16 +144,30 @@ export function useMyDocumentsFolderEdits({
       );
     } finally {
       setDeletingFolderId(null);
+      setConfirmingDeleteFolderId(null);
     }
   }
 
+  function requestDeleteFolder(folderId: string) {
+    if (deletingFolderId) return;
+    setConfirmingDeleteFolderId(folderId);
+  }
+
+  function cancelDeleteFolder() {
+    if (deletingFolderId) return;
+    setConfirmingDeleteFolderId(null);
+  }
+
   return {
+    cancelDeleteFolder,
+    confirmingDeleteFolderId,
     deleteFolder,
     deletingFolderId,
     movePlacement,
     movingPlacement,
     renameFolder,
     renamingFolder,
+    requestDeleteFolder,
     setMovingPlacement,
     setRenamingFolder,
   };

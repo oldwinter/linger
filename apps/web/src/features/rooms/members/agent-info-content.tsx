@@ -122,7 +122,7 @@ export function AgentInfoContent({
       />
       <div className="shrink-0 px-4 pb-4">
         <div
-          className="mx-auto flex w-fit max-w-full gap-1.5"
+          className="mx-auto flex w-fit max-w-full flex-wrap justify-center gap-1.5"
           role="tablist"
           aria-label="Agent settings"
         >
@@ -155,7 +155,7 @@ export function AgentInfoContent({
               aria-controls={`${tabId}-${id}`}
               id={`${tabId}-tab-${id}`}
               onClick={() => setTab(id)}
-              className={`h-7 w-[92px] min-w-0 shrink truncate rounded-full px-3 font-(family-name:--app-room-font) transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+              className={`h-7 shrink-0 whitespace-nowrap rounded-full px-3 font-(family-name:--app-room-font) transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                 tab === id
                   ? "bg-sidebar-muted text-foreground"
                   : "text-muted-foreground hover:bg-sidebar-muted/50 hover:text-foreground"

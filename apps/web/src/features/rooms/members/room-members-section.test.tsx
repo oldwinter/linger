@@ -277,7 +277,7 @@ describe("RoomMembersSection", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Add member" }));
     expect(
       within(screen.getByRole("dialog", { name: "Add Room member" })).getByText(
-        "Every Tenant Actor is already in this Room.",
+        "Everyone in this space is already in this Room.",
       ),
     ).toBeVisible();
 
@@ -286,13 +286,13 @@ describe("RoomMembersSection", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Add member" }));
     const dialog = screen.getByRole("dialog", { name: "Add Room member" });
     expect(
-      within(dialog).getByRole("button", { name: /Maya Chen/ }),
+      within(dialog).getByRole("button", { name: /Maya Chen.*Human/ }),
     ).toBeVisible();
     expect(
       within(dialog).getByRole("button", { name: /Jenny's Delegate.*Yours/ }),
     ).toBeVisible();
     expect(
-      within(dialog).getByRole("button", { name: /Lev8 GTM/ }),
+      within(dialog).getByRole("button", { name: /Lev8 GTM.*Agent/ }),
     ).toBeVisible();
     expect(
       within(dialog).queryByText("@jenny_delegate"),

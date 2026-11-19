@@ -94,24 +94,31 @@ export function RoomNavigation({
   const effectivePathname = pendingPathname ?? location.pathname;
   const effectiveRoomId =
     roomIdFromPath(effectivePathname, tenant.id) ?? roomId;
+  const tenantPrefix = `/t/${tenant.id}`;
   const roomNavigationVisible = effectivePathname.startsWith(
-    `/t/${tenant.id}/rooms`,
+    `${tenantPrefix}/rooms`,
   );
-  const dashboardVisible = effectivePathname.startsWith(
-    `/t/${tenant.id}/dashboard`,
-  );
+  const dashboardVisible =
+    effectivePathname.startsWith(`${tenantPrefix}/dashboard`) ||
+    effectivePathname.startsWith(`${tenantPrefix}/work-items`);
   const secondaryNavigationVisible =
     roomNavigationVisible && !(desktopShell && listCollapsed);
+  const mobilePrimaryOnly = mobileOpen && !secondaryNavigationVisible;
+  const railExpanded = expanded || mobilePrimaryOnly;
   const wikiVisible =
-    effectivePathname.startsWith(`/t/${tenant.id}/library/wiki`) ||
+    effectivePathname.startsWith(`${tenantPrefix}/library/wiki`) ||
+    effectivePathname.startsWith(`${tenantPrefix}/wiki-preview`) ||
+    effectivePathname.startsWith(`${tenantPrefix}/library/remembered`) ||
+    effectivePathname.startsWith(`${tenantPrefix}/library/introduction`) ||
+    effectivePathname.startsWith(`${tenantPrefix}/library/life`) ||
     (Boolean(documentId) &&
       document.data?.from.some(
         (source) => source.binding_kind === "wiki_page",
       ) === true);
   const workspaceVisible =
     !wikiVisible &&
-    (effectivePathname.startsWith(`/t/${tenant.id}/library`) ||
-      effectivePathname.startsWith(`/t/${tenant.id}/documents/`));
+    (effectivePathname.startsWith(`${tenantPrefix}/library`) ||
+      effectivePathname.startsWith(`${tenantPrefix}/documents/`));
   const { failedRoomIds, runningRoomIds } = useRoomActivity(
     tenant.id,
     roomNavigationVisible && rooms.length > 0,
@@ -126,12 +133,13 @@ export function RoomNavigation({
       <aside
         aria-label="Collaboration sidebar"
         data-animating={railToggling || undefined}
-        data-expanded={expanded}
+        data-expanded={railExpanded}
+        data-secondary-navigation={secondaryNavigationVisible || undefined}
         // The Library sidebar continues this rail as its secondary column,
         // so the rail draws no boundary of its own there, as beside Message.
         data-workspace-adjoined={workspaceVisible || wikiVisible || undefined}
         className={`app-navigation fixed inset-y-0 left-0 z-40 flex shrink-0 max-w-[86vw] bg-card transition-[transform,visibility] md:relative md:visible md:max-w-none md:translate-x-0 ${
-          expanded
+          railExpanded
             ? secondaryNavigationVisible
               ? "w-[calc(220px+20px+var(--sidebar-width))]"
               : "w-[220px]"
@@ -147,41 +155,45 @@ export function RoomNavigation({
           className="app-primary-navigation flex min-h-0 shrink-0 flex-col bg-card"
         >
           <div className="primary-navigation-topbar">
-            {expanded ? (
+            {railExpanded ? (
               <>
                 <BrandMark className="room-brand-mark size-6 shrink-0" />
                 <span
-                  className="min-w-0 flex-1 truncate text-center text-sm font-medium"
+                  className={`min-w-0 flex-1 truncate text-sm font-medium ${
+                    mobilePrimaryOnly ? "text-left" : "text-center"
+                  }`}
                   title={`${username}'s space`}
                 >
                   {username}'s space
                 </span>
               </>
             ) : null}
-            <button
-              aria-label={expanded ? "Collapse sidebar" : "Expand sidebar"}
-              aria-expanded={expanded}
-              className="primary-navigation-toggle flex size-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-sidebar-muted"
-              onClick={() => {
-                setRailToggling(true);
-                setExpanded((value) => !value);
-              }}
-              type="button"
-            >
-              {expanded ? (
-                // The arrow says which way the open sidebar folds away.
-                <RoomRailGlyph icon={SidebarLeft01Icon} />
-              ) : (
-                // Collapsed, the corner shows the brand and turns into the
-                // expand control only under the pointer or keyboard focus.
-                <>
-                  <BrandMark className="room-brand-mark primary-navigation-toggle-logo size-6 shrink-0" />
-                  <span className="primary-navigation-toggle-glyph">
-                    <RoomRailGlyph icon={SidebarLeftIcon} />
-                  </span>
-                </>
-              )}
-            </button>
+            {mobilePrimaryOnly ? null : (
+              <button
+                aria-label={expanded ? "Collapse sidebar" : "Expand sidebar"}
+                aria-expanded={expanded}
+                className="primary-navigation-toggle flex size-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-sidebar-muted"
+                onClick={() => {
+                  setRailToggling(true);
+                  setExpanded((value) => !value);
+                }}
+                type="button"
+              >
+                {expanded ? (
+                  // The arrow says which way the open sidebar folds away.
+                  <RoomRailGlyph icon={SidebarLeft01Icon} />
+                ) : (
+                  // Collapsed, the corner shows the brand and turns into the
+                  // expand control only under the pointer or keyboard focus.
+                  <>
+                    <BrandMark className="room-brand-mark primary-navigation-toggle-logo size-6 shrink-0" />
+                    <span className="primary-navigation-toggle-glyph">
+                      <RoomRailGlyph icon={SidebarLeftIcon} />
+                    </span>
+                  </>
+                )}
+              </button>
+            )}
           </div>
           {desktopShell && roomNavigationVisible && listCollapsed ? (
             // The desktop app's Chat list folds away; this brings it back.

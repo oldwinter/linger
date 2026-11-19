@@ -29,7 +29,7 @@ function PanelRouteErrorContent() {
 
   return (
     <main
-      aria-label="TeamHub loading error"
+      aria-label="Linger loading error"
       className="app-work-surface flex min-h-0 flex-1 items-center justify-center bg-app-surface px-6 py-12 text-center"
       role="alert"
     >
@@ -98,7 +98,9 @@ function ApplicationRouteErrorSurface({ tenantId }: { tenantId?: string }) {
             <div className="px-3 py-4">
               <p className="text-sm text-muted-foreground">Rooms</p>
               <p className="mt-3 text-sm text-muted-foreground">
-                Use “Back to my Rooms” to return to your conversations.
+                {content.restricted
+                  ? "Use “Back to my Rooms” to return to your conversations."
+                  : "Use “Try again” to reload this view."}
               </p>
             </div>
           </nav>
@@ -110,7 +112,7 @@ function ApplicationRouteErrorSurface({ tenantId }: { tenantId?: string }) {
           <span className="ml-3 text-sm font-medium">Linger</span>
         </header>
         <main
-          aria-label="TeamHub loading error"
+          aria-label="Linger loading error"
           className="app-work-surface flex min-h-0 flex-1 items-center justify-center bg-app-surface px-6 py-12 text-center"
           role="alert"
         >
@@ -210,16 +212,11 @@ function useRouteErrorContent(fullPage: boolean) {
     ? `${error.status} ${error.statusText}`.trim()
     : error instanceof Error
       ? error.message
-      : "The requested TeamHub data could not be loaded.";
+      : "The requested Linger data could not be loaded.";
 
   return {
     restricted: false,
     message,
-    title:
-      status === 404
-        ? "Room unavailable"
-        : fullPage
-          ? "TeamHub unavailable"
-          : "This view could not be loaded",
+    title: fullPage ? "Linger unavailable" : "This view could not be loaded",
   };
 }

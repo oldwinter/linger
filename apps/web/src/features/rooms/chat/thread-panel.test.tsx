@@ -16,7 +16,10 @@ import {
   createTestTeamHubRuntime,
   type TestTeamHubRuntime,
 } from "@/test/teamhub-test-runtime";
-import type { TestRouteHandler } from "@/test/teamhub-test-server";
+import {
+  teamHubErrorResponse,
+  type TestRouteHandler,
+} from "@/test/teamhub-test-server";
 import {
   TeamHubRuntimeProvider,
   type TeamHubRuntime,
@@ -102,6 +105,118 @@ describe("ThreadPanel", () => {
     );
     expect(screen.getByLabelText("Reply in Thread")).toBeDisabled();
     expect(screen.getByRole("heading", { name: "Thread" })).toHaveFocus();
+  });
+
+  it("shows an error with Retry when creating the Thread fails", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMessages(runtime);
+
+    const page = await listRoomMessages(runtime, "room-all");
+    const root = page.items.find((item) => item.id === "message-2");
+    if (!root) throw new Error("Fixture Message message-2 is missing.");
+    let fail = true;
+    const createThread = vi.fn<TestRouteHandler>(() => {
+      if (fail) {
+        fail = false;
+        return teamHubErrorResponse(
+          503,
+          "THREAD_UNAVAILABLE",
+          "Could not start this Thread.",
+        );
+      }
+      return {
+        room: {
+          created_at: "2026-07-23T10:00:00Z",
+          id: "room-thread-retry",
+          kind: "thread",
+          name: "Thread",
+          parent_room_id: "room-all",
+          tenant_id: "tenant-northstar",
+          updated_at: "2026-07-23T10:00:00Z",
+        },
+      };
+    });
+    runtime.server.on(
+      "POST",
+      "/v0/rooms/{roomId}/messages/{messageId}/thread",
+      createThread,
+    );
+    runtime.server.on("GET", "/v0/rooms/{roomId}/messages", ({ params }) => {
+      if (params.roomId === "room-thread-retry") {
+        return { items: [], page: { has_more: false }, snapshot_room_seq: 0 };
+      }
+      return page;
+    });
+
+    render(
+      wrap(
+        runtime,
+        <ThreadPanel
+          accountId="account-jenny"
+          mentionOptions={[codex]}
+          rootMessage={root}
+          tenantId="tenant-northstar"
+        />,
+      ),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not start this Thread.");
+    expect(screen.queryByTestId("thread-panel-loading")).toBeNull();
+
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Reply in Thread")).toBeEnabled(),
+    );
+    expect(createThread).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows an error with Retry when loading Thread replies fails", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMessages(runtime);
+
+    let fail = true;
+    runtime.server.on("GET", "/v0/rooms/{roomId}/messages", ({ params }) => {
+      if (params.roomId === "room-thread-1") {
+        if (fail) {
+          fail = false;
+          return teamHubErrorResponse(
+            503,
+            "MESSAGES_UNAVAILABLE",
+            "Replies unavailable.",
+          );
+        }
+        return {
+          items: [
+            {
+              ...message("reply-1", "Loaded after retry"),
+              room_id: "room-thread-1",
+            },
+          ],
+          page: { has_more: false },
+          snapshot_room_seq: 1,
+        };
+      }
+      return { items: [], page: { has_more: false }, snapshot_room_seq: 0 };
+    });
+
+    render(
+      wrap(
+        runtime,
+        <ThreadPanel
+          accountId="account-jenny"
+          rootMessage={message("message-2", "Thread root")}
+          tenantId="tenant-northstar"
+        />,
+      ),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Replies could not be loaded");
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Loaded after retry")).toBeVisible();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("opens search narrowed to the Thread Room and names the Thread", async () => {

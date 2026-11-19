@@ -4,6 +4,7 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it } from "vitest";
 
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
+import { teamHubErrorResponse } from "@/test/teamhub-test-server";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 
@@ -146,5 +147,53 @@ describe("MeetingStoryPage", () => {
         name: "This is the part I would tell",
       })[0],
     ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("shows a retryable error alert instead of a missing-meeting message when loading fails", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const meeting = entry();
+    let attempts = 0;
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/memory", ({ query }) => ({
+      items: query.get("kind") === "meeting" ? [meeting] : [],
+    }));
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/memory/{entryId}", () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return teamHubErrorResponse(500, "UNAVAILABLE", "Failed.");
+      }
+      return meeting;
+    });
+    const router = createMemoryRouter(
+      [
+        {
+          element: <MeetingStoryPage />,
+          path: "/t/:tenantId/library/meeting-story",
+        },
+      ],
+      {
+        initialEntries: [
+          `/t/tenant-northstar/library/meeting-story?entry=${entryId}`,
+        ],
+      },
+    );
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <RouterProvider router={router} />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not load this meeting.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(
+      await screen.findByText("You decided: Ship the Friday release."),
+    ).toBeVisible();
   });
 });

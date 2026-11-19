@@ -363,7 +363,34 @@ export function useRoomDocumentSession({
     if (current !== null) void current.destroy();
   }
 
+  const rawError =
+    documentQuery.error ?? identityQuery.error ?? opening.error ?? openError;
+  const errorStatus =
+    rawError instanceof TeamHubError ? rawError.status : undefined;
+  const canRetryLoad =
+    documentId !== undefined &&
+    rawError !== undefined &&
+    rawError !== null &&
+    errorStatus !== 403 &&
+    errorStatus !== 404;
+  const refetchDocument = documentQuery.refetch;
+  const refetchIdentity = identityQuery.refetch;
+  const hasDocumentError = documentQuery.error !== null;
+  const hasIdentityError = identityQuery.error !== null;
+  const retryLoad = useCallback(() => {
+    if (hasIdentityError) void refetchIdentity();
+    if (hasDocumentError) void refetchDocument();
+    resyncSession();
+  }, [
+    hasDocumentError,
+    hasIdentityError,
+    refetchDocument,
+    refetchIdentity,
+    resyncSession,
+  ]);
+
   return {
+    canRetryLoad,
     closeSession,
     currentIdentity: identityQuery.data,
     currentVersion: opened?.current_version,
@@ -371,12 +398,8 @@ export function useRoomDocumentSession({
     error:
       documentId === undefined
         ? "Document metadata is unavailable."
-        : collaborationErrorMessage(
-            documentQuery.error ??
-              identityQuery.error ??
-              opening.error ??
-              openError,
-          ),
+        : collaborationErrorMessage(rawError),
+    retryLoad,
     session,
     resyncSession,
   };

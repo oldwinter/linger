@@ -151,10 +151,15 @@ export default function PocketNotePanel({
   useEffect(() => {
     function closeOnOutside(event: PointerEvent) {
       const target = event.target as Node;
+      const targetElement =
+        target instanceof Element ? target : target.parentElement;
       if (
         document.querySelector("dialog[open]") ||
         panelRef.current?.contains(target) ||
-        anchor?.contains(target)
+        anchor?.contains(target) ||
+        targetElement?.closest(
+          "nav, .app-primary-navigation, .app-secondary-navigation, .room-secondary-navigation, [data-navigation-surface]",
+        )
       ) {
         return;
       }
@@ -245,15 +250,29 @@ export default function PocketNotePanel({
   return createPortal(
     <div
       aria-label="Pocket notes"
-      className="app-floating-enter fixed z-[100] flex h-[440px] flex-col overflow-hidden rounded-2xl bg-popover shadow-xl"
+      className="app-floating-enter fixed z-[100] flex h-[440px] max-h-[calc(100dvh-24px)] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-2xl bg-popover shadow-xl"
       ref={panelRef}
       role="dialog"
       style={{ ...position, width: panelWidth }}
     >
       {!firstPage || !today ? (
-        <p className="m-auto text-sm text-app-muted">
-          {notes.isError ? "Couldn’t load notes" : "Loading…"}
-        </p>
+        notes.isError ? (
+          <div
+            className="m-auto flex flex-col items-center gap-2.5 px-4 text-center"
+            role="alert"
+          >
+            <p className="text-sm text-app-muted">Couldn’t load notes</p>
+            <Button
+              onClick={() => void notes.refetch()}
+              size="compact"
+              tone="secondary"
+            >
+              Retry
+            </Button>
+          </div>
+        ) : (
+          <p className="m-auto text-sm text-app-muted">Loading…</p>
+        )
       ) : view.kind === "all" ? (
         <AllPocketNotes
           closeGuard={closeGuard}
@@ -885,7 +904,7 @@ function AllPocketNotes({
         <Icon icon={Search01Icon} size={14} />
         <input
           aria-label="Search notes"
-          className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+          className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-app-placeholder"
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search by date or text"
           role="searchbox"

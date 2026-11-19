@@ -22,7 +22,7 @@ export function SettingsLayout() {
         className="flex shrink-0 flex-col border-b border-border px-3 py-4 md:w-[228px] md:border-r md:border-b-0"
       >
         <div className="flex items-center pt-0.5 pb-3.5">
-          <h1 className="text-lg">Settings</h1>
+          <p className="text-lg font-medium text-foreground">Settings</p>
         </div>
         <nav
           aria-label="Settings sections"
@@ -60,7 +60,7 @@ export function SettingsLayout() {
           />
         </nav>
       </aside>
-      <div className="workspace-content-viewport workspace-scrollbar flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-6 py-6 [scrollbar-gutter:stable] md:px-8">
+      <main className="workspace-content-viewport workspace-scrollbar flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-6 py-6 [scrollbar-gutter:stable] md:px-8">
         <Suspense
           fallback={
             <SettingsSectionLoading
@@ -70,7 +70,7 @@ export function SettingsLayout() {
         >
           <Outlet />
         </Suspense>
-      </div>
+      </main>
     </div>
   );
 }
@@ -109,7 +109,6 @@ function SettingsLink({
             : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
         }`
       }
-      replace
       to={to}
     >
       {icon}

@@ -33,8 +33,12 @@ export function BackgroundTasksIndicator({
   return (
     <>
       {tasks.length ? (
-        // Floats over the bottom of the timeline instead of pushing the composer.
-        <div className="relative h-0">
+        // Sits in normal flow above the status dock so jump controls and
+        // Stop/Resend actions never collide with the background-task pill.
+        <div
+          className="room-readable flex justify-center pb-1.5"
+          data-testid="background-tasks-indicator"
+        >
           <BackgroundTasksPill
             onCancel={cancel}
             onOpen={setOpened}
@@ -97,10 +101,7 @@ export function BackgroundTasksPill({
   }, [open]);
   const count = tasks.length;
   return (
-    <div
-      className="absolute bottom-2 left-1/2 z-20 -translate-x-1/2"
-      ref={root}
-    >
+    <div className="relative z-20 inline-flex" ref={root}>
       {open ? (
         <section
           aria-label="Background tasks"

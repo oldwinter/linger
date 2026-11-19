@@ -53,6 +53,7 @@ interface RoomTaskSidebarImplProps {
   focusMessageId?: string | null;
   messagePresentations?: Record<string, TeamHubMessagePresentation>;
   onActiveMessageChange?: (messageId: string | null) => void;
+  onActiveTabChange?: (tabId: string | null) => void;
   onCollapse: () => void;
   onReady?: () => void;
   onExitAnimationEnd?: () => void;
@@ -73,6 +74,7 @@ export function RoomTaskSidebarImpl({
   focusMessageId = null,
   messagePresentations = EMPTY_MESSAGE_PRESENTATIONS,
   onActiveMessageChange,
+  onActiveTabChange,
   onCollapse,
   onReady,
   onExitAnimationEnd,
@@ -120,6 +122,9 @@ export function RoomTaskSidebarImpl({
     members,
     tenantId,
   });
+  useEffect(() => {
+    onActiveTabChange?.(tabState.activeTabId);
+  }, [onActiveTabChange, tabState.activeTabId]);
   useEffect(() => {
     const current = ensureDefaultAgentInfoTab(
       scope,

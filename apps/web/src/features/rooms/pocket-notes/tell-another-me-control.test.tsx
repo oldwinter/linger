@@ -133,4 +133,14 @@ describe("Tell Another Me today's note", () => {
     expect(keys).toHaveLength(2);
     expect(keys[0]).toBe(keys[1]);
   });
+
+  it("keeps absolute positioning on the wrapper instead of the Button", async () => {
+    renderNotes();
+    fireEvent.click(screen.getByRole("button", { name: "Pocket Notes" }));
+    const button = await screen.findByRole("button", {
+      name: "Tell Another Me",
+    });
+    expect(button).not.toHaveClass("absolute");
+    expect(button.parentElement).toHaveClass("absolute");
+  });
 });

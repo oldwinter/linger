@@ -17,19 +17,32 @@ export function ShortcutsSettingsPage() {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.repeat || event.isComposing || event.keyCode === 229) return;
+      if (
+        document.querySelector(
+          'dialog[open], [role="dialog"][aria-modal="true"]',
+        )
+      ) {
+        return;
+      }
       const target = event.target;
       if (
-        target instanceof HTMLElement &&
-        target.closest("input, textarea, select, [contenteditable='true']")
+        target instanceof Element &&
+        target.closest(
+          "input, textarea, select, [contenteditable]:not([contenteditable='false'])",
+        )
       ) {
         return;
       }
       const matches = playedShortcuts(event);
       if (matches.length === 0) return;
+      if (event.key !== "Tab") {
+        event.preventDefault();
+        event.stopPropagation();
+      }
       setPlayed(matches);
     }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, []);
 
   return (
@@ -47,7 +60,7 @@ export function ShortcutsSettingsPage() {
         />
         <input
           aria-label="Filter shortcuts"
-          className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+          className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-app-placeholder"
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
             if (event.key !== "Escape" || !query) return;

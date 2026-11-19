@@ -100,6 +100,22 @@ export function IntroductionPage() {
           <p className="text-sm text-muted-foreground" role="status">
             Loading your introduction.
           </p>
+        ) : profile.isError || notes.isError ? (
+          <div className="flex flex-col items-start gap-3" role="alert">
+            <p className="text-sm text-destructive">
+              Could not load your introduction.
+            </p>
+            <Button
+              onClick={() => {
+                if (profile.isError) void profile.refetch();
+                if (notes.isError) void notes.refetch();
+              }}
+              size="compact"
+              tone="secondary"
+            >
+              Retry
+            </Button>
+          </div>
         ) : !current || paragraphs.length === 0 ? (
           <p className="text-sm text-muted-foreground" role="status">
             Another Me has not written enough to introduce you yet.

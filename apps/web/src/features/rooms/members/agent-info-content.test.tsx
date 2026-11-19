@@ -133,9 +133,11 @@ describe("Agent Info", () => {
       "Routines",
       "Connectors",
     ]);
-    // Equal-width pills keep the middle tab under the name and do not stretch.
-    for (const tab of tabs.getAllByRole("tab"))
-      expect(tab).toHaveClass("rounded-full", "w-[92px]", "min-w-0");
+    // Pills stay compact without stretching or clipping labels such as Connectors.
+    for (const tab of tabs.getAllByRole("tab")) {
+      expect(tab).toHaveClass("rounded-full", "shrink-0", "whitespace-nowrap");
+      expect(tab).not.toHaveClass("truncate", "w-[92px]");
+    }
     expect(tabs.getAllByRole("tab")[0]).not.toHaveClass("flex-1");
   });
 

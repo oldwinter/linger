@@ -268,7 +268,7 @@ export function WikiDirectory({
                 <Icon icon={Search01Icon} size={14} />
                 <input
                   aria-label={`Filter ${wikiCollectionLabels[collection]}`}
-                  className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+                  className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-app-placeholder"
                   onChange={(event) =>
                     setFilter({ collection, text: event.target.value })
                   }
@@ -311,7 +311,8 @@ export function WikiDirectory({
               newPages.length === 0 &&
               !documents.hasNextPage ? (
               <p className="px-2 py-2 text-sm text-app-muted">
-                No generated {collection} yet.
+                No generated {wikiCollectionLabels[collection].toLowerCase()}{" "}
+                yet.
               </p>
             ) : filtering &&
               visiblePages.length === 0 &&

@@ -892,7 +892,8 @@
   flex-shrink: 0;
 }
 
-.room-document-header-actions > button {
+.room-document-header-actions
+  > button:is(.ui-button-icon, .ui-button-icon-compact) {
   width: 28px;
   height: 28px;
   padding: 6px;

@@ -18,7 +18,7 @@ export function SecuritySettingsPage() {
   return (
     <div className="mx-auto flex w-full max-w-(--app-settings-width) flex-col gap-8 pb-4">
       <SettingsPageHeading
-        description="Manage your sign-in password."
+        description="Manage your sign-in password and server API keys."
         title="Security"
       />
 
@@ -41,8 +41,6 @@ export function SecuritySettingsPage() {
         </div>
       </section>
 
-      <ApiKeysSettings />
-
       {passwordChanged ? (
         <p
           className="flex items-center gap-2 text-sm text-app-success"
@@ -52,6 +50,8 @@ export function SecuritySettingsPage() {
           Password changed
         </p>
       ) : null}
+
+      <ApiKeysSettings />
 
       {changePasswordOpen ? (
         <ChangePasswordDialog

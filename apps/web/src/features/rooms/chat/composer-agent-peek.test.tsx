@@ -237,6 +237,24 @@ describe("ComposerAgentPeek", () => {
     expect(screen.queryByTestId("composer-agent-peek")).not.toBeInTheDocument();
   });
 
+  it("stays hidden when suppressed by another overlay above the composer", () => {
+    render(
+      <ComposerAgentPeek
+        agents={[agent(1)]}
+        blink={0}
+        onDismiss={vi.fn()}
+        suppressed
+        visible
+      />,
+    );
+    expect(screen.getByTestId("composer-agent-peek")).not.toHaveAttribute(
+      "data-visible",
+    );
+    expect(screen.getByTestId("composer-peeking-agent")).not.toHaveClass(
+      "pointer-events-auto",
+    );
+  });
+
   it("stays still for people who ask for reduced motion", () => {
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: true }));
     render(

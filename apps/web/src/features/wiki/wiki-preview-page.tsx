@@ -1,5 +1,12 @@
-import { Navigate, useParams, useSearchParams } from "react-router";
+import { SidebarLeftIcon } from "@hugeicons/core-free-icons";
+import { Link, Navigate, useParams, useSearchParams } from "react-router";
 import { ReadOnlyBlockNoteDocumentLoader } from "@/components/read-only-blocknote-document-loader";
+import { Button, buttonClassName } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
+import {
+  WORKSPACE_TREE_ID,
+  useWorkspaceTree,
+} from "@/features/library/workspace-tree";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 
 import { useWikiDocuments } from "./knowledge-sidebar-trees";
@@ -20,7 +27,9 @@ import "./wiki-working-card.css";
  */
 export function WikiPreviewPage() {
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
+  const workspaceTree = useWorkspaceTree();
   const [searchParams] = useSearchParams();
+  const wikiHomePath = `/t/${encodeURIComponent(tenantId)}/library/wiki`;
   const path = searchParams.get("page") ?? "";
   const refresh = usePersonalWikiRefresh(tenantId);
   const documents = useWikiDocuments(tenantId);
@@ -60,16 +69,53 @@ export function WikiPreviewPage() {
     return id ? `${wikiDocumentPath(tenantId, id)}${target.hash}` : null;
   };
 
+  const mobileTreeButton = (
+    <Button
+      aria-controls={WORKSPACE_TREE_ID}
+      aria-expanded={workspaceTree.open}
+      aria-label="Open Library pages"
+      className="sm:hidden"
+      onClick={() => workspaceTree.setOpen(true)}
+      size="icon"
+      title="Library pages"
+      tone="ghost"
+    >
+      <Icon icon={SidebarLeftIcon} size={16} />
+    </Button>
+  );
+
   if (!page) {
     if (!refresh.refreshing && published)
       return <Navigate replace to={wikiDocumentPath(tenantId, published.id)} />;
     return (
-      <main className="flex min-w-0 flex-1 items-start justify-center bg-app-surface p-10">
-        <p className="text-sm text-app-muted" role="status">
-          {refresh.refreshing
-            ? "This page is not written yet."
-            : "This page was not published."}
-        </p>
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-app-surface">
+        <header className="room-document-header border-b border-app-border/60">
+          <div className="room-document-header-identity">
+            {mobileTreeButton}
+            <Link
+              className="text-sm text-app-muted underline-offset-2 hover:text-app-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+              to={wikiHomePath}
+            >
+              Back to Wiki
+            </Link>
+          </div>
+        </header>
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 p-10 text-center">
+          <p className="text-sm text-app-muted" role="status">
+            {refresh.refreshing
+              ? "This page is not written yet."
+              : "This page was not published."}
+          </p>
+          <Link
+            className={buttonClassName({
+              size: "compact",
+              tone: "secondary",
+            })}
+            to={wikiHomePath}
+          >
+            Back to Wiki
+          </Link>
+        </div>
       </main>
     );
   }
@@ -79,6 +125,7 @@ export function WikiPreviewPage() {
       <main className="room-document-main flex min-h-0 min-w-0 flex-1 flex-col bg-app-surface">
         <header className="room-document-header border-b border-app-border/60">
           <div className="room-document-header-identity">
+            {mobileTreeButton}
             <div className="room-document-header-file">
               <span className="truncate text-sm font-semibold text-app-ink">
                 {fileName.charAt(0).toUpperCase() + fileName.slice(1)}
@@ -91,6 +138,14 @@ export function WikiPreviewPage() {
                 Generating
               </span>
             </div>
+          </div>
+          <div className="room-document-header-actions">
+            <Link
+              className="text-xs text-app-muted underline-offset-2 hover:text-app-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+              to={wikiHomePath}
+            >
+              Back to Wiki
+            </Link>
           </div>
         </header>
         <div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto">

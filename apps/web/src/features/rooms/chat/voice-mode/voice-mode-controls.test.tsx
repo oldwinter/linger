@@ -437,6 +437,32 @@ describe("Voice Mode controls", () => {
     ).toBeNull();
     expect(transport.open).not.toHaveBeenCalled();
   });
+
+  it("surfaces voice start failures in a visible inline alert", async () => {
+    transport.open.mockRejectedValueOnce(
+      new Error("Microphone permission denied"),
+    );
+    const runtime = createTestTeamHubRuntime();
+    render(
+      <TeamHubRuntimeProvider runtime={runtime}>
+        <VoiceModeSessionProvider>
+          <BoundControls
+            target={{ tenantId: "tenant-northstar", roomId: "room-another-me" }}
+            empty
+            disabled={false}
+            onChange={vi.fn()}
+            onSend={vi.fn()}
+          />
+        </VoiceModeSessionProvider>
+      </TeamHubRuntimeProvider>,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Start Voice Mode" }),
+    );
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Microphone permission denied");
+    expect(alert).not.toHaveClass("sr-only");
+  });
 });
 
 describe("Voice Mode without a voice key", () => {

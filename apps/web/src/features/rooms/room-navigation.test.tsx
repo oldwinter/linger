@@ -445,6 +445,62 @@ describe("Room navigation", () => {
     ).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Library" })).toBeVisible();
   });
+
+  it("expands the primary rail with visible labels in the mobile drawer on non-Room routes", async () => {
+    const matchMedia = window.matchMedia.bind(window);
+    const viewport = vi
+      .spyOn(window, "matchMedia")
+      .mockImplementation((query) => ({
+        ...matchMedia(query),
+        matches: query === "(width < 48rem)",
+      }));
+    try {
+      const fixture = await navigationFixture();
+      renderNavigation(
+        fixture,
+        new QueryClient(),
+        `/t/${fixture.tenant.id}/apps`,
+      );
+      const sidebar = screen.getByRole("complementary", {
+        name: "Collaboration sidebar",
+      });
+      expect(sidebar).toHaveAttribute("data-expanded", "true");
+      expect(sidebar).toHaveClass("w-[220px]");
+      expect(
+        screen.queryByRole("button", { name: /sidebar$/i }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText("jenny's space")).toBeVisible();
+    } finally {
+      viewport.mockRestore();
+    }
+  });
+
+  it.each([
+    ["/work-items/wi-1", "Dashboard"],
+    ["/wiki-preview", "Wiki"],
+    ["/library/remembered", "Wiki"],
+    ["/library/introduction", "Wiki"],
+    ["/library/life", "Wiki"],
+  ])(
+    "marks %s active under %s in the primary rail",
+    async (suffix, activeLabel) => {
+      const fixture = await navigationFixture();
+      renderNavigation(
+        fixture,
+        new QueryClient(),
+        `/t/${fixture.tenant.id}${suffix}`,
+      );
+      expect(screen.getByRole("link", { name: activeLabel })).toHaveAttribute(
+        "aria-current",
+        "page",
+      );
+      if (activeLabel === "Wiki") {
+        expect(
+          screen.getByRole("link", { name: "Library" }),
+        ).not.toHaveAttribute("aria-current");
+      }
+    },
+  );
 });
 
 async function navigationFixture() {
@@ -504,6 +560,8 @@ function renderNavigation(
               path="/t/:tenantId/rooms/:roomId/:view"
             />
             <Route element={navigation} path="/t/:tenantId/library/*" />
+            <Route element={navigation} path="/t/:tenantId/wiki-preview" />
+            <Route element={navigation} path="/t/:tenantId/work-items/*" />
             <Route element={navigation} path="/t/:tenantId/apps" />
             <Route element={navigation} path="/t/:tenantId/computers" />
             <Route element={navigation} path="/t/:tenantId/settings/*" />

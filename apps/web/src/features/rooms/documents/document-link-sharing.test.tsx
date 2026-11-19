@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { DocumentLinkPolicy } from "@/features/teamhub/teamhub-document-links";
 import { DocumentLinkSharing } from "./document-link-sharing";
@@ -59,4 +60,60 @@ it("creates a read link, changes its role, and revokes the current version", asy
   await waitFor(() => expect(control).toHaveValue("disabled"));
   expect(revoke).toHaveBeenCalledWith("doc-1", { expected_version: 2 });
   expect(screen.queryByRole("button", { name: "Copy shared link" })).toBeNull();
+});
+
+it("explains how to regenerate a copyable URL when an active link has no cached URL and confirms copy", async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  defineGlobalProperty(navigator, "clipboard", {
+    value: { writeText },
+    writable: true,
+  });
+  let policy: DocumentLinkPolicy = {
+    id: "link-1",
+    document_id: "doc-1",
+    role: "viewer",
+    status: "active",
+    version: 3,
+  };
+  const client = {
+    documentLinks: {
+      get: vi.fn(async () => policy),
+      revoke: vi.fn(),
+      set: vi.fn(async (_id, input) => {
+        policy = {
+          ...policy,
+          role: input.role,
+          version: input.expected_version + 1,
+        };
+        return {
+          ...policy,
+          url: "https://web.test/shared-documents#reset",
+        };
+      }),
+    },
+  } as unknown as TeamHubClient;
+
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <DocumentLinkSharing client={client} documentId="doc-1" />
+    </QueryClientProvider>,
+  );
+
+  expect(
+    await screen.findByText(
+      "For security, this link is shown only when created. Reset the link to generate a new copyable URL.",
+    ),
+  ).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Copy shared link" })).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "Reset link" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Copy shared link" }),
+  );
+  await waitFor(() =>
+    expect(writeText).toHaveBeenCalledWith(
+      "https://web.test/shared-documents#reset",
+    ),
+  );
+  expect(await screen.findByRole("status")).toHaveTextContent("Copied");
 });

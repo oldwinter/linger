@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
 
+import { Button } from "@/components/ui/button";
 import { personalProfileQueryOptions } from "@/features/settings/personal-profile-queries";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
@@ -39,7 +40,20 @@ export function RememberedPage() {
           <p className="text-sm text-muted-foreground" role="status">
             Loading what Another Me remembers.
           </p>
-        ) : profile.isError || !current ? (
+        ) : profile.isError ? (
+          <div className="flex flex-col items-start gap-3" role="alert">
+            <p className="text-sm text-destructive">
+              Could not load what Another Me remembers.
+            </p>
+            <Button
+              onClick={() => void profile.refetch()}
+              size="compact"
+              tone="secondary"
+            >
+              Retry
+            </Button>
+          </div>
+        ) : !current ? (
           <p className="text-sm text-muted-foreground" role="status">
             Another Me has not written a profile yet.
           </p>

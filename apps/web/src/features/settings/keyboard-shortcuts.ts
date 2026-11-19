@@ -29,6 +29,14 @@ export const keyboardShortcutGroups: readonly KeyboardShortcutGroup[] = [
         keys: { mac: "⌘K", other: "Ctrl K" },
       },
       {
+        action: "Jump to a room, meeting, or library place",
+        keys: { mac: "⌘J", other: "Ctrl J" },
+      },
+      {
+        action: "Search in current room",
+        keys: { mac: "⌘F", other: "Ctrl F" },
+      },
+      {
         action: "Close the active sidebar tab, or collapse the sidebar",
         keys: { mac: "Escape" },
       },

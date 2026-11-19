@@ -4,11 +4,11 @@ import { useQuery } from "@tanstack/react-query";
 import {
   BookOpen01Icon,
   LeftToRightListBulletIcon,
-  Loading03Icon,
   RefreshIcon,
   SidebarLeftIcon,
 } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
+import { Spinner } from "@/components/ui/spinner";
 import {
   useLayoutEffect,
   useRef,
@@ -17,6 +17,7 @@ import {
   type SyntheticEvent,
 } from "react";
 import {
+  Link,
   useLocation,
   useNavigate,
   useParams,
@@ -44,7 +45,7 @@ import {
 import { DocumentTableOfContents } from "@/components/document-table-of-contents";
 import { useDocumentAnchorLinks } from "@/components/document-anchor-links";
 import { resolveMemoryDocumentLink } from "./memory-document-links";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClassName } from "@/components/ui/button";
 import {
   WORKSPACE_TREE_ID,
   useWorkspaceTree,
@@ -97,11 +98,11 @@ export function MeetingPage() {
           <Button
             aria-controls={WORKSPACE_TREE_ID}
             aria-expanded={workspaceTree.open}
-            aria-label="Open Owned by Me"
+            aria-label="Open Library pages"
             className="sm:hidden"
             onClick={() => workspaceTree.setOpen(true)}
             size="icon"
-            title="Owned by Me"
+            title="Library pages"
             tone="ghost"
           >
             <Icon icon={SidebarLeftIcon} size={16} />
@@ -145,13 +146,38 @@ export function MeetingPage() {
               {anchorLinks.error}
             </p>
           ) : null}
-          {listed && selected.isPending ? (
+          {meetings.isPending || (listed && selected.isPending) ? (
             <div
               aria-busy="true"
               className="flex min-h-[420px] items-center justify-center gap-2 text-sm text-app-muted"
+              role="status"
             >
-              <Icon icon={Loading03Icon} className="animate-spin" size={16} />
+              <Spinner size={16} />
               Loading meeting...
+            </div>
+          ) : meetings.isError ? (
+            <div
+              aria-label={
+                meetings.error instanceof Error && meetings.error.message
+                  ? meetings.error.message
+                  : "Meetings are unavailable."
+              }
+              className="mx-auto max-w-3xl px-6 py-10"
+              role="alert"
+            >
+              <p className="text-sm text-app-danger">
+                {meetings.error instanceof Error && meetings.error.message
+                  ? meetings.error.message
+                  : "Meetings are unavailable."}
+              </p>
+              <Button
+                className="mt-3"
+                onClick={() => void meetings.refetch()}
+                size="compact"
+                tone="secondary"
+              >
+                <Icon icon={RefreshIcon} size={14} /> Retry
+              </Button>
             </div>
           ) : listed && selected.error ? (
             <div
@@ -217,7 +243,25 @@ export function MeetingPage() {
               resolveLink={resolveMemoryDocumentLink}
               tenantId={tenantId}
             />
-          ) : null}
+          ) : (
+            <div className="mx-auto flex max-w-md flex-col items-start gap-3 px-6 py-12">
+              <h2 className="text-base font-medium text-app-ink">
+                Meeting not found
+              </h2>
+              <p className="text-sm text-app-muted">
+                This meeting may have been deleted or is no longer available.
+              </p>
+              <Link
+                className={buttonClassName({
+                  size: "compact",
+                  tone: "secondary",
+                })}
+                to={meetingsTabPath(tenantId, "week")}
+              >
+                Back to Meetings
+              </Link>
+            </div>
+          )}
         </section>
         {tocOpen && readable ? (
           <MeetingTableOfContents

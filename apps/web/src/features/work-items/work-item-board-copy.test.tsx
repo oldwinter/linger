@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { defineGlobalProperty } from "@/test/global-properties";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Suspense } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
@@ -73,7 +74,7 @@ describe("Copy the Work Items board as Markdown", () => {
 
   it("says the copy failed instead of claiming success", async () => {
     stubClipboard(() => Promise.reject(new Error("Clipboard is denied")));
-    Object.defineProperty(document, "execCommand", {
+    defineGlobalProperty(document, "execCommand", {
       configurable: true,
       value: vi.fn(() => false),
     });
@@ -214,7 +215,7 @@ describe("Copy the selected Work Item links", () => {
 
   it("says the copy failed and keeps the selection", async () => {
     stubClipboard(() => Promise.reject(new Error("Clipboard is denied")));
-    Object.defineProperty(document, "execCommand", {
+    defineGlobalProperty(document, "execCommand", {
       configurable: true,
       value: vi.fn(() => false),
     });

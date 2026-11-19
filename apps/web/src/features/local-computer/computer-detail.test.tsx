@@ -5,6 +5,7 @@ import {
   render,
   screen,
 } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import type { TeamHubLocalComputerPage } from "@/features/teamhub/teamhub-types";
 import { ComputerDetail } from "./computer-detail";
@@ -111,4 +112,99 @@ it("keeps the last reported presentation stable throughout reconnect churn", () 
   fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
   expect(screen.getByText("0.1.0")).toBeVisible();
   expect(screen.getByText("0.2.0 available")).toBeVisible();
+});
+
+it("shows What this Mac can do only for macOS computers", () => {
+  const base: TeamHubLocalComputerPage["items"][number] = {
+    active_operations: 0,
+    computer_id: "comp-1",
+    display_name: "Dev Machine",
+    platform: "linux",
+    runtimes: [{ models: [], status: "ready", type: "codex" }],
+    status: "online",
+    upgrade_required: false,
+    workspace_grants: [],
+  };
+  const props = {
+    agentAvailabilities: new Map(),
+    agents: [],
+    canDoHref: "/t/tenant-northstar/settings/computers/comp-1/can-do",
+    onOpenAgent: vi.fn(),
+    onRemove: vi.fn(),
+  };
+
+  const { rerender } = render(
+    <MemoryRouter>
+      <ComputerDetail {...props} computer={base} />
+    </MemoryRouter>,
+  );
+  expect(
+    screen.queryByRole("link", { name: "What this Mac can do" }),
+  ).toBeNull();
+
+  rerender(
+    <MemoryRouter>
+      <ComputerDetail {...props} computer={{ ...base, platform: "win32" }} />
+    </MemoryRouter>,
+  );
+  expect(
+    screen.queryByRole("link", { name: "What this Mac can do" }),
+  ).toBeNull();
+
+  rerender(
+    <MemoryRouter>
+      <ComputerDetail {...props} computer={{ ...base, platform: "darwin" }} />
+    </MemoryRouter>,
+  );
+  expect(
+    screen.getByRole("link", { name: "What this Mac can do" }),
+  ).toHaveAttribute(
+    "href",
+    "/t/tenant-northstar/settings/computers/comp-1/can-do",
+  );
+});
+
+it("keeps Hint wrappers free of competing display classes and double tab stops on interactive chips", () => {
+  const computer: TeamHubLocalComputerPage["items"][number] = {
+    active_operations: 0,
+    computer_id: "comp-mac",
+    display_name: "Mac Studio",
+    platform: "darwin",
+    runtimes: [
+      { models: [], status: "authentication_required", type: "codex" },
+    ],
+    status: "online",
+    upgrade_required: false,
+    workspace_grants: [],
+  };
+  render(
+    <MemoryRouter>
+      <ComputerDetail
+        agentAvailabilities={new Map()}
+        agents={[]}
+        computer={computer}
+        onOpenAgent={vi.fn()}
+        onRemove={vi.fn()}
+      />
+    </MemoryRouter>,
+  );
+
+  // ComputerRow Hint uses display="flex" without stacking inline-flex.
+  const codexTitle = screen.getByText("Codex");
+  const rowHint = codexTitle.closest(".group\\/hint");
+  expect(rowHint).not.toBeNull();
+  const rowClasses = rowHint!.className.split(/\s+/);
+  expect(rowClasses).toContain("flex");
+  expect(rowClasses).not.toContain("inline-flex");
+
+  // Interactive ProgressChip ("Sign in") does not add tabindex="0" on its Hint wrapper.
+  const signInChip = screen.getAllByRole("button", { name: "Sign in" })[0]!;
+  expect(signInChip.closest(".group\\/hint")).not.toHaveAttribute("tabindex");
+
+  // Non-interactive ProgressChip ("Connected") keeps tabindex="0" for keyboard hint access.
+  const connectedChip = screen.getByText("Connected");
+  expect(connectedChip.closest(".group\\/hint")).toHaveAttribute(
+    "tabindex",
+    "0",
+  );
 });

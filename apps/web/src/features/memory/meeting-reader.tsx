@@ -8,7 +8,7 @@ import {
   useState,
   type ClipboardEvent,
 } from "react";
-import { Link } from "react-router";
+import { useNavigate } from "react-router";
 import {
   ArrowDown01Icon,
   ArrowUp01Icon,
@@ -16,6 +16,7 @@ import {
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { ReadOnlyBlockNoteDocumentLoader } from "@/components/read-only-blocknote-document-loader";
+import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { ArtifactContentRendererLoader } from "@/features/rooms/files/artifact-content-renderer-loader";
@@ -150,6 +151,7 @@ export function MeetingReader({
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
+  const navigate = useNavigate();
   const meeting = entry.meeting!;
   // The shell already cached this identity, so the reader adds no request; the
   // listening position belongs to the signed-in Account.
@@ -464,6 +466,67 @@ export function MeetingReader({
     { id: "summary", label: "Summary" },
     { id: "transcript", label: "Transcript" },
   ];
+  const actionMenuItems: ActionMenuItem[] = [
+    {
+      label: "Ask the recording",
+      onSelect: () => void navigate(askMeetingPath(tenantId, entry.id)),
+    },
+    ...(meeting.summary_ready
+      ? [
+          {
+            label: "Keep as a page",
+            onSelect: () => void navigate(keepMeetingPath(tenantId, entry.id)),
+          },
+        ]
+      : []),
+    ...(todos.length > 0 && anotherMe.data?.room_id
+      ? [
+          {
+            label: "Turn to-dos into reminders",
+            onSelect: () =>
+              void navigate(meetingRemindersPath(tenantId, entry.id)),
+          },
+        ]
+      : []),
+    ...(meeting.summary_ready && story.length > 0
+      ? [
+          {
+            label: "Tell this story",
+            onSelect: () => void navigate(meetingStoryPath(tenantId, entry.id)),
+          },
+        ]
+      : []),
+    ...(meeting.summary_ready && decisions.length > 0
+      ? [
+          {
+            label: "Carry a decision",
+            onSelect: () =>
+              void navigate(carryDecisionPath(tenantId, entry.id)),
+          },
+        ]
+      : []),
+    ...(meeting.summary_ready
+      ? [
+          {
+            label: "Download summary",
+            onSelect: () =>
+              triggerArtifactDownload(
+                new Blob([entry.content], {
+                  type: "text/markdown;charset=utf-8",
+                }),
+                "summary.md",
+              ),
+            separatorBefore: true,
+          },
+        ]
+      : []),
+    {
+      danger: true,
+      label: "Delete",
+      onSelect: () => setDeleting(true),
+      separatorBefore: true,
+    },
+  ];
   return (
     <article
       aria-label="Meeting"
@@ -471,27 +534,10 @@ export function MeetingReader({
       data-meeting-surface
       ref={articleRef}
     >
-      <header className="mb-4 flex items-start gap-3">
-        <div className="min-w-0 flex-1">
+      <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-[12rem] flex-1">
           <h2 className="break-words text-xl text-app-ink">{title}</h2>
-          <p className="mt-1 text-xs text-app-muted">
-            Read only
-            {" · "}
-            <Link className="underline" to={askMeetingPath(tenantId, entry.id)}>
-              Ask the recording
-            </Link>
-            {meeting.summary_ready ? (
-              <>
-                {" · "}
-                <Link
-                  className="underline"
-                  to={keepMeetingPath(tenantId, entry.id)}
-                >
-                  Keep as a page
-                </Link>
-              </>
-            ) : null}
-          </p>
+          <p className="mt-1 text-xs text-app-muted">Read only</p>
           {toldSentence ? (
             <p className="mt-3 text-sm text-app-ink">
               <span className="text-app-muted">The part you would tell. </span>
@@ -499,7 +545,7 @@ export function MeetingReader({
             </p>
           ) : null}
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {linkCopyState === "copied" ? (
             <span className="text-xs leading-4 text-app-muted" role="status">
               Copied
@@ -525,25 +571,7 @@ export function MeetingReader({
               Ask Another Me
             </Button>
           ) : null}
-          {todos.length > 0 && anotherMe.data?.room_id ? (
-            <Link
-              className="shrink-0 text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              to={meetingRemindersPath(tenantId, entry.id)}
-            >
-              Turn to-dos into reminders
-            </Link>
-          ) : null}
-          {meeting.summary_ready && story.length > 0 ? (
-            <Link
-              className="shrink-0 text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              to={meetingStoryPath(tenantId, entry.id)}
-            >
-              Tell this story
-            </Link>
-          ) : null}
-          <Button onClick={() => setDeleting(true)} size="compact" tone="ghost">
-            Delete
-          </Button>
+          <ActionMenu items={actionMenuItems} label="Meeting actions" />
         </div>
       </header>
       {deleting ? (
@@ -590,9 +618,9 @@ export function MeetingReader({
         role="tabpanel"
       >
         {tab === "summary" ? (
-          <>
-            {meeting.summary_ready ? (
-              <>
+          meeting.summary_ready ? (
+            <>
+              {summaryMarkdown.trim() || summaryCopyState ? (
                 <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
                   {summaryCopyState === "copied" ? (
                     <span
@@ -619,182 +647,133 @@ export function MeetingReader({
                       Copy summary
                     </Button>
                   ) : null}
-                  {decisions.length ? (
-                    <Link
-                      className="text-sm text-app-ink underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
-                      to={carryDecisionPath(tenantId, entry.id)}
-                    >
-                      Carry a decision
-                    </Link>
-                  ) : null}
-                  <Button
-                    size="compact"
-                    tone="secondary"
-                    onClick={() =>
-                      triggerArtifactDownload(
-                        new Blob([entry.content], {
-                          type: "text/markdown;charset=utf-8",
-                        }),
-                        "summary.md",
-                      )
-                    }
-                  >
-                    Download summary
-                  </Button>
                 </div>
-                {/* One reading surface: the table of contents reads every
-                    heading inside it, the card's included. */}
-                <article
-                  aria-label="Meeting summary"
-                  className="[&>article:not(:first-child)]:pt-0 [&>article:not(:last-child)]:pb-0"
-                  data-content-renderer="blocknote"
-                  data-editable="false"
-                >
-                  {blocks.map((block, index) =>
-                    block.kind === "markdown" ? (
-                      <Fragment key={index}>
-                        {summaryDocument(block.markdown)}
-                      </Fragment>
-                    ) : block.kind === "keywords" ? (
-                      <MeetingKeywords
-                        key={index}
-                        keywords={block.keywords}
-                        title={block.title}
-                      />
-                    ) : block.kind === "topics" ? (
-                      <MeetingOverviewCard
-                        key={index}
-                        onPlayTopic={
-                          meeting.recording_document_id
-                            ? (at) =>
-                                setPlayFrom((current) => ({
-                                  at,
-                                  request: (current?.request ?? 0) + 1,
-                                }))
-                            : undefined
-                        }
-                        onReadSpoken={
-                          meeting.transcript_document_id
-                            ? readSpoken
-                            : undefined
-                        }
-                        topics={block.topics}
-                      />
-                    ) : (
-                      <MeetingOutcomes
-                        checks={
-                          block.title === "To-do list" && followUps.length > 0
-                            ? {
-                                checked: followUpChecks.checked,
-                                onToggle: followUpChecks.toggle,
-                                ready: followUpChecks.ready,
-                              }
-                            : undefined
-                        }
-                        copyStatus={
-                          actionsCopy?.entryId === entry.id &&
-                          actionsCopy.index === index
-                            ? actionsCopy.state
-                            : undefined
-                        }
-                        key={index}
-                        onCopyActions={(checklist) =>
-                          void copyActions(index, checklist)
-                        }
-                        onTrack={trackAction}
-                        outcomes={block.outcomes}
-                        title={block.title}
-                      />
-                    ),
-                  )}
-                </article>
-              </>
-            ) : (
-              <p className="text-sm text-app-muted" role="status">
-                The summary is still being written. The transcript is ready now.
-              </p>
-            )}
-            {soundStayed ? null : (
-              <div className="mt-8" data-meeting-player ref={playerHold}>
-                <MeetingVersionReader
-                  key={meeting.recording_version_id}
-                  accountId={accountId}
-                  carry={{
-                    href: meetingPath(tenantId, entry.id),
-                    title,
-                  }}
-                  continueRecording={continueRecording}
-                  documentId={meeting.recording_document_id}
-                  filename={meeting.recording_filename}
-                  hearingPace={hearingPace}
-                  meetingId={entry.id}
-                  onHearPace={
-                    paceOffer && meeting.transcript_document_id
-                      ? hearPace
-                      : undefined
-                  }
-                  onRecordingEnded={onRecordingEnded}
-                  onTime={setSpokenSeconds}
-                  pace={hearingPace ? pace : undefined}
-                  paceBusy={paceBusy}
-                  playFrom={playFrom}
-                  sessionTitle={title}
-                  startAt={startAt}
-                  variant="player"
-                  versionId={meeting.recording_version_id}
-                />
-              </div>
-            )}
-          </>
-        ) : (
-          <>
-            {soundStayed ? null : (
-              <div data-meeting-player ref={playerHold}>
-                <MeetingVersionReader
-                  accountId={accountId}
-                  carry={{
-                    href: meetingPath(tenantId, entry.id),
-                    title,
-                  }}
-                  continueRecording={continueRecording}
-                  documentId={meeting.recording_document_id}
-                  filename={meeting.recording_filename}
-                  hearingPace={hearingPace}
-                  meetingId={entry.id}
-                  onHearPace={
-                    paceOffer && meeting.transcript_document_id
-                      ? hearPace
-                      : undefined
-                  }
-                  onRecordingEnded={onRecordingEnded}
-                  onTime={setSpokenSeconds}
-                  pace={hearingPace ? pace : undefined}
-                  paceBusy={paceBusy}
-                  playFrom={playFrom}
-                  sessionTitle={title}
-                  startAt={startAt}
-                  variant="player"
-                  versionId={meeting.recording_version_id}
-                />
-              </div>
-            )}
+              ) : null}
+              {/* One reading surface: the table of contents reads every
+                  heading inside it, the card's included. */}
+              <article
+                aria-label="Meeting summary"
+                className="[&>article:not(:first-child)]:pt-0 [&>article:not(:last-child)]:pb-0"
+                data-content-renderer="blocknote"
+                data-editable="false"
+              >
+                {blocks.map((block, index) =>
+                  block.kind === "markdown" ? (
+                    <Fragment key={index}>
+                      {summaryDocument(block.markdown)}
+                    </Fragment>
+                  ) : block.kind === "keywords" ? (
+                    <MeetingKeywords
+                      key={index}
+                      keywords={block.keywords}
+                      title={block.title}
+                    />
+                  ) : block.kind === "topics" ? (
+                    <MeetingOverviewCard
+                      key={index}
+                      onPlayTopic={
+                        meeting.recording_document_id
+                          ? (at) =>
+                              setPlayFrom((current) => ({
+                                at,
+                                request: (current?.request ?? 0) + 1,
+                              }))
+                          : undefined
+                      }
+                      onReadSpoken={
+                        meeting.transcript_document_id ? readSpoken : undefined
+                      }
+                      topics={block.topics}
+                    />
+                  ) : (
+                    <MeetingOutcomes
+                      checks={
+                        block.title === "To-do list" && followUps.length > 0
+                          ? {
+                              checked: followUpChecks.checked,
+                              onToggle: followUpChecks.toggle,
+                              ready: followUpChecks.ready,
+                            }
+                          : undefined
+                      }
+                      copyStatus={
+                        actionsCopy?.entryId === entry.id &&
+                        actionsCopy.index === index
+                          ? actionsCopy.state
+                          : undefined
+                      }
+                      key={index}
+                      onCopyActions={(checklist) =>
+                        void copyActions(index, checklist)
+                      }
+                      onTrack={trackAction}
+                      outcomes={block.outcomes}
+                      title={block.title}
+                    />
+                  ),
+                )}
+              </article>
+            </>
+          ) : (
+            <p className="text-sm text-app-muted" role="status">
+              The summary is still being written. The transcript is ready now.
+            </p>
+          )
+        ) : null}
+        {/* Keep a single mounted player across tab switches so playback and
+            transcript time sync are never interrupted. */}
+        {soundStayed ? null : (
+          <div
+            className={tab === "summary" ? "mt-8" : "mb-4"}
+            data-meeting-player
+            ref={playerHold}
+          >
             <MeetingVersionReader
-              key={meeting.transcript_version_id}
-              captureId={meeting.capture_id}
-              documentId={meeting.transcript_document_id}
-              filename="transcript.md"
-              meetingLineUrl={(seconds) =>
-                new URL(
-                  meetingLineOpenUrl(meetingPath(tenantId, entry.id), seconds),
-                  window.location.origin,
-                ).toString()
+              key={meeting.recording_version_id}
+              accountId={accountId}
+              carry={{
+                href: meetingPath(tenantId, entry.id),
+                title,
+              }}
+              continueRecording={continueRecording}
+              documentId={meeting.recording_document_id}
+              filename={meeting.recording_filename}
+              hearingPace={hearingPace}
+              meetingId={entry.id}
+              onHearPace={
+                paceOffer && meeting.transcript_document_id
+                  ? hearPace
+                  : undefined
               }
-              spokenSeconds={spokenSeconds}
-              variant="document"
-              versionId={meeting.transcript_version_id}
+              onRecordingEnded={onRecordingEnded}
+              onTime={setSpokenSeconds}
+              pace={hearingPace ? pace : undefined}
+              paceBusy={paceBusy}
+              playFrom={playFrom}
+              sessionTitle={title}
+              startAt={startAt}
+              variant="player"
+              versionId={meeting.recording_version_id}
             />
-          </>
+          </div>
         )}
+        {tab === "transcript" ? (
+          <MeetingVersionReader
+            key={meeting.transcript_version_id}
+            captureId={meeting.capture_id}
+            documentId={meeting.transcript_document_id}
+            filename="transcript.md"
+            meetingLineUrl={(seconds) =>
+              new URL(
+                meetingLineOpenUrl(meetingPath(tenantId, entry.id), seconds),
+                window.location.origin,
+              ).toString()
+            }
+            spokenSeconds={spokenSeconds}
+            variant="document"
+            versionId={meeting.transcript_version_id}
+          />
+        ) : null}
       </div>
     </article>
   );
@@ -1144,7 +1123,7 @@ function MeetingVersionReader({
           <Icon icon={Search01Icon} size={14} />
           <input
             aria-label="Search transcript"
-            className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-60"
+            className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-app-placeholder disabled:opacity-60"
             disabled={!transcriptText}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search transcript"

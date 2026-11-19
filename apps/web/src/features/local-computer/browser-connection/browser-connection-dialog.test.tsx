@@ -116,7 +116,6 @@ describe("BrowserConnectionDialog", () => {
     fireEvent.change(input, { target: { value: pasted } });
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
 
-    expect(input).toHaveValue("");
     expect(
       await screen.findByText(
         "Connected. Browser tasks use your Chrome and its sign-ins.",
@@ -125,6 +124,10 @@ describe("BrowserConnectionDialog", () => {
     expect(screen.getByText("Chrome 147 connected")).toBeVisible();
     expect(screen.getByRole("button", { name: "Reconfigure" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Disconnect" })).toBeVisible();
+    // Token was cleared on success so reopening the form starts blank.
+    fireEvent.click(screen.getByRole("button", { name: "Reconfigure" }));
+    expect(screen.getByLabelText("Extension token")).toHaveValue("");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(route).toHaveBeenCalledWith("PUT", { extension_token: pasted });
     expect(request).not.toHaveBeenCalledWith(
       expect.stringContaining(token),
@@ -184,7 +187,36 @@ describe("BrowserConnectionDialog", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Can't read this token",
     );
-    expect(input).toHaveValue("");
+    expect(input).toHaveValue("not a token");
+  });
+
+  it("keeps the pasted token on transient failure so the user can retry without re-copying", async () => {
+    let attempts = 0;
+    const { route } = setup(async (method) => {
+      if (method === "GET") return isolated;
+      attempts += 1;
+      if (attempts === 1) {
+        throw new Error("Network error");
+      }
+      return connected;
+    });
+
+    const input = await screen.findByLabelText("Extension token");
+    fireEvent.change(input, { target: { value: token } });
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+    expect(await screen.findByRole("alert")).toBeVisible();
+    expect(input).toHaveValue(token);
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    expect(
+      await screen.findByText(
+        "Connected. Browser tasks use your Chrome and its sign-ins.",
+      ),
+    ).toBeVisible();
+    expect(route).toHaveBeenCalledWith("PUT", { extension_token: token });
+    fireEvent.click(screen.getByRole("button", { name: "Reconfigure" }));
+    expect(screen.getByLabelText("Extension token")).toHaveValue("");
   });
 
   it("tells a token the extension refused apart from a retryable failure", async () => {

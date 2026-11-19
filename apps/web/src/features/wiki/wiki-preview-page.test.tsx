@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
+import { WorkspaceTreeContext } from "@/features/library/workspace-tree";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import { teamHubIdentityQueryKey } from "@/features/rooms/room-queries";
@@ -131,4 +132,59 @@ it("records the previewed page for the Wiki home", async () => {
       },
     ]),
   );
+});
+
+it("offers the mobile drawer toggle and Back to Wiki link on both loaded and missing previews", async () => {
+  const runtime = createTestTeamHubRuntime();
+  serveWikiDocuments(runtime).mockResolvedValue({
+    items: [],
+    page: { has_more: false },
+  });
+  serveWikiStatus(runtime).mockResolvedValue({
+    created_at: "2026-08-23T00:00:00.000Z",
+    id: "wiki-tenant-northstar",
+    latest_refresh_id: "refresh-1",
+    owner_actor_id: "actor-human",
+    preview_revision: 1,
+    published_generation: 1,
+    state: "idle",
+    tenant_id: "tenant-northstar",
+    updated_at: "2026-08-23T00:00:00.000Z",
+  });
+  runtime.server.on(
+    "GET",
+    "/v0/tenants/{tenantId}/personal-wiki/preview",
+    () => ({}),
+  );
+  const setOpen = vi.fn();
+  const router = createMemoryRouter(
+    [{ path: "/t/:tenantId/wiki-preview", element: <WikiPreviewPage /> }],
+    {
+      initialEntries: [
+        "/t/tenant-northstar/wiki-preview?page=projects%2Fmissing.md",
+      ],
+    },
+  );
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <TeamHubRuntimeProvider runtime={runtime}>
+        <WorkspaceTreeContext value={{ open: false, setOpen }}>
+          <RouterProvider router={router} />
+        </WorkspaceTreeContext>
+      </TeamHubRuntimeProvider>
+    </QueryClientProvider>,
+  );
+
+  expect(await screen.findByText("This page was not published.")).toBeVisible();
+  const backLinks = screen.getAllByRole("link", { name: "Back to Wiki" });
+  expect(backLinks.length).toBeGreaterThan(0);
+  for (const link of backLinks) {
+    expect(link).toHaveAttribute("href", "/t/tenant-northstar/library/wiki");
+  }
+  fireEvent.click(screen.getByRole("button", { name: "Open Library pages" }));
+  expect(setOpen).toHaveBeenCalledWith(true);
 });

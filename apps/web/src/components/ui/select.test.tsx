@@ -193,4 +193,38 @@ describe("Select", () => {
       expect.any(Function),
     );
   });
+
+  it("portals to body inside a closed dialog, advertises listbox, falls back past disabled selection, and handles Home/End", async () => {
+    render(
+      <dialog style={{ display: "contents" }}>
+        <Select aria-label="Runtime" onValueChange={vi.fn()} value="disabled">
+          <SelectItem disabled value="disabled">
+            Disabled
+          </SelectItem>
+          <SelectItem value="alpha">Alpha</SelectItem>
+          <SelectItem value="beta">Beta</SelectItem>
+          <SelectItem disabled value="gamma">
+            Gamma
+          </SelectItem>
+        </Select>
+      </dialog>,
+    );
+
+    const trigger = screen.getByRole("combobox", { name: "Runtime" });
+    expect(trigger).toHaveAttribute("aria-haspopup", "listbox");
+    fireEvent.click(trigger);
+
+    const alpha = await screen.findByRole("option", { name: "Alpha" });
+    expect(alpha.closest("[data-select-portal]")?.parentElement).toBe(
+      document.body,
+    );
+    await vi.waitFor(() => expect(alpha).toHaveFocus());
+
+    const listbox = screen.getByRole("listbox");
+    fireEvent.keyDown(listbox, { key: "End" });
+    expect(screen.getByRole("option", { name: "Beta" })).toHaveFocus();
+
+    fireEvent.keyDown(listbox, { key: "Home" });
+    expect(alpha).toHaveFocus();
+  });
 });

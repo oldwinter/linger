@@ -7,7 +7,12 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
+import {
+  createMemoryRouter,
+  RouterProvider,
+  useLocation,
+  useNavigate,
+} from "react-router";
 import {
   afterEach,
   beforeAll,
@@ -28,6 +33,7 @@ import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubAccountProfileUpdate } from "@/features/teamhub/teamhub-types";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 
+import { DisconnectAccountDialog } from "./account-disconnect-dialogs";
 import { AccountSettingsPage } from "./account-settings-page";
 import { SecuritySettingsPage } from "./security-settings-page";
 import { SettingsLayout } from "./settings-page";
@@ -138,9 +144,15 @@ describe("Settings surfaces", () => {
     expect(await screen.findByText("No insights yet.")).toBeVisible();
   });
 
-  it("switches Settings sections through their own addresses", async () => {
+  it("switches Settings sections through their own addresses and supports browser Back", async () => {
     const runtime = await testRuntime();
     renderSettings(runtime);
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Profile" }),
+    ).toBeVisible();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole("main")).toBeVisible();
 
     fireEvent.click(
       within(
@@ -151,12 +163,27 @@ describe("Settings surfaces", () => {
     expect(
       await screen.findByRole("button", { name: "Change password" }),
     ).toBeVisible();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Security" }),
+    ).toBeVisible();
+    expect(
+      screen.getByText("Manage your sign-in password and server API keys."),
+    ).toBeVisible();
     expect(screen.getByTestId("location")).toHaveTextContent(
       "/t/tenant-northstar/settings/security",
     );
     expect(screen.getByRole("link", { name: "Security" })).toHaveAttribute(
       "aria-current",
       "page",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Browser back" }));
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Profile" }),
+    ).toBeVisible();
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/t/tenant-northstar/settings/account",
     );
   });
 
@@ -193,7 +220,14 @@ describe("Settings surfaces", () => {
     renderSettings(runtime);
 
     expect(
-      await screen.findByRole("heading", { level: 1, name: "Settings" }),
+      await screen.findByRole("heading", { level: 1, name: "Profile" }),
+    ).toBeVisible();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByText("Settings")).toBeVisible();
+    expect(
+      screen.getByText(
+        "Photo, name, bio, notifications, and browser preferences for this space.",
+      ),
     ).toBeVisible();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     const settingsNav = screen.getByRole("complementary", {
@@ -355,6 +389,15 @@ describe("Settings surfaces", () => {
     fireEvent.click(submit);
 
     expect(await screen.findByText("Password changed")).toBeVisible();
+    // Status banner renders directly beneath the password card, above API keys.
+    const status = screen.getByText("Password changed");
+    const apiKeysHeading = screen.getByText("API keys");
+    expect(
+      Boolean(
+        status.compareDocumentPosition(apiKeysHeading) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
     expect(change).toHaveBeenCalledWith(
       expect.objectContaining({
         body: { current_password: "linger-v0", new_password: "linger-v1" },
@@ -413,6 +456,50 @@ describe("Settings surfaces", () => {
     expect(
       screen.getByText(/Allow notifications for this site/u),
     ).toBeVisible();
+  });
+
+  it("blocks closing DisconnectAccountDialog while disconnect is pending", async () => {
+    const runtime = await testRuntime();
+    const existing = (await runtime.client.listExternalConnections())
+      .connections[0]!;
+    let resolveDisconnect!: (value: typeof existing) => void;
+    vi.spyOn(runtime.client, "disconnectExternalConnection").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveDisconnect = resolve;
+        }),
+    );
+    const onClose = vi.fn();
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <DisconnectAccountDialog
+          client={runtime.client}
+          connection={existing}
+          onClose={onClose}
+        />
+      </QueryClientProvider>,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Disconnect account?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
+
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("button", { name: "Cancel" }),
+      ).toBeDisabled(),
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveDisconnect({ ...existing, status: "disconnecting" });
+    });
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 });
 
@@ -618,6 +705,7 @@ function renderSettings(
                   <>
                     <SettingsLayout />
                     <LocationProbe />
+                    <BackButton />
                   </>
                 ),
                 path: "/t/:tenantId/settings",
@@ -637,6 +725,15 @@ function LocationProbe() {
   const location = useLocation();
   return (
     <output data-testid="location">{`${location.pathname}${location.search}`}</output>
+  );
+}
+
+function BackButton() {
+  const navigate = useNavigate();
+  return (
+    <button onClick={() => void navigate(-1)} type="button">
+      Browser back
+    </button>
   );
 }
 

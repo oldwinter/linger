@@ -270,12 +270,12 @@ export function modelSourceErrorCopy(code: string | undefined) {
 /** Why reading a Computer's model source failed. */
 export function modelSourceReadErrorCopy(code: string | undefined) {
   if (code === "MODEL_SOURCE_SERVICE_UNAVAILABLE") {
-    return modelSourceRefusals.MODEL_SOURCE_SERVICE_UNAVAILABLE;
+    return "Linger couldn't reach the computer right now.";
   }
   if (code === "MODEL_SOURCE_UNCONFIRMED") {
-    return "The computer didn't answer in time. Try again.";
+    return "The computer didn't answer in time.";
   }
-  return "Couldn't read how Agents on this computer get their model. Try again.";
+  return "Couldn't read how Agents on this computer get their model.";
 }
 
 export const modelSourceModeLabels: Record<Schemas["ModelSourceMode"], string> =

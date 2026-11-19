@@ -51,6 +51,47 @@ describe("collapsed navigation hover targets", () => {
       expect(label?.style.opacity).toBe("1");
     },
   );
+
+  it("centers 44px mobile rail targets and allocates desktop and touch message action slots", () => {
+    const rules = Array.from(stylesheet.sheet!.cssRules);
+    const mobileRailMedia = rules.find(
+      (rule): rule is CSSMediaRule =>
+        rule instanceof CSSMediaRule &&
+        rule.conditionText.includes("max-width: 767px") &&
+        rule.conditionText.includes("pointer: coarse"),
+    );
+    const mobileItemsRule = mobileRailMedia
+      ? styleRules(mobileRailMedia.cssRules).find(
+          (rule) =>
+            rule.selectorText.replace(/\s+/g, " ") ===
+            ".primary-navigation-items",
+        )
+      : undefined;
+    expect(mobileItemsRule?.style.getPropertyValue("padding-inline")).toBe(
+      "6px",
+    );
+
+    const desktopMessageRule = styleRules(stylesheet.sheet!.cssRules).find(
+      (rule) => rule.selectorText === ".room-message-card",
+    );
+    expect(
+      desktopMessageRule?.style.getPropertyValue("--message-actions-room"),
+    ).toBe("112px");
+
+    const coarseMedia = rules.find(
+      (rule): rule is CSSMediaRule =>
+        rule instanceof CSSMediaRule &&
+        rule.conditionText === "(pointer: coarse)",
+    );
+    const coarseCardRule = coarseMedia
+      ? styleRules(coarseMedia.cssRules).find(
+          (rule) => rule.selectorText === ".room-message-card",
+        )
+      : undefined;
+    expect(
+      coarseCardRule?.style.getPropertyValue("--message-actions-room"),
+    ).toBe("0px");
+  });
 });
 
 function styleRules(rules: CSSRuleList): CSSStyleRule[] {

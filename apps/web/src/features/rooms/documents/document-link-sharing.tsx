@@ -5,11 +5,13 @@ import {
   RefreshIcon,
 } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectItem } from "@/components/ui/select";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import { writeClipboardText } from "@/lib/clipboard";
+
+const LINK_COPIED_MS = 1200;
 
 export function DocumentLinkSharing({
   client,
@@ -27,11 +29,35 @@ export function DocumentLinkSharing({
     null,
   );
   const [pending, setPending] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copiedTimerRef = useRef<number | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const active = policy.data?.status === "active";
+  const hasCopyableLink = active && link?.version === policy.data?.version;
+  useEffect(() => () => window.clearTimeout(copiedTimerRef.current), []);
+
+  async function copySharedLink() {
+    if (!hasCopyableLink || !link) return;
+    window.clearTimeout(copiedTimerRef.current);
+    setCopied(false);
+    setError(null);
+    try {
+      await writeClipboardText(link.url);
+      setCopied(true);
+      copiedTimerRef.current = window.setTimeout(
+        () => setCopied(false),
+        LINK_COPIED_MS,
+      );
+    } catch {
+      setError("Could not copy the link.");
+    }
+  }
+
   async function update(role: "disabled" | "viewer" | "editor", reset = false) {
     setPending(true);
     setError(null);
+    window.clearTimeout(copiedTimerRef.current);
+    setCopied(false);
     try {
       const expected_version = policy.data?.version ?? 0;
       if (role === "disabled") {
@@ -89,22 +115,31 @@ export function DocumentLinkSharing({
             <Icon icon={RefreshIcon} />
           </Button>
         ) : null}
-        {active && link?.version === policy.data?.version ? (
-          <Button
-            aria-label="Copy shared link"
-            title="Copy shared link"
-            size="compactIcon"
-            tone="ghost"
-            onClick={() =>
-              void writeClipboardText(link!.url).catch(() =>
-                setError("Could not copy the link."),
-              )
-            }
-          >
-            <Icon icon={Copy01Icon} />
-          </Button>
+        {hasCopyableLink ? (
+          <>
+            {copied ? (
+              <span className="text-xs text-app-muted" role="status">
+                Copied
+              </span>
+            ) : null}
+            <Button
+              aria-label="Copy shared link"
+              title="Copy shared link"
+              size="compactIcon"
+              tone="ghost"
+              onClick={() => void copySharedLink()}
+            >
+              <Icon icon={Copy01Icon} />
+            </Button>
+          </>
         ) : null}
       </div>
+      {active && !hasCopyableLink ? (
+        <p className="mt-2 text-xs text-app-muted">
+          For security, this link is shown only when created. Reset the link to
+          generate a new copyable URL.
+        </p>
+      ) : null}
       {error || policy.error ? (
         <p role="alert" className="mt-2 text-sm text-app-danger">
           {error ?? "Link sharing is unavailable."}

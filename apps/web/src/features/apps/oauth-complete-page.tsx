@@ -1,5 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
+import { Spinner } from "@/components/ui/spinner";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
 export const OAUTH_COMPLETE_PATH = "/oauth/composio-complete";
@@ -7,8 +8,11 @@ export const OAUTH_COMPLETE_PATH = "/oauth/composio-complete";
 // The window waits at most this long for TeamHub to take the completion.
 const COMPLETE_WAIT_MS = 3000;
 
+type CompletionPhase = "pending" | "complete" | "failed" | "timeout";
+
 export function OAuthCompletePage() {
   const { client } = useTeamHubRuntime();
+  const [phase, setPhase] = useState<CompletionPhase>("pending");
 
   useEffect(() => {
     // TeamHub checks the account with Composio; returning here is never
@@ -16,27 +20,81 @@ export function OAuthCompletePage() {
     const connectedAccountId =
       new URLSearchParams(window.location.search).get("connected_account_id") ??
       undefined;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    void Promise.race([
-      client
-        .completeExternalConnectionAuthorization(connectedAccountId)
-        .catch(() => undefined),
-      new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, COMPLETE_WAIT_MS);
-      }),
-    ]).finally(() => {
+    let active = true;
+    const timer = setTimeout(() => {
+      if (!active) return;
+      active = false;
+      setPhase("timeout");
+    }, COMPLETE_WAIT_MS);
+
+    void client
+      .completeExternalConnectionAuthorization(connectedAccountId)
+      .then(
+        () => {
+          if (!active) return;
+          active = false;
+          clearTimeout(timer);
+          setPhase("complete");
+        },
+        () => {
+          if (!active) return;
+          active = false;
+          clearTimeout(timer);
+          setPhase("failed");
+        },
+      );
+
+    return () => {
+      active = false;
       clearTimeout(timer);
-      window.close();
-    });
+    };
   }, [client]);
+
+  useEffect(() => {
+    if (phase !== "pending") {
+      window.close();
+    }
+  }, [phase]);
 
   return (
     <main className="flex min-h-dvh items-center justify-center bg-background px-6 text-center text-foreground">
       <div className="max-w-md">
-        <h1 className="text-lg">Authorization complete</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          You can close this window.
-        </p>
+        {phase === "pending" ? (
+          <>
+            <h1 className="flex items-center justify-center gap-2 text-lg">
+              <Spinner size={16} />
+              Finishing authorization…
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground" role="status">
+              Confirming your connection with Linger.
+            </p>
+          </>
+        ) : phase === "complete" ? (
+          <>
+            <h1 className="text-lg">Authorization complete</h1>
+            <p className="mt-2 text-sm text-muted-foreground" role="status">
+              You can close this window.
+            </p>
+          </>
+        ) : phase === "timeout" ? (
+          <>
+            <h1 className="text-lg">Still verifying authorization</h1>
+            <p className="mt-2 text-sm text-muted-foreground" role="status">
+              Return to Linger to check your connection. You can close this
+              window.
+            </p>
+          </>
+        ) : (
+          <div role="alert">
+            <h1 className="text-lg text-app-danger">
+              Authorization could not be confirmed
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Return to Linger and try connecting again. You can close this
+              window.
+            </p>
+          </div>
+        )}
       </div>
     </main>
   );

@@ -643,3 +643,51 @@ describe("PocketNotePanel copy", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
   });
 });
+
+describe("PocketNotePanel persistence and recovery", () => {
+  it("stays open when clicking a room link inside navigation and clamps to the viewport", async () => {
+    const { onClose } = renderPanel(async () =>
+      page([note("2026-10-01", "Keep open while switching rooms")]),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Pocket notes" });
+    expect(dialog).toHaveClass("max-w-[calc(100vw-24px)]");
+    expect(dialog).toHaveClass("max-h-[calc(100dvh-24px)]");
+
+    const nav = document.createElement("aside");
+    nav.className = "app-secondary-navigation";
+    const roomLink = document.createElement("a");
+    roomLink.textContent = "Design";
+    nav.append(roomLink);
+    document.body.append(nav);
+    try {
+      fireEvent.pointerDown(roomLink);
+      expect(onClose).not.toHaveBeenCalled();
+
+      fireEvent.pointerDown(document.body);
+      expect(onClose).toHaveBeenCalledOnce();
+    } finally {
+      nav.remove();
+    }
+  });
+
+  it("surfaces a load error alert with Retry and recovers on retry", async () => {
+    let fail = true;
+    const listNotes = vi.fn(() => {
+      if (fail) {
+        fail = false;
+        return teamHubErrorResponse(503, "POCKET_NOTES_UNAVAILABLE");
+      }
+      return page([note("2026-10-01", "Recovered note")]);
+    });
+    renderPanel(listNotes);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Couldn’t load notes");
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+
+    expect(
+      await screen.findByRole("textbox", { name: "Today’s note" }),
+    ).toHaveTextContent("Recovered note");
+    expect(listNotes).toHaveBeenCalledTimes(2);
+  });
+});

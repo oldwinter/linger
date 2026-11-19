@@ -47,6 +47,9 @@ export function QuestionDecision({
   // Fade a step in only once the card has moved, not when it first shows.
   const [stepped, setStepped] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const radioTimerRef = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(radioTimerRef.current), []);
   const pending = card.status === "pending";
   const canDecide = pending && currentActorId === card.decision_owner.id;
   const questions: InteractionQuestion[] = card.question?.questions ?? [];
@@ -54,6 +57,9 @@ export function QuestionDecision({
   const isFinalStep = stepIndex >= questions.length - 1;
 
   async function submit(nextAnswers: AnswerMap = answers) {
+    if (submittingRef.current) return;
+    window.clearTimeout(radioTimerRef.current);
+    submittingRef.current = true;
     setDecisionError(null);
     setSubmitting(true);
     try {
@@ -69,15 +75,19 @@ export function QuestionDecision({
         error instanceof Error ? error.message : "Card decision failed.",
       );
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
 
   // The chosen row lights up for a beat before the card moves on.
   function selectRadio(question: InteractionQuestion, optionId: string) {
+    if (submittingRef.current) return;
+    window.clearTimeout(radioTimerRef.current);
     const nextAnswers = { ...answers, [question.id]: optionId };
     setAnswers(nextAnswers);
-    window.setTimeout(() => {
+    radioTimerRef.current = window.setTimeout(() => {
+      radioTimerRef.current = undefined;
       if (isFinalStep) {
         void submit(nextAnswers);
         return;
@@ -87,6 +97,7 @@ export function QuestionDecision({
   }
 
   function goToStep(next: number) {
+    window.clearTimeout(radioTimerRef.current);
     setStepped(true);
     setStepIndex(Math.max(0, Math.min(next, questions.length - 1)));
   }
@@ -158,6 +169,14 @@ export function QuestionDecision({
               <OtherRow
                 disabled={submitting}
                 key={activeQuestion.id}
+                onSubmit={() => {
+                  if (submitting || !hasAnswer(activeQuestion, value)) return;
+                  if (isFinalStep) {
+                    void submit();
+                    return;
+                  }
+                  goToStep(stepIndex + 1);
+                }}
                 onWrite={(text) => writeAnswer(activeQuestion, text)}
                 question={activeQuestion}
                 value={writtenAnswer(activeQuestion, value)}
@@ -219,7 +238,9 @@ export function QuestionDecision({
           </div>
         ) : null}
         {decisionError ? (
-          <p className="pb-1.5 text-xs text-app-danger">{decisionError}</p>
+          <p className="pb-1.5 text-xs text-app-danger" role="alert">
+            {decisionError}
+          </p>
         ) : null}
       </AutoHeight>
     </CardBox>
@@ -232,11 +253,13 @@ export function QuestionDecision({
  */
 function OtherRow({
   disabled,
+  onSubmit,
   onWrite,
   question,
   value,
 }: {
   disabled?: boolean;
+  onSubmit?: () => void;
   onWrite: (text: string) => void;
   question: InteractionQuestion;
   value: string;
@@ -266,6 +289,16 @@ function OtherRow({
         disabled={disabled}
         maxLength={question.input === "checkbox" ? 200 : 10000}
         onChange={(event) => onWrite(event.target.value)}
+        onKeyDown={(event) => {
+          if (
+            event.key === "Enter" &&
+            !event.nativeEvent.isComposing &&
+            !disabled
+          ) {
+            event.preventDefault();
+            onSubmit?.();
+          }
+        }}
         placeholder="Your own answer"
         ref={field}
         value={value}

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export function EditableDocumentTitle({
   autoFocus = false,
@@ -25,8 +25,19 @@ export function EditableDocumentTitle({
   }>();
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
+  const [cancelledAutoFocus, setCancelledAutoFocus] = useState(false);
   const savingRef = useRef(false);
+  const cancellingRef = useRef(false);
+  const commitFrameRef = useRef<number | undefined>(undefined);
   const shouldSelectOnFocusRef = useRef(autoFocus);
+  useEffect(
+    () => () => {
+      if (commitFrameRef.current !== undefined) {
+        cancelAnimationFrame(commitFrameRef.current);
+      }
+    },
+    [],
+  );
   const visibleName = committedName?.base === name ? committedName.next : name;
   const focusInput = useCallback(
     (element: HTMLInputElement | null) => {
@@ -44,8 +55,22 @@ export function EditableDocumentTitle({
     },
     [autoFocus, onAutoFocusConsumed, visibleName],
   );
+  const cancelEdit = useCallback(() => {
+    cancellingRef.current = true;
+    shouldSelectOnFocusRef.current = false;
+    setDraft(visibleName);
+    setError(undefined);
+    setEditing(false);
+    if (autoFocus) {
+      if (onAutoFocusConsumed) {
+        onAutoFocusConsumed();
+      } else {
+        setCancelledAutoFocus(true);
+      }
+    }
+  }, [autoFocus, onAutoFocusConsumed, visibleName]);
   const commit = useCallback(async () => {
-    if (savingRef.current) return false;
+    if (savingRef.current || cancellingRef.current) return false;
     const next = (draft ?? visibleName).trim();
     if (!next || next === visibleName) {
       setEditing(false);
@@ -75,9 +100,15 @@ export function EditableDocumentTitle({
   }, [draft, name, onRename, visibleName]);
   const commitAndContinue = useCallback(async () => {
     if (!(await commit())) return;
-    requestAnimationFrame(() => onCommit?.());
+    if (commitFrameRef.current !== undefined) {
+      cancelAnimationFrame(commitFrameRef.current);
+    }
+    commitFrameRef.current = requestAnimationFrame(() => {
+      commitFrameRef.current = undefined;
+      onCommit?.();
+    });
   }, [commit, onCommit]);
-  if (!isEditing || !(editing || autoFocus)) {
+  if (!isEditing || !(editing || (autoFocus && !cancelledAutoFocus))) {
     return (
       <div>
         <div
@@ -91,7 +122,9 @@ export function EditableDocumentTitle({
             <button
               className="block min-w-0 max-w-full text-left text-app-ink"
               onClick={() => {
+                cancellingRef.current = false;
                 setDraft(visibleName);
+                setError(undefined);
                 setEditing(true);
               }}
               title="Rename document"
@@ -145,10 +178,21 @@ export function EditableDocumentTitle({
         }
         disabled={saving}
         maxLength={255}
-        onBlur={() => void commit()}
+        onBlur={() => {
+          if (cancellingRef.current) {
+            cancellingRef.current = false;
+            return;
+          }
+          void commit();
+        }}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => {
           if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+          if (event.key === "Escape") {
+            event.preventDefault();
+            cancelEdit();
+            return;
+          }
           if (event.key !== "Enter") return;
           event.preventDefault();
           void commitAndContinue();

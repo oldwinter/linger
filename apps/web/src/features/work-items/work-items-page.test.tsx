@@ -486,21 +486,71 @@ describe("Dashboard page", () => {
       },
     );
 
+    const empty = await screen.findByRole("region", {
+      name: "No matching items",
+    });
     expect(
-      await screen.findByRole("heading", { name: "No Work Items match" }),
+      within(empty).getByRole("heading", { name: "No matching items" }),
     ).toBeVisible();
     expect(
-      screen.getByText("Only Work Item titles are searched."),
+      within(empty).getByText(/Only Work Item titles are searched\./),
     ).toBeVisible();
     expect(screen.queryByRole("region", { name: "Todo" })).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Clear filter" }));
+    fireEvent.click(
+      within(empty).getByRole("button", { name: "Clear filters" }),
+    );
 
     expect(await screen.findByText("Plan the release")).toBeVisible();
     expect(screen.getByRole("region", { name: "Todo" })).toBeVisible();
     expect(
       screen.getByRole("searchbox", { name: "Filter by title" }),
     ).toHaveValue("");
+  });
+
+  it("shows No matching items when non-text filters match nothing and clears them", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        assignees: [assignment(human)],
+        id: "workitem-plan",
+        origin_room_id: "room-all",
+        priority: "high",
+        title: "Plan the release",
+      }),
+    ]);
+
+    renderPage(runtime);
+    await screen.findByText("Plan the release");
+
+    fireEvent.click(screen.getByLabelText("Priority"));
+    fireEvent.click(await screen.findByRole("option", { name: "Urgent" }));
+
+    const priorityEmpty = await screen.findByRole("region", {
+      name: "No matching items",
+    });
+    expect(
+      within(priorityEmpty).getByRole("heading", { name: "No matching items" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("region", { name: "Todo" })).toBeNull();
+
+    fireEvent.click(
+      within(priorityEmpty).getByRole("button", { name: "Clear filters" }),
+    );
+    expect(await screen.findByText("Plan the release")).toBeVisible();
+
+    fireEvent.click(screen.getByLabelText("Assignment"));
+    fireEvent.click(await screen.findByRole("option", { name: "Unassigned" }));
+
+    const assignmentEmpty = await screen.findByRole("region", {
+      name: "No matching items",
+    });
+    expect(assignmentEmpty).toBeVisible();
+    fireEvent.click(
+      within(assignmentEmpty).getByRole("button", { name: "Clear filters" }),
+    );
+    expect(await screen.findByText("Plan the release")).toBeVisible();
   });
 
   it("restores the title query from the URL and ignores descriptions", async () => {
@@ -623,7 +673,7 @@ describe("Dashboard page", () => {
     expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
   });
 
-  it("keeps the Room scope while clearing filters", async () => {
+  it("clears the Room filter along with every other filter", async () => {
     const runtime = await testRuntime();
     const human = runtime.seed.identity.actors[0]!;
     seedWorkItems(runtime, [
@@ -643,10 +693,11 @@ describe("Dashboard page", () => {
 
     await waitFor(() =>
       expect(screen.getByTestId("location").textContent).toBe(
-        "/t/tenant-northstar/dashboard?room=room-gtm-launch",
+        "/t/tenant-northstar/dashboard",
       ),
     );
-    expect(screen.getByLabelText("Room")).toHaveValue("room-gtm-launch");
+    expect(screen.getByLabelText("Room")).toHaveValue("");
+    expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
   });
 
   it("replaces history so Back steps past the cleared filters", async () => {
@@ -904,13 +955,26 @@ describe("Dashboard page", () => {
     expect(screen.getByText("Duplicate work")).toBeVisible();
   });
 
-  it("shows an explicit empty state for a Tenant without Work Items", async () => {
+  it("shows an explicit empty state with subcopy and New issue CTA for a Tenant without Work Items", async () => {
     const runtime = await testRuntime();
     seedWorkItems(runtime, []);
 
     renderPage(runtime);
 
-    expect(await screen.findByText("No Work Items yet")).toBeVisible();
+    const heading = await screen.findByRole("heading", {
+      name: "No Work Items yet",
+    });
+    expect(heading).toBeVisible();
+    const emptySection = heading.closest("section")!;
+    expect(
+      within(emptySection).getByText(/Create your first issue to get started/),
+    ).toBeVisible();
+    fireEvent.click(
+      within(emptySection).getByRole("button", { name: "New issue" }),
+    );
+    expect(
+      await screen.findByRole("dialog", { name: "New issue" }),
+    ).toBeVisible();
     expect(screen.getByText("0 items")).toBeVisible();
   });
 

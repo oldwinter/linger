@@ -206,6 +206,7 @@ export function ActionMenu({
     moveMenuFocus(event);
   }
 
+  const hasIcons = items.some((item) => item.icon !== undefined);
   const submenuItems =
     activeSubmenu === null ? undefined : items[activeSubmenu]?.children;
 
@@ -235,7 +236,7 @@ export function ActionMenu({
             return;
           }
           setFocusOnOpen(true);
-          setOpen((current) => openOnHover || !current);
+          setOpen((current) => !current);
           setActiveSubmenu(null);
         }}
         ref={triggerRef}
@@ -279,6 +280,7 @@ export function ActionMenu({
                   {items.map((item, index) => (
                     <ActionMenuItemButton
                       className={itemClassName}
+                      hasIcons={hasIcons}
                       iconClassName={iconClassName}
                       item={item}
                       key={item.label}
@@ -417,6 +419,7 @@ function computeMenuPosition(
 
 function ActionMenuItemButton({
   className,
+  hasIcons,
   iconClassName,
   item,
   onOpenSubmenu,
@@ -425,6 +428,7 @@ function ActionMenuItemButton({
   submenuOpen,
 }: {
   className: string;
+  hasIcons: boolean;
   iconClassName: string;
   item: ActionMenuItem;
   onOpenSubmenu: (focusFirstChild: boolean) => void;
@@ -435,7 +439,7 @@ function ActionMenuItemButton({
   return (
     <div>
       {item.separatorBefore ? (
-        <div className="-mx-1 my-1 border-t border-border" />
+        <div className="-mx-1 my-1 border-t border-border" role="separator" />
       ) : null}
       <button
         aria-expanded={item.children ? submenuOpen : undefined}
@@ -454,7 +458,12 @@ function ActionMenuItemButton({
           onSelect();
         }}
         onKeyDown={(event) => {
-          if (item.children && event.key === "ArrowRight") {
+          if (
+            item.children &&
+            (event.key === "ArrowRight" ||
+              event.key === "Enter" ||
+              event.key === " ")
+          ) {
             event.preventDefault();
             event.stopPropagation();
             onOpenSubmenu(true);
@@ -468,11 +477,13 @@ function ActionMenuItemButton({
         tabIndex={-1}
         type="button"
       >
-        <span
-          className={`${iconClassName} ${item.danger ? "" : "text-muted-foreground"}`}
-        >
-          {item.icon}
-        </span>
+        {hasIcons ? (
+          <span
+            className={`${iconClassName} ${item.danger ? "" : "text-muted-foreground"}`}
+          >
+            {item.icon}
+          </span>
+        ) : null}
         <span className="min-w-0 flex-1 truncate" title={item.label}>
           {item.label}
         </span>
@@ -550,6 +561,8 @@ function ActionSubmenu({
     };
   }, [parentMenu, ref]);
 
+  const hasIcons = items.some((child) => child.icon !== undefined);
+
   return (
     // eslint-disable-next-line jsx-a11y/interactive-supports-focus -- composite widget: focus is managed on its child items
     <div
@@ -572,27 +585,42 @@ function ActionSubmenu({
       style={position}
     >
       {items.map((child) => (
-        <button
-          className="flex min-h-[33px] w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground outline-none hover:bg-accent focus:bg-accent disabled:pointer-events-none disabled:opacity-50"
-          disabled={child.disabled}
-          key={child.label}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            if (!child.keepOpen) onClose();
-            child.onSelect?.();
-          }}
-          role="menuitem"
-          tabIndex={-1}
-          type="button"
-        >
-          <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
-            {child.icon}
-          </span>
-          <span className="min-w-0 truncate" title={child.label}>
-            {child.label}
-          </span>
-        </button>
+        <div key={child.label}>
+          {child.separatorBefore ? (
+            <div
+              className="-mx-1 my-1 border-t border-border"
+              role="separator"
+            />
+          ) : null}
+          <button
+            className={`flex min-h-[33px] w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent focus:bg-accent disabled:pointer-events-none disabled:opacity-50 ${
+              child.danger ? "text-destructive" : "text-foreground"
+            }`}
+            disabled={child.disabled}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (!child.keepOpen) onClose();
+              child.onSelect?.();
+            }}
+            role="menuitem"
+            tabIndex={-1}
+            type="button"
+          >
+            {hasIcons ? (
+              <span
+                className={`flex size-4 shrink-0 items-center justify-center ${
+                  child.danger ? "" : "text-muted-foreground"
+                }`}
+              >
+                {child.icon}
+              </span>
+            ) : null}
+            <span className="min-w-0 truncate" title={child.label}>
+              {child.label}
+            </span>
+          </button>
+        </div>
       ))}
     </div>
   );

@@ -8,7 +8,7 @@ import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 
 import { CatchUpPage } from "./catch-up-page";
-import { readCatchUpWalk } from "./catch-up";
+import { readCatchUpWalk, writeCatchUpWalk } from "./catch-up";
 
 afterEach(() => {
   window.sessionStorage.clear();
@@ -203,5 +203,35 @@ describe("Catch up", () => {
       await screen.findByRole("heading", { name: "You're caught up" }),
     ).toBeVisible();
     expect(screen.getByText("No chats have new messages.")).toBeVisible();
+  });
+
+  it("starts a fresh walk when a stored walk is already finished and new messages exist", async () => {
+    writeCatchUpWalk("account-jenny", "tenant-northstar", {
+      index: 1,
+      rooms: [
+        {
+          id: "room-old",
+          name: "Old chat",
+          preview: "Yesterday",
+          unreadMentions: 0,
+          unreadMessages: 1,
+        },
+      ],
+    });
+
+    renderPage([
+      room("room-fresh-a", "Design", 2, "Ready for review"),
+      room("room-fresh-b", "Launch", 1, "Updated date"),
+    ]);
+
+    expect(
+      await screen.findByRole("heading", { name: "Design" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Previous" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("heading", { name: "Launch" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+    expect(screen.getByRole("heading", { name: "Design" })).toBeVisible();
   });
 });

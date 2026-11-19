@@ -124,7 +124,21 @@ export function GlobalSearchField({
           role="combobox"
           value={query}
         />
+        {query.length > 0 ? (
+          <button
+            aria-label="Clear search"
+            className="grid size-6 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => {
+              onQueryChange("");
+              inputRef.current?.focus();
+            }}
+            type="button"
+          >
+            <Icon icon={Cancel01Icon} size={14} />
+          </button>
+        ) : null}
         <button
+          aria-label="Close search"
           className="h-7 shrink-0 rounded-full border border-border px-2.5 text-xs font-medium text-muted-foreground transition-colors duration-150 hover:border-foreground/15 hover:bg-accent hover:text-foreground"
           onClick={onClose}
           type="button"
@@ -151,6 +165,7 @@ export function GlobalSearchKindFilter({
   onSelect: (kind: GlobalSearchTab) => void;
   options: readonly ResultKindOption[];
 }) {
+  if (options.length <= 2) return null;
   return (
     <div
       aria-label="Filter search results by kind"
@@ -286,7 +301,7 @@ export function GlobalSearchResultList({
               {section.loading ? (
                 <SkeletonRows />
               ) : section.layout === "scopes" ? (
-                <div className="grid grid-cols-2 gap-2 px-3 pb-1 pt-1">
+                <div className="grid grid-cols-1 gap-2 px-3 pb-1 pt-1 sm:grid-cols-2">
                   {section.items.map((result) => {
                     const index = rowIndex++;
                     return result.kind === "scope" ? (
@@ -388,7 +403,7 @@ export function GlobalSearchFooter({
           {openError}
         </p>
       ) : null}
-      <div className="flex h-10 shrink-0 items-center gap-4 border-t border-border/60 px-5 text-xs text-app-subtle">
+      <div className="hidden h-10 shrink-0 items-center gap-4 border-t border-border/60 px-5 text-xs text-app-subtle sm:flex">
         <span className="flex items-center gap-2">
           <span className="flex gap-0.5">
             <ShortcutKey>↑</ShortcutKey>

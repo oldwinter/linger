@@ -332,18 +332,23 @@ export function DisconnectConnectionDialog({
     });
   }, [current.data?.status, queryClient]);
 
+  function requestClose() {
+    if (!disconnect.isPending) onClose();
+  }
+
   return (
     <ModalDialog
+      closeOnBackdrop={!disconnect.isPending}
       description={
         accountIdentityText(connection.provider, connection.identity_label) ??
         connection.provider
       }
-      onClose={onClose}
+      onClose={requestClose}
       size="md"
       title="Disconnect account?"
       footer={
         <>
-          <Button disabled={disconnect.isPending} onClick={onClose}>
+          <Button disabled={disconnect.isPending} onClick={requestClose}>
             {disconnected ? "Close" : "Cancel"}
           </Button>
           {!disconnected ? (

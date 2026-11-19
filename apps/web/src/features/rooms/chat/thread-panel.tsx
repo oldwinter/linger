@@ -50,7 +50,10 @@ import {
   PendingMessageRow,
   type PendingRoomMessage,
 } from "./message-row";
-import { AgentStreamingStatusDock } from "./message-timeline";
+import {
+  AgentStreamingStatusDock,
+  hasAgentStreamingDockEntries,
+} from "./message-timeline";
 import { useRoomMessagePresentations } from "./room-message-presentations";
 import {
   createRoomProjection,
@@ -122,7 +125,11 @@ function ThreadPanelContent({
   const parentRoom = useQuery(roomQueryOptions(client, tenantId, parentRoomId));
   const directPeer = parentRoom.data?.direct_peer;
   const participating = parentRoom.data?.participation !== "left";
-  const threadRoomId = useThreadRoom(rootMessage, participating, tenantId);
+  const { retryOpenThread, threadOpenError, threadRoomId } = useThreadRoom(
+    rootMessage,
+    participating,
+    tenantId,
+  );
   useEffect(() => {
     onRoomResolved?.(threadRoomId);
   }, [onRoomResolved, threadRoomId]);
@@ -159,7 +166,8 @@ function ThreadPanelContent({
     ...roomMessagesInfiniteQueryOptions(client, tenantId, threadRoomId ?? ""),
     enabled: Boolean(threadRoomId),
   });
-  const threadOpening = !threadRoomId || messagesQuery.isPending;
+  const threadOpening =
+    !threadOpenError && (!threadRoomId || messagesQuery.isPending);
   const messages = useMemo(
     () =>
       threadRoomId && messagesQuery.data
@@ -406,8 +414,12 @@ function ThreadPanelContent({
         agentWorking={conversation.streamingRunStatuses.some(isRunWorking)}
         canLoadEarlier={messagesQuery.hasNextPage}
         hasPending={conversation.pendingMessages.length > 0}
+        isError={messagesQuery.isError}
         loadingEarlier={messagesQuery.isFetchingNextPage}
         onLoadEarlier={() => void loadEarlierReplies()}
+        onRetry={() => void messagesQuery.refetch()}
+        onRetryOpen={retryOpenThread}
+        openError={threadOpenError}
         opening={threadOpening}
         renderMessage={renderMessage}
         replies={presentedReplies}
@@ -442,7 +454,11 @@ function ThreadPanelContent({
           }
           onSend={sendReply}
           placeholder={
-            threadRoomId ? "Reply in this Thread" : "Opening Thread…"
+            threadRoomId
+              ? "Reply in this Thread"
+              : threadOpenError
+                ? "Thread could not be opened"
+                : "Opening Thread…"
           }
           ref={composerRef}
         />
@@ -465,6 +481,7 @@ function ThreadReplyDock({
   if (parentRoom?.participation === "left") {
     return <RoomRejoinBanner room={parentRoom} />;
   }
+  const hasThreadDock = Boolean(dock && hasAgentStreamingDockEntries(dock));
   return (
     <div className="room-composer-dock shrink-0 px-3">
       {outboxError ? (
@@ -472,7 +489,7 @@ function ThreadReplyDock({
           {outboxError}
         </p>
       ) : null}
-      <SharedStreamingStatus surface="thread">
+      <SharedStreamingStatus active={hasThreadDock} surface="thread">
         {dock ? <AgentStreamingStatusDock {...dock} /> : null}
       </SharedStreamingStatus>
       {children}
@@ -489,6 +506,8 @@ function useThreadRoom(
   const { client, events } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const [threadRoomId, setThreadRoomId] = useState(rootMessage.thread?.room_id);
+  const [threadOpenError, setThreadOpenError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
   const projection = useMemo(
     () =>
       threadRoomId
@@ -514,15 +533,27 @@ function useThreadRoom(
       }),
     )
       .then((result) => {
-        if (!cancelled) setThreadRoomId(result.room.id);
+        if (!cancelled) {
+          setThreadOpenError(null);
+          setThreadRoomId(result.room.id);
+        }
       })
-      .catch(() => undefined);
+      .catch((cause: unknown) => {
+        if (!cancelled) {
+          setThreadOpenError(
+            cause instanceof Error && cause.message.trim()
+              ? cause.message
+              : "Could not open this Thread.",
+          );
+        }
+      });
     return () => {
       cancelled = true;
     };
   }, [
     client,
     participating,
+    retryCount,
     rootMessage.id,
     rootMessage.room_id,
     threadRoomId,
@@ -538,7 +569,12 @@ function useThreadRoom(
     });
   }, [events, participating, projection, threadRoomId]);
 
-  return threadRoomId;
+  function retryOpenThread() {
+    setThreadOpenError(null);
+    setRetryCount((count) => count + 1);
+  }
+
+  return { retryOpenThread, threadOpenError, threadRoomId };
 }
 
 /** A Thread's cards belong to its replies, so they are decided in the Thread

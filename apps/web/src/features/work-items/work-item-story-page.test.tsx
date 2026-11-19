@@ -1,10 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { dayKey } from "@/lib/date-format";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
+import {
+  teamHubErrorResponse,
+  type TestRouteHandler,
+} from "@/test/teamhub-test-server";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubWorkItem } from "@/features/teamhub/teamhub-types";
 
@@ -371,5 +375,78 @@ describe("WorkItemStoryPage", () => {
         "Codex is assigned and is not in the room doing this work.",
       ),
     ).toBeVisible();
+  });
+
+  it("distinguishes a failed load with a Retry button from a 404 not-found state", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const item: TeamHubWorkItem = {
+      assignees: [],
+      created_at: "2026-11-14T01:00:00Z",
+      created_by: human,
+      description: "Recovered after retry.",
+      explicit_access_grants: [],
+      id: "workitem-flaky",
+      kind: "issue",
+      number: 9,
+      priority: "medium",
+      referenced_actors: [],
+      state: "open",
+      tenant_id: "tenant-northstar",
+      title: "Flaky work item",
+      updated_at: "2026-11-14T01:00:00Z",
+      updated_by: human,
+      version: 1,
+    };
+    const getItem = vi
+      .fn<TestRouteHandler>()
+      .mockReturnValueOnce(
+        teamHubErrorResponse(
+          503,
+          "TEAMHUB_UNAVAILABLE",
+          "TeamHub is temporarily unavailable.",
+        ),
+      )
+      .mockReturnValueOnce(item);
+    runtime.server
+      .on("GET", "/v0/work-items/{workItemId}", getItem)
+      .on("GET", "/v0/work-items/{workItemId}/timeline", () => ({
+        items: [],
+        page: { has_more: false },
+      }));
+    const router = createMemoryRouter(
+      [
+        {
+          element: <WorkItemStoryPage />,
+          path: "/t/:tenantId/work-items/:workItemId",
+        },
+      ],
+      {
+        initialEntries: ["/t/tenant-northstar/work-items/workitem-flaky"],
+      },
+    );
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <RouterProvider router={router} />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("TeamHub is temporarily unavailable.");
+    expect(
+      screen.queryByText("This Work Item is not on the Dashboard."),
+    ).toBeNull();
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Flaky work item" }),
+    ).toBeVisible();
+    expect(getItem).toHaveBeenCalledTimes(2);
   });
 });

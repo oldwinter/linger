@@ -140,7 +140,10 @@ export function VoiceModeControls(props: {
           <Icon icon={AudioWave01Icon} size={16} />
         </Button>
         {startError ? (
-          <span className="sr-only" role="alert">
+          <span
+            className="max-w-56 text-xs leading-4 text-app-danger"
+            role="alert"
+          >
             {startError}
           </span>
         ) : null}
@@ -184,9 +187,19 @@ export function VoiceModeControls(props: {
           <i />
         </span>
       ) : null}
-      <span className="sr-only" role="status">
-        {voiceModeStatusLabel({ ...state, entered })}
-      </span>
+      {state.error || state.status === "error" ? (
+        <span
+          className="min-w-0 truncate text-xs text-app-danger"
+          role="alert"
+          title={voiceModeStatusLabel({ ...state, entered })}
+        >
+          {voiceModeStatusLabel({ ...state, entered })}
+        </span>
+      ) : (
+        <span className="sr-only" role="status">
+          {voiceModeStatusLabel({ ...state, entered })}
+        </span>
+      )}
       {state.canRetry ? (
         <Button
           aria-label="Retry voice message"

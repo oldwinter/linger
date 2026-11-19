@@ -148,7 +148,11 @@ export function emptyDetail(tab: GlobalSearchTab, query: string) {
       ? "Type a word from the message you are looking for."
       : "Type a title or a word from the doc.";
   }
-  if (query.length < MIN_BACKEND_QUERY_LENGTH && tab !== "people") {
+  if (
+    query.length < MIN_BACKEND_QUERY_LENGTH &&
+    tab !== "people" &&
+    tab !== "rooms"
+  ) {
     return `Type at least ${MIN_BACKEND_QUERY_LENGTH} characters to search messages and docs.`;
   }
   return tab === "all"

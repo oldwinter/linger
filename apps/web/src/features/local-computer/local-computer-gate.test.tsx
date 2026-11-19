@@ -9,7 +9,7 @@ import {
 } from "@testing-library/react";
 import { Suspense } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   anotherMeQueryKey,
@@ -20,6 +20,10 @@ import { RoomShell } from "@/features/rooms/room-shell";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubLocalComputerPage } from "@/features/teamhub/teamhub-types";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
+import {
+  teamHubErrorResponse,
+  type TestRouteHandler,
+} from "@/test/teamhub-test-server";
 
 type LocalComputer = TeamHubLocalComputerPage["items"][number];
 
@@ -153,6 +157,62 @@ describe("Local Computer gate", () => {
     expect(
       within(gate).getByRole("button", { name: "Sign out" }),
     ).toBeEnabled();
+  });
+
+  it("shows an alert with Retry instead of an endless waiting spinner when loading computers fails", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const listComputers = vi
+      .fn<TestRouteHandler>()
+      .mockReturnValueOnce(
+        teamHubErrorResponse(
+          503,
+          "TEAMHUB_UNAVAILABLE",
+          "Could not reach TeamHub.",
+        ),
+      )
+      .mockReturnValueOnce({ items: [newMac] });
+    runtime.server
+      .on("GET", "/v0/tenants/{tenantId}/another-me", () => ({}))
+      .on("GET", "/v0/tenants/{tenantId}/local-computers", listComputers);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    await Promise.all([
+      queryClient.ensureQueryData(teamHubIdentityQueryOptions(runtime.client)),
+      queryClient.ensureQueryData(
+        teamHubTenantQueryOptions(runtime.client, "tenant-northstar"),
+      ),
+    ]);
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/t/:tenantId",
+          element: <RoomShell />,
+          children: [{ path: "*", element: <p>Shell content</p> }],
+        },
+      ],
+      { initialEntries: ["/t/tenant-northstar/rooms"] },
+    );
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <Suspense fallback={<p>Loading</p>}>
+            <RouterProvider router={router} />
+          </Suspense>
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    const gate = await screen.findByRole("dialog", {
+      name: "Connect your computer",
+    });
+    const alert = await within(gate).findByRole("alert");
+    expect(alert).toHaveTextContent("Could not reach TeamHub.");
+    expect(within(gate).queryByText(/Waiting for your computer/)).toBeNull();
+
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    expect(await within(gate).findByText("New Mac is online.")).toBeVisible();
+    expect(listComputers).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -32,7 +32,7 @@ export function LibraryDocumentsHeader({
   const folderInputRef = useRef<HTMLInputElement>(null);
   return (
     <header className="workspace-files-heading">
-      <h2>Library</h2>
+      <h1>Library</h1>
       <div className="ml-auto flex items-center gap-1">
         <input
           hidden

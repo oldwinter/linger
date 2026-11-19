@@ -10,6 +10,7 @@ import type {
   TeamHubVoiceCaptureQuestion,
 } from "@/features/teamhub/teamhub-types";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
+import { teamHubErrorResponse } from "@/test/teamhub-test-server";
 
 import { AskMeetingPage } from "./ask-meeting-page";
 
@@ -121,6 +122,59 @@ it("keeps a request for Another Me on the page without sending it", async () => 
       "/v0/voice-captures/{captureSessionId}/questions/{questionId}/task",
     ),
   ).toHaveLength(0);
+});
+
+it("shows a retryable alert instead of an empty state when saved questions fail to load", async () => {
+  const runtime = createTestTeamHubRuntime();
+  serveMeeting(runtime);
+  let attempts = 0;
+  runtime.server.on(
+    "GET",
+    "/v0/voice-captures/{captureSessionId}/questions",
+    () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return teamHubErrorResponse(
+          500,
+          "QUESTIONS_UNAVAILABLE",
+          "Questions failed.",
+        );
+      }
+      return { items: [] };
+    },
+  );
+  renderPage(runtime);
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Could not load saved questions.",
+  );
+  expect(
+    screen.queryByText("Nothing has been asked of this recording yet."),
+  ).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  expect(
+    await screen.findByText("Nothing has been asked of this recording yet."),
+  ).toBeVisible();
+});
+
+it("renders a scrollable container with Back to meetings and Retry when meetings fail to load", async () => {
+  const runtime = createTestTeamHubRuntime();
+  runtime.server.on("GET", "/v0/tenants/{tenantId}/memory", () =>
+    teamHubErrorResponse(500, "MEETINGS_UNAVAILABLE", "Unavailable."),
+  );
+  renderPage(runtime);
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Could not load this meeting.",
+  );
+  expect(
+    screen.getByRole("link", { name: "Back to meetings" }),
+  ).toHaveAttribute(
+    "href",
+    "/t/tenant-northstar/library?tab=meetings&meetings=7d",
+  );
+  expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
+  expect(screen.getByRole("main")).toHaveClass("overflow-y-auto");
 });
 
 function serveMeeting(runtime: ReturnType<typeof createTestTeamHubRuntime>) {

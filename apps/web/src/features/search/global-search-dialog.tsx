@@ -155,7 +155,9 @@ export function GlobalSearchDialog({
   // The chips report rows already loaded, so they wait for a search or a
   // scope that browses a list.
   const showKindFilter =
-    !showingStart && (debouncedQuery !== "" || rows.length > 0);
+    !showingStart &&
+    kindOptions.length > 2 &&
+    (debouncedQuery !== "" || rows.length > 0);
 
   return (
     <ModalDialog

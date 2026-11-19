@@ -229,9 +229,32 @@ export function MessageTimeline({
   );
   const { candidateMessages, openedAtNewest, startsOwnGroup } =
     useTimelineMessageGroups(messages, currentActorId);
-  const momentStarts = useMemo(
-    () => new Set(sameMomentStarts(candidateMessages)),
+  const answerPairs = useMemo(
+    () => pairedAgentAnswers(candidateMessages),
     [candidateMessages],
+  );
+  const answerPairAt = useMemo(() => {
+    const claimed = new Set<number>();
+    const covered = new Set<number>();
+    const starts = new Map<
+      number,
+      { end: number; parentId: string; start: number }
+    >();
+    for (const pair of answerPairs) {
+      starts.set(pair.start, pair);
+      claimed.add(pair.start);
+      for (let index = pair.start + 1; index <= pair.end; index += 1) {
+        claimed.add(index);
+        covered.add(index);
+      }
+    }
+    return { claimed, covered, starts };
+  }, [answerPairs]);
+  // Paired agent answers take precedence over same-moment grouping so neither
+  // group can skip an index that the other expects to render.
+  const momentStarts = useMemo(
+    () => new Set(sameMomentStarts(candidateMessages, answerPairAt.claimed)),
+    [answerPairAt.claimed, candidateMessages],
   );
   const runtimeViewCache = useRef<RuntimeTimelineViewCache>(new Map());
   const runtimeStatusViews = useMemo(
@@ -273,24 +296,6 @@ export function MessageTimeline({
     }),
     [onOpenProfile, onOpenAgentActivity, runtimeStatusViews],
   );
-  const answerPairs = useMemo(
-    () => pairedAgentAnswers(candidateMessages),
-    [candidateMessages],
-  );
-  const answerPairAt = useMemo(() => {
-    const covered = new Set<number>();
-    const starts = new Map<
-      number,
-      { end: number; parentId: string; start: number }
-    >();
-    for (const pair of answerPairs) {
-      starts.set(pair.start, pair);
-      for (let index = pair.start + 1; index <= pair.end; index += 1) {
-        covered.add(index);
-      }
-    }
-    return { covered, starts };
-  }, [answerPairs]);
   const renderMessage = (
     message: TeamHubMessage,
     index: number,
@@ -1066,91 +1071,104 @@ export function AgentStreamingStatusDock({
     : undefined;
 
   return (
-    // The status floats over the timeline's bottom padding instead of taking
-    // layout height, so its arrival never pushes the last Message up.
-    <div className="relative h-0">
-      <div
-        className="room-readable absolute inset-x-0 bottom-1 bg-app-surface"
-        data-testid="agent-streaming-status-dock"
-        onBlur={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget))
-            setHovered(false);
-        }}
-        onFocus={() => setHovered(true)}
-        onPointerEnter={() => setHovered(true)}
-        onPointerLeave={() => setHovered(false)}
-      >
-        <div className="flex min-h-7 max-w-full items-center gap-1">
-          <button
-            aria-label={`Open ${statusLabel} activity`}
-            className="flex min-h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-1 text-left text-xs text-app-muted transition-colors hover:bg-app-hover focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-app-focus disabled:hover:bg-transparent"
-            disabled={!shownActivity}
-            onClick={() => {
-              // The status line opens the shown Agent's Activity panel.
-              if (!shownActivity || !shownEntry) return;
-              if (shownActivity.runId)
-                onViewActivity?.(
-                  shownActivity.runStatusId,
-                  shownEntry.agent,
-                  shownActivity.runId,
-                );
-              else
-                onViewActivity?.(shownActivity.runStatusId, shownEntry.agent);
-            }}
-            title={
-              shownEntry && line.current
-                ? `${shownEntry.agent.display_name}: ${statusLineText(line.current.content)}`
-                : undefined
-            }
-            type="button"
-          >
-            <StatusLineRoll
-              className="size-5 shrink-0"
-              current={line.current}
-              previous={line.previous}
-              itemKey={(shown) => shown.id}
-              render={(shown) => {
-                const entry = entries.find((item) => item.key === shown.id);
-                return (
-                  <ActorAvatar
-                    actorId={shown.id}
-                    kind="agent"
-                    name={entry?.agent.display_name ?? ""}
-                    size="xxs"
-                  />
-                );
-              }}
-            />
-            <StatusLineRoll
-              className="h-4 min-w-0 flex-1"
-              current={line.current}
-              previous={line.previous}
-              itemKey={(shown) => `${shown.id}:${shown.key}`}
-              render={(shown) => (
-                <StatusLineText
-                  content={shown.content}
-                  minutes={shown.minutes}
+    // Keep the dock in normal flow above the composer so it never collides with
+    // floating jump controls, background tasks, or composer peek avatars.
+    <div
+      className="room-readable relative z-10 bg-app-surface pb-1"
+      data-testid="agent-streaming-status-dock"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget))
+          setHovered(false);
+      }}
+      onFocus={() => setHovered(true)}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+    >
+      <div className="flex min-h-7 max-w-full items-center gap-1">
+        <button
+          aria-label={`Open ${statusLabel} activity`}
+          className="flex min-h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-1 text-left text-xs text-app-muted transition-colors hover:bg-app-hover focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-app-focus disabled:hover:bg-transparent"
+          disabled={!shownActivity}
+          onClick={() => {
+            // The status line opens the shown Agent's Activity panel.
+            if (!shownActivity || !shownEntry) return;
+            if (shownActivity.runId)
+              onViewActivity?.(
+                shownActivity.runStatusId,
+                shownEntry.agent,
+                shownActivity.runId,
+              );
+            else onViewActivity?.(shownActivity.runStatusId, shownEntry.agent);
+          }}
+          title={
+            shownEntry && line.current
+              ? `${shownEntry.agent.display_name}: ${statusLineText(line.current.content)}`
+              : undefined
+          }
+          type="button"
+        >
+          <StatusLineRoll
+            className="size-5 shrink-0"
+            current={line.current}
+            previous={line.previous}
+            itemKey={(shown) => shown.id}
+            render={(shown) => {
+              const entry = entries.find((item) => item.key === shown.id);
+              return (
+                <ActorAvatar
+                  actorId={shown.id}
+                  kind="agent"
+                  name={entry?.agent.display_name ?? ""}
+                  size="xxs"
                 />
-              )}
+              );
+            }}
+          />
+          <StatusLineRoll
+            className="h-4 min-w-0 flex-1"
+            current={line.current}
+            previous={line.previous}
+            itemKey={(shown) => `${shown.id}:${shown.key}`}
+            render={(shown) => (
+              <StatusLineText content={shown.content} minutes={shown.minutes} />
+            )}
+          />
+        </button>
+        {shownEntry ? (
+          <>
+            <DockEntryStop
+              cancelRoomRun={cancelRoomRun}
+              entry={shownEntry}
+              scopeKey={scopeKey}
             />
-          </button>
-          {shownEntry ? (
-            <>
-              <DockEntryStop
-                cancelRoomRun={cancelRoomRun}
-                entry={shownEntry}
-                scopeKey={scopeKey}
-              />
-              <DockEntryResend
-                entry={shownEntry}
-                redeliverRoomRun={redeliverRoomRun}
-                scopeKey={scopeKey}
-              />
-            </>
-          ) : null}
-        </div>
+            <DockEntryResend
+              entry={shownEntry}
+              redeliverRoomRun={redeliverRoomRun}
+              scopeKey={scopeKey}
+            />
+          </>
+        ) : null}
       </div>
     </div>
+  );
+}
+
+/** Reports whether `AgentStreamingStatusDock` will render a visible bar. */
+export function hasAgentStreamingDockEntries({
+  runStatuses = EMPTY_RUN_STATUSES,
+  runtimePresentationEventsByRunStatusId = EMPTY_RUNTIME_EVENTS,
+  typingAgent,
+}: {
+  runStatuses?: readonly TeamHubRunStatus[];
+  runtimePresentationEventsByRunStatusId?: Readonly<
+    Record<string, readonly TeamHubRuntimePresentationEventRecord[]>
+  >;
+  typingAgent?: AgentStreamingTypingAgent;
+}): boolean {
+  if (typingAgent) return true;
+  return (
+    dockRuntimeStatuses(runStatuses, runtimePresentationEventsByRunStatusId)
+      .length > 0
   );
 }
 
@@ -1217,7 +1235,7 @@ function dockRuntimeStatuses(
   runtimePresentationEventsByRunStatusId: Readonly<
     Record<string, readonly TeamHubRuntimePresentationEventRecord[]>
   >,
-  cache: RuntimeTimelineViewCache,
+  cache?: RuntimeTimelineViewCache,
 ) {
   const latestByAgent = new Map<string, TeamHubRunStatus>();
   for (const runStatus of runStatuses) {

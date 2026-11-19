@@ -75,10 +75,7 @@ export function AgentRunStopButton({
         {stopping ? "Stopping" : stopped ? "Stopped" : "Stop"}
       </Button>
       {state.status === "error" ? (
-        <span
-          role="alert"
-          className="max-w-28 truncate text-[12px] text-app-danger"
-        >
+        <span role="alert" className="text-[12px] leading-4 text-app-danger">
           Stop not confirmed. Check the task status, then retry.
         </span>
       ) : null}
@@ -144,10 +141,7 @@ export function AgentRunResendButton({
         Resend
       </Button>
       {state.status === "error" ? (
-        <span
-          role="alert"
-          className="max-w-28 truncate text-[12px] text-app-danger"
-        >
+        <span role="alert" className="text-[12px] leading-4 text-app-danger">
           Resend failed. Try again.
         </span>
       ) : null}

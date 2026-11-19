@@ -39,7 +39,7 @@ import { latestShadowLine } from "./shadow-line";
 
 import { AgentCreateMenu } from "./agent-create-menu";
 import { AwayRecapCard } from "./away-recap-card";
-import { beginCatchUp } from "./catch-up";
+import { beginCatchUp, readCatchUpWalk } from "./catch-up";
 import type {
   TeamHubRoomListItem,
   TeamHubTenant,
@@ -261,6 +261,13 @@ export function RoomSecondaryNavigation({
   const durationFor = (roomId: string) =>
     workingDuration(workingClock.since[roomId], workingClock.now);
   const catchUpCount = beginCatchUp(rooms).rooms.length;
+  const storedCatchUp = accountId
+    ? readCatchUpWalk(accountId, tenant.id)
+    : undefined;
+  const remainingCatchUpCount =
+    storedCatchUp && storedCatchUp.index < storedCatchUp.rooms.length
+      ? storedCatchUp.rooms.length - storedCatchUp.index
+      : 0;
   const visibleRoomIds = new Set(
     rooms.flatMap((room) =>
       room.parent_room_id ? [room.parent_room_id] : [room.id],
@@ -487,15 +494,21 @@ export function RoomSecondaryNavigation({
           Surprise me
         </Link>
         {onCollapse ? searchButton : null}
-        {catchUpCount > 0 ? (
+        {catchUpCount > 0 || remainingCatchUpCount > 0 ? (
           <Link
-            aria-label={`Catch up, ${catchUpCount} ${catchUpCount === 1 ? "chat" : "chats"}`}
+            aria-label={
+              catchUpCount > 0
+                ? `Catch up, ${catchUpCount} ${catchUpCount === 1 ? "chat" : "chats"}`
+                : `Resume catch up, ${remainingCatchUpCount} ${remainingCatchUpCount === 1 ? "chat" : "chats"} left`
+            }
             className="mx-2 flex items-center justify-between rounded-lg bg-app-hover px-2.5 py-2 text-sm text-app-ink hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
             onClick={onCloseMobile}
             to={`/t/${tenant.id}/rooms/catch-up`}
           >
-            Catch up
-            <span className="text-xs text-app-muted">{catchUpCount}</span>
+            {catchUpCount > 0 ? "Catch up" : "Resume catch up"}
+            <span className="text-xs text-app-muted">
+              {catchUpCount > 0 ? catchUpCount : remainingCatchUpCount}
+            </span>
           </Link>
         ) : null}
         <WorkingNowStrip
@@ -757,7 +770,7 @@ function RoomFilterChoice({
             className={cn(
               "flex h-6 min-w-0 flex-1 items-center justify-center truncate rounded-md px-1.5 text-2xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               active
-                ? "bg-(--app-unread) text-(--app-unread-foreground)"
+                ? "bg-primary text-primary-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
             )}
             key={choice.mode}

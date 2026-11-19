@@ -1,6 +1,8 @@
+import { Loading03Icon } from "@hugeicons/core-free-icons";
 import type { ReactNode } from "react";
 
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
+import { cn } from "@/lib/cn";
 
 export type ReceiptTone = "danger" | "muted" | "success" | "warning";
 
@@ -66,8 +68,19 @@ export function CardDone({
   tone: ReceiptTone;
 }) {
   return (
-    <p className="flex items-center gap-1.5 pt-1 pb-1.5 text-xs text-app-muted">
-      <Icon className={`shrink-0 ${toneClass[tone]}`} icon={icon} size={14} />
+    <p
+      className="flex items-center gap-1.5 pt-1 pb-1.5 text-xs text-app-muted"
+      role={tone === "danger" ? "alert" : undefined}
+    >
+      <Icon
+        className={cn(
+          "shrink-0",
+          toneClass[tone],
+          icon === Loading03Icon && "animate-spin motion-reduce:animate-none",
+        )}
+        icon={icon}
+        size={14}
+      />
       <span className={tone === "success" ? "text-app-success" : undefined}>
         {text}
       </span>

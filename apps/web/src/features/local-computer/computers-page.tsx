@@ -218,9 +218,9 @@ export function ComputersPage() {
 
   return (
     <>
-      <main
+      <div
         aria-hidden={setupOpen ? true : undefined}
-        // Settings owns the scrolling, so this page never nests a second bar.
+        // Settings owns the scrolling and main landmark, so this page nests neither.
         className="mx-auto flex min-h-0 w-full max-w-(--app-settings-width) flex-col pb-4"
       >
         <header className="flex items-center justify-between gap-4">
@@ -269,10 +269,11 @@ export function ComputersPage() {
                   variant={variant}
                 />
               )}
-              canDoHref={computerCanDoPath(
-                tenantId,
-                selectedComputer.computer_id,
-              )}
+              canDoHref={
+                selectedComputer.platform === "darwin"
+                  ? computerCanDoPath(tenantId, selectedComputer.computer_id)
+                  : undefined
+              }
               computer={selectedComputer}
               key={selectedComputer.computer_id}
               localModelsHref={`/t/${tenantId}/settings/models?computer=${encodeURIComponent(selectedComputer.computer_id)}`}
@@ -295,7 +296,7 @@ export function ComputersPage() {
             />
           )}
         </div>
-      </main>
+      </div>
 
       {setupOpen ? (
         <ConnectComputerDialog

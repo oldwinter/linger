@@ -179,6 +179,7 @@ function RoomShellReady({
   });
   // The shell is above the Room route, so it reads the open Room from the URL.
   const activeRoomId = useMatch("/t/:tenantId/rooms/:roomId/*")?.params.roomId;
+  const onRoomRoute = useMatch("/t/:tenantId/rooms/*") !== null;
   const arrived = useAnotherMeArrival({
     accountId: identity.account.id,
     activeRoomId,
@@ -197,9 +198,12 @@ function RoomShellReady({
     rooms: roomsQuery.data?.items,
   });
   useReturnToArrivedRoom({
+    accountId: identity.account.id,
     activeRoomId,
     client,
+    gated,
     navigate,
+    onRoomRoute,
     queryClient,
     rooms: roomsQuery.data?.items,
     tenantId,
@@ -367,6 +371,11 @@ function RoomShellContent({
   // The Room header opens the same dialog narrowed to its Room. The shortcut
   // and voice stay Tenant-wide.
   const [searchRoom, setSearchRoom] = useState<SearchRoomScope>();
+  const closeGlobalSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQuery("");
+    setSearchRoom(undefined);
+  }, []);
   const openGlobalSearch = useCallback(() => {
     setSearchQuery("");
     setSearchRoom(undefined);
@@ -381,13 +390,36 @@ function RoomShellContent({
     () => ({ openRoomSearch }),
     [openRoomSearch],
   );
-  useGlobalSearchShortcut(openGlobalSearch);
-  useJumpShortcut(() => {
-    setSearchOpen(false);
-    setSearchQuery("");
-    setSearchRoom(undefined);
-    void navigate(jumpPath(tenantId));
-  });
+  const onShortcutsSettings =
+    location.pathname === `/t/${tenantId}/settings/shortcuts`;
+  useGlobalSearchShortcut(
+    () => {
+      if (searchOpen) closeGlobalSearch();
+      else openGlobalSearch();
+    },
+    {
+      canTrigger: (event) => {
+        if (onShortcutsSettings && !isEditableEventTarget(event.target)) {
+          return false;
+        }
+        if (searchOpen) return !hasOtherOpenModal(".global-search");
+        return !hasOpenModal();
+      },
+      enabled: !inert,
+    },
+  );
+  useJumpShortcut(
+    () => {
+      closeGlobalSearch();
+      void navigate(jumpPath(tenantId));
+    },
+    {
+      canTrigger: (event) =>
+        !(onShortcutsSettings && !isEditableEventTarget(event.target)) &&
+        !hasOpenModal(),
+      enabled: !inert,
+    },
+  );
   // Voice page actions wait while a route is loading: lazy routes commit
   // their URL only once their code has arrived.
   const navigating = useRef(false);
@@ -454,7 +486,7 @@ function RoomShellContent({
             mobileOpen={mobileNavigationOpen}
             onCloseMobile={() => setMobileNavigationOpen(false)}
             onCreateRoom={() => setCreateRoomOpen(true)}
-            onOpenSearch={() => setSearchOpen(true)}
+            onOpenSearch={openGlobalSearch}
             pendingPathname={navigation.location?.pathname}
             rooms={rooms}
             anotherMeRoomId={anotherMeRoomId}
@@ -552,11 +584,7 @@ function RoomShellContent({
               <GlobalSearchDialog
                 key={searchRoom?.id ?? "global"}
                 initialQuery={searchQuery}
-                onClose={() => {
-                  setSearchOpen(false);
-                  setSearchQuery("");
-                  setSearchRoom(undefined);
-                }}
+                onClose={closeGlobalSearch}
                 room={searchRoom}
                 tenantId={tenantId}
               />
@@ -565,5 +593,26 @@ function RoomShellContent({
         </div>
       </OpenMobileNavigationContext>
     </ActorAvatarImageProvider>
+  );
+}
+
+const OPEN_MODAL_SELECTOR = 'dialog[open], [role="dialog"][aria-modal="true"]';
+
+function hasOpenModal() {
+  return document.querySelector(OPEN_MODAL_SELECTOR) !== null;
+}
+
+function hasOtherOpenModal(exemptSelector: string) {
+  return Array.from(document.querySelectorAll(OPEN_MODAL_SELECTOR)).some(
+    (modal) => !modal.matches(exemptSelector),
+  );
+}
+
+function isEditableEventTarget(target: EventTarget | null) {
+  return (
+    target instanceof Element &&
+    target.closest(
+      "input, textarea, select, [contenteditable]:not([contenteditable='false'])",
+    ) !== null
   );
 }

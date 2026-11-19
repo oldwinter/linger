@@ -752,7 +752,15 @@ describe("DecisionCard", () => {
     for (const { card, done, tone } of cases) {
       const { unmount } = renderCard(card);
       const line = screen.getByText(done);
-      expect(line.closest("p")?.querySelector("svg")).toHaveClass(tone);
+      const paragraph = line.closest("p");
+      const icon = paragraph?.querySelector("svg");
+      expect(icon).toHaveClass(tone);
+      if (card.status === "approved" || card.status === "executing") {
+        expect(icon).toHaveClass("animate-spin", "motion-reduce:animate-none");
+      }
+      if (card.status === "failed") {
+        expect(paragraph).toHaveAttribute("role", "alert");
+      }
       // The heading and the collapsed summary row stay.
       expect(
         screen.getByRole("heading", {

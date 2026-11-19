@@ -107,8 +107,8 @@ describe("workItemBoardViewUrl", () => {
     );
   });
 
-  // "Clear filters" owns the filters but not the Room scope or the sort, so
-  // the link is the reference for which of the rest is still at its default.
+  // "Clear filters" owns every filter including Room, but not sort, so the
+  // link is the reference for which filters are still at their defaults.
   it("agrees with Clear filters about what is still at its default", () => {
     const cases: WorkItemDashboardFilters[] = [
       { ...EMPTY_WORK_ITEM_DASHBOARD_FILTERS },
@@ -128,7 +128,6 @@ describe("workItemBoardViewUrl", () => {
 
     for (const filters of cases) {
       const params = new URL(viewUrl(filters, "newest")).searchParams;
-      params.delete("room");
       params.delete("sort");
 
       expect(hasWorkItemDashboardNarrowingFilters(filters)).toBe(

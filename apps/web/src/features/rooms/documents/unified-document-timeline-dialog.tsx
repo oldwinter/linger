@@ -27,11 +27,13 @@ const dateFormatter = dateTimeFormat({
 });
 
 export function UnifiedDocumentTimelineDialog({
+  canWrite = true,
   client,
   documentId,
   onClose,
   tenantId,
 }: {
+  canWrite?: boolean;
   client: TeamHubClient;
   documentId: string;
   onClose: () => void;
@@ -42,6 +44,7 @@ export function UnifiedDocumentTimelineDialog({
     null,
   );
   const [restoreFeedback, setRestoreFeedback] = useState<string | null>(null);
+  const [confirmRestoreOpen, setConfirmRestoreOpen] = useState(false);
   const [highlightChanges, setHighlightChanges] = useState(true);
   const historyQueryKey = [
     "teamhub",
@@ -104,6 +107,7 @@ export function UnifiedDocumentTimelineDialog({
       );
     },
     onSuccess: async (result) => {
+      setConfirmRestoreOpen(false);
       setRestoreFeedback(
         result.status === "already_current" ? "Already current." : "Restored.",
       );
@@ -117,6 +121,7 @@ export function UnifiedDocumentTimelineDialog({
       }
     },
   });
+  const isLatestCheckpoint = selectedHistoryIndex === 0;
   return (
     <ModalDialog
       ariaLabel="Page history"
@@ -144,18 +149,24 @@ export function UnifiedDocumentTimelineDialog({
                 empty="No page history saved yet."
                 error={history.error}
                 items={history.data?.items ?? []}
-                onSelect={setSelectedHistoryId}
+                onSelect={(id) => {
+                  setSelectedHistoryId(id);
+                  setConfirmRestoreOpen(false);
+                  setRestoreFeedback(null);
+                }}
                 pending={history.isPending}
                 selectedId={selectedHistory?.id}
               />
             </aside>
             <HistoryPreview
+              canWrite={canWrite}
               diff={historyDiff}
               entry={selectedHistory}
               error={
                 selectedHistoryContent.error ?? previousHistoryContent.error
               }
               highlightChanges={highlightChanges}
+              isLatest={isLatestCheckpoint}
               loading={
                 selectedHistoryContent.isPending ||
                 (highlightChanges &&
@@ -164,7 +175,10 @@ export function UnifiedDocumentTimelineDialog({
               }
               markdown={selectedHistoryContent.data}
               onHighlightChanges={setHighlightChanges}
-              onRestore={() => restore.mutate()}
+              onRestore={() => {
+                restore.reset();
+                setConfirmRestoreOpen(true);
+              }}
               previousEntry={previousHistory}
               restoreError={restore.error}
               restoreFeedback={restoreFeedback}
@@ -173,6 +187,41 @@ export function UnifiedDocumentTimelineDialog({
           </div>
         </div>
       </div>
+      {confirmRestoreOpen && selectedHistory ? (
+        <ModalDialog
+          closeOnBackdrop={!restore.isPending}
+          description="Restoring replaces the current document content with this checkpoint. Your current version remains in page history."
+          footer={
+            <>
+              <Button
+                disabled={restore.isPending}
+                onClick={() => setConfirmRestoreOpen(false)}
+                tone="secondary"
+              >
+                Cancel
+              </Button>
+              <Button
+                loading={restore.isPending}
+                onClick={() => restore.mutate()}
+                tone="primary"
+              >
+                Restore
+              </Button>
+            </>
+          }
+          onClose={() => {
+            if (!restore.isPending) setConfirmRestoreOpen(false);
+          }}
+          size="sm"
+          title="Restore checkpoint?"
+        >
+          {restore.error ? (
+            <p className="px-5 py-3 text-sm text-app-danger" role="alert">
+              {restore.error.message}
+            </p>
+          ) : null}
+        </ModalDialog>
+      ) : null}
     </ModalDialog>
   );
 }
@@ -203,10 +252,12 @@ function useHistoryMarkdown(
 }
 
 function HistoryPreview({
+  canWrite,
   diff,
   entry,
   error,
   highlightChanges,
+  isLatest,
   loading,
   markdown,
   onHighlightChanges,
@@ -216,10 +267,12 @@ function HistoryPreview({
   restoreFeedback,
   restorePending,
 }: {
+  canWrite: boolean;
   diff: ReturnType<typeof diffDocumentLines> | undefined;
   entry: TeamHubDocumentHistoryEntry | undefined;
   error: Error | null;
   highlightChanges: boolean;
+  isLatest: boolean;
   loading: boolean;
   markdown: string | undefined;
   onHighlightChanges: (value: boolean) => void;
@@ -297,7 +350,7 @@ function HistoryPreview({
           </div>
         )}
       </div>
-      {entry ? (
+      {entry && canWrite ? (
         <div className="flex min-h-14 shrink-0 items-center justify-between gap-3 border-t border-app-border px-4 py-2">
           <div className="min-w-0">
             {restoreFeedback ? (
@@ -311,7 +364,12 @@ function HistoryPreview({
               </p>
             ) : null}
           </div>
-          <Button disabled={restorePending} onClick={onRestore} tone="primary">
+          <Button
+            disabled={restorePending || isLatest}
+            onClick={onRestore}
+            title={isLatest ? "Already the latest checkpoint" : undefined}
+            tone="primary"
+          >
             {restorePending ? (
               <Spinner size={14} />
             ) : (

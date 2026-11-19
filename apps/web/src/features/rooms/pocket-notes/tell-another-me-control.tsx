@@ -63,14 +63,16 @@ export function TellAnotherMe({
 
   if (step === "note") {
     return (
-      <Button
-        className="pointer-events-auto absolute bottom-3 left-3"
-        onClick={() => setStep("confirm")}
-        size="compact"
-        tone="secondary"
-      >
-        Tell Another Me
-      </Button>
+      // Wrapper owns `absolute` because Button hardcodes `relative`.
+      <div className="pointer-events-auto absolute bottom-3 left-3">
+        <Button
+          onClick={() => setStep("confirm")}
+          size="compact"
+          tone="secondary"
+        >
+          Tell Another Me
+        </Button>
+      </div>
     );
   }
 

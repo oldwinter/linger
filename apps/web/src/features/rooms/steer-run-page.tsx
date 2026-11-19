@@ -44,32 +44,55 @@ export function SteerRunPage() {
     () => latestPlan(events.data?.items ?? []),
     [events.data],
   );
-  const requestId = useRef(createTeamHubIdempotencyKey());
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [stopped, setStopped] = useState<string | null>(null);
+  const requestIdRef = useRef<{ key: string; runId: string } | null>(null);
+  const [pendingRunId, setPendingRunId] = useState<string | null>(null);
+  const [errorState, setErrorState] = useState<{
+    message: string;
+    runId: string;
+  } | null>(null);
+  const [stoppedState, setStoppedState] = useState<{
+    message: string;
+    runId: string;
+  } | null>(null);
+  const pending = Boolean(run && pendingRunId === run.id);
+  const error = run && errorState?.runId === run.id ? errorState.message : null;
+  const stopped =
+    run && stoppedState?.runId === run.id ? stoppedState.message : null;
   const chat = `/t/${encodeURIComponent(tenantId)}/rooms/${encodeURIComponent(roomId)}/chat`;
 
   const stop = async () => {
     if (!run || pending || stopped) return;
-    setPending(true);
-    setError(null);
+    const targetRun = run;
+    if (requestIdRef.current?.runId !== targetRun.id) {
+      requestIdRef.current = {
+        key: createTeamHubIdempotencyKey(),
+        runId: targetRun.id,
+      };
+    }
+    const requestId = requestIdRef.current.key;
+    setPendingRunId(targetRun.id);
+    setErrorState(null);
     try {
       const result = await teamHubData(
         client.api.POST("/v0/rooms/{roomId}/runs/{runId}/cancel", {
-          params: { path: { roomId, runId: run.run_id } },
-          body: { request_id: requestId.current },
+          params: { path: { roomId, runId: targetRun.run_id } },
+          body: { request_id: requestId },
         }),
       );
-      setStopped(stopResultCopy(result.status));
+      setStoppedState({
+        message: stopResultCopy(result.status),
+        runId: targetRun.id,
+      });
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "The run could not be stopped.",
-      );
+      setErrorState({
+        message:
+          cause instanceof Error
+            ? cause.message
+            : "The run could not be stopped.",
+        runId: targetRun.id,
+      });
     } finally {
-      setPending(false);
+      setPendingRunId((current) => (current === targetRun.id ? null : current));
     }
   };
 
@@ -87,6 +110,20 @@ export function SteerRunPage() {
           <p className="text-sm text-muted-foreground" role="status">
             Loading this run.
           </p>
+        ) : runs.isError ? (
+          <div className="flex items-center justify-between gap-3" role="alert">
+            <p className="text-sm text-destructive">
+              Run status could not be loaded.
+            </p>
+            <Button
+              onClick={() => void runs.refetch()}
+              size="compact"
+              tone="secondary"
+              type="button"
+            >
+              Retry
+            </Button>
+          </div>
         ) : !run ? (
           <p className="text-sm text-muted-foreground" role="status">
             Nothing is running in this room.

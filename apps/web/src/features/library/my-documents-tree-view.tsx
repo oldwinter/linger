@@ -8,7 +8,9 @@ import {
 import { type ReactNode, useEffect, useLayoutEffect, useState } from "react";
 
 import { ActionMenu } from "@/components/ui/action-menu";
+import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { ModalDialog } from "@/components/ui/modal-dialog";
 import { Spinner } from "@/components/ui/spinner";
 import type {
   TeamHubDocumentPlacementNode,
@@ -55,6 +57,13 @@ export function MyDocumentsTreeView({
       ),
     );
 
+  const confirmingDeleteFolder = model.confirmingDeleteFolderId
+    ? model.folders.find(
+        (folder) => folder.id === model.confirmingDeleteFolderId,
+      )
+    : undefined;
+  const deletingFolderPending = Boolean(model.deletingFolderId);
+
   return (
     <OwnedDocumentDropZone
       onCancel={model.onExternalDropCancel}
@@ -69,6 +78,40 @@ export function MyDocumentsTreeView({
           pending={model.trashPending}
           title={model.trashingDocument.title}
         />
+      ) : null}
+      {confirmingDeleteFolder ? (
+        <ModalDialog
+          closeOnBackdrop={!deletingFolderPending}
+          description={
+            <>
+              Delete <strong>{confirmingDeleteFolder.name}</strong>? This action
+              cannot be undone.
+            </>
+          }
+          footer={
+            <>
+              <Button
+                disabled={deletingFolderPending}
+                onClick={model.onCancelDeleteFolder}
+                tone="secondary"
+              >
+                Cancel
+              </Button>
+              <Button
+                loading={deletingFolderPending}
+                onClick={model.onConfirmDeleteFolder}
+                tone="danger"
+              >
+                Delete folder
+              </Button>
+            </>
+          }
+          onClose={model.onCancelDeleteFolder}
+          size="sm"
+          title="Delete folder"
+        >
+          {null}
+        </ModalDialog>
       ) : null}
       <OwnedTreeHeading
         collectionCollapsed={collectionCollapsed}

@@ -11,6 +11,9 @@ import {
 } from "@hugeicons/core-free-icons";
 import { useQuery } from "@tanstack/react-query";
 import {
+  useEffect,
+  useRef,
+  useState,
   useSyncExternalStore,
   type MutableRefObject,
   type ReactNode,
@@ -51,6 +54,12 @@ import { RoomDocumentShareAction } from "./room-document-share-action";
 import type { UnifiedDocumentPageModel } from "./use-unified-document-page-model";
 import { useDocumentCommentsClose } from "./document-comment-draft-guard";
 import { MailCanvasStatus } from "./canvas/canvas-mail-status";
+import {
+  RoomDocumentSaveIndicator,
+  RoomDocumentSessionBanner,
+} from "./unified-document-body";
+
+const LINK_COPIED_MS = 1200;
 
 interface UnifiedDocumentPageHeaderProps {
   documentContentRef: MutableRefObject<HTMLDivElement | null>;
@@ -65,6 +74,12 @@ export function UnifiedDocumentPageHeader({
   model,
 }: UnifiedDocumentPageHeaderProps) {
   const requestCommentsClose = useDocumentCommentsClose();
+  const [linkCopy, setLinkCopy] = useState<{
+    documentId: string;
+    state: "copied" | "failed";
+  }>();
+  const linkCopyTimerRef = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(linkCopyTimerRef.current), []);
   const {
     actor,
     sidebar,
@@ -79,6 +94,7 @@ export function UnifiedDocumentPageHeader({
     canvasSent,
     isEditing,
     isSharedDocument,
+    resyncSession,
     roomId,
     session,
     sharedTree,
@@ -95,84 +111,110 @@ export function UnifiedDocumentPageHeader({
     tree,
     treeOpen,
   } = model;
+  const linkCopyState =
+    linkCopy?.documentId === documentId ? linkCopy.state : undefined;
   return (
-    <UnifiedDocumentHeader
-      sidebar={sidebar}
-      commentsOpen={commentsOpen}
-      document={document}
-      isWikiPage={isWikiPage}
-      duplicatePending={duplicatePending}
-      exportPending={exportPending}
-      canvasSent={canvasSent}
-      mailCanvas={model.canvasTarget === "gmail"}
-      isEditing={isEditing}
-      onComments={() => {
-        if (commentsOpen) requestCommentsClose(() => setCommentsOpen(false));
-        else setCommentsOpen(true);
-      }}
-      onCopyLink={() =>
-        void writeDocumentLinkClipboard({
-          documentId,
-          tenantId,
-          title: document ? documentLogicalTitle(document) : "Document",
-          url: new URL(
-            documentDetailPath({ documentId, tenantId }),
-            window.location.origin,
-          ).toString(),
-        })
-      }
-      onDelete={() => setTrashConfirmOpen(true)}
-      onDuplicate={() => void duplicateDocument()}
-      onEditingChange={setIsEditing}
-      onExport={() => void exportDocument()}
-      onHistory={() => setHistoryOpen(true)}
-      onOpenTree={() => setTreeOpen(!treeOpen)}
-      onShare={() => setShareOpen(true)}
-      onToc={() =>
-        setTocOpen((value) => {
-          const next = !value;
-          if (next) {
-            setHeadings(
-              extractRenderedDocumentHeadings(documentContentRef.current),
-            );
-          }
-          return next;
-        })
-      }
-      presence={
-        actor && session ? (
-          roomId ? (
-            <RoomDocumentRoomPresence
-              actorDisplayName={actor.display_name}
-              actorId={actor.id}
-              client={client}
-              roomId={roomId}
-              session={session}
-              showSelf
-              tenantId={tenantId}
-            />
-          ) : (
-            <RoomDocumentPresence
-              awareness={session.awareness}
-              currentActor={{
-                color: collaborationColor(actor.id),
-                displayName: actor.display_name,
-                id: actor.id,
-              }}
-              members={undefined}
-              showSelf
-            />
-          )
-        ) : null
-      }
-      session={session}
-      sharedDocument={isSharedDocument}
-      sharedTreeItems={sharedTree.data?.items ?? []}
-      tocOpen={tocOpen}
-      treeItems={tree.data?.items ?? []}
-      treeOpen={treeOpen}
-      tenantId={tenantId}
-    />
+    <>
+      <UnifiedDocumentHeader
+        sidebar={sidebar}
+        commentsOpen={commentsOpen}
+        document={document}
+        isWikiPage={isWikiPage}
+        duplicatePending={duplicatePending}
+        exportPending={exportPending}
+        canvasSent={canvasSent}
+        mailCanvas={model.canvasTarget === "gmail"}
+        isEditing={isEditing}
+        linkCopyState={linkCopyState}
+        onComments={() => {
+          if (commentsOpen) requestCommentsClose(() => setCommentsOpen(false));
+          else setCommentsOpen(true);
+        }}
+        onCopyLink={() => {
+          window.clearTimeout(linkCopyTimerRef.current);
+          setLinkCopy(undefined);
+          void writeDocumentLinkClipboard({
+            documentId,
+            tenantId,
+            title: document ? documentLogicalTitle(document) : "Document",
+            url: new URL(
+              documentDetailPath({ documentId, tenantId }),
+              window.location.origin,
+            ).toString(),
+          })
+            .then(() => {
+              setLinkCopy({ documentId, state: "copied" });
+              linkCopyTimerRef.current = window.setTimeout(
+                () => setLinkCopy(undefined),
+                LINK_COPIED_MS,
+              );
+            })
+            .catch(() => setLinkCopy({ documentId, state: "failed" }));
+        }}
+        onDelete={() => setTrashConfirmOpen(true)}
+        onDuplicate={() => void duplicateDocument()}
+        onEditingChange={setIsEditing}
+        onExport={() => void exportDocument()}
+        onHistory={() => setHistoryOpen(true)}
+        onOpenTree={() => setTreeOpen(!treeOpen)}
+        onShare={() => setShareOpen(true)}
+        onToc={() =>
+          setTocOpen((value) => {
+            const next = !value;
+            if (next) {
+              setHeadings(
+                extractRenderedDocumentHeadings(documentContentRef.current),
+              );
+            }
+            return next;
+          })
+        }
+        presence={
+          actor && session ? (
+            roomId ? (
+              <RoomDocumentRoomPresence
+                actorDisplayName={actor.display_name}
+                actorId={actor.id}
+                client={client}
+                roomId={roomId}
+                session={session}
+                showSelf
+                tenantId={tenantId}
+              />
+            ) : (
+              <RoomDocumentPresence
+                awareness={session.awareness}
+                currentActor={{
+                  color: collaborationColor(actor.id),
+                  displayName: actor.display_name,
+                  id: actor.id,
+                }}
+                members={undefined}
+                showSelf
+              />
+            )
+          ) : null
+        }
+        session={session}
+        sharedDocument={isSharedDocument}
+        sharedTreeItems={sharedTree.data?.items ?? []}
+        tocOpen={tocOpen}
+        treeItems={tree.data?.items ?? []}
+        treeOpen={treeOpen}
+        tenantId={tenantId}
+      />
+      {!isWikiPage &&
+      session &&
+      document &&
+      document.format === "blocknote" &&
+      document.representation_format !== "html" ? (
+        <RoomDocumentSessionBanner
+          name={document.title}
+          onRetry={resyncSession}
+          session={session}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -186,6 +228,7 @@ function UnifiedDocumentHeader({
   canvasSent,
   mailCanvas,
   isEditing,
+  linkCopyState,
   onComments,
   onCopyLink,
   onDelete,
@@ -214,6 +257,7 @@ function UnifiedDocumentHeader({
   canvasSent: boolean;
   mailCanvas: boolean;
   isEditing: boolean;
+  linkCopyState?: "copied" | "failed";
   onComments: () => void;
   onCopyLink: () => void;
   onDelete: () => void;
@@ -240,7 +284,12 @@ function UnifiedDocumentHeader({
         actions={{
           busy: duplicatePending || exportPending,
           canRename: canRenameDocument(document),
-          onRename: () => rename.beginRename(document),
+          onRename: () => {
+            if (document.can_edit_native_content) {
+              onEditingChange(true);
+            }
+            rename.beginRename(document);
+          },
           canDelete: document.capabilities.delete,
           canDuplicate: document.capabilities.duplicate,
           canExport: document.capabilities.export,
@@ -325,7 +374,31 @@ function UnifiedDocumentHeader({
             />
           </span>
         ) : !isWikiPage ? (
-          presence
+          <>
+            {session &&
+            document?.format === "blocknote" &&
+            document.representation_format !== "html" ? (
+              <RoomDocumentSaveIndicator
+                alwaysVisible
+                isEditing={isEditing}
+                session={session}
+              />
+            ) : null}
+            {presence}
+            {linkCopyState === "copied" ? (
+              <span
+                aria-label="Copy link status"
+                className="text-xs leading-4 text-app-muted"
+                role="status"
+              >
+                Copied
+              </span>
+            ) : linkCopyState === "failed" ? (
+              <span className="text-xs leading-4 text-app-danger" role="alert">
+                Copy failed
+              </span>
+            ) : null}
+          </>
         ) : null}
         {document && !isWikiPage ? (
           <Button

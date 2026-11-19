@@ -863,6 +863,135 @@ describe("Connected apps", () => {
     );
     expect(disconnect.mock.calls[0]?.[1]).toEqual({ expected_revision: 1 });
   });
+
+  it("keeps an expired-only connector visible under Connected only with Needs reconnecting and Reconnect", async () => {
+    const runtime = await testRuntime();
+    const existing = (await runtime.client.listExternalConnections())
+      .connections[0]!;
+    const expired = {
+      ...existing,
+      id: "gmail-expired-only",
+      identity_label: "expired@linger.test",
+      status: "expired" as const,
+    };
+    vi.spyOn(runtime.client, "listExternalConnections").mockResolvedValue({
+      connections: [expired],
+    });
+    const createReauthorization = vi
+      .spyOn(runtime.client, "createExternalConnectionReauthorization")
+      .mockResolvedValue({
+        ...expired,
+        reauthorizing: true,
+        reauthorization_connect_expires_at: "2999-01-01T00:00:00Z",
+        reauthorization_connect_url:
+          "https://connect.example.test/gmail/reauthorize",
+      });
+    vi.spyOn(window, "open").mockReturnValue({
+      opener: null,
+    } as unknown as Window);
+
+    renderPage(runtime);
+
+    const gmailCard = await screen.findByRole("button", { name: "Gmail" });
+    expect(within(gmailCard).getByText("Needs reconnecting")).toBeVisible();
+    expect(gmailCard.querySelector(".bg-app-warning")).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Reconnect Gmail" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Connect Gmail" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Connected only" }));
+    expect(
+      within(screen.getByRole("region", { name: "Application connections" }))
+        .getAllByRole("article")
+        .map((card) => within(card).getAllByRole("button")[0]!.ariaLabel),
+    ).toEqual(["Gmail"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect Gmail" }));
+    await waitFor(() =>
+      expect(createReauthorization).toHaveBeenCalledWith(
+        "gmail-expired-only",
+        expired.revision,
+      ),
+    );
+  });
+
+  it("keeps Manage reachable via ActionMenu when an app has two or more active accounts", async () => {
+    const runtime = await testRuntime();
+    const existing = (await runtime.client.listExternalConnections())
+      .connections[0]!;
+    vi.spyOn(runtime.client, "listExternalConnections").mockResolvedValue({
+      connections: [
+        existing,
+        {
+          ...existing,
+          id: "gmail-second",
+          identity_label: "work@linger.test",
+          status: "active" as const,
+        },
+      ],
+    });
+
+    renderPage(runtime);
+
+    const actions = await screen.findByRole("button", {
+      name: "Actions for Gmail",
+    });
+    fireEvent.click(actions);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Manage" }));
+    expect(await screen.findByRole("dialog", { name: "Gmail" })).toBeVisible();
+  });
+
+  it("blocks closing the disconnect dialog while the request is in flight", async () => {
+    const runtime = await testRuntime();
+    const existing = (await runtime.client.listExternalConnections())
+      .connections[0]!;
+    const disconnecting = {
+      ...existing,
+      revision: existing.revision + 1,
+      status: "disconnecting" as const,
+    };
+    let resolveDisconnect!: (value: typeof disconnecting) => void;
+    vi.spyOn(runtime.client, "disconnectExternalConnection").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveDisconnect = resolve;
+        }),
+    );
+    vi.spyOn(runtime.client, "getExternalConnection").mockResolvedValue(
+      disconnecting,
+    );
+
+    renderPage(runtime, "/apps?app=gmail");
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Disconnect jenny@linger.test",
+      }),
+    );
+    const dialog = screen.getByRole("dialog", {
+      name: "Disconnect account?",
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
+
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("button", { name: "Cancel" }),
+      ).toBeDisabled(),
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    expect(
+      screen.getByRole("dialog", { name: "Disconnect account?" }),
+    ).toBeVisible();
+
+    resolveDisconnect(disconnecting);
+    await waitFor(() =>
+      expect(
+        within(dialog).queryByRole("button", { name: "Disconnect" }),
+      ).toBeNull(),
+    );
+  });
 });
 
 /** The curated catalog TeamHub lists without a Composio key. */

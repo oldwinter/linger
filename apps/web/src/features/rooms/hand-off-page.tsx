@@ -64,11 +64,12 @@ export function HandOffPage() {
     },
   });
 
+  const ready = !room.isPending && !members.isPending && !identity.isPending;
   useEffect(() => {
-    titleRef.current?.focus();
-  }, []);
+    if (ready) titleRef.current?.focus();
+  }, [ready]);
 
-  if (room.isPending || members.isPending || identity.isPending) {
+  if (!ready) {
     return (
       <main className="mx-auto w-full max-w-xl px-6 py-10">
         <p role="status">Loading this room...</p>
@@ -103,9 +104,12 @@ export function HandOffPage() {
     );
   }
 
+  const currentActorId = identity.data?.actors.find(
+    (actor) => actor.tenant_id === tenantId,
+  )?.id;
   const people = handOffCandidates(
     members.data?.items.map((member) => member.actor) ?? [],
-    identity.data?.actors[0]?.id,
+    currentActorId,
   );
 
   return (

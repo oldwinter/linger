@@ -50,12 +50,12 @@ export function FormFeedback({
   const style = feedbackStyle[tone];
 
   return (
-    <p
+    <div
       className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm ${style.className}`}
       role={style.role}
     >
       <Icon className="mt-[3px] shrink-0" icon={style.icon} size={14} />
       <span>{children}</span>
-    </p>
+    </div>
   );
 }

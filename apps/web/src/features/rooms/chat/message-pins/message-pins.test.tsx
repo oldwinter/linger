@@ -1312,4 +1312,18 @@ describe("Message Pin action", () => {
       true,
     );
   });
+
+  it("shows an inline alert when pinning from the message menu fails", async () => {
+    const onTogglePin = vi.fn().mockRejectedValue(new Error("offline"));
+    renderTimeline({ onTogglePin });
+    fireEvent.click(
+      screen.getByRole("button", { name: "More message actions" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Pin message" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not pin the message.",
+    );
+  });
 });

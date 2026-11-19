@@ -4,7 +4,10 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
-import type { TestRouteHandler } from "@/test/teamhub-test-server";
+import {
+  teamHubErrorResponse,
+  type TestRouteHandler,
+} from "@/test/teamhub-test-server";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 
 import { IntroductionPage } from "./introduction-page";
@@ -75,5 +78,48 @@ describe("IntroductionPage", () => {
     expect(body.text).toContain(
       "Jenny Bin works like this: Keeps execution close to customer outcomes.",
     );
+  });
+
+  it("shows a retryable alert instead of an empty state when loading fails", async () => {
+    const runtime = createTestTeamHubRuntime();
+    let attempts = 0;
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/me/pocket-notes", () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return teamHubErrorResponse(500, "UNAVAILABLE", "Notes failed.");
+      }
+      return { items: [], page: { has_more: false }, today: "2026-11-14" };
+    });
+    const router = createMemoryRouter(
+      [
+        {
+          element: <IntroductionPage />,
+          path: "/t/:tenantId/library/introduction",
+        },
+      ],
+      { initialEntries: ["/t/tenant-northstar/library/introduction"] },
+    );
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <RouterProvider router={router} />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not load your introduction.",
+    );
+    expect(
+      screen.queryByText(
+        "Another Me has not written enough to introduce you yet.",
+      ),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("This is Jenny Bin.")).toBeVisible();
   });
 });

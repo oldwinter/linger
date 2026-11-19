@@ -22,11 +22,24 @@ export function isGlobalSearchShortcut(event: KeyboardEvent) {
   return event.key.toLowerCase() === "k";
 }
 
-export function useGlobalSearchShortcut(onOpen: () => void) {
+export function useGlobalSearchShortcut(
+  onOpen: () => void,
+  options?: {
+    canTrigger?: (event: KeyboardEvent) => boolean;
+    enabled?: boolean;
+  },
+) {
+  const enabled = options?.enabled ?? true;
   const open = useEffectEvent(onOpen);
+  const canTrigger = useEffectEvent(
+    (event: KeyboardEvent) => options?.canTrigger?.(event) ?? true,
+  );
   useEffect(() => {
+    if (!enabled) return;
     function onKeyDown(event: KeyboardEvent) {
+      if (event.defaultPrevented) return;
       if (!isGlobalSearchShortcut(event)) return;
+      if (!canTrigger(event)) return;
       // Capture phase plus stopPropagation: editors that bind the same key
       // (the Markdown editor's link command) never see it, so search wins.
       event.preventDefault();
@@ -35,7 +48,7 @@ export function useGlobalSearchShortcut(onOpen: () => void) {
     }
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, []);
+  }, [enabled]);
 }
 
 /**

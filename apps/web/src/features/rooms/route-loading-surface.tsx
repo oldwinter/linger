@@ -101,6 +101,9 @@ function classifyRoute(
   if (documentsIndex >= 0 && segments[documentsIndex + 1]) {
     return { kind: "document", label: "Document" };
   }
+  if (roomsIndex >= 0 && segments[roomsIndex + 1] === "catch-up") {
+    return { kind: "page", label: "Catch up" };
+  }
   if (roomsIndex >= 0 && segments[roomsIndex + 1]) {
     const roomId = decodeURIComponent(segments[roomsIndex + 1]!);
     const room = rooms.find((candidate) => candidate.id === roomId);
@@ -112,11 +115,35 @@ function classifyRoute(
   if (segments.includes("computers")) {
     return { kind: "page", label: "Local computers" };
   }
+  if (segments.includes("settings")) {
+    return { kind: "page", label: "Settings" };
+  }
   if (segments.includes("apps")) {
-    return { kind: "page", label: "Apps" };
+    return { kind: "page", label: "Connectors" };
   }
   if (segments.includes("dashboard")) {
     return { kind: "dashboard", label: "Dashboard" };
+  }
+  if (segments.includes("work-items")) {
+    return { kind: "page", label: "Work Item" };
+  }
+  if (segments.includes("jump")) {
+    return { kind: "page", label: "Jump" };
+  }
+  if (segments.includes("awake")) {
+    return { kind: "page", label: "Who is awake" };
+  }
+  if (segments.includes("surprise")) {
+    return { kind: "page", label: "Surprise me" };
+  }
+  if (segments.includes("voices")) {
+    return { kind: "page", label: "Who is speaking" };
+  }
+  if (segments.includes("hearing")) {
+    return { kind: "page", label: "Right now" };
+  }
+  if (segments.includes("wiki-preview")) {
+    return { kind: "library", label: "Wiki" };
   }
   if (segments.includes("library")) {
     return {
@@ -124,7 +151,7 @@ function classifyRoute(
       label: segments.includes("wiki") ? "Wiki" : "Library",
     };
   }
-  return { kind: "page", label: "Library" };
+  return { kind: "page", label: "page" };
 }
 
 /**
@@ -236,38 +263,9 @@ function DashboardLoading() {
   );
 }
 
-/**
- * The Library sidebar is chrome, so it stays in place while the route module
- * loads and only the content column reads as pending.
- */
-function WorkspaceSidebarLoading() {
-  return (
-    <>
-      <aside
-        aria-hidden="true"
-        className="hidden w-[220px] shrink-0 bg-app-sidebar px-2 py-3 sm:block"
-      >
-        <div className="space-y-0.5 text-sm text-app-body">
-          {["Overview", "Search", "Wiki"].map((item) => (
-            <div className="flex h-9 items-center px-2" key={item}>
-              {item}
-            </div>
-          ))}
-        </div>
-        <div className="mt-4 space-y-0.5 text-sm font-medium text-app-body">
-          <div className="flex h-9 items-center px-2">My pages</div>
-          <div className="flex h-9 items-center px-2">Shared with me</div>
-        </div>
-      </aside>
-      <div className="hidden w-px shrink-0 bg-border/60 sm:block" />
-    </>
-  );
-}
-
 function LibraryLoading() {
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden" aria-hidden="true">
-      <WorkspaceSidebarLoading />
       <section className="workspace-content-viewport min-w-0 flex-1 px-6 py-7">
         <Skeleton className="h-5 w-32" />
         <div className="mt-5 flex gap-3">
@@ -287,7 +285,25 @@ function LibraryLoading() {
 function DocumentLoading() {
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
-      <WorkspaceSidebarLoading />
+      <aside
+        aria-hidden="true"
+        className="hidden w-[220px] shrink-0 bg-app-sidebar px-3 py-4 sm:block"
+      >
+        <div className="space-y-2.5">
+          {["w-24", "w-20", "w-28"].map((width) => (
+            <Skeleton className={`h-4 ${width}`} key={width} />
+          ))}
+        </div>
+        <div className="mt-6 space-y-2.5">
+          {["w-32", "w-24"].map((width) => (
+            <Skeleton className={`h-4 ${width}`} key={width} />
+          ))}
+        </div>
+      </aside>
+      <div
+        aria-hidden="true"
+        className="hidden w-px shrink-0 bg-border/60 sm:block"
+      />
       <main className="workspace-content-viewport flex min-w-0 flex-1 flex-col bg-app-surface">
         <header
           aria-hidden="true"

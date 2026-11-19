@@ -84,6 +84,7 @@ export function BrowserConnectionDialog({
   async function run(
     action: Exclude<PendingAction, null>,
     send: () => Promise<TeamHubBrowserConnectionStatus>,
+    onSuccess?: () => void,
   ) {
     if (!computer) return;
     const computerId = computer.computer_id;
@@ -95,6 +96,7 @@ export function BrowserConnectionDialog({
         browserConnectionQueryKey(tenantId, computerId),
         next,
       );
+      onSuccess?.();
       setEditing(false);
     } catch (error) {
       setFailure(browserConnectionErrorMessage(error));
@@ -107,15 +109,25 @@ export function BrowserConnectionDialog({
     event.preventDefault();
     if (!computer || pending || !pastedToken.trim()) return;
     const token = pastedToken;
-    // Clear the field before the request so the token does not stay in state.
-    setPastedToken("");
-    void run("configure", () =>
-      configureBrowserConnection(client, tenantId, computer.computer_id, token),
+    // Clear the token only after the request succeeds so a transient failure
+    // does not force the user to copy it again.
+    void run(
+      "configure",
+      () =>
+        configureBrowserConnection(
+          client,
+          tenantId,
+          computer.computer_id,
+          token,
+        ),
+      () => setPastedToken(""),
     );
   }
 
   function requestClose() {
-    if (!pending) onClose();
+    if (pending) return;
+    setPastedToken("");
+    onClose();
   }
 
   const current = status.data;

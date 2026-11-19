@@ -19,7 +19,7 @@ export function AnotherMeArrivedBanner({
   return (
     <aside
       aria-label="Another Me arrived"
-      className="fixed right-6 bottom-6 z-20 flex w-80 items-start gap-3 rounded-2xl border border-border bg-card p-3 shadow-lg"
+      className="fixed right-6 bottom-6 z-20 flex w-[min(20rem,calc(100vw-2rem))] items-start gap-3 rounded-2xl border border-border bg-card p-3 shadow-lg max-md:top-4 max-md:right-4 max-md:bottom-auto"
     >
       <ActorAvatar
         actorId={arrival.actorId}
@@ -27,11 +27,13 @@ export function AnotherMeArrivedBanner({
         name={arrival.name}
         size="sm"
       />
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1" role="status" aria-live="polite">
         <p className="truncate text-sm font-medium text-foreground">
           {arrival.name}
         </p>
-        <p className="mt-1 text-sm text-muted-foreground">{arrival.text}</p>
+        <p className="mt-1 line-clamp-3 text-sm text-muted-foreground">
+          {arrival.text}
+        </p>
         <Button className="mt-2" onClick={onOpen} size="compact" type="button">
           Open
         </Button>

@@ -119,13 +119,15 @@ describe("BackgroundTasksIndicator", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("floats the pill while Tasks run", async () => {
+  it("renders the pill in normal flow above the composer while Tasks run", async () => {
     renderIndicator(tasks);
-    expect(
-      await screen.findByRole("button", {
-        name: "2 tasks running in the background",
-      }),
-    ).toBeVisible();
+    const pill = await screen.findByRole("button", {
+      name: "2 tasks running in the background",
+    });
+    expect(pill).toBeVisible();
+    const container = screen.getByTestId("background-tasks-indicator");
+    expect(container).not.toHaveClass("h-0");
+    expect(pill.parentElement).not.toHaveClass("absolute");
   });
 
   it("cancels one Task and drops it from the list", async () => {

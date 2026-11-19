@@ -73,7 +73,7 @@ export function useLibraryFolderLevel({
       }
     : folderChildren(browsedItems, folderId);
   // The smart view only supplies each row's "Visible in" sources.
-  const library = useLibraryDocuments(view, tab !== "meetings");
+  const library = useLibraryDocuments(tenantId, view, tab !== "meetings");
   const { fetchNextPage, hasNextPage, isFetchingNextPage } = library;
   useEffect(() => {
     if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
@@ -89,13 +89,17 @@ export function useLibraryFolderLevel({
   return { browsedTree, folderId, levelDocuments, openedFolder, trail };
 }
 
-export function useLibraryDocuments(view: LibraryView, enabled: boolean) {
+export function useLibraryDocuments(
+  tenantId: string,
+  view: LibraryView,
+  enabled: boolean,
+) {
   const { client } = useTeamHubRuntime();
   return useInfiniteQuery<
     TeamHubDocumentPage,
     Error,
     InfiniteData<TeamHubDocumentPage>,
-    readonly ["teamhub", "library-documents", LibraryView],
+    readonly ["teamhub", "library-documents", string, LibraryView],
     string | undefined
   >({
     enabled,
@@ -114,6 +118,6 @@ export function useLibraryDocuments(view: LibraryView, enabled: boolean) {
           },
         }),
       ),
-    queryKey: ["teamhub", "library-documents", view],
+    queryKey: ["teamhub", "library-documents", tenantId, view],
   });
 }

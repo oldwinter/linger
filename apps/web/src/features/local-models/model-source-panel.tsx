@@ -67,6 +67,17 @@ export function activeSourceLabel(status: ModelSourceStatus) {
   return "Local model";
 }
 
+export interface ByokDraft {
+  apiKey: string;
+  baseUrl: string;
+  keyEdited: boolean;
+  listed: { baseUrl: string; keyRevision: number };
+  manualModelEntry: boolean;
+  modelId: string;
+  runtime: ModelSourceRuntime;
+  saveRevision: number;
+}
+
 interface ModelSourceSwitcher {
   clearFeedback: () => void;
   failure: string | undefined;
@@ -84,10 +95,12 @@ interface ModelSourceSwitcher {
 export function useModelSourceSwitch({
   computerId,
   computerName,
+  onSwitched,
   tenantId,
 }: {
   computerId: string;
   computerName: string;
+  onSwitched?: () => void;
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
@@ -121,6 +134,7 @@ export function useModelSourceSwitch({
       queryClient.setQueryData(modelSourceQueryKey(tenantId, computerId), view);
       setNotice(switchedNotice(view));
       setSaveRevision((current) => current + 1);
+      onSwitched?.();
       void Promise.all([
         queryClient.invalidateQueries({
           queryKey: tenantLocalModelsQueryKey(tenantId),
@@ -371,6 +385,26 @@ function sameEndpointOrigin(savedUrl: string | undefined, nextUrl: string) {
   }
 }
 
+function initialByokDraft(
+  status: ModelSourceStatus,
+  saveRevision: number,
+): ByokDraft {
+  const saved = status.byok;
+  return {
+    apiKey: "",
+    baseUrl: saved.base_url ?? "",
+    keyEdited: false,
+    // Models are listed for the address and key as they stand when a field is
+    // left, not on every keystroke.
+    listed: { baseUrl: saved.base_url ?? "", keyRevision: 0 },
+    manualModelEntry: false,
+    // Starts empty until a model is saved, then shows the saved one.
+    modelId: saved.model_id ?? "",
+    runtime: status.mode === "byok" ? status.runtime : "claude",
+    saveRevision,
+  };
+}
+
 /**
  * The person's own endpoint. The API key goes to the Computer, which keeps
  * it private; Linger never shows it again.
@@ -378,33 +412,49 @@ function sameEndpointOrigin(savedUrl: string | undefined, nextUrl: string) {
 export function ByokPanel({
   computerId,
   disabled,
+  draft,
+  onDraftChange,
   status,
   switcher,
   tenantId,
 }: {
   computerId: string;
   disabled: boolean;
+  draft: ByokDraft | undefined;
+  onDraftChange: (
+    updater: (current: ByokDraft | undefined) => ByokDraft,
+  ) => void;
   status: ModelSourceStatus;
   switcher: ModelSourceSwitcher;
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
   const saved = status.byok;
-  const [runtime, setRuntime] = useState<ModelSourceRuntime>(
-    status.mode === "byok" ? status.runtime : "claude",
-  );
-  const [baseUrl, setBaseUrl] = useState(saved.base_url ?? "");
-  const [apiKey, setApiKey] = useState("");
-  // Starts empty until a model is saved, then shows the saved one.
-  const [modelId, setModelId] = useState(saved.model_id ?? "");
-  const [manualModelEntry, setManualModelEntry] = useState(false);
-  // Models are listed for the address and key as they stand when a field is
-  // left, not on every keystroke.
-  const [listed, setListed] = useState({
-    baseUrl: saved.base_url ?? "",
-    keyRevision: 0,
-  });
-  const [keyEdited, setKeyEdited] = useState(false);
+  const activeDraft =
+    draft?.saveRevision === switcher.saveRevision
+      ? draft
+      : initialByokDraft(status, switcher.saveRevision);
+  const {
+    apiKey,
+    baseUrl,
+    keyEdited,
+    listed,
+    manualModelEntry,
+    modelId,
+    runtime,
+  } = activeDraft;
+
+  function updateDraft(
+    patch: Partial<ByokDraft> | ((current: ByokDraft) => ByokDraft),
+  ) {
+    onDraftChange((stored) => {
+      const base =
+        stored?.saveRevision === switcher.saveRevision
+          ? stored
+          : initialByokDraft(status, switcher.saveRevision);
+      return typeof patch === "function" ? patch(base) : { ...base, ...patch };
+    });
+  }
   const trimmedBaseUrl = baseUrl.trim();
   // Never reuse a saved key when the owner points BYOK at a different host.
   const canReuseSavedKey =
@@ -472,10 +522,13 @@ export function ByokPanel({
   }
 
   function listModels() {
-    setKeyEdited(false);
-    setListed((current) => ({
-      baseUrl: input.base_url,
-      keyRevision: current.keyRevision + 1,
+    updateDraft((current) => ({
+      ...current,
+      keyEdited: false,
+      listed: {
+        baseUrl: input.base_url,
+        keyRevision: current.listed.keyRevision + 1,
+      },
     }));
   }
 
@@ -500,7 +553,7 @@ export function ByokPanel({
             className="w-full"
             disabled={disabled}
             onValueChange={(value) => {
-              setRuntime(value as ModelSourceRuntime);
+              updateDraft({ runtime: value as ModelSourceRuntime });
               // The runtime decides which API format is tried first.
               test.reset();
             }}
@@ -518,14 +571,17 @@ export function ByokPanel({
           disabled={disabled}
           label="Base URL"
           onBlur={() =>
-            setListed((current) =>
-              current.baseUrl === input.base_url
+            updateDraft((current) =>
+              current.listed.baseUrl === input.base_url
                 ? current
-                : { ...current, baseUrl: input.base_url },
+                : {
+                    ...current,
+                    listed: { ...current.listed, baseUrl: input.base_url },
+                  },
             )
           }
           onChange={(event) => {
-            setBaseUrl(event.target.value);
+            updateDraft({ baseUrl: event.target.value });
             test.reset();
           }}
           placeholder="https://api.example.com/v1"
@@ -543,15 +599,17 @@ export function ByokPanel({
           label="API key"
           onBlur={() => {
             if (!keyEdited) return;
-            setKeyEdited(false);
-            setListed((current) => ({
+            updateDraft((current) => ({
               ...current,
-              keyRevision: current.keyRevision + 1,
+              keyEdited: false,
+              listed: {
+                ...current.listed,
+                keyRevision: current.listed.keyRevision + 1,
+              },
             }));
           }}
           onChange={(event) => {
-            setApiKey(event.target.value);
-            setKeyEdited(true);
+            updateDraft({ apiKey: event.target.value, keyEdited: true });
             test.reset();
           }}
           type="password"
@@ -574,7 +632,7 @@ export function ByokPanel({
                   disabled={disabled}
                   id={modelControlId}
                   onValueChange={(value) => {
-                    setModelId(value);
+                    updateDraft({ modelId: value });
                     test.reset();
                   }}
                   placeholder="Choose a model"
@@ -594,7 +652,7 @@ export function ByokPanel({
                   disabled={disabled}
                   id={modelControlId}
                   onChange={(event) => {
-                    setModelId(event.target.value);
+                    updateDraft({ modelId: event.target.value });
                     test.reset();
                   }}
                   placeholder="provider/model-name"
@@ -621,7 +679,12 @@ export function ByokPanel({
                 <button
                   className="text-foreground underline underline-offset-2 disabled:opacity-50"
                   disabled={disabled}
-                  onClick={() => setManualModelEntry((current) => !current)}
+                  onClick={() =>
+                    updateDraft((current) => ({
+                      ...current,
+                      manualModelEntry: !current.manualModelEntry,
+                    }))
+                  }
                   type="button"
                 >
                   {manualModelEntry

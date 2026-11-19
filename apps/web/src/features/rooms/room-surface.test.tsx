@@ -416,7 +416,7 @@ describe("RoomSurface command availability", () => {
     await renderRoomSurface();
 
     fireEvent.click(
-      await screen.findByRole("button", { name: /settings from avatar$/ }),
+      await screen.findByRole("button", { name: /^Open .* details$/ }),
     );
     fireEvent.click(
       await screen.findByRole("button", { name: "Edit Room details" }),
@@ -461,7 +461,7 @@ describe("RoomSurface command availability", () => {
       within(header).queryByRole("button", { name: "Room settings" }),
     ).not.toBeInTheDocument();
     const settings = within(header).getByRole("button", {
-      name: "Open all settings from avatar",
+      name: "Open all details",
     });
     expect(
       within(header).queryByRole("link", { name: "Hand off" }),
@@ -588,7 +588,7 @@ describe("RoomSurface command availability", () => {
     await renderRoomSurface("room-gtm-launch");
 
     fireEvent.click(
-      await screen.findByRole("button", { name: /settings from avatar$/ }),
+      await screen.findByRole("button", { name: /^Open .* details$/ }),
     );
     await screen.findByTestId("panel-room-settings");
     expect(
@@ -708,7 +708,7 @@ describe("RoomSurface command availability", () => {
   it("opens Agent editing from the Direct Room header avatar", async () => {
     await renderRoomSurface("room-dm-codex");
     const avatar = await screen.findByRole("button", {
-      name: "Open Codex settings from avatar",
+      name: "Open Codex details",
     });
     expect(
       within(avatar).getByRole("img", { name: "Codex avatar" }),
@@ -727,10 +727,36 @@ describe("RoomSurface command availability", () => {
     ).toBeVisible();
     // A second click on the header chip folds the panel away again.
     expect(avatar).toHaveAttribute("aria-expanded", "true");
+    expect(avatar).toHaveAccessibleName("Close Codex details");
     fireEvent.click(avatar);
     await waitFor(() =>
       expect(avatar).toHaveAttribute("aria-expanded", "false"),
     );
+    expect(avatar).toHaveAccessibleName("Open Codex details");
+  });
+
+  it("switches to Room details when clicking the header chip while another sidebar tab is active", async () => {
+    await renderRoomSurface();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Show sidebar" }),
+    );
+    const sidebar = await screen.findByRole("complementary", {
+      name: "Panel sidebar",
+    });
+    fireEvent.click(
+      await within(sidebar).findByRole("button", { name: /Documents/ }),
+    );
+    await within(sidebar).findByRole("tab", { name: "Files" });
+
+    const chip = screen.getByRole("button", { name: "Open all details" });
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(chip);
+
+    expect(
+      await within(sidebar).findByTestId("panel-room-settings"),
+    ).toBeVisible();
+    expect(chip).toHaveAttribute("aria-expanded", "true");
+    expect(chip).toHaveAccessibleName("Close all details");
   });
 
   it("defaults the Agent DM sidebar to Agent info and offers it beside Documents", async () => {
@@ -1297,7 +1323,7 @@ describe("RoomSurface command availability", () => {
     await renderRoomSurface("room-all", "", runtime);
 
     fireEvent.click(
-      await screen.findByRole("button", { name: /settings from avatar$/ }),
+      await screen.findByRole("button", { name: /^Open .* details$/ }),
     );
     // The header is ready before the Actors needed by the members section.
     expect(

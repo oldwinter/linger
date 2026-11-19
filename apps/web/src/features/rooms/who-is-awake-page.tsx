@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
 
+import { Button } from "@/components/ui/button";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
@@ -46,12 +47,21 @@ export function WhoIsAwakePage() {
   );
   const loading = agents.isPending || availability.isPending || rooms.isPending;
   const failed = agents.isError || availability.isError || rooms.isError;
+  const chatsPath = `/t/${encodeURIComponent(tenantId)}/rooms`;
 
   return (
     <main className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-5 py-7">
       <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
         <header>
-          <h1 className="text-xl text-foreground">Who is awake</h1>
+          <div className="flex items-baseline justify-between gap-3">
+            <h1 className="text-xl text-foreground">Who is awake</h1>
+            <Link
+              className="text-sm text-app-muted hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              to={chatsPath}
+            >
+              Back to chats
+            </Link>
+          </div>
           <p className="mt-2 text-sm text-muted-foreground">
             Agents you can reach, updating as they come and go.
           </p>
@@ -61,9 +71,23 @@ export function WhoIsAwakePage() {
             Checking who is awake.
           </p>
         ) : failed ? (
-          <p className="text-sm text-destructive" role="alert">
-            Who is awake could not be loaded.
-          </p>
+          <div
+            className="flex items-center gap-3 text-sm text-destructive"
+            role="alert"
+          >
+            <span>Who is awake could not be loaded.</span>
+            <Button
+              onClick={() => {
+                if (agents.isError) void agents.refetch();
+                if (availability.isError) void availability.refetch();
+                if (rooms.isError) void rooms.refetch();
+              }}
+              size="compact"
+              tone="ghost"
+            >
+              Retry
+            </Button>
+          </div>
         ) : (
           <>
             <p className="text-sm text-foreground" role="status">

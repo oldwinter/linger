@@ -19,8 +19,12 @@ export function HideMeetingDialog({
   tenantId: string;
 }) {
   const hide = useHideMeeting(tenantId);
+  const close = () => {
+    if (!hide.isPending) onClose();
+  };
   return (
     <ModalDialog
+      closeOnBackdrop={!hide.isPending}
       description={
         <>
           <strong>{name}</strong> will no longer show in your Meetings. Others
@@ -29,7 +33,9 @@ export function HideMeetingDialog({
       }
       footer={
         <>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button disabled={hide.isPending} onClick={close}>
+            Cancel
+          </Button>
           <Button
             loading={hide.isPending}
             onClick={() =>
@@ -46,7 +52,7 @@ export function HideMeetingDialog({
           </Button>
         </>
       }
-      onClose={onClose}
+      onClose={close}
       size="sm"
       title="Delete meeting"
     >

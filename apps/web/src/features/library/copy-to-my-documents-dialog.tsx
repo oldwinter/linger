@@ -89,16 +89,19 @@ export function CopyToMyDocumentsDialog({
   pending: boolean;
 }) {
   const [targetId, setTargetId] = useState("__root__");
+  const close = () => {
+    if (!pending) onCancel();
+  };
   return (
     <ModalDialog
-      closeOnBackdrop
+      closeOnBackdrop={!pending}
       description={document.title}
-      onClose={onCancel}
+      onClose={close}
       size="sm"
       title="Copy to My Documents"
       footer={
         <>
-          <Button disabled={pending} onClick={onCancel} tone="secondary">
+          <Button disabled={pending} onClick={close} tone="secondary">
             Cancel
           </Button>
           <Button

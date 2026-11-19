@@ -66,7 +66,7 @@ describe("Work Item Dashboard filter model", () => {
     ).toBe(true);
   });
 
-  it("clears every filter but the Room scope", () => {
+  it("clears every filter including Room", () => {
     const filters = {
       archived: true,
       assignment: "mine" as const,
@@ -76,17 +76,16 @@ describe("Work Item Dashboard filter model", () => {
       text: "plan release",
     };
 
-    expect(clearWorkItemDashboardFilters(filters)).toEqual({
-      ...EMPTY_WORK_ITEM_DASHBOARD_FILTERS,
-      room: "room-launch",
-    });
+    expect(clearWorkItemDashboardFilters(filters)).toEqual(
+      EMPTY_WORK_ITEM_DASHBOARD_FILTERS,
+    );
     expect(hasWorkItemDashboardNarrowingFilters(filters)).toBe(true);
     expect(
       hasWorkItemDashboardNarrowingFilters({
         ...EMPTY_WORK_ITEM_DASHBOARD_FILTERS,
         room: "room-launch",
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       hasWorkItemDashboardNarrowingFilters(EMPTY_WORK_ITEM_DASHBOARD_FILTERS),
     ).toBe(false);

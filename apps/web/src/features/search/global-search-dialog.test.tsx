@@ -71,7 +71,7 @@ describe("Global search dialog", () => {
       "placeholder",
       "Search messages, docs, members and rooms",
     );
-    expect(screen.getByRole("button", { name: "Esc" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Close search" })).toBeVisible();
     expect(screen.getByRole("listbox")).toHaveClass("workspace-scrollbar");
     // Types are scopes the person steps into, not tabs or filter selects.
     expect(screen.queryByRole("tablist")).toBeNull();
@@ -457,7 +457,7 @@ describe("Global search dialog", () => {
     ).toBeVisible();
   });
 
-  it("starts on All and composes kind chips with the Room scope chip", async () => {
+  it("hides redundant single-kind filter chips inside a Room-scoped search", async () => {
     const harness = await renderDialog({
       room: { id: "room-all", name: "All hands" },
     });
@@ -480,39 +480,42 @@ describe("Global search dialog", () => {
     const input = screen.getByRole("combobox", { name: INPUT_NAME });
     fireEvent.change(input, { target: { value: "deploy" } });
 
-    const chips = await screen.findByRole("group", {
-      name: "Filter search results by kind",
-    });
-    await waitFor(() =>
-      expect(
-        within(chips).getByRole("button", { name: "Messages 2" }),
-      ).toBeEnabled(),
-    );
+    await results().findByRole("option", { name: /Deploy to test/ });
     expect(screen.getByText("This Room")).toBeVisible();
+    // A Room-scoped search has only Messages, so no kind filter row is needed.
     expect(
-      within(chips).getByRole("button", { name: "All 2" }),
-    ).toHaveAttribute("aria-pressed", "true");
-    // A Room-scoped search produces Messages alone.
-    expect(within(chips).queryByRole("button", { name: /^Docs / })).toBeNull();
+      screen.queryByRole("group", { name: "Filter search results by kind" }),
+    ).toBeNull();
     expect(harness.searchDocuments).not.toHaveBeenCalled();
   });
 
-  it("offers the kind chips for the type scope in effect", async () => {
+  it("hides redundant single-kind filter chips when scoped to one type", async () => {
     await renderDialog();
     fireEvent.click(results().getByRole("option", { name: /^Members/ }));
 
-    const chips = await screen.findByRole("group", {
-      name: "Filter search results by kind",
-    });
-    await waitFor(() =>
-      expect(
-        within(chips).getByRole("button", { name: /^Members \d+$/ }),
-      ).toBeEnabled(),
-    );
+    await results().findByRole("option", { name: /Codex/ });
     expect(
-      within(chips).getByRole("button", { name: /^All \d+$/ }),
-    ).toHaveAttribute("aria-pressed", "true");
-    expect(within(chips).queryByRole("button", { name: /^Docs / })).toBeNull();
+      screen.queryByRole("group", { name: "Filter search results by kind" }),
+    ).toBeNull();
+  });
+
+  it("clears the query via the Clear search button and skips the 2-character hint in Rooms", async () => {
+    await renderDialog();
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
+
+    fireEvent.click(results().getByRole("option", { name: /^Rooms/ }));
+    fireEvent.change(input, { target: { value: "z" } });
+    const clearButton = screen.getByRole("button", { name: "Clear search" });
+    expect(clearButton).toBeVisible();
+    expect(
+      await screen.findByText("Nothing in Rooms. Try searching everywhere."),
+    ).toBeVisible();
+
+    fireEvent.click(clearButton);
+    expect(input).toHaveValue("");
+    expect(input).toHaveFocus();
+    expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
   });
 
   it("returns to All when the dialog closes and opens again", async () => {

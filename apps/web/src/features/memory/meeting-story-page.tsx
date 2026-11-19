@@ -61,7 +61,23 @@ export function MeetingStoryPage() {
           <p className="text-sm text-muted-foreground" role="status">
             Loading the meeting.
           </p>
-        ) : !listed || selected.error ? (
+        ) : meetings.isError || selected.isError ? (
+          <div className="flex flex-col items-start gap-3" role="alert">
+            <p className="text-sm text-destructive">
+              Could not load this meeting.
+            </p>
+            <Button
+              onClick={() => {
+                if (meetings.isError) void meetings.refetch();
+                if (selected.isError) void selected.refetch();
+              }}
+              size="compact"
+              tone="secondary"
+            >
+              Retry
+            </Button>
+          </div>
+        ) : !listed ? (
           <p className="text-sm text-muted-foreground" role="status">
             This meeting is not in your library.
           </p>

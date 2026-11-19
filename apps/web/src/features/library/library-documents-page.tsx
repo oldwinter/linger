@@ -118,7 +118,7 @@ export function LibraryDocumentsPage() {
     });
   }
   const ownedFolderId = tab === "owned" ? folderId : undefined;
-  const recent = useLibraryDocuments("recent", true);
+  const recent = useLibraryDocuments(tenantId, "recent", true);
   const recentDocuments = (recent.data?.pages[0]?.items ?? []).slice(
     0,
     RECENT_CARD_LIMIT,
@@ -193,6 +193,7 @@ export function LibraryDocumentsPage() {
       ) : null}
       {bulk.moving ? (
         <MoveFolderPickerDialog
+          currentParentId={ownedFolderId}
           folders={treeItems.filter(
             (item): item is DocumentTreeFolder => item.node_kind === "folder",
           )}

@@ -197,7 +197,8 @@ function MiniWindow({
 
   // Every session opens compact; only the expand button enlarges it.
   const [size, setSize] = useState<WindowSize>("compact");
-  const { width, height } = windowSizes[size];
+  const { width: baseWidth, height } = windowSizes[size];
+  const width = useClampedWindowWidth(baseWidth);
   const { consumeDrag, dragHandlers, place, position } =
     useDraggablePosition(width);
   const windowControl = useRef<(action: VoiceWindowAction) => void>(() => {});
@@ -241,7 +242,7 @@ function MiniWindow({
       className={
         pip
           ? "flex h-dvh w-full flex-col overflow-hidden bg-app-canvas"
-          : "voice-mode-window app-floating-enter fixed z-[90] flex flex-col overflow-hidden rounded-xl bg-app-canvas shadow-xl transition-[width,max-height] duration-200 ease-out motion-reduce:transition-none"
+          : "voice-mode-window app-floating-enter fixed z-[90] flex max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl bg-app-canvas shadow-xl transition-[width,max-height] duration-200 ease-out motion-reduce:transition-none"
       }
       data-pip={pip ? true : undefined}
       data-size={size}
@@ -515,6 +516,17 @@ export function sessionMessages(
         message.raw_message.trim(),
     )
     .sort((left, right) => left.created_at.localeCompare(right.created_at));
+}
+
+/** Clamps the floating window width to the current viewport with margins. */
+function useClampedWindowWidth(targetWidth: number): number {
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const update = () => setViewportWidth(window.innerWidth);
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+  return Math.min(targetWidth, Math.max(0, viewportWidth - windowGap * 2));
 }
 
 /** Header drag, clamped to the viewport and remembered per browser. */

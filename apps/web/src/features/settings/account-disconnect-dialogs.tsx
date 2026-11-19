@@ -30,8 +30,13 @@ export function DisconnectAccountDialog({
     },
   });
 
+  function requestClose() {
+    if (!disconnect.isPending) onClose();
+  }
+
   return (
     <ModalDialog
+      closeOnBackdrop={!disconnect.isPending}
       description={
         <>
           {accountIdentityText(
@@ -41,12 +46,16 @@ export function DisconnectAccountDialog({
           . Agent access and source cleanup stay on Apps.
         </>
       }
-      onClose={onClose}
+      onClose={requestClose}
       size="sm"
       title="Disconnect account?"
       footer={
         <>
-          <Button onClick={onClose} size="compact">
+          <Button
+            disabled={disconnect.isPending}
+            onClick={requestClose}
+            size="compact"
+          >
             Cancel
           </Button>
           <Button

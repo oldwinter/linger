@@ -2733,8 +2733,9 @@ describe("Model source", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(
-      "Couldn't read how Agents on this computer get their model. Try again.",
+      "Couldn't read how Agents on this computer get their model.",
     );
+    expect(alert).not.toHaveTextContent("Try again.");
     const retry = within(alert).getByRole("button", { name: "Retry" });
     fixture.runtime.server.on("GET", modelSourcePath, ({ params }) =>
       Response.json({
@@ -3226,5 +3227,155 @@ describe("Model source", () => {
         "Couldn't switch Codex to Llama 3.3 70B while working. Switch once the current turn finishes.",
       ),
     ).toBeVisible();
+  });
+
+  it("preserves unsaved BYOK draft across tab switches, scopes memory controls to Local model, and clears API key after saving", async () => {
+    const fixture = setup([labView()]);
+    const { switches } = withSource(fixture, {
+      byok: { configured: false, key_saved: false },
+      mode: "local",
+      runtime: "pi",
+      runtime_model: "localmodels-library/qwen3-coder-30b",
+    });
+    fixture.runtime.server
+      .on("POST", modelsPath, () =>
+        Response.json({ base_url: "https://draft.example.com/v1", models: [] }),
+      )
+      .on("POST", switchPath, ({ body }) => {
+        switches.push(body);
+        const { byok, runtime } = body as {
+          byok: { base_url: string; model_id: string };
+          runtime: string;
+        };
+        return Response.json({
+          computer_id: "computer-lab",
+          online: true,
+          status: {
+            byok: {
+              base_url: byok.base_url,
+              configured: true,
+              key_saved: true,
+              model_id: byok.model_id,
+              protocol: "openai-chat",
+            },
+            mode: "byok",
+            runtime,
+            runtime_model: "localmodels-byok",
+          },
+          viewer_is_owner: true,
+        });
+      });
+    await renderPage(fixture);
+    await findModels();
+
+    // Local model tab shows memory summary and Recheck memory.
+    expect(
+      screen.getByText("22.5 GB of 48 GB GPU memory in use"),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Recheck memory" }),
+    ).toBeVisible();
+
+    fireEvent.click(await screen.findByRole("tab", { name: /BYOK/u }));
+
+    // BYOK tab hides local memory summary and Recheck memory.
+    expect(
+      screen.queryByText("22.5 GB of 48 GB GPU memory in use"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Recheck memory" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("combobox", { name: "AI runtime" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Codex" }));
+    fireEvent.change(screen.getByLabelText("Base URL"), {
+      target: { value: "https://draft.example.com/v1" },
+    });
+    fireEvent.change(screen.getByLabelText("API key"), {
+      target: { value: "sk-unsaved-secret" },
+    });
+    fireEvent.change(screen.getByLabelText("Model"), {
+      target: { value: "draft/model-1" },
+    });
+
+    // Switching to Local model and back preserves every unsaved BYOK field.
+    fireEvent.click(screen.getByRole("tab", { name: /Local model/u }));
+    expect(
+      screen.getByText("22.5 GB of 48 GB GPU memory in use"),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: /BYOK/u }));
+
+    expect(
+      screen.getByRole("combobox", { name: "AI runtime" }),
+    ).toHaveTextContent("Codex");
+    expect(screen.getByLabelText("Base URL")).toHaveValue(
+      "https://draft.example.com/v1",
+    );
+    expect(screen.getByLabelText("API key")).toHaveValue("sk-unsaved-secret");
+    expect(screen.getByLabelText("Model")).toHaveValue("draft/model-1");
+
+    // Saving clears the entered API key cleanly.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save & Switch to BYOK" }),
+    );
+    await waitFor(() => expect(switches).toHaveLength(1));
+    await waitFor(() =>
+      expect(screen.getByLabelText("API key")).toHaveValue(""),
+    );
+  });
+
+  it("disables the Computer picker and shows a spinner during an active model-source switch", async () => {
+    const fixture = setup([labView(), macView()]);
+    withSource(fixture, byokStatus);
+    let releaseSwitch!: () => void;
+    fixture.runtime.server.on(
+      "POST",
+      switchPath,
+      () =>
+        new Promise((resolve) => {
+          releaseSwitch = () =>
+            resolve(
+              Response.json(
+                {
+                  error: {
+                    code: "AGENT_HAS_ACTIVE_RUNS",
+                    details: [
+                      {
+                        code: "AGENT_HAS_ACTIVE_RUNS",
+                        field: "agent",
+                        reason: "Research agent",
+                      },
+                    ],
+                    message: "busy",
+                    request_id: "test-busy-switch",
+                  },
+                },
+                { status: 409 },
+              ),
+            );
+        }),
+    );
+    await renderPage(fixture);
+
+    fireEvent.click(await screen.findByRole("tab", { name: "Local model" }));
+    const picker = screen.getByRole("combobox", { name: "Computer" });
+    expect(picker).toBeEnabled();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Switch to Local model" }),
+    );
+
+    await waitFor(() => expect(picker).toBeDisabled());
+    const switchingStatus = screen.getByText(
+      /Switching lab-118\. This can take a few minutes the first time\./,
+    );
+    expect(switchingStatus).toBeVisible();
+    expect(switchingStatus.querySelector(".town-spinner")).not.toBeNull();
+
+    releaseSwitch();
+    expect(
+      await screen.findByRole("dialog", { name: "End running tasks?" }),
+    ).toBeVisible();
+    await waitFor(() => expect(picker).toBeEnabled());
   });
 });

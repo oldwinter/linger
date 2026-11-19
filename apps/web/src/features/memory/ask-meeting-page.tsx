@@ -3,6 +3,7 @@ import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
@@ -12,6 +13,7 @@ import { meetingQuestionsKey } from "./ask-meeting";
 import { useMeetings } from "./memory-queries";
 import { meetingPath } from "./meeting-routes";
 import { formatMeetingWhen, meetingWhen } from "./meetings-calendar";
+import { meetingsTabPath } from "./meetings-panel";
 
 export function AskMeetingPage() {
   const { client } = useTeamHubRuntime();
@@ -53,20 +55,53 @@ export function AskMeetingPage() {
 
   useEffect(() => {
     questionRef.current?.focus();
-  }, []);
+  }, [captureId]);
 
   if (meetings.isPending) {
     return (
-      <main className="mx-auto w-full max-w-xl px-6 py-10">
-        <p role="status">Loading this meeting...</p>
+      <main className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-6 py-10">
+        <div className="mx-auto w-full max-w-xl">
+          <Link
+            className="mb-6 inline-block text-sm text-muted-foreground underline"
+            to={meetingsTabPath(tenantId, "week")}
+          >
+            Back to meetings
+          </Link>
+          <p
+            className="flex items-center gap-2 text-sm text-muted-foreground"
+            role="status"
+          >
+            <Spinner size={16} />
+            Loading this meeting...
+          </p>
+        </div>
       </main>
     );
   }
 
-  if (!meeting?.meeting || !captureId) {
+  if (meetings.isError || !meeting?.meeting || !captureId) {
     return (
-      <main className="mx-auto w-full max-w-xl px-6 py-10">
-        <p role="alert">This meeting could not be opened.</p>
+      <main className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-6 py-10">
+        <div className="mx-auto flex w-full max-w-xl flex-col items-start gap-4">
+          <Link
+            className="text-sm text-muted-foreground underline"
+            to={meetingsTabPath(tenantId, "week")}
+          >
+            Back to meetings
+          </Link>
+          <p className="text-sm text-destructive" role="alert">
+            {meetings.isError
+              ? "Could not load this meeting."
+              : "This meeting could not be opened."}
+          </p>
+          <Button
+            onClick={() => void meetings.refetch()}
+            size="compact"
+            tone="secondary"
+          >
+            Retry
+          </Button>
+        </div>
       </main>
     );
   }
@@ -86,64 +121,79 @@ export function AskMeetingPage() {
   const saved = questions.data?.items ?? [];
 
   return (
-    <main className="mx-auto w-full max-w-xl px-6 py-10">
-      <p className="text-sm text-muted-foreground">{name}</p>
-      <h1 className="mt-1 text-2xl text-foreground">Ask the recording</h1>
-      <p className="mt-3 text-sm leading-6 text-muted-foreground">
-        Ask something the recording can answer. The answer stays with this
-        meeting.
-      </p>
-      {questions.isPending ? (
-        <p className="mt-6 text-sm" role="status">
-          Loading saved questions...
-        </p>
-      ) : saved.length === 0 ? (
-        <p className="mt-6 text-sm text-muted-foreground" role="status">
-          Nothing has been asked of this recording yet.
-        </p>
-      ) : (
-        <ol className="mt-6 flex flex-col gap-4">
-          {saved.map((item) => (
-            <li key={item.id}>
-              <SavedQuestion item={item} />
-            </li>
-          ))}
-        </ol>
-      )}
-      <form className="mt-8" onSubmit={submit}>
-        <label className="block" htmlFor={questionId}>
-          <span className="mb-1.5 block text-sm font-medium">
-            What do you want to know?
-          </span>
-          <textarea
-            className="ui-field-control min-h-24 w-full resize-none"
-            id={questionId}
-            maxLength={1000}
-            onChange={(event) => setQuestion(event.target.value)}
-            ref={questionRef}
-            value={question}
-          />
-        </label>
-        <Button
-          className="mt-3"
-          disabled={!question.trim() || ask.isPending}
-          tone="primary"
-          type="submit"
+    <main className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-6 py-10">
+      <div className="mx-auto w-full max-w-xl">
+        <Link
+          className="mb-6 inline-block text-sm text-muted-foreground underline"
+          to={meetingPath(tenantId, meeting.id)}
         >
-          Ask the recording
-        </Button>
-        {ask.isError ? (
-          <p className="mt-3 text-sm text-destructive" role="alert">
-            That question did not go through.
+          Back to {name}
+        </Link>
+        <p className="text-sm text-muted-foreground">{name}</p>
+        <h1 className="mt-1 text-2xl text-foreground">Ask the recording</h1>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">
+          Ask something the recording can answer. The answer stays with this
+          meeting.
+        </p>
+        {questions.isPending ? (
+          <p className="mt-6 text-sm" role="status">
+            Loading saved questions...
           </p>
-        ) : null}
-      </form>
-      <Link
-        className="mt-8 inline-block text-sm text-muted-foreground underline"
-        to={meetingPath(tenantId, meeting.id)}
-      >
-        Back to {name}
-      </Link>
+        ) : questions.isError ? (
+          <div className="mt-6 flex flex-col items-start gap-2" role="alert">
+            <p className="text-sm text-destructive">
+              Could not load saved questions.
+            </p>
+            <Button
+              onClick={() => void questions.refetch()}
+              size="compact"
+              tone="secondary"
+            >
+              Retry
+            </Button>
+          </div>
+        ) : saved.length === 0 ? (
+          <p className="mt-6 text-sm text-muted-foreground" role="status">
+            Nothing has been asked of this recording yet.
+          </p>
+        ) : (
+          <ol className="mt-6 flex flex-col gap-4">
+            {saved.map((item) => (
+              <li key={item.id}>
+                <SavedQuestion item={item} />
+              </li>
+            ))}
+          </ol>
+        )}
+        <form className="mt-8" onSubmit={submit}>
+          <label className="block" htmlFor={questionId}>
+            <span className="mb-1.5 block text-sm font-medium">
+              What do you want to know?
+            </span>
+            <textarea
+              className="ui-field-control min-h-24 w-full resize-none"
+              id={questionId}
+              maxLength={1000}
+              onChange={(event) => setQuestion(event.target.value)}
+              ref={questionRef}
+              value={question}
+            />
+          </label>
+          <Button
+            className="mt-3"
+            disabled={!question.trim() || ask.isPending}
+            tone="primary"
+            type="submit"
+          >
+            Ask the recording
+          </Button>
+          {ask.isError ? (
+            <p className="mt-3 text-sm text-destructive" role="alert">
+              That question did not go through.
+            </p>
+          ) : null}
+        </form>
+      </div>
     </main>
   );
 }

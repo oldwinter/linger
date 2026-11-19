@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
 
+import { Button } from "@/components/ui/button";
 import { collectTeamHubCursorPages } from "@/features/teamhub/teamhub-cursor-pages";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
+import { TeamHubError } from "@/features/teamhub/teamhub-error";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { dayKey } from "@/lib/date-format";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
@@ -90,11 +92,33 @@ export function WorkItemStoryPage() {
   return (
     <main className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-5 py-7 md:px-10">
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
-        {itemQuery.isPending || timelineQuery.isPending ? (
+        {itemQuery.isPending ||
+        (!itemQuery.isError && timelineQuery.isPending) ? (
           <p className="text-sm text-muted-foreground" role="status">
             Loading this Work Item.
           </p>
-        ) : itemQuery.error || !item ? (
+        ) : itemQuery.isError &&
+          !(
+            itemQuery.error instanceof TeamHubError &&
+            itemQuery.error.status === 404
+          ) ? (
+          <div className="space-y-3" role="alert">
+            <p className="text-sm text-app-danger">
+              {itemQuery.error.message || "This Work Item could not be loaded."}
+            </p>
+            <Button
+              disabled={itemQuery.isFetching}
+              onClick={() => {
+                void itemQuery.refetch();
+                if (timelineQuery.isError) void timelineQuery.refetch();
+              }}
+              size="compact"
+              tone="secondary"
+            >
+              {itemQuery.isFetching ? "Retrying…" : "Retry"}
+            </Button>
+          </div>
+        ) : !item ? (
           <p className="text-sm text-muted-foreground" role="status">
             This Work Item is not on the Dashboard.
           </p>

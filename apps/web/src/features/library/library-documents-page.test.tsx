@@ -70,7 +70,7 @@ describe("Library Documents", () => {
     renderPage(runtime);
 
     const heading = await screen.findByRole("heading", {
-      level: 2,
+      level: 1,
       name: "Library",
     });
     expect(screen.queryByRole("heading", { name: "My Files" })).toBeNull();
@@ -1242,21 +1242,35 @@ describe("Library Documents", () => {
     );
   });
 
-  it("deletes an empty personal Folder and removes it from the ARIA tree", async () => {
+  it("confirms before deleting an empty personal Folder and removes it from the ARIA tree", async () => {
     const runtime = await signedInRuntime();
     const folder = seedFolder(runtime, "folder-delete-create", {
       name: "Scratch",
     });
+    const deleteRequest = vi.fn(() => {
+      documentSeeds(runtime).tree.items = [];
+    });
     runtime.server.on(
       "DELETE",
       "/v0/tenants/{tenantId}/me/document-folders/{placementId}",
-      () => {
-        documentSeeds(runtime).tree.items = [];
-      },
+      deleteRequest,
     );
     renderTree(runtime);
 
     await chooseNodeAction("Scratch", "Delete");
+    const cancelDialog = screen.getByRole("dialog", { name: "Delete folder" });
+    expect(deleteRequest).not.toHaveBeenCalled();
+    fireEvent.click(
+      within(cancelDialog).getByRole("button", { name: "Cancel" }),
+    );
+    expect(deleteRequest).not.toHaveBeenCalled();
+    expect(screen.getByRole("treeitem", { name: "Scratch" })).toBeVisible();
+
+    await chooseNodeAction("Scratch", "Delete");
+    const confirmDialog = screen.getByRole("dialog", { name: "Delete folder" });
+    fireEvent.click(
+      within(confirmDialog).getByRole("button", { name: "Delete folder" }),
+    );
 
     await waitFor(() => {
       expect(
@@ -1286,6 +1300,10 @@ describe("Library Documents", () => {
     renderTree(runtime);
 
     await chooseNodeAction("Scratch", "Delete");
+    const confirmDialog = screen.getByRole("dialog", { name: "Delete folder" });
+    fireEvent.click(
+      within(confirmDialog).getByRole("button", { name: "Delete folder" }),
+    );
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Folder deletion is unavailable.",
@@ -2101,6 +2119,54 @@ describe("Library Documents", () => {
     });
     expect(await screen.findByText("Moved 2 documents.")).toBeVisible();
     expect(screen.queryByText("2 selected")).toBeNull();
+  });
+
+  it("moves a selected document from inside a subfolder back to Owned by Me root", async () => {
+    const runtime = await signedInRuntime();
+    const folder = seedFolder(runtime, "bulk-move-subfolder", {
+      name: "Archive",
+    });
+    const note = seedNativeDocument(runtime, "bulk-move-subfolder-doc", {
+      parent_id: folder.id,
+    });
+    note.title = "Nested note";
+    renderPage(runtime);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open folder Archive" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("checkbox", {
+        name: "Select Nested note.md",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Move to folder" }));
+    const dialog = screen.getByRole("dialog", {
+      name: "Move 1 document to…",
+    });
+    const archiveRow = within(dialog)
+      .getByRole("button", { name: "Select Archive" })
+      .closest('[role="treeitem"]');
+    expect(archiveRow).toHaveAttribute("aria-current", "location");
+    expect(
+      within(dialog).getByRole("button", { name: "Move here" }),
+    ).toBeDisabled();
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Select Owned by Me" }),
+    );
+    const moveHere = within(dialog).getByRole("button", { name: "Move here" });
+    expect(moveHere).toBeEnabled();
+    fireEvent.click(moveHere);
+
+    await waitFor(() => {
+      const movedPlacement = documentSeeds(runtime).tree.items.find(
+        (item) => item.node_kind === "document" && item.document_id === note.id,
+      );
+      expect(movedPlacement).toBeDefined();
+      expect(movedPlacement?.parent_id).toBeUndefined();
+    });
+    expect(await screen.findByText("Moved 1 document.")).toBeVisible();
   });
 
   it("keeps failed rows selected when a bulk trash partially fails", async () => {

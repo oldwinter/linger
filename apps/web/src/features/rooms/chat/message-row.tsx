@@ -299,6 +299,7 @@ function ConversationMessageRow({
       : undefined;
   const hasCardPayload = message.card !== undefined;
   const [reactionError, setReactionError] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
   const { cheer, cheerOnAdd } = useReactionCheer();
   const toggleReaction =
     onToggleReaction && currentActorId && messageSupportsReactions(message)
@@ -354,7 +355,14 @@ function ConversationMessageRow({
   );
   const togglePin = onTogglePin
     ? () => {
-        void onTogglePin(message, isPinned).catch(() => undefined);
+        setPinError(null);
+        void onTogglePin(message, isPinned).catch(() =>
+          setPinError(
+            isPinned
+              ? "Could not unpin the message."
+              : "Could not pin the message.",
+          ),
+        );
       }
     : undefined;
   const messageActions = (
@@ -783,6 +791,11 @@ function ConversationMessageRow({
         ) : null}
 
         {reactionsOnBubble ? null : reactionBar}
+        {pinError ? (
+          <p className="mt-1 text-xs text-app-danger" role="alert">
+            {pinError}
+          </p>
+        ) : null}
       </div>
     </article>
   );

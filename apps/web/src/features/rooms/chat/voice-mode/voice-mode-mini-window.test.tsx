@@ -279,6 +279,28 @@ describe("Voice Mode mini window", () => {
     expect(panel).toHaveStyle({ maxHeight: "calc(min(480px, 70dvh) + 36px)" });
   });
 
+  it("clamps the expanded window width on narrow viewports", () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 390,
+    });
+    try {
+      renderWindow();
+      const panel = screen.getByRole("region", { name: "Voice Mode window" });
+      expect(panel).toHaveClass("max-w-[calc(100vw-2rem)]");
+      fireEvent.click(
+        screen.getByRole("button", { name: "Expand Voice Mode window" }),
+      );
+      expect(panel).toHaveStyle({ width: "358px" });
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: originalWidth,
+      });
+    }
+  });
+
   it("floats over other windows as the one Voice Mode window", async () => {
     const fake = installFakeVoicePip();
     try {

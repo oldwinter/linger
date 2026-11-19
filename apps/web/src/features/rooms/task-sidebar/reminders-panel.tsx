@@ -158,7 +158,7 @@ function RoutineAgenda({
 }) {
   const queryClient = useQueryClient();
   const [showDone, setShowDone] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   // The Routine as the last pause or enable left it, offered for undo for a
   // few seconds.
   const [offer, setOffer] = useState<{
@@ -257,12 +257,12 @@ function RoutineAgenda({
     );
   }
   const onToggled = (routine: TeamHubRoutine) => {
-    setDeleteError(null);
+    setActionError(null);
     undo.reset();
     setOffer({ routine, secondsLeft: UNDO_SECONDS });
   };
   const onDeleted = (routineId: string) => {
-    setDeleteError(null);
+    setActionError(null);
     setOffer((current) => (current?.routine.id === routineId ? null : current));
   };
   const scheduled = routines.filter(isScheduled);
@@ -285,16 +285,17 @@ function RoutineAgenda({
   const rowProps = {
     agentActorId,
     client,
-    onDeleteError: setDeleteError,
+    onDeleteError: setActionError,
     onDeleted,
+    onToggleError: setActionError,
     onToggled,
     tenantId,
   };
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5 pb-6 font-(family-name:--app-room-font)">
-      {deleteError ? (
+      {actionError ? (
         <p className="px-1.5 text-sm text-destructive" role="alert">
-          {deleteError}
+          {actionError}
         </p>
       ) : null}
       {scheduled.length === 0 && listeners.length === 0 ? (
@@ -319,6 +320,7 @@ function RoutineAgenda({
               <ListenerRow
                 client={client}
                 key={routine.id}
+                onToggleError={setActionError}
                 routine={routine}
                 tenantId={tenantId}
                 onToggled={onToggled}
@@ -474,6 +476,7 @@ const UNDO_SECONDS = 5;
 
 interface ToggleProps {
   client: TeamHubClient;
+  onToggleError: (message: string | null) => void;
   onToggled: (routine: TeamHubRoutine) => void;
   tenantId: string;
 }
@@ -564,7 +567,7 @@ function LaterTodayButton({
   laterAt,
   routine,
   tenantId,
-}: Omit<ToggleProps, "onToggled"> & {
+}: Omit<ToggleProps, "onToggleError" | "onToggled"> & {
   laterAt: Date;
   routine: TeamHubScheduledRoutine;
 }) {
@@ -681,6 +684,7 @@ function ListenerRow({
 
 function RoutineSwitch({
   client,
+  onToggleError,
   onToggled,
   routine,
   tenantId,
@@ -697,12 +701,19 @@ function RoutineSwitch({
           },
         }),
       ),
+    onMutate: () => onToggleError(null),
     onSuccess: async (saved) => {
       onToggled(saved);
       await queryClient.invalidateQueries({
         queryKey: roomRoutinesQueryKey(tenantId, routine.room_id),
       });
     },
+    onError: (cause) =>
+      onToggleError(
+        cause instanceof Error && cause.message
+          ? cause.message
+          : "Could not update routine.",
+      ),
   });
   return (
     <button
