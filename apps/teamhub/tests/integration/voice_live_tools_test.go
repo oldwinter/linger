@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -91,6 +92,36 @@ func TestVoiceLiveSetsUpAndChangesRoutinesAfterConfirmation(t *testing.T) {
 	}
 	if missing := call("lt_missing", "routine-9", "change_routine", map[string]any{"routine_id": routineID, "action": "run"}); missing["error"] != "routine_not_found" {
 		t.Fatalf("missing=%v", missing)
+	}
+
+	// Minute-interval routines: reject <10, non-multiple of 10, >7d; accept 10 and 60 minutes.
+	for idx, badMinutes := range []int{5, 15, 10090} {
+		bad := call("lt_bad_min", "routine-bad-"+strconv.Itoa(idx), "create_routine", map[string]any{
+			"name": "Bad", "instruction": "Check", "kind": "every_n_minutes", "interval_minutes": badMinutes,
+		})
+		if bad["error"] != "invalid_schedule" || !strings.Contains(fmt.Sprint(bad["detail"]), "multiple of 10") {
+			t.Fatalf("bad interval %d=%v", badMinutes, bad)
+		}
+	}
+	tenMin := map[string]any{
+		"name": "Check build", "instruction": "Check CI status", "kind": "every_n_minutes", "interval_minutes": 10,
+	}
+	if askTen := call("lt_ten_ask", "routine-10", "create_routine", tenMin); askTen["status"] != "needs_confirmation" || !strings.Contains(fmt.Sprint(askTen["summary"]), "every 10 minutes") {
+		t.Fatalf("ask ten=%v", askTen)
+	}
+	tenMin["confirmed"] = true
+	if createdTen := call("lt_ten_yes", "routine-11", "create_routine", tenMin); createdTen["status"] != "created" || createdTen["schedule"] != "every 10 minutes" {
+		t.Fatalf("create ten=%v", createdTen)
+	}
+	sixtyMin := map[string]any{
+		"name": "Hourly ping", "instruction": "Ping status", "kind": "every_n_minutes", "interval_minutes": 60,
+	}
+	if askSixty := call("lt_sixty_ask", "routine-12", "create_routine", sixtyMin); askSixty["status"] != "needs_confirmation" || !strings.Contains(fmt.Sprint(askSixty["summary"]), "every 60 minutes") {
+		t.Fatalf("ask sixty=%v", askSixty)
+	}
+	sixtyMin["confirmed"] = true
+	if createdSixty := call("lt_sixty_yes", "routine-13", "create_routine", sixtyMin); createdSixty["status"] != "created" || createdSixty["schedule"] != "every 60 minutes" {
+		t.Fatalf("create sixty=%v", createdSixty)
 	}
 }
 

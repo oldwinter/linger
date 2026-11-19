@@ -74,7 +74,8 @@ func (c *claudeLogCapture) await(t *testing.T, prefix string, n int) []claudeLog
 func claudeEnableResidency(t *testing.T, cap int) {
 	t.Helper()
 	previousGrace := claudeTerminationGrace
-	claudeTerminationGrace = time.Second
+	// Three times the slow-term fake's exit delay, so it still exits by itself.
+	claudeTerminationGrace = 600 * time.Millisecond
 	withResidentCap(t, claudeResidents, cap)
 	t.Cleanup(func() {
 		_, _ = StopAllParkedResidents()
@@ -496,7 +497,7 @@ func TestClaudeTurnStartedSentAt(t *testing.T) {
 		events, _ := home.turn(t, prompt, spec)
 		after := time.Now()
 		started := claudeTurnStarted(events)
-		if started == nil || started.SentAt.Before(before) || after.Sub(started.SentAt) < 900*time.Millisecond {
+		if started == nil || started.SentAt.Before(before) || after.Sub(started.SentAt) < claudeFakeSlowOutput*9/10 {
 			t.Fatalf("turn %d SentAt = %+v window %v..%v", i, started, before, after)
 		}
 		for _, event := range events {

@@ -137,7 +137,7 @@ function RoomShellReady({
   // pushing every row down.
   const navigationPending = roomsQuery.isPending || anotherMeQuery.isPending;
   // Settings stays open under the gate: a Computer whose only app is Pi gets
-  // its first model from Settings › Local models.
+  // its first model from Settings › Models.
   const onSettings = useMatch("/t/:tenantId/settings/*") !== null;
   const gated =
     anotherMeQuery.isSuccess && !anotherMe?.agent_actor_id && !onSettings;

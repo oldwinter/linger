@@ -11,7 +11,22 @@ for Intel Macs; use [Docker Compose](self-hosting.md) there.
 
 [Download the DMG below](#download), open it and drag Linger to Applications.
 The package is not yet signed with a certificate Apple recognizes, so macOS
-blocks the first launch. Allow it once:
+blocks the first launch.
+
+**Run this in Terminal, then open Linger:**
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Linger.app
+```
+
+**If Terminal prints `Operation not permitted`**, macOS is stopping Terminal
+from changing apps, and `sudo` does not help. Open **System Settings › Privacy &
+Security › App Management**, turn on **Terminal**, quit and reopen Terminal, and
+run the command again.
+
+### Without Terminal
+
+Allow the launch once in System Settings instead:
 
 1. Open Linger from Applications. In the **“Linger” Not Opened** dialog, click
    **Done**. Do not click **Move to Trash**, the highlighted button.
@@ -26,11 +41,7 @@ blocks the first launch. Allow it once:
 3. Click **Open Anyway** again and enter your password or use Touch ID.
 
 If macOS says Linger "is damaged and can't be opened", or **Open Anyway** does
-not appear, run this in Terminal and open Linger again:
-
-```bash
-xattr -dr com.apple.quarantine /Applications/Linger.app
-```
+not appear, use the Terminal command above.
 
 ## Download
 

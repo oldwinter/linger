@@ -23,7 +23,7 @@ func TestCodexExternalLeaderExit(t *testing.T) {
 			// The sleeper grandchild outlives the leader, and in one case holds
 			// stdout, so a stop grace expires; newCodexFake's cleanup restores
 			// the grace.
-			codexStopGrace.set(300 * time.Millisecond)
+			codexStopGrace.set(150 * time.Millisecond)
 			receipt := filepath.Join(fake.root, "pids")
 			fake.env["FAKE_GRANDCHILD"] = receipt
 			if tc.holdStdout {

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"io"
 	"net/http"
+	"slices"
 	"testing"
 
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentcredential"
@@ -53,6 +54,11 @@ func TestAgentEffectiveResourcesReadAndExactPackageIsolation(t *testing.T) {
 	decode(t, read(resourcePath, 200), &before)
 	if _, ok := before["skills"].([]any); !ok {
 		t.Fatalf("missing Skills: %v", before)
+	}
+	// The catalog reaches the Agent even without a Composio key, so it can ask
+	// for authorization instead of opening the app in a browser.
+	if keys, _ := before["connectable_app_keys"].([]any); !slices.Contains(keys, any("linear")) {
+		t.Fatalf("connectable apps miss linear: %v", before["connectable_app_keys"])
 	}
 	if _, exists := before["has_external_mcp_servers"]; exists {
 		t.Fatalf("retired external MCP inventory is still returned: %v", before)

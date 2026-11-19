@@ -99,7 +99,7 @@ export function CreationMessagePreview({
               ) : segment.type === "html_fragment" ? (
                 <span>{segment.content}</span>
               ) : segment.type === "meeting_notes" ? (
-                <span>Quick notes</span>
+                <span>Meeting summary</span>
               ) : segment.type === "document" ? (
                 <span>Document: {segment.content}</span>
               ) : segment.type === "artifact_tree" ? (

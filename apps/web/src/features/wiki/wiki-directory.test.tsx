@@ -306,6 +306,44 @@ describe("Wiki directory", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
+  it("sorts an upper-bound year as an end year in the timeline", async () => {
+    const entry = (period: string, organization: string) => ({
+      period,
+      organization,
+      place: "",
+      role: "",
+      description: "",
+      details: [],
+    });
+    await setup(
+      "/t/tenant-northstar/library/wiki/profile",
+      profileDocument({
+        background: {
+          overview: "Avery leads research.",
+          points: [],
+          timeline: [
+            entry("2020", "Example Co"),
+            entry("\u22642020", "Example Lab"),
+            entry("\u20132018", "Example University"),
+          ],
+        },
+      }),
+    );
+    const content = await screen.findByRole("article", {
+      name: "Profile content",
+    });
+    const timeline = await within(content).findByRole("list", {
+      name: "Timeline",
+    });
+    const entries = [
+      ...timeline.querySelectorAll(".wiki-profile-timeline-entry"),
+    ].map((item) => item.textContent);
+    expect(entries).toEqual([
+      "\u20132018Example University",
+      "\u22642020Example Lab",
+      "2020Example Co",
+    ]);
+  });
   it("says the Profile is being written while an Agent builds it", async () => {
     await setup(
       "/t/tenant-northstar/library/wiki",

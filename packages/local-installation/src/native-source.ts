@@ -1,4 +1,5 @@
 import { prepareFoundationServices } from "./foundation-services.js";
+import { portFree } from "./ports.js";
 import { prepareModelGateway, stopModelGateway } from "./model-gateway.js";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
@@ -7,13 +8,12 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   prepareSourceConfiguration,
+  saveSourceBinding,
   validateSourceRepository,
   type EnvironmentReport,
   type SourceInstallOptions,
 } from "./source-checkout.js";
 import {
-  atomicPrivate,
-  loadInstance,
   privateDirectory,
   readLocalIdentityKey,
   withInstanceLock,
@@ -26,11 +26,15 @@ import {
 import { readLiveKitSettings, startNativeLiveKit } from "./native-livekit.js";
 import { checkNativeRuntime } from "./native-runtime.js";
 import { checkTeamhubBinaries } from "./teamhub-binaries.js";
+import { sourceRegion } from "@linger/service-kit";
 import { npmRegistryEnvironment } from "./npm-registry.js";
+import { recordRegionFallback, resolveRegion } from "./region.js";
 import { prepareNativeDatabase } from "./native-database.js";
 import {
+  inspectNativeListeners,
   inspectNativeProcess,
   nativeConfigurationChanged,
+  reclaimNativeOrphans,
   startNativeProcess,
   stopNativeProcess,
   type NativeService,
@@ -41,6 +45,7 @@ import {
   managedRuntimeEnvironment,
 } from "./managed-codex.js";
 import { prepareRuntime, runtimeVersionFailure } from "./managed-runtimes.js";
+import { applyNativeSource, prepareByokRuntime } from "./byok-source.js";
 import {
   readSetupChoice,
   writeGpuSharing,
@@ -84,37 +89,12 @@ export async function prepareNativeConfiguration(
     home?: string;
     port?: number;
     computerName?: string;
+    externalComputer?: boolean;
     rebindSource?: boolean;
   } = {},
 ) {
   const repo = await validateSourceRepository(repository);
   const name = options.name ?? (await nativeSourceInstanceName(repo));
-  const bound = (instance?: Instance) =>
-    instance?.mode === "source-native" &&
-    instance.source &&
-    instance.releaseDir !== repo;
-  const existing = options.rebindSource
-    ? await loadInstance({ name, home: options.home })
-    : undefined;
-  if (existing && bound(existing))
-    // Instance data lives under its root; services restart on the new
-    // checkout because their recorded configuration no longer matches.
-    await withInstanceLock(existing, async () => {
-      const instance = await loadInstance({ name, home: options.home });
-      if (!instance || !bound(instance)) return;
-      const previous = instance.releaseDir;
-      instance.releaseDir = repo;
-      instance.source!.repo = repo;
-      if (instance.computerExecutable.startsWith(previous + path.sep))
-        instance.computerExecutable = path.join(
-          repo,
-          path.relative(previous, instance.computerExecutable),
-        );
-      await atomicPrivate(
-        path.join(instance.root, "instance.json"),
-        JSON.stringify(instance, null, 2) + "\n",
-      );
-    });
   return prepareSourceConfiguration(repo, { ...options, name });
 }
 export async function checkNativeSourceEnvironment(options: {
@@ -181,22 +161,31 @@ export async function checkNativeSourceEnvironment(options: {
     }
   }
 }
-export async function probeNativeSourceServices(
-  instance: Instance,
-  signal?: AbortSignal,
-) {
-  const source = requireNative(instance);
-  const endpoints = [
+const probeEndpoints = (source: NonNullable<Instance["source"]>) =>
+  [
     ["web", "web", source.ports.web, "/healthz"],
     ["teamhub", "teamhub", source.ports.teamhub, "/healthz"],
     ["node-services", "node-services", source.ports.nodeServices, "/readyz"],
     ["document-runtime", "node-services", source.ports.document, "/readyz"],
   ] as const;
+export async function probeNativeSourceServices(
+  instance: Instance,
+  signal?: AbortSignal,
+) {
+  const endpoints = probeEndpoints(requireNative(instance));
+  const states = await inspectNativeListeners(
+    instance.root,
+    endpoints.map(([, name, port]) => ({ name, port })),
+  ).catch(() => endpoints.map(() => ({ running: false, foreign: undefined })));
   return Promise.all(
-    endpoints.map(async ([service, processName, port, endpoint]) => {
+    endpoints.map(async ([service, , port, endpoint], index) => {
+      const { running, foreign } = states[index]!;
+      // Another process on the port would answer the health check for a
+      // service that cannot listen there.
+      if (foreign !== undefined)
+        return { service, ready: false, foreign, port };
       try {
-        if (!(await inspectNativeProcess(instance.root, processName)).running)
-          return { service, ready: false };
+        if (!running) return { service, ready: false };
         const response = await fetch(`http://127.0.0.1:${port}${endpoint}`, {
           redirect: "error",
           signal: AbortSignal.any([
@@ -290,18 +279,42 @@ async function waitHealthy(
 ) {
   const deadline = Date.now() + 20 * 60_000;
   let last = 0;
+  const occupied = new Map<string, number>();
   for (;;) {
     signal.throwIfAborted();
-    const checks = await probeNativeSourceServices(instance, signal);
-    if (checks.every((check) => check.ready)) return checks;
+    const probed = await probeNativeSourceServices(instance, signal);
+    if (probed.every((check) => check.ready))
+      return probed.map(({ service, ready }) => ({ service, ready }));
+    // A port another process holds never frees up by waiting; the service
+    // that should listen there exits or retries until the deadline.
+    for (const check of probed) {
+      if (!("foreign" in check)) {
+        occupied.delete(check.service);
+        continue;
+      }
+      const since = occupied.get(check.service) ?? Date.now();
+      occupied.set(check.service, since);
+      if (Date.now() - since >= 15_000)
+        throw new Error(
+          `Native ${check.service} cannot listen on port ${check.port}: another program (PID ${check.foreign}) is using it. End that program, then try again.`,
+        );
+    }
+    const checks = probed;
     // A failed build exits the service, so its log explains the stop.
     const failure = await startupFailure(instance, ends);
     if (failure) throw new Error(failure);
     for (const name of watchedServices)
-      if (!(await inspectNativeProcess(instance.root, name)).running)
+      if (!(await inspectNativeProcess(instance.root, name)).running) {
+        // With the service gone, whatever holds its port is another program.
+        for (const [, owner, port] of probeEndpoints(instance.source!))
+          if (owner === name && !(await portFree(port)))
+            throw new Error(
+              `Native ${name} cannot listen on port ${port}: another program is using it. Quit that program, then try again.`,
+            );
         throw new Error(
           `Native ${name} stopped during startup. Inspect ${path.join(instance.root, "native/logs", `${name}.log`)}.`,
         );
+      }
     if (Date.now() >= deadline) {
       const waiting = checks
         .filter((row) => !row.ready)
@@ -415,8 +428,14 @@ async function runNativeSource(
   try {
     options.signal.throwIfAborted();
     validateLocalCredentials(options);
+    if (options.byok?.apiKey) secrets.push(options.byok.apiKey);
     if (options.setupChoice) validateSetupChoice(options.setupChoice);
-    const choice = options.setupChoice ?? (await readSetupChoice(options));
+    const choice = options.byok
+      ? (options.byok.runtime ??
+        (options.setupChoice && options.setupChoice !== "local-models"
+          ? options.setupChoice
+          : "claude"))
+      : (options.setupChoice ?? (await readSetupChoice(options)));
     if (!choice)
       return {
         code: 4,
@@ -462,21 +481,64 @@ async function runNativeSource(
       let runtimeError: unknown;
       const runtime = (async () => {
         try {
-          runtimeOutcome =
-            choice === "local-models"
-              ? await prepareLocalModels(current, {
-                  shareGpu: options.shareGpu,
-                  signal,
-                  onEvent: emit,
-                  localModelsApproval: options.localModelsApproval,
-                  localModelsReplan: options.localModelsReplan,
-                })
-              : await prepareRuntime(choice, {
+          if (options.byok) {
+            const byokRuntime =
+              choice === "local-models"
+                ? (options.byok.runtime ?? "claude")
+                : choice;
+            runtimeOutcome = await prepareByokRuntime(
+              { ...options.byok, runtime: byokRuntime },
+              {
+                home,
+                signal,
+                onEvent: emit,
+                env: await managedRuntimeEnvironment(home, current.root),
+              },
+            );
+          } else if (choice === "local-models") {
+            runtimeOutcome = await prepareLocalModels(current, {
+              shareGpu: options.shareGpu,
+              signal,
+              onEvent: emit,
+              localModelsApproval: options.localModelsApproval,
+              localModelsReplan: options.localModelsReplan,
+            });
+            // A person who chose local models just now makes them the
+            // source, replacing one an earlier setup left. A restart reads
+            // the choice from setup-choice.json and passes no approval, so a
+            // source the person switched since on the Models page stays.
+            if (
+              !runtimeOutcome &&
+              (options.setupChoice === "local-models" ||
+                options.localModelsApproval)
+            )
+              runtimeOutcome = await applyNativeSource(
+                home,
+                "local",
+                "pi",
+                signal,
+              );
+          } else {
+            runtimeOutcome = await prepareRuntime(choice, {
+              home,
+              signal,
+              onEvent: emit,
+              env: await managedRuntimeEnvironment(home, current.root),
+            });
+            if (
+              choice !== "pi" &&
+              (runtimeOutcome.code === 0 ||
+                (runtimeOutcome.details as { code?: string } | undefined)
+                  ?.code === "RUNTIME_AUTH_REQUIRED")
+            )
+              runtimeOutcome =
+                (await applyNativeSource(
                   home,
+                  "subscription",
+                  choice,
                   signal,
-                  onEvent: emit,
-                  env: await managedRuntimeEnvironment(home, current.root),
-                });
+                )) ?? runtimeOutcome;
+          }
           if (
             runtimeOutcome &&
             runtimeOutcome.code !== 0 &&
@@ -585,9 +647,14 @@ async function runNativeSource(
             message:
               "Voice stays off: this installation has no voice tools for this computer.\n",
           });
+        // node-services downloads its voice model packages from the region's
+        // registry first, and nothing it starts probes again.
+        const region = await resolveRegion(home, { signal });
+        emit({ kind: "log", stage, message: `Download region: ${region}.\n` });
         const env: NodeJS.ProcessEnv = {
           ...tools.env,
           ...configured.env,
+          SIMPLEX_REGION: region,
           ...(voice
             ? {
                 // TeamHub and the voice workers run ffmpeg and ffprobe from PATH.
@@ -726,6 +793,8 @@ async function runNativeSource(
                 packages,
               );
               registries = registries.slice(index);
+              if (index > 0)
+                await recordRegionFallback(home, sourceRegion(registry));
               return;
             } catch (error) {
               signal.throwIfAborted();
@@ -764,6 +833,7 @@ async function runNativeSource(
           "services",
           "Starting private PostgreSQL and applying migrations…",
         );
+        await reclaimEarlierProcesses(current, home, emit);
         const postgresWasRunning = (
           await inspectNativeProcess(current.root, "postgres")
         ).running;
@@ -783,9 +853,12 @@ async function runNativeSource(
             stage,
             message: `The data from the earlier Simplex app can't be upgraded to Linger, so Linger starts with a fresh workspace. The earlier data was moved, not deleted, to ${legacyBackup}.\n`,
           });
-        await command("migrate");
+        // The runtime is ready before the checkout's migrations run: when it is
+        // not, services still running from an earlier checkout keep the
+        // schema they know.
         await runtime;
         signal.throwIfAborted();
+        await command("migrate");
         await prepareFoundationServices(current, choice, {
           home,
           signal,
@@ -794,11 +867,17 @@ async function runNativeSource(
         });
         // Binds the local stack's gateway for local models; with a runtime's own
         // sign-in, retires one an earlier release started.
-        await prepareModelGateway(current, choice, {
-          home,
-          signal,
-          onEvent: emit,
-        });
+        await prepareModelGateway(
+          current,
+          options.byok && choice !== "local-models"
+            ? { runtime: choice, modelSource: "byok" }
+            : choice,
+          {
+            home,
+            signal,
+            onEvent: emit,
+          },
+        );
         step("services", "Starting native collaboration services…");
         const ends = await logEnds(current);
         const liveKit = voice && (await readLiveKitSettings(current.root));
@@ -854,6 +933,7 @@ async function runNativeSource(
           await startNativeProcess(serviceOptions(name));
         }
         const checks = await waitHealthy(current, signal, emit, ends);
+        await saveSourceBinding(current);
         emit({
           kind: "stage",
           stage: "services",
@@ -1060,6 +1140,33 @@ async function runNativeSource(
     output.flush();
   }
 }
+/**
+ * Ends the processes of this instance an earlier run lost track of (an
+ * earlier release's stop left them, their supervisor died, or a failed
+ * attempt kept no record of them), so they neither hold the ports and data
+ * files nor answer health checks for the new services.
+ */
+async function reclaimEarlierProcesses(
+  instance: Instance,
+  home: string,
+  onEvent?: (event: InstallerEvent) => void,
+) {
+  const source = requireNative(instance);
+  const liveKit = await readLiveKitSettings(instance.root);
+  const ended = await reclaimNativeOrphans(instance.root, {
+    ports: [
+      ...Object.values(source.ports),
+      ...(liveKit ? [liveKit.httpPort] : []),
+    ],
+    paths: [home, instance.root, source.repo],
+  });
+  if (ended.length)
+    onEvent?.({
+      kind: "log",
+      stage: "services",
+      message: `Ended ${ended.length} Linger processes an earlier run left behind (PIDs ${ended.join(", ")}).\n`,
+    });
+}
 export async function stopNativeSource(
   instance: Instance,
   signal?: AbortSignal,
@@ -1072,6 +1179,10 @@ export async function stopNativeSource(
       signal?.throwIfAborted();
       await stopNativeProcess(instance.root, name);
     }
+    await reclaimEarlierProcesses(
+      instance,
+      path.resolve(instance.root, "../.."),
+    );
     await stopModelGateway(instance, signal);
   });
 }

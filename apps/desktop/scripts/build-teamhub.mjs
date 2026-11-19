@@ -5,7 +5,7 @@
 // source, so Native there needs no Go toolchain, module download or compile.
 //
 //   node scripts/build-teamhub.mjs --target win32-x64 --source linger-<label>.tar.gz
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import {
@@ -21,7 +21,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createGunzip } from "node:zlib";
 
-import { DAEMON_TARGETS } from "./build-daemon.mjs";
+import { DAEMON_TARGETS, run } from "./build-daemon.mjs";
 
 const desktop = fileURLToPath(new URL("../", import.meta.url));
 
@@ -38,6 +38,25 @@ const sha256File = async (file) => {
   for await (const chunk of createReadStream(file)) hash.update(chunk);
   return hash.digest("hex");
 };
+
+const capture = (command, args, options = {}) =>
+  new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      stdio: ["ignore", "pipe", "inherit"],
+      ...options,
+    });
+    let stdout = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.once("error", reject);
+    child.once("close", (code) =>
+      code === 0
+        ? resolve(stdout)
+        : reject(new Error(`${command} ${args.join(" ")} failed (${code})`)),
+    );
+  });
 
 // The commit `git archive` records in the package's first (pax) header.
 export async function sourceCommit(archive) {
@@ -98,12 +117,15 @@ export async function buildTeamhub(
   const work = await mkdtemp(path.join(tmpdir(), "linger-teamhub-"));
   try {
     // The package holds one folder, `<name>-<label>/`.
-    const unpacked = spawnSync(
-      "tar",
-      ["-xzf", archive, "-C", work, "--strip-components=1"],
-      { stdio: "inherit" },
-    );
-    if (unpacked.status !== 0) throw new Error(`Could not unpack ${archive}`);
+    await run("tar", [
+      "-xzf",
+      archive,
+      "-C",
+      work,
+      "--strip-components=1",
+    ]).catch(() => {
+      throw new Error(`Could not unpack ${archive}`);
+    });
     const teamhub = path.join(work, "apps/teamhub");
     const env = {
       ...process.env,
@@ -114,16 +136,15 @@ export async function buildTeamhub(
         .filter(Boolean)
         .join(" "),
     };
-    const version = spawnSync("go", ["env", "GOVERSION"], {
+    const version = await capture("go", ["env", "GOVERSION"], {
       cwd: teamhub,
       env,
-      encoding: "utf8",
+    }).catch(() => {
+      throw new Error("go env GOVERSION failed");
     });
-    if (version.status !== 0) throw new Error("go env GOVERSION failed");
-    const binaries = {};
-    for (const command of COMMANDS) {
+    const buildCommand = async (command) => {
       const file = go.goos === "windows" ? `${command}.exe` : command;
-      const compiled = spawnSync(
+      await run(
         "go",
         [
           "build",
@@ -134,17 +155,26 @@ export async function buildTeamhub(
           path.join(output, file),
           `./cmd/${command}`,
         ],
-        { cwd: teamhub, env, stdio: "inherit" },
-      );
-      if (compiled.error) throw compiled.error;
-      if (compiled.status !== 0)
+        { cwd: teamhub, env },
+      ).catch((error) => {
+        if (error?.code === "ENOENT") throw error;
         throw new Error(`Go build of ${command} for ${target} failed`);
-      binaries[command] = {
-        file,
-        sha256: await sha256File(path.join(output, file)),
-        bytes: (await stat(path.join(output, file))).size,
-      };
-    }
+      });
+      return [
+        command,
+        {
+          file,
+          sha256: await sha256File(path.join(output, file)),
+          bytes: (await stat(path.join(output, file))).size,
+        },
+      ];
+    };
+    // Build the primary binary first so shared packages populate GOCACHE once,
+    // then link the companion commands concurrently.
+    const [first, ...rest] = COMMANDS;
+    const firstEntry = await buildCommand(first);
+    const restEntries = await Promise.all(rest.map(buildCommand));
+    const binaries = Object.fromEntries([firstEntry, ...restEntries]);
     await writeFile(
       path.join(output, "manifest.json"),
       JSON.stringify(
@@ -152,7 +182,7 @@ export async function buildTeamhub(
           target,
           sourceCommit: commit,
           sourceArchiveSha256,
-          goVersion: version.stdout.trim().replace(/^go/, ""),
+          goVersion: version.trim().replace(/^go/, ""),
           binaries,
         },
         null,

@@ -1,0 +1,136 @@
+{
+  "schema": "localmodels.library-status/v1",
+  "tool_version": "0.1.0.dev38",
+  "observed_at": "2026-11-17T20:37:38+00:00",
+  "host": {
+    "platform": "linux",
+    "arch": "x86_64",
+    "os_label": "Ubuntu 22.04.4 LTS",
+    "engine_label": "llama.cpp b11370 · CUDA",
+    "ram_total_bytes": 540599123968,
+    "disk_free_bytes": 64756662272,
+    "gpus": [
+      {
+        "index": 0,
+        "uuid": "GPU-00000000-0000-0000-0000-000000000000",
+        "name": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+        "total_bytes": 102641958912,
+        "free_bytes": 57470353408
+      }
+    ]
+  },
+  "pools": [
+    {
+      "id": "gpu:0",
+      "total_bytes": 102641958912,
+      "used_bytes": 45171605504,
+      "holders": []
+    },
+    {
+      "id": "system",
+      "total_bytes": 432479299174,
+      "used_bytes": 368425566208,
+      "holders": []
+    }
+  ],
+  "models": [
+    {
+      "id": "qwen3.8-27b:UD-Q4_K_M",
+      "name": "Qwen3.8 27B (UD-Q4_K_M)",
+      "description": "The best all-round model for agent work: strong with tools and code, reads images, and stays fast in long conversations.",
+      "quant": "UD-Q4_K_M",
+      "context_tokens": 200000,
+      "vision": true,
+      "download_bytes": 17395586656,
+      "memory_bytes": 27467364919,
+      "fit": "gpu",
+      "recommended": true,
+      "availability": {
+        "downloadable": true
+      },
+      "pool": "gpu:0",
+      "state": "absent",
+      "family": "qwen",
+      "publisher": "Qwen",
+      "architecture": "dense",
+      "parameters": "27B",
+      "license": "Apache-2.0",
+      "source_url": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF",
+      "capabilities": ["vision"]
+    },
+    {
+      "id": "qwen3.8-27b-iq3s:UD-IQ3_S",
+      "name": "Qwen3.8 27B (UD-IQ3_S)",
+      "description": "A smaller build of Qwen3.8 27B for 16 GB graphics cards and 32 GB Macs; reads images and answers nearly as well.",
+      "quant": "UD-IQ3_S",
+      "context_tokens": 200000,
+      "vision": true,
+      "download_bytes": 12972029536,
+      "memory_bytes": 21205168695,
+      "fit": "gpu",
+      "recommended": false,
+      "availability": {
+        "downloadable": true
+      },
+      "pool": "gpu:0",
+      "state": "absent",
+      "family": "qwen",
+      "publisher": "Qwen",
+      "architecture": "dense",
+      "parameters": "27B",
+      "license": "Apache-2.0",
+      "source_url": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF",
+      "capabilities": ["vision"]
+    },
+    {
+      "id": "qwen3.6-35b-a3b:UD-Q4_K_M",
+      "name": "Qwen3.6 35B-A3B (UD-Q4_K_M)",
+      "description": "A fast model for everyday agent tasks that reads images and handles long conversations.",
+      "quant": "UD-Q4_K_M",
+      "context_tokens": 200000,
+      "vision": true,
+      "download_bytes": 23566209952,
+      "memory_bytes": 26700936177,
+      "fit": "gpu",
+      "recommended": false,
+      "availability": {
+        "downloadable": true
+      },
+      "pool": "gpu:0",
+      "state": "absent",
+      "family": "qwen",
+      "publisher": "Qwen",
+      "architecture": "moe",
+      "parameters": "35B",
+      "active_parameters": "3B",
+      "license": "Apache-2.0",
+      "source_url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
+      "capabilities": ["vision"]
+    },
+    {
+      "id": "qwen3.6-35b-a3b:UD-IQ4_XS",
+      "name": "Qwen3.6 35B-A3B (UD-IQ4_XS)",
+      "description": "A fast model for everyday agent tasks that reads images and handles long conversations.",
+      "quant": "UD-IQ4_XS",
+      "context_tokens": 200000,
+      "vision": true,
+      "download_bytes": 19111859104,
+      "memory_bytes": 22351442929,
+      "fit": "gpu",
+      "recommended": false,
+      "availability": {
+        "downloadable": true
+      },
+      "pool": "gpu:0",
+      "state": "absent",
+      "family": "qwen",
+      "publisher": "Qwen",
+      "architecture": "moe",
+      "parameters": "35B",
+      "active_parameters": "3B",
+      "license": "Apache-2.0",
+      "source_url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
+      "capabilities": ["vision"]
+    }
+  ]
+}

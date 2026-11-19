@@ -329,6 +329,7 @@ export function createVoiceModeSessionEngine({
   let live: LiveView | undefined;
   let entered = false;
   let closing = false;
+  let exitPromise: Promise<void> | undefined;
   let controller: VoiceModeController | undefined;
   let stop: (() => void) | undefined;
   const abortRef: { current: AbortController | undefined } = {
@@ -398,7 +399,9 @@ export function createVoiceModeSessionEngine({
         abortRef,
         binding: (roomId) => bindings.get(roomId),
         entered: () => entered,
-        exitByVoice: () => engine.exit(),
+        exitByVoice: () => {
+          void engine.exit();
+        },
         hardware: () => deps().hardware ?? hardware,
         modes,
         onLevel: publishLevel,
@@ -421,9 +424,9 @@ export function createVoiceModeSessionEngine({
         target,
       });
     },
-    exit() {
+    exit({ switchingToMeeting = false } = {}) {
       const current = run;
-      if (!current || !entered) return;
+      if (!current || !entered) return exitPromise;
       entered = false;
       closing = true;
       const before = controller?.getState() ?? idleState;
@@ -440,13 +443,17 @@ export function createVoiceModeSessionEngine({
       abortRef.current?.abort();
       // The window always closes: past the ceiling a stuck send or shutdown
       // stops holding it, and unsent words still return to the draft.
+      const microphoneClosed = exiting?.pause();
       const drained = Promise.race([
-        Promise.all([exiting?.pause(), exiting?.whenDeliverySettles()]),
+        Promise.all([
+          microphoneClosed,
+          switchingToMeeting ? undefined : exiting?.whenDeliverySettles(),
+        ]),
         new Promise<void>((resolve) =>
           setTimeout(resolve, voiceModeExitCeilingMs),
         ),
       ]);
-      void finishVoiceModeSession({
+      const finished = finishVoiceModeSession({
         before,
         binding: () => bindings.get(current.target.roomId),
         controller: exiting,
@@ -466,6 +473,12 @@ export function createVoiceModeSessionEngine({
           publishLevel(0);
           snapshot();
         });
+      // A mode switch must wait for the microphone even if the UI reaches its
+      // deadline for preserving the last turn.
+      exitPromise = Promise.all([finished, microphoneClosed]).then(() => {
+        exitPromise = undefined;
+      });
+      return exitPromise;
     },
     /** A composer that mounts mid-session resumes the live presentation. */
     resume(roomId: string, binding: VoiceModeRoomBinding) {

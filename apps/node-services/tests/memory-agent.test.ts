@@ -12,6 +12,8 @@ import {
 } from "../src/memory-agent.js";
 import {
   ModelCallError,
+  ModelBudgetSpentError,
+  ModelRunBudget,
   type ModelChain,
   type ModelChainCallRequest,
 } from "../src/runtime-model-call.js";
@@ -74,17 +76,19 @@ describe("agentStepSchema", () => {
     const schema = agentStepSchema(task) as {
       properties: {
         actions: {
-          maxItems: number;
-          items: { anyOf: { required: string[] }[] };
+          anyOf: [
+            { maxItems: number; items: { anyOf: { required: string[] }[] } },
+            { type: string },
+          ];
         };
       };
       required: string[];
     };
+    const [list, text] = schema.properties.actions.anyOf;
     expect(schema.required).toEqual(["actions"]);
-    expect(schema.properties.actions.maxItems).toBe(5);
-    expect(
-      schema.properties.actions.items.anyOf.map((branch) => branch.required),
-    ).toEqual([
+    expect(list.maxItems).toBe(5);
+    expect(text.type).toBe("string");
+    expect(list.items.anyOf.map((branch) => branch.required)).toEqual([
       ["tool", "arguments"],
       ["tool", "object", "target", "payload"],
       ["tool", "summary"],
@@ -104,6 +108,41 @@ describe("agentInstructions", () => {
 });
 
 describe("runAgentTask", () => {
+  it("keeps an accepted proposal when the next step finds the budget spent", async () => {
+    const budget = new ModelRunBudget(60_000);
+    const call = vi
+      .fn<ModelChain["call"]>()
+      .mockResolvedValueOnce({
+        model: "test",
+        output: {
+          actions: [
+            {
+              tool: "propose",
+              object: "note",
+              target: "n1",
+              payload: { text: "saved" },
+            },
+          ],
+        },
+      })
+      .mockRejectedValueOnce(new ModelBudgetSpentError());
+    const result = await runAgentTask({
+      model: stubChain({ call }),
+      task,
+      input: "evidence",
+      step: "write",
+      environment: environment(),
+      budget,
+      maxInputTokens: 20_000,
+    });
+    expect(call.mock.calls.map(([request]) => request.budget)).toEqual([
+      budget,
+      budget,
+    ]);
+    expect(result).toMatchObject({ finished: false, accepted: 1 });
+    expect(result.steps).toHaveLength(1);
+  });
+
   it("runs reads before proposals, feeds the results back and stops at finish", async () => {
     const inputs: string[] = [];
     const steps: string[] = [];
@@ -246,6 +285,57 @@ describe("runAgentTask", () => {
       "Same as in step 1; its result is above.",
     );
     expect(env.propose).not.toHaveBeenCalled();
+  });
+
+  it("reads actions a runtime sent as the JSON text of their array", async () => {
+    const model = stubChain({
+      call: vi.fn(async () => ({
+        output: {
+          actions: JSON.stringify([
+            { tool: "read", arguments: { source: "s1" } },
+            { tool: "read", arguments: { source: "s2" } },
+            { tool: "finish", summary: "read both" },
+          ]),
+        },
+        model: "test",
+      })),
+    });
+    const env = environment();
+    const result = await runAgentTask({
+      model,
+      step: "test",
+      task,
+      input: "",
+      environment: env,
+    });
+    expect(env.runTool).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ finished: true, summary: "read both" });
+  });
+
+  it("rejects actions text that is not a JSON array so the call corrects it", async () => {
+    const call = vi.fn().mockResolvedValue({
+      output: { actions: [{ tool: "finish", summary: "ok" }] },
+      model: "test",
+    });
+    await runAgentTask({
+      model: stubChain({ call }),
+      step: "test",
+      task,
+      input: "",
+      environment: environment(),
+    });
+    const { validate } = call.mock.calls[0]![0] as ModelChainCallRequest;
+    expect(validate!({ actions: '[{"tool":"finish"}}]' })).toContain(
+      "not a JSON array",
+    );
+    // Text gets the per-action checks the array form gets from the schema.
+    expect(
+      validate!({ actions: '[{"tool":"propose","object":"unknown"}]' }),
+    ).toContain("does not match the action schema");
+    expect(
+      validate!({ actions: '[{"tool":"finish","summary":"ok"}]' }),
+    ).toBeUndefined();
+    expect(validate!({ actions: [] })).toBeUndefined();
   });
 
   it("sends each step once with its cap in a session of its own", async () => {

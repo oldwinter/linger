@@ -90,6 +90,11 @@ describe("CanvasHeader", () => {
     expect(screen.getByLabelText("To")).toHaveValue("lisa@acme.com");
     expect(screen.getByLabelText("Cc")).toHaveValue("");
     const subject = screen.getByLabelText("Subject");
+    expect(subject).toHaveClass("font-semibold");
+    expect(
+      subject.compareDocumentPosition(screen.getByLabelText("To")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     fireEvent.focus(subject);
     fireEvent.change(subject, { target: { value: "Pricing follow-up" } });
     fireEvent.keyDown(subject, { key: "Enter" });
@@ -135,6 +140,19 @@ describe("CanvasHeader", () => {
       vi.advanceTimersByTime(3_000);
     });
     expect(screen.queryByText("Agent is editing…")).not.toBeInTheDocument();
+  });
+
+  it("keeps sent mail free of editing prompts when delivery status arrives remotely", () => {
+    const { change, editor } = fakeEditor(
+      "canvas: gmail\nsubject: Pricing\nstatus: draft",
+    );
+    render(
+      <Harness editable={false} awareness={awarenessOf(1)} editor={editor} />,
+    );
+    change("yjs-remote", "canvas: gmail\nsubject: Pricing\nstatus: sent");
+    expect(screen.getByText("Sent")).toBeVisible();
+    expect(screen.queryByText("Agent is editing…")).toBeNull();
+    expect(screen.getByLabelText("Cc")).toHaveAttribute("placeholder", "None");
   });
 
   it("does not credit the Agent with another person's edits", () => {

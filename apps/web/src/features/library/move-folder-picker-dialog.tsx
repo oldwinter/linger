@@ -110,7 +110,7 @@ export function MoveFolderPickerDialog({
           />
           <input
             aria-label="Search folders"
-            className="h-10 w-full rounded-lg border border-border bg-card pl-10 pr-9 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-border-hover focus:border-foreground focus:ring-2 focus:ring-ring"
+            className="h-10 w-full rounded-lg border border-border bg-card pl-10 pr-9 text-sm text-foreground outline-none transition-colors placeholder:text-app-placeholder hover:border-border-hover focus:border-foreground focus:ring-2 focus:ring-ring"
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search folders…"
             role="searchbox"

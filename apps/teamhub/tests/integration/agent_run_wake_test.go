@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/config"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/realtime"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 )
 
 // Database commits own wake visibility. A Message transaction queues its Run
@@ -122,6 +123,19 @@ func TestAgentRunWakesFollowCommitsAndReconnect(t *testing.T) {
 	write(tx)
 	if err := tx.Commit(t.Context()); err != nil {
 		t.Fatal(err)
+	}
+	origins, err := store.New(env.pool).NextAgentRunInputOrigins(t.Context(), metaContextKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawChat := false
+	for _, origin := range origins {
+		if origin.Notification && !origin.TaskInbox && origin.AuthorType == "user" {
+			sawChat = true
+		}
+	}
+	if !sawChat {
+		t.Fatalf("oldest queued Run lost the chat origin: %+v", origins)
 	}
 	// The Room Message queues a Run; the Task callback joins it or steers it.
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)

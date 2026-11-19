@@ -16,6 +16,7 @@ import "@fontsource-variable/roboto-slab";
 import "@/app/globals.css";
 import { loadHanFont } from "@/app/han-font";
 import { installVitePreloadRecovery } from "@/app/vite-preload-recovery";
+import { DesktopConnectorReturn } from "@/features/apps/desktop-connector-return";
 import { createBrowserTeamHubRuntime } from "@/features/teamhub/browser-teamhub-runtime";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
@@ -85,6 +86,7 @@ async function startBrowserApp() {
     <StrictMode>
       <QueryClientProvider client={queryClient}>
         <TeamHubRuntimeProvider runtime={runtime}>
+          <DesktopConnectorReturn />
           <RouterProvider router={router} />
         </TeamHubRuntimeProvider>
       </QueryClientProvider>

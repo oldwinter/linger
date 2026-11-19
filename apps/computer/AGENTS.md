@@ -44,6 +44,9 @@
   `internal/workspace`. Keep tests next to their implementation.
 - Context refresh publishes validated input files atomically into a stable
   workspace and never deletes local writable output or a running provider's cwd.
+  Every Ensure also creates whichever files of the Context's own `agent/`
+  package project (`pyproject.toml` for uv, `package.json` for npm) are
+  missing and never replaces one the Agent changed.
 
 - `cmd/linger-computer-launcher` is the stable Windows command: as
   `linger-computer-<environment>.exe` it runs the active bundle's CLI, and as
@@ -63,6 +66,10 @@
 
 ## Runtime And Safety
 
+- A Pi background model call uses one ephemeral RPC turn with no tools on
+  whatever model Pi's profile selects by default, local or remote; the Daemon
+  does not check which.
+
 - Default tests use deterministic providers and real fixture child processes;
   they never call a live model.
 - Process-test watchdogs are harness budgets for loaded developer machines, not
@@ -71,10 +78,6 @@
 - A wire request never supplies a local path, executable, environment, or
   credential. Resolve canonical workspace grants before invoking an
   installed Runtime provider.
-- A Gateway refusal the Desktop app can explain is reported on its status line
-  as `connection_error`: `daemon_identity_conflict` when TeamHub holds this
-  Daemon Identity on another Local Computer, and the field is omitted
-  otherwise.
 - Do not commit runtime state, PID files, sockets, logs, credentials, or build
   output.
 
@@ -85,9 +88,16 @@
   `app-sha256` differs from the Agent's `target_release`. A Daemon
   change therefore needs no version bump to reach Computers.
 - Bump `apps/computer/package.json` only when raising the version
-  floor. The package version is the source for the bundled CLI and Go Daemon
-  `ReleaseVersion`; it is used for display and the floor, never to trigger or
-  order upgrades.
+  floor or when the Agent Service must tell a release that decodes a new
+  optional `runner.welcome` field or a new Agent frame from one that rejects
+  it (the Daemon decodes frames strictly and closes the connection on an
+  unknown one). The package version is the source for the bundled CLI and Go
+  Daemon `ReleaseVersion`; it is used for display, the floor, and those
+  fields and frames, never to trigger or order upgrades.
+- A Daemon can outlive its Agent Service release: a desktop upgrade replaces
+  the Daemon while the installed services keep running until the owner
+  updates them. A Daemon-to-Agent frame family added within protocol 2 is
+  sent only when `runner.welcome`'s `service_features` names it.
 - Before reporting a Daemon update as delivered, distinguish an image that
   carries the new build from an existing Computer that has actually upgraded
   (its active bundle's `app-sha256`).

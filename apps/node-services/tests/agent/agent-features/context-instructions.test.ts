@@ -32,6 +32,9 @@ type Scene = Pick<ExecutionContextDeveloperInstructionsInput, "agentType"> &
     | { readonly contextKind: "document" }
   );
 
+/** TeamHub sends the app catalog with or without a Composio key. */
+const catalogAppKeys = ["gmail", "google_calendar", "linear"];
+
 const render = (scene: Scene): string =>
   assembleExecutionContextDeveloperInstructions({
     agentName: "Research Partner",
@@ -40,6 +43,7 @@ const render = (scene: Scene): string =>
     sponsor,
     connectedApps: true,
     connectedAppKeys: ["gmail", "google_calendar"],
+    connectableAppKeys: catalogAppKeys,
     compactInstructions: false,
     ...(scene.agentType === "anotherme" ? { representedHuman } : {}),
     ...scene,
@@ -50,6 +54,7 @@ interface Deployment {
   readonly capabilities: readonly AgentCapability[];
   readonly connectedApps: boolean;
   readonly connectedAppKeys: readonly string[];
+  readonly connectableAppKeys: readonly string[];
   /** The placed model's context window is at most 128K tokens. */
   readonly compactInstructions?: boolean;
 }
@@ -59,16 +64,19 @@ const defaultDeployment: Deployment = {
   capabilities: ["permissionReview"],
   connectedApps: false,
   connectedAppKeys: [],
+  connectableAppKeys: catalogAppKeys,
 };
 const fullDeployment: Deployment = {
   capabilities: ["permissionReview"],
   connectedApps: true,
   connectedAppKeys: ["gmail", "google_calendar"],
+  connectableAppKeys: catalogAppKeys,
 };
 const unconfiguredDeployment: Deployment = {
   capabilities: [],
   connectedApps: false,
   connectedAppKeys: [],
+  connectableAppKeys: catalogAppKeys,
 };
 const compactDeployment: Deployment = {
   ...fullDeployment,
@@ -104,6 +112,7 @@ const renderComposed = (
   }).contextInstructions({
     connectedApps: deployment.connectedApps,
     connectedAppKeys: deployment.connectedAppKeys,
+    connectableAppKeys: deployment.connectableAppKeys,
     compactInstructions: deployment.compactInstructions === true,
   });
 };
@@ -183,15 +192,27 @@ describe("execution Context instructions", () => {
     },
   );
 
-  // The default deployment teaches no connected app command, while Routines
-  // keep their instructions.
+  // Without a Composio key a Room conversation still names the catalog and
+  // routes a request about one of its apps to teamhub apps connect, which asks
+  // for the key first; other contexts teach no connected app command.
   it.each(scenes)(
-    "teaches connected apps in %s only with a Composio key",
+    "routes catalog apps to an authorization card in %s even without a Composio key",
     (_, scene) => {
       const withApps = renderComposed(scene, fullDeployment)!;
       const withoutApps = renderComposed(scene, defaultDeployment)!;
-      for (const text of ["Connected app", "Connected Apps", "teamhub apps"]) {
-        expect(withoutApps).not.toContain(text);
+      if (scene.contextKind === "meta") {
+        expect(withoutApps).toContain(
+          "Apps the Human can connect: gmail, google_calendar, linear.",
+        );
+        expect(withoutApps).toContain("run teamhub apps connect <app-key>");
+      } else {
+        for (const text of [
+          "Connected app",
+          "Connected Apps",
+          "teamhub apps",
+        ]) {
+          expect(withoutApps).not.toContain(text);
+        }
       }
       expect(withApps).toContain("Connected app");
       if (scene.contextKind !== "document") {
@@ -261,6 +282,7 @@ describe("context-instructions feature", () => {
       composed.contextInstructions({
         connectedApps: true,
         connectedAppKeys: [],
+        connectableAppKeys: [],
         compactInstructions: false,
       }),
     ).toContain('"display_name":"Research Partner"');

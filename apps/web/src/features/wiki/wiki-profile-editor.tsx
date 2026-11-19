@@ -32,8 +32,8 @@ export function WikiProfileEditor({
         Keep the five <code>##</code> sections. Under Background,{" "}
         <code>### Timeline</code> lists <code>- years · organization</code>{" "}
         entries with years only (<code>2019</code> start, <code>–2013</code>{" "}
-        end, <code>Present</code> ongoing); any other <code>###</code> starts a
-        point.
+        end, <code>≤2013</code> ended by then, <code>Present</code> ongoing);
+        any other <code>###</code> starts a point.
       </p>
       <textarea
         aria-label="Profile Markdown"

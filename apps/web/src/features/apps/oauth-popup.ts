@@ -1,3 +1,5 @@
+import { desktopConnectorOAuth } from "./desktop-connector-oauth";
+
 const OAUTH_POPUP_NAME = "linger_composio_oauth";
 const OAUTH_POPUP_WIDTH = 560;
 const OAUTH_POPUP_HEIGHT = 720;
@@ -27,5 +29,18 @@ export function openOAuthPopup(connectUrl: string): Window | null {
 }
 
 export function openOAuthUrl(connectUrl: string): boolean {
-  return Boolean(openOAuthPopup(connectUrl));
+  const popup = openOAuthPopup(connectUrl);
+  // Electron sends the URL to the browser and denies the in-app popup.
+  if (popup) return true;
+  if (!desktopConnectorOAuth()) return false;
+  try {
+    const target = new URL(connectUrl);
+    return (
+      (target.protocol === "http:" || target.protocol === "https:") &&
+      !target.username &&
+      !target.password
+    );
+  } catch {
+    return false;
+  }
 }

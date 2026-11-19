@@ -5,7 +5,7 @@
 //   node scripts/build-daemon.mjs [--target darwin-arm64 ...] [--all]
 //
 // Without a target it builds for this machine.
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,6 +29,18 @@ export const daemonFileName = (target) =>
     ? "linger-computer-daemon.exe"
     : "linger-computer-daemon";
 
+export function run(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: "inherit", ...options });
+    child.once("error", reject);
+    child.once("close", (code) =>
+      code === 0
+        ? resolve()
+        : reject(new Error(`${command} ${args.join(" ")} failed (${code})`)),
+    );
+  });
+}
+
 export const buildDaemon = async (targets) => {
   const { version } = JSON.parse(
     await readFile(path.join(desktop, "../computer/package.json"), "utf8"),
@@ -37,41 +49,42 @@ export const buildDaemon = async (targets) => {
     recursive: true,
     force: true,
   });
-  for (const target of targets) {
-    const go = DAEMON_TARGETS[target];
-    if (!go) throw new Error(`Unknown daemon target ${target}`);
-    const output = path.join(
-      desktop,
-      "dist/computer",
-      target,
-      daemonFileName(target),
-    );
-    const compiled = spawnSync(
-      "go",
-      [
-        "build",
-        "-trimpath",
-        "-ldflags",
-        `-s -w -X github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/transport.ReleaseVersion=${version}`,
-        "-o",
-        output,
-        "./cmd/linger-computer-daemon",
-      ],
-      {
-        cwd: localDaemon,
-        env: {
-          ...process.env,
-          CGO_ENABLED: "0",
-          GOOS: go.goos,
-          GOARCH: go.goarch,
+  await Promise.all(
+    targets.map(async (target) => {
+      const go = DAEMON_TARGETS[target];
+      if (!go) throw new Error(`Unknown daemon target ${target}`);
+      const output = path.join(
+        desktop,
+        "dist/computer",
+        target,
+        daemonFileName(target),
+      );
+      await run(
+        "go",
+        [
+          "build",
+          "-trimpath",
+          "-ldflags",
+          `-s -w -X github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/transport.ReleaseVersion=${version}`,
+          "-o",
+          output,
+          "./cmd/linger-computer-daemon",
+        ],
+        {
+          cwd: localDaemon,
+          env: {
+            ...process.env,
+            CGO_ENABLED: "0",
+            GOOS: go.goos,
+            GOARCH: go.goarch,
+          },
         },
-        stdio: "inherit",
-      },
-    );
-    if (compiled.error) throw compiled.error;
-    if (compiled.status !== 0)
-      throw new Error(`Go build of the daemon for ${target} failed`);
-  }
+      ).catch((error) => {
+        if (error?.code === "ENOENT") throw error;
+        throw new Error(`Go build of the daemon for ${target} failed`);
+      });
+    }),
+  );
 };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

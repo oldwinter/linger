@@ -217,6 +217,43 @@ describe("bounded per-subject calendar recovery", () => {
     );
     expect(row(file).pending).toEqual([]);
   });
+  it("retries failing subjects at most `concurrency` at once", async () => {
+    const file = await checkpoint();
+    const subjects = ["agent_1", "agent_2", "agent_3", "agent_4"];
+    let retrying = false;
+    let active = 0;
+    let peak = 0;
+    const retried: string[] = [];
+    const scheduler = new MemoryScheduler(
+      { ...config, concurrency: 2 },
+      daily(async (task) => {
+        if (!retrying) {
+          for (const subject of subjects) {
+            recordSubjectFailure({
+              memory_subject_key: subject,
+              error: "provider offline",
+            });
+          }
+          return;
+        }
+        active += 1;
+        peak = Math.max(peak, active);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        active -= 1;
+        retried.push(task.memorySubjectKey!);
+      }),
+      undefined,
+      file,
+    );
+    scheduler.runDueTasks(start);
+    await scheduler.idle();
+    expect(row(file).pending[0]).toMatchObject({ retrySubjects: subjects });
+    retrying = true;
+    scheduler.runDueTasks(new Date(start.getTime() + 15_000));
+    await scheduler.idle();
+    expect(retried.sort()).toEqual(subjects);
+    expect(peak).toBe(2);
+  });
   it("retries within the hour at 15s, 1m, 3m, 10m and 1h, then preserves the terminal receipt", async () => {
     const file = await checkpoint();
     const calls = vi.fn(async () => {

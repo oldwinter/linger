@@ -55,7 +55,7 @@ const TaskContextForbiddenMessage = "A Task cannot send messages, create Documen
 // speaks and publishes; the AlterEgo reports through its final reply.
 func taskContextBlocked(tool string) bool {
 	switch tool {
-	case "send_message", "send_message_sequence", "send_direct_message", "send_emoji", "ask_user", "show_fragment",
+	case "send_message", "send_message_sequence", "send_direct_message", "hand_off_to_room", "send_emoji", "ask_user", "show_fragment",
 		"create_document", "create_room", "create_team_md",
 		"create_task", "check_task", "send_task", "stop_task":
 		return true
@@ -219,7 +219,7 @@ func authorizeAgentPrincipal(ctx context.Context, tx pgx.Tx, token, action strin
 // service independently enforces the action's current permissions.
 func businessAction(action string) bool {
 	switch action {
-	case "apply_document_semantic_mutation", "ask_user", "check_task", "create_document", "create_task", "create_room", "create_routine", "create_team_md", "delete_routine", "enable_routine", "get_document_comment_thread", "list_available_agents", "list_routines", "pause_routine", "replace_document_comment_text", "reply_document_comment", "run_routine", "send_direct_message", "send_emoji", "send_message", "send_message_sequence", "send_task", "show_fragment", "stop_task", "update_routine", "upload_artifact_tree", "upload_artifacts",
+	case "apply_document_semantic_mutation", "ask_user", "check_task", "create_document", "create_task", "create_room", "create_routine", "create_team_md", "delete_routine", "enable_routine", "get_document_comment_thread", "hand_off_to_room", "list_available_agents", "list_routines", "pause_routine", "replace_document_comment_text", "reply_document_comment", "run_routine", "send_direct_message", "send_emoji", "send_message", "send_message_sequence", "send_task", "show_fragment", "stop_task", "update_routine", "upload_artifact_tree", "upload_artifacts",
 		"add_room_member", "create_agent", "get_agent", "update_agent", "list_connected_apps", "search_app_tools", "execute_app_tool", "manage_auto_reminders",
 		"get_personal_profile", "write_personal_profile", "start_personal_profile_build", "get_account_profile", "update_account_profile",
 		"request_browser_connection", "read_computer_permissions", "request_computer_permission",
@@ -267,6 +267,9 @@ func businessCapability(i Authorization, action string) bool {
 		// An AnotherMe acts from its Room under its owner's mandates; each act
 		// still checks the owner's current rules.
 		return i.AgentType == "anotherme" && i.UserArtifactOwnerActorID != "" && i.ParticipantTaskID == "" && i.Target.Kind == "room" && i.RoomID != ""
+	case "hand_off_to_room":
+		// From an AnotherMe's Meta in a Room; the service requires its direct chat.
+		return i.AgentType == "anotherme" && i.ParticipantTaskID == "" && i.Target.Kind == "room" && i.RoomID != ""
 	case "create_task", "check_task", "send_task", "stop_task", "create_room", "create_team_md", "show_fragment":
 		return i.ParticipantTaskID == "" && i.Target.Kind != "document"
 	case "get_document_comment_thread", "reply_document_comment", "replace_document_comment_text":

@@ -131,11 +131,11 @@ export function useComposerDraft({
         ? messageLengthError()
         : null,
     );
-    const { documentReferences, mentions, skillReferences } = resolveReferences(
-      nextBody,
-      nextDocumentOptions,
-    );
-    selectedMentionsRef.current = mentions;
+    const { documentReferences, selectedMentions, skillReferences } =
+      resolveReferences(nextBody, nextDocumentOptions);
+    // Unavailable mentions stay selected so a later send still blocks on them
+    // instead of silently sending the token as plain text.
+    selectedMentionsRef.current = selectedMentions;
     selectedDocumentsRef.current = documentReferences;
     selectedSkillsRef.current = skillReferences;
     onDraftStateChange?.({
@@ -145,7 +145,7 @@ export function useComposerDraft({
       documentContexts: nextDocumentContexts,
       body: nextBody,
       documentReferences,
-      mentions,
+      mentions: selectedMentions,
       skillReferences,
     });
   }
@@ -206,6 +206,17 @@ export function messageLengthError() {
   return `Message must be ${TEAMHUB_MESSAGE_MAX_LENGTH.toLocaleString()} characters or fewer.`;
 }
 
+/** Names unavailable mentions; `nextStep` tells the user how to proceed. */
+export function unavailableMentionsError(
+  mentions: TeamHubActorRef[],
+  nextStep: (noun: string) => string,
+) {
+  const names = mentions.map(formatMentionToken).join(", ");
+  const verb = mentions.length === 1 ? "is" : "are";
+  const noun = mentions.length === 1 ? "mention" : "mentions";
+  return `${names} ${verb} not available in this Room. ${nextStep(noun)}`;
+}
+
 export function findDocumentOption(
   reference: RoomComposerDocumentReference,
   documentOptions: MessageDocumentOption[],
@@ -245,16 +256,18 @@ function resolveAvailableComposerReferences({
 }) {
   let pendingAvailability = false;
   const activeMentions = activeMessageMentions(body, mentions);
-  const availableMentions = activeMentions.flatMap((mention) => {
-    const current = mentionOptions.find(
+  const unavailableMentions: TeamHubActorRef[] = [];
+  const availableMentions = activeMentions.filter((mention) => {
+    // Identity is the actor, not its display name: a rename after the pick
+    // keeps the selected mention, whose token is the one in the body.
+    const current = mentionOptions.some(
       (option) =>
-        option.id === mention.id &&
-        option.tenant_id === mention.tenant_id &&
-        formatMentionToken(option) === formatMentionToken(mention),
+        option.id === mention.id && option.tenant_id === mention.tenant_id,
     );
-    if (current) return [current];
+    if (current) return true;
     if (agentOptionsReady === false) pendingAvailability = true;
-    return agentOptionsReady === true ? [] : [mention];
+    if (agentOptionsReady === true) unavailableMentions.push(mention);
+    return agentOptionsReady !== true;
   });
 
   const activeDocuments = activeDocumentReferences(body, documentReferences);
@@ -285,6 +298,8 @@ function resolveAvailableComposerReferences({
     documentReferences: availableDocuments,
     mentions: availableMentions,
     pendingAvailability,
+    selectedMentions: activeMentions,
     skillReferences: availableSkills,
+    unavailableMentions,
   };
 }

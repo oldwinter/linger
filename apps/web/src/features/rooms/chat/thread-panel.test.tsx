@@ -1,3 +1,4 @@
+import { defineGlobalProperty } from "@/test/global-properties";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -34,36 +35,20 @@ import { roomMessagesQueryKey } from "../room-queries";
 import { requestThreadComposerFocus } from "./thread-composer-focus";
 import { roomMessageSender } from "./room-message-sender";
 import { ThreadPanel } from "./thread-panel";
+import {
+  openPanelTab,
+  openRoomSearch,
+  TestRoomChrome,
+} from "./room-chat.fixtures";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
-
-const openPanelTab = vi.fn();
-const openRoomSearch = vi.fn();
-
-vi.mock("../room-connectivity", async () => {
-  const actual = await vi.importActual<typeof import("../room-connectivity")>(
-    "../room-connectivity",
-  );
-  return {
-    ...actual,
-    useRoomOutletContext: () => ({
-      focusPanelMessageId: null,
-      lastAppliedRoomSeq: 0,
-      messagePresentations: {},
-      openPanelTab,
-      openRoomSearch,
-      recordMessagePresentation: () => undefined,
-      status: "connected" as const,
-    }),
-  };
-});
 
 describe("ThreadPanel", () => {
   beforeEach(() => {
     openPanelTab.mockReset();
     openRoomSearch.mockReset();
     const store = new Map<string, string>();
-    Object.defineProperty(window, "localStorage", {
+    defineGlobalProperty(window, "localStorage", {
       configurable: true,
       value: {
         get length() {
@@ -505,9 +490,14 @@ describe("ThreadPanel", () => {
     );
 
     const dock = await screen.findByTestId("agent-streaming-status-dock");
-    expect(
-      within(dock).getByRole("button", { name: "Open Agent status activity" }),
-    ).toHaveAttribute("title", "Codex: Run stopped");
+    // The status line picks the shown entry in an effect after the dock mounts.
+    await waitFor(() =>
+      expect(
+        within(dock).getByRole("button", {
+          name: "Open Agent status activity",
+        }),
+      ).toHaveAttribute("title", "Codex: Run stopped"),
+    );
     expect(
       dock.compareDocumentPosition(screen.getByLabelText("Reply in Thread")) &
         Node.DOCUMENT_POSITION_FOLLOWING,
@@ -1045,9 +1035,14 @@ describe("ThreadPanel", () => {
     );
 
     const dock = await screen.findByTestId("agent-streaming-status-dock");
-    expect(
-      within(dock).getByRole("button", { name: "Open Agent status activity" }),
-    ).toHaveAttribute("title", "Codex: Run stopped");
+    // The status line picks the shown entry in an effect after the dock mounts.
+    await waitFor(() =>
+      expect(
+        within(dock).getByRole("button", {
+          name: "Open Agent status activity",
+        }),
+      ).toHaveAttribute("title", "Codex: Run stopped"),
+    );
     expect(dock).not.toHaveTextContent("Lev8 GTM");
   });
 
@@ -1509,7 +1504,9 @@ function wrap(
   return (
     <QueryClientProvider client={queryClient}>
       <TeamHubRuntimeProvider runtime={runtime}>
-        <MemoryRouter>{ui}</MemoryRouter>
+        <TestRoomChrome>
+          <MemoryRouter>{ui}</MemoryRouter>
+        </TestRoomChrome>
       </TeamHubRuntimeProvider>
     </QueryClientProvider>
   );

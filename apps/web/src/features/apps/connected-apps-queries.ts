@@ -79,7 +79,8 @@ export function externalConnectionAgentAccessQueryOptions(
 export function isExternalSourceAccountQuery(queryKey: readonly unknown[]) {
   return (
     queryKey[0] === "teamhub" &&
-    typeof queryKey[1] === "string" &&
-    queryKey[1] === "external-connections"
+    (queryKey[1] === "external-connections" ||
+      (typeof queryKey[1] === "string" &&
+        queryKey[2] === "external-connections"))
   );
 }

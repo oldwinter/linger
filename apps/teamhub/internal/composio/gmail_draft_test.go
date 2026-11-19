@@ -10,6 +10,30 @@ import (
 
 type proxiedDraftCall struct{ Method, Endpoint, Raw, ID string }
 
+type gmailDraftTransport func(*http.Request) (*http.Response, error)
+
+func (transport gmailDraftTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	return transport(request)
+}
+
+func TestGmailDraftUploadHonorsCancellationWithoutRetry(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	calls := 0
+	client, err := newTestClient(Config{APIKey: "restricted-key", HTTPClient: &http.Client{Transport: gmailDraftTransport(func(request *http.Request) (*http.Response, error) {
+		calls++
+		cancel()
+		<-request.Context().Done()
+		return nil, request.Context().Err()
+	})}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.SaveGmailDraft(ctx, "ca_1", "r-1", "cmF3"); err == nil || calls != 1 {
+		t.Fatalf("cancelled upload: err=%v calls=%d", err, calls)
+	}
+}
+
 func TestClientSavesGmailDraftThroughProxyWithoutSending(t *testing.T) {
 	var calls []proxiedDraftCall
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

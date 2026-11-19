@@ -586,6 +586,21 @@ describe("TeamHub routes", () => {
       screen.getByRole("heading", { name: "TeamHub unavailable" }),
     ).toBeVisible();
   });
+
+  it("offers Open Messages on unknown Space paths", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const queryClient = testQueryClient();
+    const router = createMemoryRouter(createAppRoutes(queryClient, runtime), {
+      initialEntries: ["/t/tenant-northstar/no-such-page"],
+    });
+
+    renderApp(queryClient, runtime, router);
+
+    expect(
+      await screen.findByRole("heading", { name: "Page not found" }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Open Messages" })).toBeVisible();
+  });
 });
 
 function renderApp(

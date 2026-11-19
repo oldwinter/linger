@@ -27,8 +27,8 @@ func TestAgentRuntimeInboxAuthorizationDoesNotFenceContext(t *testing.T) {
 		{"Inbox authorization", agentruntimestate.ErrInboxNotAuthorized, 403, "INBOX_NOT_AUTHORIZED"},
 		{"Context lease or identity", agentruntimestate.ErrFenced, 409, "CONTEXT_FENCED"},
 		{"real fence wins", errors.Join(agentruntimestate.ErrInboxNotAuthorized, agentruntimestate.ErrFenced), 409, "CONTEXT_FENCED"},
+		{"Daemon Identity in use", agentruntimestate.ErrDaemonIdentityInUse, 409, "DAEMON_IDENTITY_IN_USE"},
 		{"selection race", agentruntimestate.ErrConflict, 409, "AGENT_RUNTIME_CONFLICT"},
-		{"Daemon Identity in use", agentruntimestate.ErrDaemonIdentityInUse, 409, "AGENT_RUNTIME_DAEMON_IDENTITY_IN_USE"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			response := httptest.NewRecorder()

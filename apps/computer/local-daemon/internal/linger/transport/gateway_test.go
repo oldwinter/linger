@@ -241,6 +241,35 @@ func TestGatewayStreamClassifiesUpgradeRequiredClose(t *testing.T) {
 	}
 }
 
+func TestGatewayStreamClassifiesDaemonIdentityInUseClose(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		socket, err := upgrader.Upgrade(writer, request, nil)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer socket.Close()
+		_ = socket.WriteControl(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "daemon_identity_in_use: reconnect this Computer"),
+			time.Now().Add(time.Second),
+		)
+	}))
+	defer server.Close()
+	url := "ws" + strings.TrimPrefix(server.URL, "http")
+	stream, err := (GatewayControlPlane{URL: url, BearerToken: "test-token"}).Connect(context.Background(), Hello{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	_, err = stream.Receive(context.Background())
+	var conflict *DaemonIdentityInUseError
+	if !errors.As(err, &conflict) || conflict.Reason != "daemon_identity_in_use: reconnect this Computer" {
+		t.Fatalf("daemon-identity-in-use close error = %v", err)
+	}
+}
+
 func TestGatewayStreamDecodesRuntimeRegistrationSnapshot(t *testing.T) {
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -502,6 +531,7 @@ func TestClassifyConnectionFailure(t *testing.T) {
 		want ConnectionFailure
 	}{
 		{"upgrade required", &UpgradeRequiredError{Reason: "upgrade_required: protocol"}, FailureIncompatible},
+		{"daemon identity in use", &DaemonIdentityInUseError{Reason: "daemon_identity_in_use: reconnect this Computer"}, FailureUnavailable},
 		{"schema rejected", &websocket.CloseError{Code: websocket.CloseProtocolError, Text: "Runner protocol violation"}, FailureIncompatible},
 		{"credential revoked", fmt.Errorf("receive: %w", &websocket.CloseError{Code: websocket.ClosePolicyViolation, Text: "Runner credential revoked"}), FailureUnavailable},
 		{"Gateway restarting", &websocket.CloseError{Code: websocket.CloseServiceRestart}, FailureUnavailable},
@@ -516,34 +546,12 @@ func TestClassifyConnectionFailure(t *testing.T) {
 		{"network", &net.OpError{Op: "read", Err: errors.New("connection reset")}, FailureUnavailable},
 		{"end of stream", fmt.Errorf("read: %w", io.ErrUnexpectedEOF), FailureUnavailable},
 		{"internal error close", &websocket.CloseError{Code: websocket.CloseInternalServerErr}, FailureOther},
-		{"Daemon Identity in use", &websocket.CloseError{Code: websocket.CloseInternalServerErr, Text: "Runner daemon identity conflict"}, FailureOther},
 		{"decode", errors.New("decode Runner Gateway command: invalid character"), FailureOther},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := ClassifyConnectionFailure(tc.err); got != tc.want {
 				t.Fatalf("ClassifyConnectionFailure() = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestIsDaemonIdentityConflict(t *testing.T) {
-	conflict := &websocket.CloseError{Code: websocket.CloseInternalServerErr, Text: "Runner daemon identity conflict"}
-	for _, tc := range []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{"conflict close", conflict, true},
-		{"wrapped conflict close", fmt.Errorf("receive: %w", conflict), true},
-		{"another internal error", &websocket.CloseError{Code: websocket.CloseInternalServerErr, Text: "Runner service failure"}, false},
-		{"conflict text with another code", &websocket.CloseError{Code: websocket.ClosePolicyViolation, Text: "Runner daemon identity conflict"}, false},
-		{"no close", errors.New("Runner daemon identity conflict"), false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := IsDaemonIdentityConflict(tc.err); got != tc.want {
-				t.Fatalf("IsDaemonIdentityConflict() = %v, want %v", got, tc.want)
 			}
 		})
 	}

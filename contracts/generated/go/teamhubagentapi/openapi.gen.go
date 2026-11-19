@@ -664,10 +664,11 @@ func (e AgentRoutineListenerApp) Valid() bool {
 
 // Defines values for AgentRoutineScheduleKind.
 const (
-	Daily       AgentRoutineScheduleKind = "daily"
-	EveryNHours AgentRoutineScheduleKind = "every_n_hours"
-	Once        AgentRoutineScheduleKind = "once"
-	Weekly      AgentRoutineScheduleKind = "weekly"
+	Daily         AgentRoutineScheduleKind = "daily"
+	EveryNHours   AgentRoutineScheduleKind = "every_n_hours"
+	EveryNMinutes AgentRoutineScheduleKind = "every_n_minutes"
+	Once          AgentRoutineScheduleKind = "once"
+	Weekly        AgentRoutineScheduleKind = "weekly"
 )
 
 // Valid indicates whether the value is a known member of the AgentRoutineScheduleKind enum.
@@ -676,6 +677,8 @@ func (e AgentRoutineScheduleKind) Valid() bool {
 	case Daily:
 		return true
 	case EveryNHours:
+		return true
+	case EveryNMinutes:
 		return true
 	case Once:
 		return true
@@ -2298,6 +2301,36 @@ type AgentRoomCreationEffectivePayload struct {
 	Name string `json:"name"`
 }
 
+// AgentRoomHandoffRequest The Room to hand the Human's request to and the instruction the AnotherMe's Context there carries out. The caller, its direct chat and its Human are derived by TeamHub, never accepted from the caller.
+type AgentRoomHandoffRequest struct {
+	// Instruction Self-contained instruction for the AnotherMe in the target Room. Hidden from the Room's timeline; the receiving Context decides what to post there.
+	Instruction string `json:"instruction"`
+
+	// InvocationId Stable SHA-256 operation identity derived by the CLI from the Agent identity, command, and caller operation ID. Credential rotation and Runtime restarts do not change it.
+	InvocationId AgentInvocationId `json:"invocation_id"`
+
+	// RoomId Opaque, case-sensitive identifier. Clients must not infer type or time from it.
+	RoomId Id `json:"room_id"`
+}
+
+// AgentRoomHandoffResponse The handoff posted in the target Room.
+type AgentRoomHandoffResponse struct {
+	// Accepted Whether TeamHub posted the handoff.
+	Accepted bool `json:"accepted"`
+
+	// DuplicateRequest True only when the server recovered a prior committed operation.
+	DuplicateRequest bool `json:"duplicate_request"`
+
+	// HandoffId Opaque, case-sensitive identifier. Clients must not infer type or time from it.
+	HandoffId Id `json:"handoff_id"`
+
+	// InboxId Canonical public Inbox of the target Room.
+	InboxId string `json:"inbox_id"`
+
+	// Reason Optional public receipt explanation.
+	Reason *string `json:"reason,omitempty"`
+}
+
 // AgentRoomMembersRequest defines model for AgentRoomMembersRequest.
 type AgentRoomMembersRequest struct {
 	InboxId string `json:"inbox_id"`
@@ -2366,9 +2399,12 @@ type AgentRoutineResponse struct {
 
 // AgentRoutineSchedule defines model for AgentRoutineSchedule.
 type AgentRoutineSchedule struct {
-	// IntervalHours Repeat interval for every_n_hours. Do not send a clock or timezone with it.
-	IntervalHours *int                     `json:"interval_hours,omitempty"`
-	Kind          AgentRoutineScheduleKind `json:"kind"`
+	// IntervalHours Repeat interval in whole hours for every_n_hours (1 to 168), accepted on input for compatibility with older clients and stored in minutes. Responses always use every_n_minutes with interval_minutes. Do not send a clock or timezone with it.
+	IntervalHours *int `json:"interval_hours,omitempty"`
+
+	// IntervalMinutes Repeat interval in minutes for every_n_minutes (10 to 10080, in 10-minute increments). Do not send a clock or timezone with it.
+	IntervalMinutes *int                     `json:"interval_minutes,omitempty"`
+	Kind            AgentRoutineScheduleKind `json:"kind"`
 
 	// RunAt The one moment a once Routine fires (RFC 3339 with offset). It must be in the future; the Routine is done (disabled) after it fires. Timezone is optional and only used for display.
 	RunAt *time.Time `json:"run_at,omitempty"`
@@ -2628,14 +2664,21 @@ type AgentTaskSummary struct {
 	UpdatedAt time.Time   `json:"updated_at"`
 }
 
-// AgentTeamMdResponse defines model for AgentTeamMdResponse.
+// AgentTeamMdResponse The Room's current team.md. A readable Room where none has been published yet, the normal state of a new Room, answers published false and revision 0 without raw_markdown or updated_at.
 type AgentTeamMdResponse struct {
-	RawMarkdown string `json:"raw_markdown"`
-	Revision    int64  `json:"revision"`
+	Published bool `json:"published"`
+
+	// RawMarkdown Present exactly when published is true.
+	RawMarkdown *string `json:"raw_markdown,omitempty"`
+
+	// Revision 0 until the first publish, then 1 and up.
+	Revision int64 `json:"revision"`
 
 	// RoomId Opaque, case-sensitive identifier. Clients must not infer type or time from it.
-	RoomId    Id        `json:"room_id"`
-	UpdatedAt time.Time `json:"updated_at"`
+	RoomId Id `json:"room_id"`
+
+	// UpdatedAt Present exactly when published is true.
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
 
 // AgentTextMessageSegment Plain text segment. Include type: text and content.
@@ -3460,6 +3503,9 @@ type ActUnderProactiveMandateJSONRequestBody = ProactiveActRequest
 
 // RecordProactiveShadowDivergenceJSONRequestBody defines body for RecordProactiveShadowDivergence for application/json ContentType.
 type RecordProactiveShadowDivergenceJSONRequestBody = ProactiveShadowDivergenceRecord
+
+// HandOffAgentRoomWorkJSONRequestBody defines body for HandOffAgentRoomWork for application/json ContentType.
+type HandOffAgentRoomWorkJSONRequestBody = AgentRoomHandoffRequest
 
 // AddAgentRoomMemberJSONRequestBody defines body for AddAgentRoomMember for application/json ContentType.
 type AddAgentRoomMemberJSONRequestBody = AgentAddRoomMemberRequest

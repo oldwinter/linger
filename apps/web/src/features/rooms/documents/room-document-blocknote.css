@@ -115,6 +115,14 @@
   width: 100%;
 }
 
+.room-document-header[data-mail-canvas] .room-document-header-identity {
+  flex: 1 1 0;
+}
+
+.room-document-header[data-mail-canvas] .room-document-header-actions {
+  flex: 0 0 auto;
+}
+
 .room-document-layout--knowledge {
   /* 768px reading column plus horizontal padding. */
   max-width: calc(768px + 80px);
@@ -688,6 +696,12 @@
 .room-document-blocknote .bn-editor {
   background: transparent;
   font-family: inherit;
+}
+
+.room-document-blocknote[data-canvas-target="gmail"] .bn-editor {
+  min-height: 80px;
+  font-size: var(--chat-card-text-size);
+  line-height: 1.7;
 }
 
 .room-document-blocknote .bn-editor {

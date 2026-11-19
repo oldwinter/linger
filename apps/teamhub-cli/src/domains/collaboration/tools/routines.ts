@@ -67,14 +67,34 @@ const weeklyScheduleSchema = z
 const intervalScheduleSchema = z
   .object({
     kind: z
+      .literal("every_n_minutes")
+      .describe("Repeat a fixed number of minutes on a fixed grid."),
+    interval_minutes: z
+      .number()
+      .int()
+      .min(10, "interval_minutes must be at least 10 minutes.")
+      .max(10_080, "interval_minutes must be at most 10080 minutes (7 days).")
+      .multipleOf(10, "interval_minutes must be a multiple of 10 minutes.")
+      .describe(
+        "How many minutes between posts, from 10 to 10080 in 10-minute increments.",
+      ),
+  })
+  .strict()
+  .describe("Repeat every N minutes, starting from now.");
+
+const hourlyIntervalScheduleSchema = z
+  .object({
+    kind: z
       .literal("every_n_hours")
-      .describe("Repeat a fixed number of hours after the previous post."),
+      .describe("Repeat a fixed number of whole hours on a fixed grid."),
     interval_hours: z
       .number()
       .int()
-      .min(1)
-      .max(168)
-      .describe("How many hours between posts, from 1 to 168."),
+      .min(1, "interval_hours must be at least 1 hour.")
+      .max(168, "interval_hours must be at most 168 hours (7 days).")
+      .describe(
+        "How many whole hours between posts, from 1 to 168 (compatibility alias for every_n_minutes).",
+      ),
   })
   .strict()
   .describe("Repeat every N hours, starting from now.");
@@ -100,10 +120,11 @@ export const routineScheduleSchema = z
     dailyScheduleSchema,
     weeklyScheduleSchema,
     intervalScheduleSchema,
+    hourlyIntervalScheduleSchema,
     onceScheduleSchema,
   ])
   .describe(
-    "When the Routine posts. daily and weekly use a clock time and timezone. every_n_hours repeats from now. once posts a single time at run_at.",
+    "When the Routine posts. daily and weekly use a clock time and timezone. every_n_minutes (or compatibility alias every_n_hours) repeats from now. once posts a single time at run_at.",
   );
 
 const mentionSchema = teamHubIdSchema.describe(

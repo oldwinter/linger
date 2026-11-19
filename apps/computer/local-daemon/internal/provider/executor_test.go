@@ -319,6 +319,11 @@ func TestExecutorDoesNotRepeatFreshSessionFallback(t *testing.T) {
 			runs:   []*native.Run{finishedRun(missing, native.Event{Kind: native.EventText, Body: "partial"})},
 			starts: 1,
 		},
+		"yielded session must still exist": {
+			spec:   OperationSpec{OperationKind: "run.start", ResumeSessionID: "retained", ResumeAfterYield: true},
+			runs:   []*native.Run{finishedRun(missing)},
+			starts: 1,
+		},
 		"new session": {
 			spec:   OperationSpec{OperationKind: "run.start"},
 			runs:   []*native.Run{finishedRun(missing)},
@@ -347,5 +352,21 @@ func TestExecutorDoesNotRepeatFreshSessionFallback(t *testing.T) {
 				t.Fatalf("result=%+v starts=%d, want session_not_found after %d starts", result, len(specs), test.starts)
 			}
 		})
+	}
+}
+
+func TestRunStartedOffersYieldOnlyWithNativeSession(t *testing.T) {
+	for _, tc := range []struct {
+		run     bool
+		session string
+		want    bool
+	}{{true, "native-session", true}, {true, "", false}, {false, "native-session", false}} {
+		projection := eventProjection{canYield: tc.run}
+		events := projection.project(native.Event{Kind: native.EventStatus, TurnID: "turn", SessionID: tc.session})
+		start := events[0].(map[string]any)
+		session, _ := start["session"].(map[string]any)
+		if (session["canYield"] == true) != tc.want {
+			t.Fatalf("run=%v session=%q: %+v", tc.run, tc.session, start)
+		}
 	}
 }

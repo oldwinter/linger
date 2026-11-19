@@ -389,6 +389,25 @@ paths:
                 $ref: "#/components/schemas/ModelCheckReport"
         "400": *a2
         "401": *a3
+  /api/byok/check:
+    post:
+      operationId: checkInstallerByok
+      summary: Validate BYOK upstream endpoint via localmodels
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ByokConfiguration"
+      responses:
+        "200":
+          description: BYOK check result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ByokCheckReport"
+        "400": *a2
+        "401": *a3
   /api/runtime-login:
     get:
       operationId: inspectInstallerRuntimeLogin
@@ -636,6 +655,52 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CheckResult"
+    ByokConfiguration:
+      type: object
+      additionalProperties: false
+      required:
+        - baseUrl
+        - modelId
+      properties:
+        baseUrl:
+          type: string
+          minLength: 1
+          maxLength: 2048
+        apiKey:
+          type: string
+          maxLength: 4096
+        modelId:
+          type: string
+          minLength: 1
+          maxLength: 256
+        contextWindow:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        runtime:
+          type: string
+          enum: [claude, codex, pi]
+    ByokCheckReport:
+      type: object
+      additionalProperties: false
+      required:
+        - ok
+        - protocol
+        - baseUrl
+        - modelId
+        - contextWindow
+      properties:
+        ok:
+          type: boolean
+        protocol:
+          type: string
+          enum: [openai-chat, openai-responses, anthropic]
+        baseUrl: *a1
+        modelId: *a1
+        contextWindow:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
     LocalModelsAuthority:
       type: object
       additionalProperties: false
@@ -715,6 +780,8 @@ components:
           description: Prepare a dependency without starting product services.
         runtimeModel:
           $ref: "#/components/schemas/ModelConfiguration"
+        byok:
+          $ref: "#/components/schemas/ByokConfiguration"
         instance:
           type: string
           pattern: ^[a-z][a-z0-9-]{0,39}$
@@ -1174,13 +1241,27 @@ components:
                   type: number
             reasons:
               type: array
+              description: Upstream stack.reasons. Clients choose their copy by code and its counts; message is upstream diagnostic text for logs, never shown or matched on.
               items:
-                type: string
-            reasonMessages:
-              type: array
-              description: Human-readable upstream explanations in the same order as reasons; model eligibility remains upstream-owned.
-              items:
-                type: string
+                type: object
+                additionalProperties: false
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: string
+                  message:
+                    type: string
+                  gpuIndex:
+                    type: number
+                    description: On gpu-memory-required, the card other programs hold memory on.
+                  freeBytes:
+                    type: number
+                    description: On gpu-memory-required (that card's VRAM) and free-memory-required (RAM), the memory free now.
+                  requiredBytes:
+                    type: number
+                    description: The memory the install needs free, for the same resource as freeBytes.
             basis:
               type: string
               enum:

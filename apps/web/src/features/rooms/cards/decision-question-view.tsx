@@ -262,7 +262,7 @@ function OtherRow({
     <label className="question-choice question-choice-writing">
       <input
         aria-label={`Your own answer to ${question.prompt}`}
-        className="min-w-0 flex-1 bg-transparent text-sm text-app-ink outline-none placeholder:text-app-muted"
+        className="min-w-0 flex-1 bg-transparent text-sm text-app-ink outline-none placeholder:text-app-placeholder"
         disabled={disabled}
         maxLength={question.input === "checkbox" ? 200 : 10000}
         onChange={(event) => onWrite(event.target.value)}

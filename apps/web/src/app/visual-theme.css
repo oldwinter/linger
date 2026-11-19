@@ -53,6 +53,7 @@
   --app-ink: hsl(var(--town-foreground));
   --app-body: hsl(var(--town-foreground));
   --app-muted: hsl(var(--town-muted-foreground));
+  --app-placeholder: hsl(var(--town-foreground) / 0.4);
   --app-subtle: hsl(var(--town-muted-foreground));
   --app-border: hsl(var(--town-border));
   --app-border-strong: hsl(var(--town-border-hover));

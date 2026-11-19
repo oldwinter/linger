@@ -71,7 +71,10 @@ beforeEach(() => {
             recommendation: "codex",
             localModels: {
               eligible: false,
-              reasons: ["linux_required", "ram_below_minimum"],
+              reasons: [
+                { code: "linux_required", message: "" },
+                { code: "ram_below_minimum", message: "" },
+              ],
               selectedGpuIndex: null,
               estimate: {
                 model: "qwen3.8-27b",

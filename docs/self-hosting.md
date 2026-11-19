@@ -7,9 +7,13 @@ app, for example to serve several computers on your network.
 
 Docker Compose builds every service from this checkout and runs it, PostgreSQL
 and voice included. You need Docker with Compose. Linger needs no model
-gateway or API key of its own: every model call, including the background work
-of Memory and the personal wiki, runs on the Codex or Claude Code of the user's
-own computer.
+gateway or API key of its own. Model calls run through a Runtime on the
+user's Computer, using its configured model endpoint. Memory and personal Wiki
+work on Pi runs on Pi's default model, local or your own API key. This
+requires a Computer Daemon that supports Pi background calls (0.55.0 or
+later), not a Codex or Claude Code login.
+See [Local Inference](local-inference.md#background-memory-and-wiki) for the
+background routing rules.
 
 ```bash
 git clone https://github.com/simplexai-labs/linger.git
@@ -22,9 +26,9 @@ printf '%s\n' 'choose-a-password' | docker compose exec -T teamhub \
 
 Open <http://localhost:3000> and sign in. The app then shows the commands that
 connect your computer, and it opens once Claude Code, Codex or Pi is installed
-and signed in there. With Pi and no model yet, open Settings › Local models
-from that screen and load one; Settings stays reachable while the rest of the
-app waits.
+and ready there. With Pi and no model yet, open Settings › Models from
+that screen and load one; Settings stays reachable while the rest of the app
+waits.
 
 To serve other computers on your network, set these in `.env`, run
 `docker compose stop node-services`, then run

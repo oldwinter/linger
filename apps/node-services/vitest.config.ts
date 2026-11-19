@@ -8,6 +8,7 @@ export default defineConfig({
     // Real conversion workers run alongside the existing process tests.
     maxWorkers: 2,
     testTimeout: 5_000,
+    setupFiles: ["tests/wait-for-interval.ts"],
     environment: "node",
     // Memory's days follow the process time zone; pin one so dates in tests
     // hold on every machine. A test that needs another zone stubs TZ.

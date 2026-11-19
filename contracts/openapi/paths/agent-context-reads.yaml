@@ -33,7 +33,9 @@ teamMd:
             $ref: "../components/agent-context-reads.yaml#/schemas/AgentRoomMembersRequest"
     responses:
       "200":
-        description: Current collaboration state in one authorized database snapshot.
+        description: >-
+          Current collaboration protocol in one authorized database snapshot,
+          or published false when the Room has none yet.
         content:
           application/json:
             schema:

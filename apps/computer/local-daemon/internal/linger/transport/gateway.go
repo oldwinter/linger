@@ -113,9 +113,13 @@ func (s *gatewayStream) Receive(ctx context.Context) (protocol.Command, error) {
 	_, encoded, err := s.socket.ReadMessage()
 	if err != nil {
 		var closeError *websocket.CloseError
-		if errors.As(err, &closeError) && closeError.Code == websocket.ClosePolicyViolation &&
-			strings.HasPrefix(closeError.Text, "upgrade_required:") {
-			return protocol.Command{}, &UpgradeRequiredError{Reason: closeError.Text}
+		if errors.As(err, &closeError) && closeError.Code == websocket.ClosePolicyViolation {
+			if strings.HasPrefix(closeError.Text, "upgrade_required:") {
+				return protocol.Command{}, &UpgradeRequiredError{Reason: closeError.Text}
+			}
+			if strings.HasPrefix(closeError.Text, "daemon_identity_in_use:") {
+				return protocol.Command{}, &DaemonIdentityInUseError{Reason: closeError.Text}
+			}
 		}
 		return protocol.Command{}, err
 	}
@@ -143,6 +147,7 @@ var agentShapes = map[string]func() wire.Shape{
 	"CapabilityBrowserConnect":     func() wire.Shape { return &wire.CapabilityBrowserConnect{} },
 	"CapabilityComputerPermission": func() wire.Shape { return &wire.CapabilityComputerPermission{} },
 	"CapabilityLocalModelsExecute": func() wire.Shape { return &wire.CapabilityLocalModelsExecute{} },
+	"CapabilityModelSource":        func() wire.Shape { return &wire.CapabilityModelSource{} },
 	"OperationPrepare":             func() wire.Shape { return &wire.OperationPrepare{} },
 	"ProviderPrepare":              func() wire.Shape { return &wire.ProviderPrepare{} },
 	"SessionCompact":               func() wire.Shape { return &wire.SessionCompact{} },
@@ -150,6 +155,7 @@ var agentShapes = map[string]func() wire.Shape{
 	"OperationStart":               func() wire.Shape { return &wire.OperationStart{} },
 	"OperationInput":               func() wire.Shape { return &wire.OperationInput{} },
 	"OperationCancel":              func() wire.Shape { return &wire.OperationCancel{} },
+	"ModelInvokeCancel":            func() wire.Shape { return &wire.ModelInvokeCancel{} },
 	"OperationAck":                 func() wire.Shape { return &wire.OperationAck{} },
 	"ComputerToolCall":             func() wire.Shape { return &wire.ComputerToolCall{} },
 }
@@ -266,10 +272,12 @@ func decodeGatewayCommand(encoded []byte) (protocol.Command, error) {
 			return protocol.Command{}, fmt.Errorf("encode Agent Runner lifecycle payload: %w", err)
 		}
 	case protocol.CommandProviderPrepare,
-		protocol.CommandSessionCompact, protocol.CommandModelInvoke, protocol.CommandComputerToolCall,
+		protocol.CommandSessionCompact, protocol.CommandModelInvoke, protocol.CommandModelInvokeCancel,
+		protocol.CommandComputerToolCall,
 		protocol.CommandDebugInspect, protocol.CommandAgentCLICredentialPut,
 		protocol.CommandCapabilitySkillsScan, protocol.CommandCapabilityBrowserConnect,
-		protocol.CommandCapabilityComputerPermission, protocol.CommandCapabilityLocalModels:
+		protocol.CommandCapabilityComputerPermission, protocol.CommandCapabilityLocalModels,
+		protocol.CommandCapabilityModelSource:
 		// Their handlers decode the generated shape from the frame itself.
 		command.Payload = append(json.RawMessage(nil), encoded...)
 	}
@@ -296,19 +304,6 @@ const (
 	credentialVerificationUnavailableReason = "Runner credential verification unavailable" //nolint:gosec // close reason text, not a credential
 )
 
-// daemonIdentityConflictReason is the close text the Agent Runner Gateway sends
-// when TeamHub has bound this Computer's Daemon Identity to another Computer.
-const daemonIdentityConflictReason = "Runner daemon identity conflict"
-
-// IsDaemonIdentityConflict reports whether the Gateway refused this Computer
-// because TeamHub holds its Daemon Identity on another Local Computer.
-func IsDaemonIdentityConflict(err error) bool {
-	var closeError *websocket.CloseError
-	return errors.As(err, &closeError) &&
-		closeError.Code == websocket.CloseInternalServerErr &&
-		closeError.Text == daemonIdentityConflictReason
-}
-
 // IsGatewayRestart reports whether the Gateway closed the session because the
 // Agent Service is going away (1001) or restarting (1012).
 func IsGatewayRestart(err error) bool {
@@ -319,10 +314,17 @@ func IsGatewayRestart(err error) bool {
 	return closeError.Code == websocket.CloseGoingAway || closeError.Code == websocket.CloseServiceRestart
 }
 
+// ClassifyConnectionFailure separates release incompatibilities from transient or
+// account-level connection errors so self-update never blames a bad release for an
+// external state conflict.
 func ClassifyConnectionFailure(err error) ConnectionFailure {
 	var upgradeRequired *UpgradeRequiredError
 	if errors.As(err, &upgradeRequired) {
 		return FailureIncompatible
+	}
+	var daemonIdentityInUse *DaemonIdentityInUseError
+	if errors.As(err, &daemonIdentityInUse) {
+		return FailureUnavailable
 	}
 	var closeError *websocket.CloseError
 	if errors.As(err, &closeError) {
@@ -374,6 +376,16 @@ type UpgradeRequiredError struct {
 
 func (e *UpgradeRequiredError) Error() string {
 	return "Runner Gateway requires a Local Computer upgrade"
+}
+
+// DaemonIdentityInUseError reports that the Runner Gateway closed the session
+// because another live Computer already holds this Daemon Identity.
+type DaemonIdentityInUseError struct {
+	Reason string
+}
+
+func (e *DaemonIdentityInUseError) Error() string {
+	return "Runner Gateway rejected a Daemon Identity already bound to another Local Computer"
 }
 
 func (s *gatewayStream) Send(ctx context.Context, event protocol.Event) error {
@@ -439,6 +451,7 @@ func (s *gatewayStream) Send(ctx context.Context, event protocol.Event) error {
 		event.Type == protocol.EventCapabilityBrowserConnected || event.Type == protocol.EventCapabilityBrowserFailed ||
 		event.Type == protocol.EventCapabilityComputerPermissionSucceeded || event.Type == protocol.EventCapabilityComputerPermissionFailed ||
 		event.Type == protocol.EventCapabilityLocalModelsAccepted || event.Type == protocol.EventCapabilityLocalModelsRefused ||
+		event.Type == protocol.EventCapabilityModelSourceSucceeded || event.Type == protocol.EventCapabilityModelSourceFailed ||
 		event.Type == protocol.EventLocalModels ||
 		event.Type == protocol.EventProviderPrepared || event.Type == protocol.EventSessionCompacted ||
 		event.Type == protocol.EventModelInvoked || event.Type == protocol.EventComputerToolResult ||

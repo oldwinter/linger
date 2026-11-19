@@ -89,7 +89,10 @@ const snapshot = (toolVersion: string): LocalModelsSnapshot => ({
   ],
 });
 
-const connect = async (registry?: TestLocalComputerRegistry) => {
+const connect = async (
+  registry?: TestLocalComputerRegistry,
+  daemonVersion = "dev",
+) => {
   const computerRegistry = registry ?? createTestLocalComputerRegistry();
   computerRegistry.enroll({ ...target });
   const gateway = createTestRunnerGateway({
@@ -110,7 +113,7 @@ const connect = async (registry?: TestLocalComputerRegistry) => {
       type: "runner.hello",
       platform: "linux",
       protocol_version: "2",
-      daemon_version: "dev",
+      daemon_version: daemonVersion,
       ...currentRunnerIdentity(),
       capabilities: [...CURRENT_RUNNER_CAPABILITIES],
       runner_id: target.computerId,
@@ -147,7 +150,15 @@ const connect = async (registry?: TestLocalComputerRegistry) => {
     sent.splice(sent.indexOf(value), 1);
     return value;
   };
-  return { gateway, connection, computerRegistry, report, command, close };
+  return {
+    gateway,
+    connection,
+    computerRegistry,
+    report,
+    command,
+    close,
+    sent,
+  };
 };
 
 const isLocalModelsCommand = (
@@ -174,6 +185,27 @@ const versions = (registry: TestLocalComputerRegistry) =>
     .map((recorded) => recorded.tool_version);
 
 describe("Runner Gateway local models", () => {
+  // A Computer sends runner.local_models only when the welcome names the
+  // family; a release before 0.52.0 rejects the unknown welcome key, so it
+  // is welcomed without it and keeps receiving its target_release.
+  it.each([
+    ["dev", ["local_models"]],
+    ["0.52.0", ["local_models"]],
+    ["0.51.0", undefined],
+  ])(
+    "welcomes a %s Computer with service_features %j",
+    async (daemonVersion, expected) => {
+      const { sent } = await connect(undefined, daemonVersion);
+      const welcome = sent.find((frame) => frame.type === "runner.welcome");
+      expect(welcome).toBeDefined();
+      expect(
+        welcome && "service_features" in welcome
+          ? welcome.service_features
+          : undefined,
+      ).toEqual(expected);
+    },
+  );
+
   it("records each snapshot in TeamHub and drops a stale revision", async () => {
     const { computerRegistry, report } = await connect();
     await report(1);

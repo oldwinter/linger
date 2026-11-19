@@ -160,6 +160,7 @@ function UnifiedDocumentEditorLayout({
     editorRef,
     isEditing,
     onCanvasSentChange,
+    onCanvasTargetChange,
     queryClient,
     roomId,
     resyncSession,
@@ -167,31 +168,34 @@ function UnifiedDocumentEditorLayout({
     setHeadings,
     tenantId,
   } = model;
+  const mailCanvas = model.canvasTarget === "gmail";
   return (
     <div
       className={`room-document-layout mx-auto min-h-full${knowledgeTitle !== undefined ? " room-document-layout--knowledge" : ""}`}
     >
       <div
-        className={`room-document-content-lane mx-auto ${knowledgeTitle !== undefined ? "mb-6 border-b border-app-border pb-5" : "mb-3"}`}
+        className={`room-document-content-lane mx-auto ${mailCanvas ? "" : knowledgeTitle !== undefined ? "mb-6 border-b border-app-border pb-5" : "mb-3"}`}
       >
         <RoomDocumentConnectionStatus
           onRetry={resyncSession}
           session={session}
         />
-        <UnifiedDocumentDraftTitle
-          // eslint-disable-next-line jsx-a11y/no-autofocus -- the field is focused on purpose because the user just opened this dialog or inline editor
-          autoFocus={autoFocusTitle}
-          client={client}
-          document={document}
-          editorRef={editorRef}
-          isEditing={isEditing}
-          onAutoFocusConsumed={consumeAutoFocusTitle}
-          queryClient={queryClient}
-          session={session}
-          tenantId={tenantId}
-        />
+        {!mailCanvas ? (
+          <UnifiedDocumentDraftTitle
+            // eslint-disable-next-line jsx-a11y/no-autofocus -- the field is focused on purpose because the user just opened this dialog or inline editor
+            autoFocus={autoFocusTitle}
+            client={client}
+            document={document}
+            editorRef={editorRef}
+            isEditing={isEditing}
+            onAutoFocusConsumed={consumeAutoFocusTitle}
+            queryClient={queryClient}
+            session={session}
+            tenantId={tenantId}
+          />
+        ) : null}
       </div>
-      {knowledgeTitle === undefined ? (
+      {knowledgeTitle === undefined && !mailCanvas ? (
         <div className="room-document-content-lane mx-auto mb-8 flex min-h-8 flex-wrap items-center gap-2 text-sm text-app-muted">
           <span>By {document.owner.display_name}</span>
           <span aria-hidden="true">·</span>
@@ -202,7 +206,9 @@ function UnifiedDocumentEditorLayout({
           />
         </div>
       ) : null}
-      <div className="room-document-content-lane mx-auto mb-4">
+      <div
+        className={`room-document-content-lane mx-auto${mailCanvas ? "" : " mb-4"}`}
+      >
         <RoomDocumentRecoveryButton name={document.title} session={session} />
       </div>
       <ActiveRoomDocumentEditor
@@ -216,6 +222,7 @@ function UnifiedDocumentEditorLayout({
         isEditing={isEditing}
         knowledgeDocumentTitle={knowledgeTitle}
         onCanvasSentChange={onCanvasSentChange}
+        onCanvasTargetChange={onCanvasTargetChange}
         onCommentsOpenChange={setCommentsOpen}
         onHeadingsChange={setHeadings}
         onReadOnlySessionResync={resyncSession}
@@ -402,6 +409,7 @@ function ActiveRoomDocumentEditor({
   knowledgeDocumentTitle,
   editorRef,
   onCanvasSentChange,
+  onCanvasTargetChange,
   onHeadingsChange,
   onCommentsOpenChange,
   onReadOnlySessionResync,
@@ -419,6 +427,7 @@ function ActiveRoomDocumentEditor({
   knowledgeDocumentTitle?: string;
   editorRef: MutableRefObject<RoomDocumentEditor | null>;
   onCanvasSentChange: (sent: boolean) => void;
+  onCanvasTargetChange: (target?: string) => void;
   onHeadingsChange: (headings: RoomDocumentHeading[]) => void;
   onCommentsOpenChange: (open: boolean) => void;
   onReadOnlySessionResync: () => void;
@@ -443,6 +452,7 @@ function ActiveRoomDocumentEditor({
       knowledgeDocumentTitle={knowledgeDocumentTitle}
       surfaceEditorRef={editorRef}
       onCanvasSentChange={onCanvasSentChange}
+      onCanvasTargetChange={onCanvasTargetChange}
       onHeadingsChange={onHeadingsChange}
       onCommentsOpenChange={onCommentsOpenChange}
       onReadOnlySessionResync={onReadOnlySessionResync}
@@ -478,7 +488,7 @@ function RoomDocumentConnectionStatus({
   );
 }
 
-function RoomDocumentSaveIndicator({
+export function RoomDocumentSaveIndicator({
   alwaysVisible = false,
   isEditing,
   session,

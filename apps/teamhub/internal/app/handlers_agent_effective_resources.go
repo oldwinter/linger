@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentregistry"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/externalsource"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/skill"
 )
 
@@ -20,6 +21,7 @@ func (a *App) getAgentEffectiveResources(c *gin.Context) {
 		a.writeError(c, http.StatusForbidden, "FORBIDDEN", "Agent resource identity is invalid")
 	case a.notFoundOrError(c, "resolve active Agent resource identity", err):
 	default:
+		result.ConnectableAppKeys = externalsource.CatalogAppKeys()
 		c.JSON(http.StatusOK, result)
 	}
 }

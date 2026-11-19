@@ -167,16 +167,16 @@ function openSummary() {
 }
 
 describe("DecisionCard", () => {
-  it("heads the box with the title and shows the email as one summary row that opens to the message", () => {
+  it("shows the subject and recipient once and expands into a complete email", () => {
     renderCard(
       connectorCard(
         messageDetail({
           attachments: ["plan.pdf", "budget.xlsx"],
-          bcc: ["audit@example.com"],
+          bcc: ["<audit@example.com>"],
           body: "Hello Bob,\n\nThe launch moves to Friday.",
-          cc: ["carol@example.com", "dan@example.com"],
+          cc: ["<carol@example.com>", "dan@example.com"],
           subject: "Launch date",
-          to: ["bob@example.com"],
+          to: ["<bob@example.com>"],
         }),
       ),
     );
@@ -186,32 +186,48 @@ describe("DecisionCard", () => {
     expect(
       within(box).getByRole("heading", {
         level: 3,
-        name: "Send an email to bob@example.com",
+        name: "Launch date",
       }),
     ).toBeVisible();
-    expect(
-      screen.getAllByText("Send an email to bob@example.com"),
-    ).toHaveLength(1);
+    expect(screen.getAllByText("Launch date")).toHaveLength(1);
+    expect(screen.getAllByText(/bob@example.com/)).toHaveLength(1);
+    expect(screen.getByText("To bob@example.com")).toBeVisible();
+    expect(screen.queryByText(/alice@example.com/)).not.toBeInTheDocument();
     expect(document.querySelector(".card-prompt")).toBeNull();
     const row = within(box).getByRole("button", { expanded: false });
-    expect(row).toHaveTextContent("bob@example.com · Launch date");
-    expect(row).toHaveTextContent("Gmail · alice@example.com");
+    expect(row).toHaveAccessibleName("Launch date");
+    expect(within(row).getByText("Launch date")).toBeVisible();
+    expect(
+      within(row).queryByText("To bob@example.com"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Add a reason" }),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("region", { name: "Message preview" }),
     ).not.toBeInTheDocument();
 
     fireEvent.click(row);
     expect(row).toHaveAttribute("aria-expanded", "true");
+    expect(row).toHaveAccessibleName("Launch date");
     const preview = messagePreview();
     for (const [label, value] of [
+      ["From", "alice@example.com"],
       ["To", "bob@example.com"],
       ["Cc", "carol@example.com, dan@example.com"],
       ["Bcc", "audit@example.com"],
-      ["Subject", "Launch date"],
     ] as const) {
       expect(within(preview).getByText(label)).toBeInTheDocument();
       expect(within(preview).getByText(value)).toBeInTheDocument();
     }
+    expect(screen.getAllByText("Launch date")).toHaveLength(1);
+    expect(
+      screen.getByText("To bob@example.com").closest('[aria-hidden="true"]'),
+    ).not.toBeNull();
+    expect(within(preview).getByTestId("message-body")).not.toHaveClass(
+      "max-h-80",
+      "overflow-auto",
+    );
     expect(within(preview).queryByText("Where")).not.toBeInTheDocument();
     expect(
       within(preview).getByText("Hello Bob,\n\nThe launch moves to Friday.", {
@@ -233,6 +249,66 @@ describe("DecisionCard", () => {
     expect(
       screen.queryByRole("region", { name: "Message preview" }),
     ).not.toBeInTheDocument();
+    expect(screen.getByText("To bob@example.com")).toBeVisible();
+  });
+
+  it("declines email without a reason and blocks repeated decisions while submitting", async () => {
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const { onDecision } = renderCard(
+      connectorCard(),
+      sponsor.id,
+      vi.fn(() => pending),
+    );
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Add a reason" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Don't send" }));
+    expect(onDecision).toHaveBeenCalledExactlyOnceWith({
+      decision: "deny",
+      expectedVersion: 1,
+      feedback: undefined,
+      messageId: "message_1",
+      requestId: "decision_1",
+    });
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Don't send" })).toBeDisabled();
+    finish();
+    await vi.waitFor(() =>
+      expect(screen.getByRole("button", { name: "Send" })).toBeEnabled(),
+    );
+  });
+
+  it("uses the email layout for Outlook and keeps an empty Cc row visible", async () => {
+    renderCard(
+      connectorCard({
+        ...messageDetail({
+          to: ["bob@example.com", "Carol <carol@example.com>"],
+        }),
+        account: "<alice@example.com>",
+        app: "outlook",
+      }),
+    );
+    expect(screen.getByRole("heading", { name: /^No subject/ })).toBeVisible();
+    expect(
+      screen.getByText("To bob@example.com, Carol <carol@example.com>"),
+    ).toBeVisible();
+    openSummary();
+    await vi.waitFor(() => expect(messagePreview()).toBeVisible());
+    expect(
+      within(messagePreview()).getByText("alice@example.com"),
+    ).toBeVisible();
+    expect(
+      within(messagePreview()).getByText(
+        "bob@example.com, Carol <carol@example.com>",
+      ),
+    ).toBeVisible();
+    expect(screen.getByText("Cc")).toBeVisible();
+    expect(screen.getByText("None")).toBeVisible();
+    expect(screen.queryByText("Bcc")).not.toBeInTheDocument();
   });
 
   it("names the app by its readable name and falls back to its key", () => {
@@ -273,6 +349,7 @@ describe("DecisionCard", () => {
     expect(source).toContain("<p>Hi <b>Bob</b></p>");
     expect(source).toContain("p{color:red}");
     expect(source).toContain("Content-Security-Policy");
+    expect(source).toContain("padding:16px 0");
     expect(source).not.toMatch(/<script|onerror|javascript:/i);
     expect(source).toContain(
       '<a href="https://example.com/doc" target="_blank" rel="noopener noreferrer">doc</a>',
@@ -678,7 +755,10 @@ describe("DecisionCard", () => {
       expect(line.closest("p")?.querySelector("svg")).toHaveClass(tone);
       // The heading and the collapsed summary row stay.
       expect(
-        screen.getByRole("heading", { level: 3, name: card.title }),
+        screen.getByRole("heading", {
+          level: 3,
+          name: card.connector_write?.message ? "No subject" : card.title,
+        }),
       ).toBeVisible();
       expect(document.querySelector(".card-prompt")).toBeNull();
       expect(screen.getByRole("button", { expanded: false })).toBeVisible();

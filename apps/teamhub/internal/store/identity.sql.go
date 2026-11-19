@@ -11,6 +11,15 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const acquireAdvisorySessionLock = `-- name: AcquireAdvisorySessionLock :exec
+SELECT pg_advisory_lock(hashtextextended($1, 0))
+`
+
+func (q *Queries) AcquireAdvisorySessionLock(ctx context.Context, lockKey string) error {
+	_, err := q.db.Exec(ctx, acquireAdvisorySessionLock, lockKey)
+	return err
+}
+
 const acquireAdvisoryTransactionLock = `-- name: AcquireAdvisoryTransactionLock :exec
 SELECT pg_advisory_xact_lock(hashtextextended($1, 0))
 `
@@ -377,6 +386,17 @@ func (q *Queries) LockAccountPasswordHash(ctx context.Context, id string) (strin
 	var password_hash string
 	err := row.Scan(&password_hash)
 	return password_hash, err
+}
+
+const releaseAdvisorySessionLock = `-- name: ReleaseAdvisorySessionLock :one
+SELECT pg_advisory_unlock(hashtextextended($1, 0))
+`
+
+func (q *Queries) ReleaseAdvisorySessionLock(ctx context.Context, lockKey string) (bool, error) {
+	row := q.db.QueryRow(ctx, releaseAdvisorySessionLock, lockKey)
+	var pg_advisory_unlock bool
+	err := row.Scan(&pg_advisory_unlock)
+	return pg_advisory_unlock, err
 }
 
 const renewSession = `-- name: RenewSession :one

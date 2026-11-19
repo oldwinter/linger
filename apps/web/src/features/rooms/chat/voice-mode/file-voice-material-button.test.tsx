@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { useEffect } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import { isVoiceDocumentSelection } from "../../room-drafts";
 import { FileVoiceMaterialButton } from "./file-voice-material-button";
@@ -41,7 +42,7 @@ function renderButton(entered: boolean) {
 describe("FileVoiceMaterialButton", () => {
   // Voice materials persist in the Room draft; start every case empty.
   beforeEach(() => {
-    Object.defineProperty(window, "localStorage", {
+    defineGlobalProperty(window, "localStorage", {
       configurable: true,
       value: createTestStorage(),
     });

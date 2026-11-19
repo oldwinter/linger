@@ -730,6 +730,9 @@ importers:
 
   packages/local-installation:
     dependencies:
+      '@linger/service-kit':
+        specifier: workspace:*
+        version: link:../service-kit
       tar:
         specifier: 7.5.22
         version: 7.5.22

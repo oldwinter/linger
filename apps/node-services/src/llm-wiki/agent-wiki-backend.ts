@@ -99,7 +99,7 @@ import {
 
 /** One step's model call. A normal step answers in one or two minutes; a
  * step past this is retried within the Wiki kind's attempts, then its batch
- * is skipped. The refresh deadline still bounds the whole generation. */
+ * is skipped. The refresh budget still bounds the whole generation. */
 const STEP_TIMEOUT_MS = 15 * 60_000;
 /** Characters one step may stream: three times its output budget at four
  * characters a token, so only a reply that runs away is stopped. */
@@ -126,6 +126,8 @@ const MAX_BATCH_PAGES = 5;
 const MAX_CANDIDATES = 40;
 /** Existing entities the consolidation step sees. */
 const MAX_CONSOLIDATION_PAGES = 300;
+/** Calls one type's consolidation may take when a call fails. */
+const CONSOLIDATION_ATTEMPTS = 2;
 
 type EntityTypeId = Exclude<PersonalWikiNodeTypeId, "session">;
 
@@ -241,8 +243,7 @@ export class AgentWikiBackend implements LlmWikiBackend {
       logGenerationStep("prepare_workspace", startedAt, {
         context_window: contextWindow,
       });
-      // Each routing pack, meeting, page batch and correction is its own
-      // queued chain, so other model work runs between them.
+      // A chain keeps one batch's steps in order while each model attempt queues.
       const key = `wiki:${request.generationId ?? `manual_${runId.replaceAll("-", "")}`}`;
       const result = await generation.run((step, body) =>
         modelCall.chain(
@@ -302,7 +303,7 @@ class Generation {
   /** Sources a task over them failed to write, by id; TeamHub keeps them
    * pending and counts the try. */
   readonly #unsettled = new Set<string>();
-  /** Sources left unwritten only because the deadline passed; TeamHub keeps
+  /** Sources left unwritten only because the budget was spent; TeamHub keeps
    * them pending without counting a try. */
   readonly #deferred = new Set<string>();
   readonly #abort = new AbortController();
@@ -393,17 +394,15 @@ class Generation {
     };
   }
 
-  /** Past the refresh deadline no further task or step starts. */
+  /** Once the refresh budget is spent no further task or step starts. */
   #expired(): boolean {
-    return (
-      this.request.deadline !== undefined && Date.now() >= this.request.deadline
-    );
+    return this.request.budget?.spent ?? false;
   }
 
   /**
    * Leaves these sources out of the publication's settled sources: TeamHub
    * keeps them pending, so a later refresh writes what this one skipped. A
-   * skip only because the deadline passed is no failure of the source and
+   * skip only because the budget was spent is no failure of the source and
    * spends none of its tries.
    */
   #unsettle(
@@ -411,8 +410,7 @@ class Generation {
     sources: readonly EvidenceSource[],
     fields: Readonly<Record<string, unknown>>,
   ): void {
-    const left =
-      fields.reason === "deadline" ? this.#deferred : this.#unsettled;
+    const left = fields.reason === "budget" ? this.#deferred : this.#unsettled;
     for (const source of sources) left.add(source.id);
     writeWikiLog(
       event,
@@ -471,7 +469,7 @@ class Generation {
     splits: number,
   ): Promise<void> {
     if (this.#expired()) {
-      this.#unsettle("wiki_route_skipped", pack, { step, reason: "deadline" });
+      this.#unsettle("wiki_route_skipped", pack, { step, reason: "budget" });
       return;
     }
     const registry = this.#registryFor(pack);
@@ -483,7 +481,7 @@ class Generation {
         step,
         task: routeTask(),
         maxInputTokens: this.loopTokens,
-        deadline: this.request.deadline,
+        budget: this.request.budget,
         input: `${registry}\n# Evidence\n\n${pack.map((source) => renderSource(source)).join("\n\n")}`,
         environment: this.#todoEnvironment(refs),
         signal: this.signal,
@@ -492,7 +490,7 @@ class Generation {
       if (!result.finished && this.#expired())
         this.#unsettle("wiki_route_skipped", pack, {
           step,
-          reason: "deadline",
+          reason: "budget",
         });
     } catch (error) {
       if (tooLarge(error) && splits < MAX_SPLITS && pack.length > 1) {
@@ -693,7 +691,7 @@ ${transcript}`,
         pages: pages.map((page) => page.path),
       });
     if (this.#expired()) {
-      skip("deadline");
+      skip("budget");
       return;
     }
     const task = batchTask(batch.pages);
@@ -710,7 +708,7 @@ ${transcript}`,
           step: `${step}:${issues ? "fix" : "write"}:${splits}`,
           task,
           maxInputTokens: this.loopTokens,
-          deadline: this.request.deadline,
+          budget: this.request.budget,
           input: this.#batchInput(batch, evidenceTokens, issues),
           environment: this.#batchEnvironment(batch, done),
           signal: this.signal,
@@ -718,8 +716,7 @@ ${transcript}`,
         this.#logTask(task.name, result, startedAt);
         // Pages the task neither wrote nor skipped wait for a later refresh.
         const left = batch.pages.filter((page) => !done.has(page.path));
-        if (left.length)
-          skip(this.#expired() ? "deadline" : "unfinished", left);
+        if (left.length) skip(this.#expired() ? "budget" : "unfinished", left);
         return;
       } catch (error) {
         // A step that stalled or ran away past its attempts would do so
@@ -924,7 +921,7 @@ ${renderExcerpts(
         reason,
       });
     if (this.#expired()) {
-      skip("deadline");
+      skip("budget");
       return;
     }
     const previous = this.#previous(task.path);
@@ -952,14 +949,14 @@ ${renderExcerpts(
             step,
             task: agentTask,
             maxInputTokens: this.loopTokens,
-            deadline: this.request.deadline,
+            budget: this.request.budget,
             input: `${task.input(meetingPart(meeting, part, index, parts.length), issues)}\n\n# Current page\n\n${current ?? "This page does not exist yet."}`,
             environment: this.#meetingEnvironment(task, previous),
             signal: this.signal,
           });
           this.#logTask(agentTask.name, result, startedAt);
           if (!result.finished && this.#expired()) {
-            skip("deadline");
+            skip("budget");
             return;
           }
         }
@@ -1217,18 +1214,51 @@ ${renderExcerpts(
     return [...issues, ...inspection.issues];
   }
 
-  /** Records routed entities; a new name that matches a page joins that page. */
   /**
    * Parallel routing tasks name new entities without seeing each other, so
-   * one entity can arrive under two names. Before any page is written, one
-   * call reads every new entity routed this run beside the existing pages and
-   * merges each group that names one entity, the way OpenWiki settles its
-   * whole page plan before writing. It reports how many entities it merged
-   * away; a failed call leaves the routing as it is.
+   * one entity can arrive under two names. Before any page is written, this
+   * merges each group that names one entity. It settles each type's new
+   * entities in its own call: types never merge, and a short list keeps each
+   * reply small. Types run in parallel; a type whose call fails is tried once
+   * more from the entities still unmerged.
    */
   async #consolidate(): Promise<number> {
-    const fresh = [...this.#todos.entries()].filter(([, todo]) => !todo.page);
-    if (fresh.length < 2 || this.#expired()) return 0;
+    if (this.#expired()) return 0;
+    const types = PERSONAL_WIKI_ENTITY_TYPES.map(
+      (definition) => definition.id as EntityTypeId,
+    ).filter((type) => {
+      const fresh = this.#freshEntities(type).length;
+      return (
+        fresh > 1 ||
+        (fresh === 1 && this.entities.some((entry) => entry.type === type))
+      );
+    });
+    const merged = await Promise.all(
+      types.map(async (type) => {
+        let total = 0;
+        for (let attempt = 1; attempt <= CONSOLIDATION_ATTEMPTS; attempt += 1) {
+          const result = await this.#consolidateType(type, attempt);
+          total += result.merged;
+          if (!result.failed || this.#expired()) break;
+        }
+        return total;
+      }),
+    );
+    return merged.reduce((sum, count) => sum + count, 0);
+  }
+
+  /** New entities of one type that no page holds yet, in routing order. */
+  #freshEntities(type: EntityTypeId): Array<[string, EntityTodo]> {
+    return [...this.#todos.entries()].filter(
+      ([, todo]) => !todo.page && todo.type === type,
+    );
+  }
+
+  async #consolidateType(
+    type: EntityTypeId,
+    attempt: number,
+  ): Promise<{ merged: number; failed: boolean }> {
+    const fresh = this.#freshEntities(type);
     const listing = fresh
       .map(
         ([, todo], index) =>
@@ -1236,18 +1266,22 @@ ${renderExcerpts(
       )
       .join("\n");
     const registry = renderEntityRegistry(
-      this.entities.slice(0, MAX_CONSOLIDATION_PAGES),
+      this.entities
+        .filter((entry) => entry.type === type)
+        .slice(0, MAX_CONSOLIDATION_PAGES),
     );
     const merged = new Set<number>();
+    const step = `consolidate:${type}:${attempt}`;
     const startedAt = Date.now();
+    let failed = false;
     try {
-      const result = await this.#chain!("consolidate", (model) =>
+      const result = await this.#chain!(step, (model) =>
         runAgentTask({
           model,
-          step: "consolidate",
+          step,
           task: consolidateTask(),
           maxInputTokens: this.loopTokens,
-          deadline: this.request.deadline,
+          budget: this.request.budget,
           input: `${registry}\n# New entities routed this run\n\n${listing}`,
           environment: {
             runTool: async (name, args) =>
@@ -1262,16 +1296,25 @@ ${renderExcerpts(
           signal: this.signal,
         }),
       );
-      this.#logTask("wiki.consolidate", result, startedAt);
+      this.#logTask(`wiki.consolidate.${type}`, result, startedAt);
     } catch (error) {
       if (this.signal.aborted) throw error;
+      failed = true;
       writeWikiLog(
         "wiki_consolidate_skipped",
-        { run_id: this.runId, error: String(error) },
+        { run_id: this.runId, type, attempt, error: String(error) },
         "ERROR",
       );
     }
-    return merged.size;
+    writeWikiLog("wiki_consolidate_type", {
+      run_id: this.runId,
+      type,
+      attempt,
+      listed_count: fresh.length,
+      merged_count: merged.size,
+      failed,
+    });
+    return { merged: merged.size, failed };
   }
 
   /** Merges listed new entities into one of them or into an existing page. */
@@ -1349,6 +1392,7 @@ ${renderExcerpts(
     };
   }
 
+  /** Records routed entities; a new name that matches a page joins that page. */
   #addTodo(
     args: Readonly<Record<string, unknown>>,
     allowed: ReadonlySet<string>,
@@ -1469,8 +1513,8 @@ ${renderExcerpts(
     };
   }
 
-  /** Submits one chain per item at once, named by step; the queue decides
-   * how many run together. The first failure stops the rest. */
+  /** Submits one chain per item, named by step. The endpoint schedules their
+   * model calls. The first failure stops the rest. */
   async #each<T>(
     items: readonly T[],
     step: (item: T, index: number) => string,
@@ -1662,7 +1706,7 @@ function batchTask(pages: readonly PagePlan[]): AgentTask {
     instructions: `Write the durable Wiki pages this task names, each from the evidence routed to it.
 
 - Pages lists each page with its type, path, canonical name and object. Propose each listed page once, with \`target\` set to its path and that object; never another page. Propose several pages in one step.
-- An existing page is shown under Current page, without the parts the application writes (its source list and Change Log). Update it under the shared entity rules below: keep what the new evidence does not change, and change only what it supports.
+- An existing page is shown under Current page, without the parts the application writes (its source list and Change Log). Preserve supported facts. Keep a section with \`{"keep": true}\` when this run's evidence adds or changes nothing it describes; a section you write follows the current section rules, reorganizing its existing facts as needed.
 - Write in the main language of the evidence messages; the routing notes are only pointers.
 - On a new page write every summary section as \`{"text": ..., "reason": ...}\`; \`{"keep": true}\` only keeps text an existing page already has.
 - The evidence shows the routed messages or passages with their citations. Use \`read_source\` when a passage needs more context, and \`read_page\` to check an existing related page before linking it. Pages marked new in this run are being written now: link them by path without reading them.

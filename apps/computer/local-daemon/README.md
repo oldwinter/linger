@@ -93,7 +93,9 @@ Codex's workspace mode turns off the shell and unified exec and keeps only the
 code-mode host's `apply_patch`, with the working directory as the only writable
 root. It therefore reads no files, and the Daemon appends the workspace files'
 contents to the end of the prompt, because the `workspace-write` sandbox limits
-writes but not reads.
+writes but not reads. Codex feature disables use `-c`/`--config
+features.<name>=false` rather than `--disable <name>` so older Codex versions
+ignore features they do not define instead of aborting on startup.
 
 `go test -tags live_model_invoke ./internal/provider -run TestLiveCodex` runs one
 structured call and one workspace call with the locally signed-in Codex (checking
@@ -151,11 +153,39 @@ model.
   Daemon rereads the status, which carries what the phase reserved or freed
   (pool use, placement, models unloaded first), and applies the job's line on
   top; later lines of the phase update that snapshot without another read.
-- Pi. When the loaded models change, the Daemon asks the Runtime monitor for a
-  full discovery, so TeamHub sees Pi's new model list. Each model's
-  `pi_model` (`<provider>/<id>`, as an Agent's `runtime_model` stores it) is
-  passed through as `localmodels` reports it; the endpoint keeps only the
-  loaded engine's `base_url`.
+- Error causes. `library status` keeps only a failed row's `code` and
+  `detail`; the `cause` and `path` of a `GATEWAY_REGISTRATION_FAILED` reach
+  the Daemon only on the job's error line (`GATEWAY_HOME_NOT_PRIVATE`: the
+  gateway's private folder at `path` has another owner). The Daemon keeps them
+  per model and puts them back on that row in every read while it still fails
+  with that code; the model's next accepted job, or a row that moved on,
+  drops them. They live in memory, so after a Daemon restart the row shows
+  only its code.
+- Pi. The Daemon sets `PI_CODING_AGENT_DIR` on `localmodels` tool calls
+  through `OverlayEnvironment` and `workspace.PiSourceEnvironment` so loaded
+  models land in the profile Pi probes and runs. When a model is loaded on a
+  Computer with Pi enabled and not yet installed, `internal/localmodels`
+  installs the pinned Pi runtime asynchronously in the background under
+  `HarnessRoot` (passing the bundled Node binary via `--node` when available,
+  matching the installer's 2 m status/plan and 20 m apply budgets, and backing
+  off from 30 s up to 5 m on failure while surfacing
+  `RUNTIME_DIAGNOSTIC_FAILED` after a failed attempt) before asking the Runtime
+  monitor for a full discovery, so TeamHub sees Pi become ready with the loaded
+  model. Each model's `pi_model` (`<provider>/<id>`, as an Agent's
+  `runtime_model` stores it) is passed through as `localmodels` reports it; the
+  endpoint keeps only the loaded engine's `base_url`.
+
+## Model source
+
+`internal/localmodels/source.go` runs `localmodels source status|check|models|apply`
+for `execute` commands of kind `model_source`, on their own goroutine so they
+never block Operation commands; `apply` is serialized. A BYOK key reaches the
+tool on stdin, never in argv or logs. `localmodels` writes
+`<state>/model-source.json`; the Daemon only adds the `runtime_paths` that the
+same `apply` reported. It re-reads the file on every discovery tick to overlay
+the Runtimes' environment (`OverlayEnvironment`) and executable paths
+(`OverlayRuntimePaths`), and under BYOK lists only the BYOK model in each
+Runtime's catalog.
 
 ## Codex models cache
 
@@ -243,6 +273,13 @@ writes the page snapshot to a file and returns only a link; the Daemon reads the
 file, puts the snapshot back into the result and deletes the file, so the model
 need not call `browser_snapshot` again. Only links under `.linger/browser-output/`
 are replaced.
+
+A Codex Context home receives these entries as URL servers in its projected
+`config.toml`, together with `mcp_oauth_credentials_store = "file"`. Codex
+otherwise reads the OAuth credentials of every URL server from the OS keyring,
+and on Linux a session bus whose Secret Service never answers blocks the turn
+until the Run times out. The managed servers never use OAuth, and the setting
+applies only to that runtime home, not to the user's own Codex home.
 
 The tool catalog is cached per Computer installation; an Operation's tool service
 expires as soon as it closes. After connecting to the Runner Gateway, the Daemon
@@ -635,7 +672,13 @@ signed macOS application and `cua-driver.exe` for Windows x64 and ARM64. The
 bundle includes every dependency resource and a per-file SHA-256 manifest; the
 installer refuses files outside the manifest, damaged resources and symlinks. The
 runtime never runs `npx latest` or downloads tool dependencies. Pi still uses its
-existing RPC executor, and images keep their native content types.
+existing RPC executor, and images keep their native content types. Pi loads
+every extension through jiti, which a Pi unpacked from its bare npm bundle (the
+managed runtime harness installs it so) lacks; the Daemon puts the bundle's
+`node_modules`, which carries jiti, on that Pi's `NODE_PATH`. A Pi installed
+with its dependencies resolves its own jiti first. Node reads `NODE_PATH` at
+startup, so the extension then restores the value Pi inherited, and the
+commands Pi starts never resolve a package from the bundle.
 
 The compatibility probe of the pinned Playwright catalog is
 `TestPinnedPlaywrightCatalog`; it needs `LINGER_PLAYWRIGHT_COMPAT_ENTRY` and

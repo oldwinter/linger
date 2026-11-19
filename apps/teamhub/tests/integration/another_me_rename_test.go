@@ -5,16 +5,15 @@ import (
 	"testing"
 )
 
-// The Human's Another Me follows their name, unless they renamed it by hand.
-func TestAccountRenameRenamesTheHumansAnotherMe(t *testing.T) {
+// A Human rename updates the delegate description, preserving the Agent's name.
+func TestAccountRenamePreservesTheHumansAnotherMeName(t *testing.T) {
 	allowParallelIntegrationTest(t)
 	env, alice := newAgentRegistrationEnv(t, &recordingAgentManagement{})
 	seedOwnedFixtureComputer(t, env.pool, "computer_fixture_rename", acmeTenant, "actor_acme_alice")
 	const actorID = "actor_rename_alice_me"
 	if _, err := env.pool.Exec(t.Context(), `
 		INSERT INTO actors(id,tenant_id,kind,display_name,handle)
-		SELECT $1,$2,'agent',display_name || '''s Another Me','alice-me-rename'
-		FROM actors WHERE id='actor_acme_alice'
+		VALUES($1,$2,'agent','Linger','alice-me-rename')
 	`, actorID, acmeTenant); err != nil {
 		t.Fatal(err)
 	}
@@ -56,20 +55,16 @@ func TestAccountRenameRenamesTheHumansAnotherMe(t *testing.T) {
 	_, revisionBefore := anotherMeDescription()
 
 	rename("Alice Stone")
-	if got := anotherMeName(); got != "Alice Stone's Another Me" {
+	if got := anotherMeName(); got != "Linger" {
 		t.Fatalf("Another Me after the rename = %q", got)
 	}
 	if description, revision := anotherMeDescription(); description != "Private delegate for Alice Stone" || revision != revisionBefore+1 {
 		t.Fatalf("Another Me description after the rename = %q at revision %d", description, revision)
 	}
 
-	// A name left behind by an earlier rename still follows the next one.
-	if _, err := env.pool.Exec(t.Context(), `UPDATE actors SET display_name='onboarding-test''s Another Me' WHERE id=$1`, actorID); err != nil {
-		t.Fatal(err)
-	}
 	rename("Alicia Stone")
-	if got := anotherMeName(); got != "Alicia Stone's Another Me" {
-		t.Fatalf("a stale Another Me name after the rename = %q", got)
+	if got := anotherMeName(); got != "Linger" {
+		t.Fatalf("Another Me after another Human rename = %q", got)
 	}
 
 	if _, err := env.pool.Exec(t.Context(), `UPDATE actors SET display_name='Helper' WHERE id=$1`, actorID); err != nil {

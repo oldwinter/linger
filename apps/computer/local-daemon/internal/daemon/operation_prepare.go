@@ -179,7 +179,7 @@ func (d *Daemon) handleOperationPrepare(ctx context.Context, stream transport.St
 	stopped := d.locallyStopped[command.AgentID]
 	d.activeMu.Unlock()
 	activeCount, contextBusy := d.operationOccupancy(identity)
-	if stopped || contextBusy || (d.capacity != nil && activeCount >= *d.capacity) {
+	if stopped || contextBusy || d.runtimeCleanupUnconfirmed(command.RuntimeType) || (d.capacity != nil && activeCount >= *d.capacity) {
 		d.admissionMu.Unlock()
 		return d.sendOperationPrepared(ctx, stream, command, false, 0, "fallback")
 	}

@@ -337,3 +337,165 @@ func enrollLocalComputerOverHTTP(t *testing.T, env *testEnv, owner *http.Client,
 	}
 	return authorization.ComputerID
 }
+
+func TestLocalComputerEnrollmentDaemonIdentityHTTP(t *testing.T) {
+	allowParallelIntegrationTest(t)
+	databaseURL := newIntegrationDatabase(t)
+	pool, err := pgxpool.New(context.Background(), databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	application, err := newTestApp(context.Background(), localComputerEnrollmentConfig(config.ForTest(func(c *config.Config) {
+		c.DatabaseURL = databaseURL
+		c.SessionTTL = time.Hour
+		c.CookieName = "teamhub_session"
+		c.TeamHubInternalToken = teamHubInternalToken
+		c.NodeServicesInternalToken = nodeServicesInternalToken
+		c.AgentRunTokenSecret = agentRunTokenSecret
+		c.ArtifactStorageRoot = t.TempDir()
+	})), withLocalComputers(&recordingLocalComputers{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(application.Close)
+	server := httptest.NewServer(application.Handler())
+	registerIntegrationServerCleanup(t, server)
+	env := &testEnv{t: t, databaseURL: databaseURL, pool: pool, server: server}
+	alice := env.login("alice", alicePassword)
+	bob := seedPeerHuman(t, env)
+
+	// A desktop newer than its server names its Daemon only when /v0/me lists
+	// the capability, because an older TeamHub rejects the unknown field.
+	if status, _, meBody := env.request(alice, http.MethodGet, "/v0/me", nil, ""); status != http.StatusOK ||
+		!strings.Contains(string(meBody), `"server_capabilities":["local_computer_enrollment_daemon_id"]`) {
+		t.Fatalf("read the enrollment capability status=%d body=%s", status, meBody)
+	}
+
+	computerA := enrollLocalComputerOverHTTP(t, env, alice, "Alice's Mac", "")
+	if _, err := pool.Exec(t.Context(), `
+		INSERT INTO actors(id,tenant_id,kind,display_name,handle)
+		VALUES ('actor_local_reset','tenant_acme','agent','Local Reset','local_reset')
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(t.Context(), `
+		INSERT INTO agent_registrations(
+			actor_id,tenant_id,agent_management_id,status,instructions,runtime_model,
+			computer_id,local_runtime_type,workspace_grant_id,created_by_actor_id
+		) VALUES (
+			'actor_local_reset','tenant_acme','agent-management-local-reset','active','Run locally','model-local',
+			$1,'codex','grant_linger','actor_acme_alice'
+		)
+	`, computerA); err != nil {
+		t.Fatal(err)
+	}
+
+	key := sha256.Sum256([]byte("http-daemon-key"))
+	daemonHash := sha256.Sum256(key[:])
+	daemonID := base64.RawURLEncoding.EncodeToString(daemonHash[:])
+	daemonPubKey := base64.StdEncoding.EncodeToString(key[:])
+	connectBody := func(computerID, ownerActorID string, generation string) map[string]any {
+		return map[string]any{
+			"computer_id":           computerID,
+			"owner":                 map[string]any{"tenant_id": acmeTenant, "owner_actor_id": ownerActorID},
+			"credential_generation": generation,
+			"daemon_id":             daemonID,
+			"daemon_public_key":     daemonPubKey,
+			"identity_version":      "1",
+			"status":                "offline",
+			"seen_at":               time.Now().UTC().Format(time.RFC3339Nano),
+			"display_name":          "Alice's Mac",
+			"runtimes":              []string{"codex"},
+			"runtime_diagnostics":   []any{},
+			"workspace_grants":      []any{},
+			"daemon_version":        "0.51.0",
+		}
+	}
+	status, body := agentRuntimeStateRequest(t, application.Handler(), http.MethodPost, "/v0/agent-runtime/local-computers/connect", teamHubInternalToken, connectBody(computerA, "actor_acme_alice", "0"))
+	if status != http.StatusOK {
+		t.Fatalf("connect Computer A status=%d body=%s", status, body)
+	}
+
+	status, _, removeBody := env.request(alice, http.MethodDelete, "/v0/tenants/"+acmeTenant+"/local-computers/"+computerA, nil, "")
+	if status != http.StatusConflict || !containsJSONText(removeBody, "LOCAL_COMPUTER_HAS_AGENTS") {
+		t.Fatalf("delete assigned Computer A status=%d body=%s", status, removeBody)
+	}
+
+	verifier := strings.Repeat("v", 43)
+	challenge := sha256.Sum256([]byte(verifier))
+	challengeB64 := base64.RawURLEncoding.EncodeToString(challenge[:])
+	status, _, enrollBody := env.request(alice, http.MethodPost, "/v0/tenants/"+acmeTenant+"/local-computer-enrollments", map[string]any{
+		"display_name":   "Alice's Mac",
+		"redirect_uri":   "http://127.0.0.1:45123/callback",
+		"code_challenge": challengeB64,
+		"daemon_id":      daemonID,
+	}, "")
+	if status != http.StatusCreated {
+		t.Fatalf("re-enroll by daemon_id status=%d body=%s", status, enrollBody)
+	}
+	var authorization struct {
+		EnrollmentID      string `json:"enrollment_id"`
+		ComputerID        string `json:"computer_id"`
+		AuthorizationCode string `json:"authorization_code"`
+	}
+	decode(t, enrollBody, &authorization)
+	if authorization.ComputerID != computerA {
+		t.Fatalf("re-enroll computer_id=%q, want %q", authorization.ComputerID, computerA)
+	}
+	status, _, exchangeBody := env.request(newClient(t), http.MethodPost, "/v0/local-computer-enrollments/"+authorization.EnrollmentID+"/exchange", map[string]any{
+		"authorization_code": authorization.AuthorizationCode,
+		"code_verifier":      verifier,
+		"redirect_uri":       "http://127.0.0.1:45123/callback",
+	}, "")
+	if status != http.StatusOK {
+		t.Fatalf("exchange renewed enrollment status=%d body=%s", status, exchangeBody)
+	}
+	status, body = agentRuntimeStateRequest(t, application.Handler(), http.MethodPost, "/v0/agent-runtime/local-computers/connect", teamHubInternalToken, connectBody(computerA, "actor_acme_alice", "1"))
+	if status != http.StatusOK || !containsJSONText(body, "agent-management-local-reset") {
+		t.Fatalf("reconnect renewed Computer A status=%d body=%s", status, body)
+	}
+
+	// A desktop whose earlier release paired a new Computer without naming its
+	// Daemon renews at start naming both; the owner's Computer holding the
+	// Daemon Identity is renewed instead of the never-connected one.
+	orphan := enrollLocalComputerOverHTTP(t, env, alice, "Alice's Mac", "")
+	status, _, healBody := env.request(alice, http.MethodPost, "/v0/tenants/"+acmeTenant+"/local-computer-enrollments", map[string]any{
+		"computer_id":    orphan,
+		"daemon_id":      daemonID,
+		"display_name":   "Alice's Mac",
+		"redirect_uri":   "http://127.0.0.1:45123/callback",
+		"code_challenge": challengeB64,
+	}, "")
+	var healed struct {
+		ComputerID string `json:"computer_id"`
+	}
+	if status != http.StatusCreated {
+		t.Fatalf("renew the orphan naming the Daemon status=%d body=%s", status, healBody)
+	}
+	decode(t, healBody, &healed)
+	if healed.ComputerID != computerA {
+		t.Fatalf("renew the orphan naming the Daemon computer_id=%q, want %q", healed.ComputerID, computerA)
+	}
+
+	status, _, mismatchBody := env.request(alice, http.MethodPost, "/v0/tenants/"+acmeTenant+"/local-computer-enrollments", map[string]any{
+		"computer_id":    computerA,
+		"daemon_id":      strings.Repeat("Z", 43),
+		"display_name":   "Alice's Mac",
+		"redirect_uri":   "http://127.0.0.1:45123/callback",
+		"code_challenge": challengeB64,
+	}, "")
+	assertAgentRuntimeHTTPError(t, status, mismatchBody, http.StatusConflict, "LOCAL_COMPUTER_IDENTITY_MISMATCH")
+
+	status, _, bobEnrollBody := env.request(bob, http.MethodPost, "/v0/tenants/"+acmeTenant+"/local-computer-enrollments", map[string]any{
+		"display_name":   "Bob's Mac",
+		"redirect_uri":   "http://127.0.0.1:45123/callback",
+		"code_challenge": challengeB64,
+		"daemon_id":      daemonID,
+	}, "")
+	assertAgentRuntimeHTTPError(t, status, bobEnrollBody, http.StatusConflict, "DAEMON_IDENTITY_IN_USE")
+
+	computerB := enrollLocalComputerOverHTTP(t, env, bob, "Bob's Mac", "")
+	status, bobConnectBody := agentRuntimeStateRequest(t, application.Handler(), http.MethodPost, "/v0/agent-runtime/local-computers/connect", teamHubInternalToken, connectBody(computerB, "actor_acme_bob", "0"))
+	assertAgentRuntimeHTTPError(t, status, bobConnectBody, http.StatusConflict, "DAEMON_IDENTITY_IN_USE")
+}

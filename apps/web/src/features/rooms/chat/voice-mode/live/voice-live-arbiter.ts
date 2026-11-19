@@ -11,6 +11,8 @@ import {
 } from "./voice-live-page-tools";
 import { readVoicePage, type VoicePageState } from "./voice-page-reader";
 
+const voiceLivePageTools = { pageReady, readPageTargets, runPageAction };
+
 /** The voice window keeps this many exchanges of the call. */
 const transcriptLines = 200;
 
@@ -102,9 +104,12 @@ export function createVoiceLiveArbiter(options: {
   onTranscript: (lines: readonly VoiceLiveLine[]) => void;
   /** The page the Human sees; when given, where they are is kept in sync. */
   page?: VoicePageSource;
+  /** The page tools the live model calls; defaults to this page's. */
+  pageTools?: typeof voiceLivePageTools;
 }) {
   let disposed = false;
   const page = options.page;
+  const pageTools = options.pageTools ?? voiceLivePageTools;
   const send = (event: TeamHubVoiceLiveClientEvent) => {
     if (disposed || !options.active()) return false;
     options.send(event);
@@ -219,11 +224,11 @@ export function createVoiceLiveArbiter(options: {
     try {
       if (event.tool === "read_page") {
         // A list still loading would read as an empty page.
-        await pageReady();
+        await pageTools.pageReady();
         return reply({
           status: "ok",
           page: (page?.read ?? readVoicePage)(),
-          clickable: readPageTargets(
+          clickable: pageTools.readPageTargets(
             options.context,
             // Runtime's placeholder when the model gave no focus.
             text.replace(/^visible page$/u, ""),
@@ -247,7 +252,7 @@ export function createVoiceLiveArbiter(options: {
           return reply({ status: "outcome_unknown" });
         pageActions.add(callId);
         if (!text) return reply({ status: "failed", detail: "Empty request." });
-        const result = await runPageAction(
+        const result = await pageTools.runPageAction(
           JSON.parse(text) as Record<string, unknown>,
           options.context,
           () => !disposed && options.active(),

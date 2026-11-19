@@ -5,9 +5,11 @@ import {
   displayText,
   isNodeError,
   isRecord,
+  orderByRegion,
   requestBodyText,
   requestUrlText,
   sleep,
+  sourceRegion,
 } from "./index.js";
 
 describe("isRecord", () => {
@@ -90,5 +92,41 @@ describe("request text helpers", () => {
   it("requires string request bodies", () => {
     expect(requestBodyText("{}")).toBe("{}");
     expect(() => requestBodyText(null)).toThrow(TypeError);
+  });
+});
+
+describe("download regions", () => {
+  const sources = [
+    "https://nodejs.org/dist/node.tgz",
+    "https://cdn.npmmirror.com/binaries/node/node.tgz",
+    "https://registry.npmjs.org/a/-/a.tgz",
+    "https://mirrors.aliyun.com/golang/go.tgz",
+  ];
+
+  it("knows the mainland-China mirrors", () => {
+    expect(sources.map(sourceRegion)).toEqual(["global", "cn", "global", "cn"]);
+    expect(sourceRegion("https://goproxy.cn")).toBe("cn");
+    expect(sourceRegion("https://npmmirror.com.example/x")).toBe("global");
+    expect(sourceRegion("not a url")).toBe("global");
+  });
+
+  it("puts the region's sources first and keeps every source", () => {
+    expect(orderByRegion("cn", sources)).toEqual([
+      sources[1],
+      sources[3],
+      sources[0],
+      sources[2],
+    ]);
+    expect(orderByRegion("global", sources)).toEqual([
+      sources[0],
+      sources[2],
+      sources[1],
+      sources[3],
+    ]);
+    // A list already global-first is unchanged for global.
+    expect(orderByRegion("global", [sources[0]!, sources[1]!])).toEqual([
+      sources[0],
+      sources[1],
+    ]);
   });
 });

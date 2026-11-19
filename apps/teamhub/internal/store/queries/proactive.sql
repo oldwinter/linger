@@ -164,3 +164,7 @@ WHERE activity.tenant_id = sqlc.arg(tenant_id)::text AND activity.kind = 'mandat
   AND activity.details->>'owner_actor_id' = sqlc.arg(owner_actor_id)::text
 ORDER BY activity.occurred_at DESC
 LIMIT sqlc.arg(take)::integer;
+
+-- name: GetExternalConnectionIdentityLabel :one
+-- The account label a proactive event names for its granted connection.
+SELECT coalesce(identity_label,'')::text FROM external_connections WHERE id=sqlc.arg(id)::text;

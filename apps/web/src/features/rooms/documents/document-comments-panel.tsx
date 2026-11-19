@@ -262,7 +262,7 @@ function DocumentCommentComposer({
       <div className="flex min-w-0 items-center gap-1 overflow-hidden rounded-full bg-app-canvas p-1">
         <textarea
           aria-label={ariaLabel}
-          className="document-comment-input workspace-scrollbar block min-h-8 min-w-0 max-h-20 flex-1 resize-none border-0 bg-transparent px-2 text-sm text-app-ink outline-none placeholder:text-app-muted"
+          className="document-comment-input workspace-scrollbar block min-h-8 min-w-0 max-h-20 flex-1 resize-none border-0 bg-transparent px-2 text-sm text-app-ink outline-none placeholder:text-app-placeholder"
           disabled={pending}
           id={inputId}
           onChange={(event) => setBody(event.target.value)}

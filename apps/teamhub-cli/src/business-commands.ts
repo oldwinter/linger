@@ -24,7 +24,7 @@ import {
   validateAccountSelector,
 } from "./connector-runtime.js";
 import { renderBusinessResult } from "./business-render.js";
-import { displayText } from "./display-text.js";
+import { accountIdentityText, displayText } from "./display-text.js";
 import { computerPermissionCommandDefinitions } from "./computer-permission-commands.js";
 import { herdrCommandDefinitions } from "./herdr-commands.js";
 
@@ -347,7 +347,7 @@ const appsConnect: CommandDefinition = {
   }),
   render: (result) => {
     const account = result.account as Json;
-    return `Connected: ${singleLineText(account.connection_id)} (${singleLineText(account.identity_label ?? account.display_name)})`;
+    return `Connected: ${singleLineText(account.connection_id)} (${singleLineText(accountIdentityText(account.app_key, account.identity_label) || account.display_name)})`;
   },
 };
 const browserConnect: CommandDefinition = {
@@ -409,7 +409,7 @@ const autoRemindersItem = {
   required: ["connection_id", "app_key", "identity_label", "status", "enabled"],
 };
 const autoRemindersLine = (item: Json): string =>
-  `${singleLineText(item.connection_id)}  ${singleLineText(item.app_key)}  ${singleLineText(item.identity_label)}  auto reminders ${item.enabled ? "on" : "off"}`;
+  `${singleLineText(item.connection_id)}  ${singleLineText(item.app_key)}  ${singleLineText(accountIdentityText(item.app_key, item.identity_label))}  auto reminders ${item.enabled ? "on" : "off"}`;
 const autoRemindersNote =
   "Auto reminders let AnotherMe watch the Human's Gmail, Outlook, Google Calendar or Slack and remind them of things that need attention. Only Another Me can use it, and only for connections its own Human owns.";
 const appsAutoRemindersList: CommandDefinition = {
@@ -1012,6 +1012,40 @@ const roomInvite = definition(
     ],
   },
 );
+const roomHandoff = definition(
+  ["room", "handoff"],
+  "hand_off_to_room",
+  "Hand your Human's request from your direct chat to yourself in another Room you both are in.",
+  {
+    "--inbox": flag(
+      "room:<room-id> of another Room where you and your Human are both members.",
+    ),
+    ...bodyOptions,
+  },
+  async (args, reader) => {
+    assertPositionals(args, 0);
+    const room = /^room:([A-Za-z0-9][A-Za-z0-9_-]*)$/u.exec(
+      requiredOption(args, "--inbox"),
+    );
+    if (!room) invalid("--inbox accepts only a room: address.");
+    return {
+      input: await validate("hand_off_to_room", {
+        room_id: room[1],
+        instruction: await markdownBodySource(args, reader),
+      }),
+    };
+  },
+  {
+    defaultTarget: "room",
+    unavailableInTask:
+      "A Task cannot hand off work. Say in your final reply which Room should take it; the Meta that started the Task can hand it off.",
+    notes: [
+      "Only Another Me, from its direct chat with its Human, in a turn the Human started by writing to it or deciding one of its cards.",
+      "The instruction is hidden from that Room. You there are woken with it, read that Room, and post and @ the Agents yourself; the direct chat's messages are not copied.",
+      "Results come back to the direct chat through teamhub message direct.",
+    ],
+  },
+);
 const roomProtocol = definition(
   ["room", "protocol"],
   "get_team_md",
@@ -1138,11 +1172,12 @@ async function schedule(
   );
   const daily = option(args, "--daily"),
     weekly = option(args, "--weekly"),
-    every = option(args, "--every-hours"),
+    everyMinutes = option(args, "--every-minutes"),
+    everyHours = option(args, "--every-hours"),
     at = option(args, "--at"),
     timezone = option(args, "--timezone"),
     weekdays = values(args, "--weekday");
-  const simple = [daily, weekly, every, at].filter(
+  const simple = [daily, weekly, everyMinutes, everyHours, at].filter(
     (value) => value !== undefined,
   ).length;
   if (jsonProvided) {
@@ -1154,7 +1189,7 @@ async function schedule(
   }
   if (simple !== 1)
     invalid(
-      "Choose --daily, --weekly, --every-hours, --at or complete schedule JSON.",
+      "Choose --daily, --weekly, --every-minutes, --every-hours, --at or complete schedule JSON.",
     );
   if (at !== undefined) {
     if (weekdays.length) invalid("--at cannot include weekday.");
@@ -1164,12 +1199,23 @@ async function schedule(
       );
     return { kind: "once", run_at: at, ...optional("timezone", timezone) };
   }
-  if (every !== undefined) {
+  if (everyMinutes !== undefined) {
+    if (timezone !== undefined || weekdays.length)
+      invalid("--every-minutes cannot include timezone or weekday.");
+    const minutes = integer(everyMinutes, "--every-minutes", 10, 10_080)!;
+    if (minutes % 10 !== 0)
+      invalid("--every-minutes must be a multiple of 10 minutes.");
+    return {
+      kind: "every_n_minutes",
+      interval_minutes: minutes,
+    };
+  }
+  if (everyHours !== undefined) {
     if (timezone !== undefined || weekdays.length)
       invalid("--every-hours cannot include timezone or weekday.");
     return {
       kind: "every_n_hours",
-      interval_hours: integer(every, "--every-hours", 1, 168),
+      interval_hours: integer(everyHours, "--every-hours", 1, 168),
     };
   }
   if (timezone === undefined)
@@ -1191,6 +1237,7 @@ async function schedulePatch(
       "--schedule-file",
       "--daily",
       "--weekly",
+      "--every-minutes",
       "--every-hours",
       "--at",
       "--timezone",
@@ -1217,13 +1264,18 @@ const routines = ["create", "list", "pause", "enable", "run", "delete"].map(
               ),
               ...jsonOptions(
                 "schedule",
-                "Complete daily, weekly, every_n_hours or once schedule JSON.",
+                "Complete daily, weekly, every_n_minutes or once schedule JSON.",
               ),
               "--daily": flag("Daily local time as HH:MM."),
               "--weekly": flag("Weekly local time as HH:MM."),
               "--weekday": flag("Selected weekday; repeat unique days.", true),
               "--timezone": flag("Explicit IANA timezone for daily or weekly."),
-              "--every-hours": flag("Repeat every 1-168 hours."),
+              "--every-minutes": flag(
+                "Repeat every 10-10080 minutes (multiples of 10).",
+              ),
+              "--every-hours": flag(
+                "Repeat every 1-168 hours (compatibility alias for --every-minutes).",
+              ),
               "--at": flag(
                 "Fire once at this RFC 3339 time (with offset); done afterwards.",
               ),
@@ -1297,13 +1349,16 @@ const routineUpdate = definition(
     },
     ...jsonOptions(
       "schedule",
-      "Complete daily, weekly, every_n_hours or once schedule JSON.",
+      "Complete daily, weekly, every_n_minutes or once schedule JSON.",
     ),
     "--daily": flag("Daily local time as HH:MM."),
     "--weekly": flag("Weekly local time as HH:MM."),
     "--weekday": flag("Selected weekday; repeat unique days.", true),
     "--timezone": flag("Explicit IANA timezone for daily or weekly."),
-    "--every-hours": flag("Repeat every 1-168 hours."),
+    "--every-minutes": flag("Repeat every 10-10080 minutes (multiples of 10)."),
+    "--every-hours": flag(
+      "Repeat every 1-168 hours (compatibility alias for --every-minutes).",
+    ),
     "--at": flag(
       "Fire once at this RFC 3339 time (with offset); done afterwards.",
     ),
@@ -1552,6 +1607,7 @@ export const businessCommandDefinitions: readonly CommandDefinition[] = [
   collaborate,
   roomMembers,
   roomInvite,
+  roomHandoff,
   roomProtocol,
   taskCreate,
   taskCheck,

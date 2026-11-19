@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { PassThrough } from "node:stream";
 import { runProcess } from "./process.js";
 it("executes argument arrays literally and preserves JSON output", async () => {
   const value = "$(touch /tmp/never-linger); a b";
@@ -10,6 +11,42 @@ it("executes argument arrays literally and preserves JSON output", async () => {
   expect(JSON.parse(result.stdout)).toEqual([value]);
   expect(result.code).toBe(0);
 });
+it.each(["stdout", "stderr"] as const)(
+  "preserves a UTF-8 character split between %s chunks",
+  async (stream) => {
+    const input = new PassThrough();
+    const output: string[] = [];
+    let continued = false;
+    const result = await runProcess(
+      process.execPath,
+      [
+        "-e",
+        `const stream = process[process.argv[1]];
+const bytes = Buffer.from(JSON.stringify({path: 'file-\\u2603.txt'}));
+const split = bytes.indexOf(0xe2) + 1;
+process.stdin.once('data', () => stream.write(bytes.subarray(split)));
+stream.write(bytes.subarray(0, split));`,
+        stream,
+      ],
+      {
+        inputStream: input,
+        timeoutMs: 2_000,
+        onOutput: (value) => {
+          output.push(value);
+          if (!continued) {
+            continued = true;
+            // The child sends the remaining bytes only after this chunk arrived.
+            input.end("continue");
+          }
+        },
+      },
+    );
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result[stream])).toEqual({ path: "file-\u2603.txt" });
+    expect(output.join("")).toBe(result[stream]);
+    expect(result[stream === "stdout" ? "stderr" : "stdout"]).toBe("");
+  },
+);
 it("reports nonzero exit without exposing argv in errors", async () => {
   expect(
     (await runProcess(process.execPath, ["-e", "process.exit(7)"])).code,

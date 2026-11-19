@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import {
   isTranscriptRecoveryPaused,
@@ -21,6 +27,12 @@ export function useVoiceArming(input: {
   const [status, setStatus] = useState<ArmStatus>("pending");
   const [error, setError] = useState<string>();
   const generationRef = useRef(0);
+  useLayoutEffect(
+    () => () => {
+      generationRef.current += 1;
+    },
+    [],
+  );
 
   const arm = useCallback(async () => {
     if (!voice) return;
@@ -33,6 +45,7 @@ export function useVoiceArming(input: {
     const askBrowser = async () => {
       asked = true;
       const available = await voice.discoverDevices();
+      if (generationRef.current !== generation) return;
       const device =
         (voice.boundDevice
           ? matchBoundVoiceMicrophone(available, voice.boundDevice)
@@ -47,6 +60,7 @@ export function useVoiceArming(input: {
           ? voice.startCapture()
           : voice.startNewCapture();
       if (!voice.boundDevice) await askBrowser();
+      if (generationRef.current !== generation) return;
       try {
         await begin();
       } catch (cause) {
@@ -54,6 +68,7 @@ export function useVoiceArming(input: {
         // rejected Start must keep its own reason.
         if (asked || !isMicrophoneFailure(cause)) throw cause;
         await askBrowser();
+        if (generationRef.current !== generation) return;
         await begin();
       }
       if (generationRef.current === generation) setStatus("armed");

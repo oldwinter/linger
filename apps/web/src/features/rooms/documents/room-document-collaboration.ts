@@ -52,7 +52,11 @@ export async function openRoomDocumentSession(input: {
     stateHashVersion: input.stateHashVersion,
   });
   const markOffline = () => tracker.setConnected(false);
-  window.addEventListener("offline", markOffline);
+  const markBrowserOffline = () => tracker.setBrowserOffline(true);
+  const markBrowserOnline = () => tracker.setBrowserOffline(false);
+  if (!navigator.onLine) tracker.setBrowserOffline(true);
+  window.addEventListener("offline", markBrowserOffline);
+  window.addEventListener("online", markBrowserOnline);
   // Warm only the transport: no document or credential is attached until an
   // editor's local copy has been restored.
   const websocketProvider = new HocuspocusProviderWebsocket({
@@ -72,7 +76,8 @@ export async function openRoomDocumentSession(input: {
         recoverRoomDocumentPastedMedia(document);
       }
     } catch (error) {
-      window.removeEventListener("offline", markOffline);
+      window.removeEventListener("offline", markBrowserOffline);
+      window.removeEventListener("online", markBrowserOnline);
       websocketProvider.destroy();
       tracker.destroy();
       await persistence.destroy();
@@ -144,7 +149,8 @@ export async function openRoomDocumentSession(input: {
     }
     destroyed = true;
     unregister();
-    window.removeEventListener("offline", markOffline);
+    window.removeEventListener("offline", markBrowserOffline);
+    window.removeEventListener("online", markBrowserOnline);
     provider.destroy();
     websocketProvider.destroy();
     tracker.destroy();

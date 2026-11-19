@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
 import { ModalDialog } from "@/components/ui/modal-dialog";
+import { accountIdentityText } from "@/features/apps/connection-state";
 import { externalConnectionsQueryKey } from "@/features/apps/connected-apps-queries";
 import { type TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { TeamHubExternalConnection } from "@/features/teamhub/teamhub-types";
@@ -33,8 +34,11 @@ export function DisconnectAccountDialog({
     <ModalDialog
       description={
         <>
-          {connection.identity_label ?? connection.provider}. Agent access and
-          source cleanup stay on Apps.
+          {accountIdentityText(
+            connection.provider,
+            connection.identity_label,
+          ) ?? connection.provider}
+          . Agent access and source cleanup stay on Apps.
         </>
       }
       onClose={onClose}

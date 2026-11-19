@@ -13,6 +13,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { lazy, type ReactNode, Suspense, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
 import type { TeamHubMessageCard } from "@/features/teamhub/teamhub-types";
 
@@ -27,7 +28,10 @@ import { CardBox, CardDone, type ReceiptTone } from "./card-shell";
 import { ConnectedAppIcon } from "./connected-app-identity";
 import { connectedAppDisplayName } from "./connected-app-names";
 import { AgentChangeDecisionView } from "./decision-agent-change-view";
-import { ConnectorWriteDecisionView } from "./decision-connector-write-view";
+import {
+  ConnectorWriteDecisionView,
+  EmailDecisionView,
+} from "./decision-connector-write-view";
 import {
   OpenCreatedRoomLink,
   RoomCreationDecisionView,
@@ -166,6 +170,12 @@ function ApprovalDecision({
   const [decisionError, setDecisionError] = useState<string | null>(null);
   const state = decisionState(card, now);
   const roomCreation = card.kind === "room_creation";
+  const write = card.connector_write;
+  const email =
+    write?.kind === "message" &&
+    (write.app === "gmail" || write.app === "outlook")
+      ? write.message
+      : undefined;
   const canDecide =
     state === "pending" &&
     Boolean(currentActorId) &&
@@ -212,14 +222,18 @@ function ApprovalDecision({
 
   return (
     <>
-      <CardBox heading={card.title} label={label}>
-        <CardRow
-          detail={summary.detail}
-          icon={summary.icon}
-          onToggle={() => setOpen((current) => !current)}
-          open={open}
-          title={summary.title}
-        />
+      <CardBox heading={email ? undefined : card.title} label={label}>
+        {email ? (
+          <EmailDecisionView account={write?.account ?? ""} message={email} />
+        ) : (
+          <CardRow
+            detail={summary.detail}
+            icon={summary.icon}
+            onToggle={() => setOpen((current) => !current)}
+            open={open}
+            title={summary.title}
+          />
+        )}
         {/* Why the review stopped the call: what a person weighs before
             allowing it, so it stays in view. */}
         {card.runtime_permission?.rationale?.trim() ? (
@@ -227,7 +241,7 @@ function ApprovalDecision({
             {card.runtime_permission.rationale}
           </p>
         ) : null}
-        <CardRowDetails open={open}>
+        <CardRowDetails open={!email && open}>
           {state === "pending" ? null : screenshot}
           {card.connector_write ? (
             <ConnectorWriteDecisionView view={card.connector_write} />
@@ -250,14 +264,39 @@ function ApprovalDecision({
         ) : null}
         {canDecide ? (
           <CardActions>
-            <DecisionActions
-              approveLabel={words.approve}
-              denyLabel={words.deny}
-              disabled={submitting}
-              onApprove={() => void decide("approve")}
-              onDeny={(reason) => void decide("deny", reason)}
-              reasonRequired={roomCreation}
-            />
+            {email ? (
+              <div
+                aria-label="Approval actions"
+                className="flex gap-2"
+                role="group"
+              >
+                <Button
+                  disabled={submitting}
+                  onClick={() => void decide("approve")}
+                  size="large"
+                  tone="primary"
+                >
+                  {words.approve}
+                </Button>
+                <Button
+                  disabled={submitting}
+                  onClick={() => void decide("deny")}
+                  size="large"
+                  tone="ghost"
+                >
+                  {words.deny}
+                </Button>
+              </div>
+            ) : (
+              <DecisionActions
+                approveLabel={words.approve}
+                denyLabel={words.deny}
+                disabled={submitting}
+                onApprove={() => void decide("approve")}
+                onDeny={(reason) => void decide("deny", reason)}
+                reasonRequired={roomCreation}
+              />
+            )}
           </CardActions>
         ) : done ? (
           <div className="flex min-w-0 items-center justify-between gap-2">

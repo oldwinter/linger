@@ -88,6 +88,7 @@ it("redacts credentials from the cause and the log", () => {
     "https://objects.githubusercontent.com/a/b?X-Amz-Signature=deadbeef&X-Amz-Credential=AKIA",
     "token: ghp_0123456789abcdefghijklmn",
     "plain sk-proj-0123456789abcdefghij",
+    "9git+https://user:hunter22@git.example/x",
   ];
   const failure = localmodelsFailure(args, {
     code: 1,
@@ -107,12 +108,24 @@ it("redacts credentials from the cause and the log", () => {
     "AKIA",
     "ghp_0123456789abcdefghijklmn",
     "sk-proj-0123456789abcdefghij",
+    "hunter22",
   ])
     expect(text).not.toContain(value);
   expect(failure.cause).toContain(
     "https://objects.githubusercontent.com/a/b?[REDACTED]",
   );
   expect(redactLocalmodelsOutput("a\u0007b\u001b[31mc")).toBe("abc");
+});
+
+it("redacts URL credentials after long alphanumeric runs in linear time", () => {
+  // Hex digests and base64 alternate letters and digits; a pattern that may
+  // start at every letter of such a run takes about a second on this input.
+  const run = "a1".repeat(20_000);
+  const started = performance.now();
+  expect(redactLocalmodelsOutput(`${run} ${run}https://u:p@h/x`)).toBe(
+    `${run} ${run}https://[REDACTED]@h/x`,
+  );
+  expect(performance.now() - started).toBeLessThan(250);
 });
 
 it("keeps the end of long output within bounded log events", () => {

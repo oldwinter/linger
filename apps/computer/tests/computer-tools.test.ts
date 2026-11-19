@@ -34,10 +34,19 @@ it("keeps Pi's public MCP extension bound to private Operation proxies", async (
       ]){write(server);assert.throws(()=>loadManagedMcpConfig(file));}
       write({type:"http",url:"http://127.0.0.1:1234"});
       if(process.platform!=="win32"){chmodSync(file,0o644);assert.throws(()=>loadManagedMcpConfig(file),/private/);}
+      assert.equal(process.env.NODE_PATH,"inherited");
+      assert.equal(process.env.LINGER_PI_INHERITED_NODE_PATH,undefined);
       console.log("private immutable MCP configuration passed");
     `,
       ],
-      { timeout: 20_000 },
+      {
+        timeout: 20_000,
+        env: {
+          ...process.env,
+          NODE_PATH: path.join(root, "tools", "node_modules"),
+          LINGER_PI_INHERITED_NODE_PATH: "inherited",
+        },
+      },
     );
     expect(result.stdout).toContain(
       "private immutable MCP configuration passed",

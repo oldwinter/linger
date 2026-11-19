@@ -62,6 +62,8 @@ function desktopSetupProblem(status: DesktopComputerStatus) {
   switch (status.bridge) {
     case "auth_failed":
       return "This computer's sign-in expired. Choose Reconnect This Computer in the Linger menu bar menu.";
+    case "identity_conflict":
+      return "This computer is already registered under another Computer entry. Choose Reconnect This Computer in the Linger menu bar menu.";
     case "upgrade_required":
       return "Update the Linger app to connect this computer.";
     case "disconnected":

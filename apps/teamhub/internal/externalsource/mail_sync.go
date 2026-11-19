@@ -97,8 +97,8 @@ func (s *Service) EnqueueMailSyncs(ctx context.Context, now time.Time) error {
 // syncMail reads, within one run, every page of the mail received since the
 // Connection's sync position, and then moves the position to where it read
 // to. A run that fails leaves the position, so River's retry or the next
-// night reads the window again. A Connection that changed meanwhile, or whose
-// owner left the Tenant, is left alone.
+// night reads the window again. A Connection that changed meanwhile, has no
+// mailbox identity, or whose owner left the Tenant, is left alone.
 func (s *Service) syncMail(ctx context.Context, args MailSyncArgs) error {
 	queries := store.New(s.pool)
 	state, err := queries.GetMailSync(ctx, store.GetMailSyncParams{ID: args.ConnectionID, Revision: args.Revision})
@@ -108,10 +108,13 @@ func (s *Service) syncMail(ctx context.Context, args MailSyncArgs) error {
 	if err != nil {
 		return err
 	}
+	if state.Mailbox == "" {
+		return nil
+	}
 	job := &importRun{
 		ConnectionID: args.ConnectionID, ConnectionRevision: args.Revision, AccountID: state.AccountID,
 		TenantID: state.TenantID, Provider: state.Provider, UpstreamConnectionID: state.UpstreamConnectionID,
-		ProviderCallBudget: mailImportBudget, CreatedAt: time.Now().UTC(),
+		ProviderCallBudget: mailImportBudget, CreatedAt: time.Now().UTC(), mailbox: state.Mailbox,
 	}
 	if job.OwnerActorID, err = s.ownerActorID(ctx, state.AccountID, state.TenantID); errors.Is(err, ErrNotFound) {
 		return nil

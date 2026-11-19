@@ -5,7 +5,11 @@ import type {
 } from "./runner-local-models.js";
 import type {
   BrowserConnectionStatus,
+  ByokConfigInput,
+  ByokModelList,
+  ByokTestResult,
   ComputerPermissionStatus,
+  ModelSourceStatus,
 } from "@linger/wire-contracts/runner-gateway/types";
 
 export type LocalRuntimeType = "claude" | "codex" | "pi";
@@ -25,6 +29,18 @@ export const MINIMUM_CURRENT_COMPUTER_VERSION = "0.44.0";
 // below the current release updates itself from the welcome's
 // `target_release`; an older protocol 2 build is refused.
 export const FIRST_PROTOCOL_2_COMPUTER_VERSION = "0.43.0";
+// The first release that decodes runner.welcome's `service_features`. An
+// older Computer rejects the unknown key and would never reach its
+// `target_release`, so it is welcomed without the field.
+export const FIRST_SERVICE_FEATURES_COMPUTER_VERSION = "0.52.0";
+// The first release that decodes a cancel for one model_invoke. An older
+// Computer closes the connection on it, so its calls are never swapped out.
+export const FIRST_MODEL_INVOKE_CANCEL_COMPUTER_VERSION = "0.53.0";
+// The first release that runs `model_source` commands. An older Computer
+// closes the connection on a command kind it cannot decode.
+export const FIRST_MODEL_SOURCE_COMPUTER_VERSION = "0.54.0";
+// Older Daemons do not decode Pi as a model_invoke Runtime.
+export const FIRST_PI_MODEL_INVOKE_COMPUTER_VERSION = "0.55.0";
 
 const COMPUTER_RELEASE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
@@ -134,6 +150,12 @@ export interface LocalComputerManagement {
   actOnLocalModels?(
     command: LocalModelActionCommand,
   ): Promise<LocalModelActionAck>;
+
+  modelSource?(command: LocalModelSourceCommand): Promise<{
+    readonly status?: ModelSourceStatus;
+    readonly testResult?: ByokTestResult;
+    readonly modelList?: ByokModelList;
+  }>;
 
   /** Returns the placed model as the connected Computer reports it. */
   requireLocalPlacement(
@@ -341,6 +363,30 @@ export class LocalComputerPermissionError extends Error {
   ) {
     super(message);
     this.name = "LocalComputerPermissionError";
+  }
+}
+
+export interface LocalModelSourceCommand {
+  readonly tenantId: string;
+  readonly ownerActorId: string;
+  readonly computerId: string;
+  readonly action: "status" | "test" | "models" | "apply";
+  readonly mode?: "local" | "subscription" | "byok";
+  readonly runtime?: LocalRuntimeType;
+  readonly localModelId?: string;
+  readonly byok?: ByokConfigInput;
+  readonly signal?: AbortSignal;
+}
+
+/** The Computer rejected a model-source command or did not answer. */
+export class LocalModelSourceError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+    this.name = "LocalModelSourceError";
   }
 }
 

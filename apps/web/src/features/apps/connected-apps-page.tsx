@@ -21,7 +21,11 @@ import {
   AppManageDialog,
   DisconnectConnectionDialog,
 } from "./app-manage-dialog";
-import { activeExternalConnections } from "./connection-state";
+import {
+  activeExternalConnections,
+  externalConnectionNeedsAttention,
+  openPendingExternalConnection,
+} from "./connection-state";
 import {
   externalAppsQueryOptions,
   externalConnectionsQueryOptions,
@@ -223,16 +227,18 @@ function CatalogAppCard({
   const connectFlow = useConnectAppFlow();
   const createConnection = connectFlow.connection;
   const active = activeExternalConnections(connections);
-  const pending = connections.find(
-    (connection) =>
-      connection.status === "pending" && !connection.status_error_code,
-  );
+  const pending = openPendingExternalConnection(connections, app.key);
   const canConnect = app.availability === "available";
   const canStart = connectFlow.canStart(app);
+  const needsReconnecting = connections.filter(
+    externalConnectionNeedsAttention,
+  ).length;
   const connectedLabel = active.length
-    ? active.length === 1
-      ? "Connected"
-      : `${active.length} accounts`
+    ? `${active.length === 1 ? "Connected" : `${active.length} accounts`}${
+        needsReconnecting
+          ? `, ${needsReconnecting} ${needsReconnecting === 1 ? "needs" : "need"} reconnecting`
+          : ""
+      }`
     : null;
   const authorizing =
     createConnection.isPending || Boolean(createConnection.blockedConnectUrl);

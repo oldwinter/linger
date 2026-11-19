@@ -215,6 +215,18 @@ export function MessageTimeline({
 }: MessageTimelineProps) {
   const { filePreviewError, previewMessageFile } =
     useMessageFilePreview(onOpenMessageFile);
+  const referenceTitles = useMemo(
+    () => ({
+      ...documentTitles,
+      ...Object.fromEntries(
+        Object.entries(documentMetadata).map(([id, document]) => [
+          id,
+          document.title,
+        ]),
+      ),
+    }),
+    [documentMetadata, documentTitles],
+  );
   const { candidateMessages, openedAtNewest, startsOwnGroup } =
     useTimelineMessageGroups(messages, currentActorId);
   const momentStarts = useMemo(
@@ -325,7 +337,7 @@ export function MessageTimeline({
           }
           actorDisplayNames={actorDisplayNames}
           currentActorId={currentActorId}
-          documentTitles={documentTitles}
+          documentTitles={referenceTitles}
           documentMetadata={documentMetadata}
           message={message}
           messageFilePreview={messageFilePreview}
@@ -368,7 +380,7 @@ export function MessageTimeline({
         <LinkedSourceMessagePanel
           actorDisplayNames={actorDisplayNames}
           currentActorId={currentActorId}
-          documentTitles={documentTitles}
+          documentTitles={referenceTitles}
           documentMetadata={documentMetadata}
           linkedSource={linkedSource}
           messageFilePreview={messageFilePreview}

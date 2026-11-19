@@ -10,10 +10,12 @@ import {
   MINIMUM_CURRENT_COMPUTER_VERSION,
 } from "../../../src/agent/runner-gateway/local-computer-management.js";
 import {
+  RunnerDaemonIdentityInUseError,
   RunnerGateway,
   RunnerUpgradeRequiredError,
   type RunnerGatewayConnection,
 } from "../../../src/agent/runner-gateway/runner-gateway.js";
+import { createTeamHubLocalComputerRegistry } from "../../../src/agent/runner-gateway/local-computer-registry.js";
 import {
   createTestRunnerGateway,
   testRegistrationId,
@@ -888,5 +890,47 @@ describe("RunnerGateway local Computer reconnect wait", () => {
     expect(await settled(waiting)).toBe(false);
     await acceptReadyConnection(gateway, new RecordingPeer());
     await waiting;
+  });
+
+  it("maps DAEMON_IDENTITY_IN_USE from TeamHub connect to RunnerDaemonIdentityInUseError", async () => {
+    const connectLocalComputer = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new TeamHubRuntimeStateError(
+          409,
+          "Daemon Identity is already bound to another Local Computer",
+          "DAEMON_IDENTITY_IN_USE",
+          false,
+        ),
+      )
+      .mockRejectedValueOnce(
+        new TeamHubRuntimeStateError(
+          409,
+          "Agent Runtime State conflicts with the request",
+          "AGENT_RUNTIME_CONFLICT",
+          false,
+        ),
+      );
+    const registry = createTeamHubLocalComputerRegistry({
+      getLocalComputer: vi.fn(),
+      connectLocalComputer,
+      touchLocalComputer: vi.fn(),
+      removeLocalComputer: vi.fn(),
+      reportHerdrEvent: vi.fn(),
+      recordLocalModels: vi.fn(),
+    });
+    const connection = {
+      computerId: "computer-local",
+      owner: { tenantId: "tenant-acme", ownerActorId: "actor-alice" },
+      credentialGeneration: 0,
+      hello: hello(),
+      status: "offline" as const,
+    };
+    await expect(registry.connect(connection)).rejects.toBeInstanceOf(
+      RunnerDaemonIdentityInUseError,
+    );
+    await expect(registry.connect(connection)).rejects.toMatchObject({
+      code: "AGENT_RUNTIME_CONFLICT",
+    });
   });
 });

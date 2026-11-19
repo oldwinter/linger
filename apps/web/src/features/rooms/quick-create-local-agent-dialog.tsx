@@ -1,6 +1,7 @@
 import { Add01Icon, ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -361,28 +362,43 @@ export function QuickCreateLocalAgentDialog({
                     ))}
                   </Select>
                 </label>
-                <label className="block">
-                  <span className="mb-1.5 block text-sm font-medium">
-                    Model
-                  </span>
-                  <Select
-                    aria-label="Model"
-                    className="min-w-0 w-full"
-                    disabled={!modelOptions.length}
-                    placeholder="No models available"
-                    value={selectedModel?.id ?? ""}
-                    onValueChange={(value) => {
-                      setModelId(value);
-                      setEffort(undefined);
-                    }}
-                  >
-                    {modelOptions.map((model) => (
-                      <SelectItem key={model.id} value={model.id}>
-                        {model.label}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                </label>
+                <div className="space-y-1.5">
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-medium">
+                      Model
+                    </span>
+                    <Select
+                      aria-label="Model"
+                      className="min-w-0 w-full"
+                      disabled={!modelOptions.length}
+                      placeholder="No models available"
+                      value={selectedModel?.id ?? ""}
+                      onValueChange={(value) => {
+                        setModelId(value);
+                        setEffort(undefined);
+                      }}
+                    >
+                      {modelOptions.map((model) => (
+                        <SelectItem key={model.id} value={model.id}>
+                          {model.label}
+                        </SelectItem>
+                      ))}
+                    </Select>
+                  </label>
+                  {selectedRuntime?.type === "pi" && modelOptions.length > 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Manage downloaded models in{" "}
+                      <Link
+                        className="font-medium text-foreground underline underline-offset-2"
+                        onClick={onClose}
+                        to={`/t/${encodeURIComponent(tenantId)}/settings/models?computer=${encodeURIComponent(selectedComputer.computer_id)}`}
+                      >
+                        Settings › Models
+                      </Link>
+                      .
+                    </p>
+                  ) : null}
+                </div>
                 <label className="block">
                   <span className="mb-1.5 block text-sm font-medium">
                     Thinking effort
@@ -405,8 +421,20 @@ export function QuickCreateLocalAgentDialog({
                   </Select>
                 </label>
                 {!selectedModel && !loginRuntime ? (
-                  selectedComputer &&
-                  selectedRuntime?.status === "not_installed" ? (
+                  selectedRuntime?.type === "pi" ? (
+                    <p className="text-xs text-muted-foreground" role="status">
+                      Download and load a local model in{" "}
+                      <Link
+                        className="font-medium text-foreground underline underline-offset-2"
+                        onClick={onClose}
+                        to={`/t/${encodeURIComponent(tenantId)}/settings/models?computer=${encodeURIComponent(selectedComputer.computer_id)}`}
+                      >
+                        Settings › Models
+                      </Link>{" "}
+                      to run Agents with Pi on this computer.
+                    </p>
+                  ) : selectedComputer &&
+                    selectedRuntime?.status === "not_installed" ? (
                     <div role="status">
                       <LocalRuntimeInstallGuidance
                         computerName={selectedComputer.display_name}

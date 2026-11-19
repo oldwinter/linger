@@ -46,7 +46,7 @@ func (a *App) saveConnectorGmailCanvasDraft(c *gin.Context) {
 	if input.DraftId != nil {
 		draftID = *input.DraftId
 	}
-	draft, err := a.agentConnectedApps.SaveGmailDraft(connectorCallContext(c), token, input.ConnectionId, draftID, built.Raw)
+	draft, err := a.agentConnectedApps.SaveGmailCanvasDraft(connectorCallContext(c), token, input.ConnectionId, draftID, built)
 	if a.writeAgentConnectedAppsError(c, "save Gmail canvas draft", err) {
 		return
 	}

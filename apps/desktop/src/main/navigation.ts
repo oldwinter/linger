@@ -15,6 +15,28 @@ export const sameOrigin = (url: string, serverUrl: string): boolean => {
   }
 };
 
+export interface ServerSwitch {
+  // The same server answers at another origin; its enrollments follow it.
+  readonly moved: boolean;
+  // The app leaves the server it used for another one, which drops this
+  // computer's enrollment.
+  readonly changed: boolean;
+}
+
+// What pointing the app from `previous` at `serverUrl` means. `movedFrom` is
+// the origin the server at `serverUrl` answered at before it moved.
+export function serverSwitch(
+  previous: string | undefined,
+  serverUrl: string,
+  movedFrom?: string,
+): ServerSwitch {
+  const moved = movedFrom !== undefined && movedFrom !== serverUrl;
+  return {
+    moved,
+    changed: serverUrl !== previous && !(moved && previous === movedFrom),
+  };
+}
+
 export type NavigationDecision = "allow" | "external" | "deny";
 
 // App pages are reachable only from app pages: the server's pages must not

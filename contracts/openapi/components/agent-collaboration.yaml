@@ -439,6 +439,58 @@ components:
             description: One non-empty user-visible private message body.
             minLength: 1
             maxLength: 50000
+    AgentRoomHandoffRequest:
+      type: object
+      description: >-
+        The Room to hand the Human's request to and the instruction the AnotherMe's
+        Context there carries out. The caller, its direct chat and its Human are
+        derived by TeamHub, never accepted from the caller.
+      additionalProperties: false
+      required:
+        - invocation_id
+        - room_id
+        - instruction
+      properties:
+        invocation_id:
+          $ref: "#/components/schemas/AgentInvocationId"
+        room_id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        instruction:
+          type: string
+          description: >-
+            Self-contained instruction for the AnotherMe in the target Room. Hidden from
+            the Room's timeline; the receiving Context decides what to post there.
+          minLength: 1
+          maxLength: 8000
+    AgentRoomHandoffResponse:
+      type: object
+      description: The handoff posted in the target Room.
+      additionalProperties: false
+      required:
+        - duplicate_request
+        - accepted
+        - inbox_id
+        - handoff_id
+      properties:
+        duplicate_request:
+          type: boolean
+          description: True only when the server recovered a prior committed operation.
+        reason:
+          type: string
+          minLength: 1
+          description: Optional public receipt explanation.
+        accepted:
+          type: boolean
+          const: true
+          description: Whether TeamHub posted the handoff.
+        inbox_id:
+          type: string
+          description: Canonical public Inbox of the target Room.
+          minLength: 6
+          maxLength: 69
+          pattern: "^room:[A-Za-z0-9][A-Za-z0-9_-]*$"
+        handoff_id:
+          $ref: "./common.yaml#/components/schemas/Id"
     AgentSendDirectMessageResponse:
       type: object
       description: >-
@@ -1365,7 +1417,7 @@ components:
       properties:
         kind:
           type: string
-          enum: [daily, weekly, every_n_hours, once]
+          enum: [daily, weekly, every_n_minutes, every_n_hours, once]
         time:
           type: string
           description: Local 24-hour clock as HH:MM. Required for daily and weekly.
@@ -1383,11 +1435,17 @@ components:
           items:
             $ref: "#/components/schemas/AgentRoutineWeekday"
           description: Selected local weekdays. Required for weekly. Responses use Monday through Sunday order.
+        interval_minutes:
+          type: integer
+          minimum: 10
+          maximum: 10080
+          multipleOf: 10
+          description: Repeat interval in minutes for every_n_minutes (10 to 10080, in 10-minute increments). Do not send a clock or timezone with it.
         interval_hours:
           type: integer
           minimum: 1
           maximum: 168
-          description: Repeat interval for every_n_hours. Do not send a clock or timezone with it.
+          description: Repeat interval in whole hours for every_n_hours (1 to 168), accepted on input for compatibility with older clients and stored in minutes. Responses always use every_n_minutes with interval_minutes. Do not send a clock or timezone with it.
         run_at:
           type: string
           format: date-time

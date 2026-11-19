@@ -145,12 +145,12 @@ describe("RunnerGateway session compaction", () => {
     const { gateway, peer, connection } = await connect();
     const codex = { computerId: "runner-local", runtimeType: "codex" as const };
     try {
-      const running = await gateway.acquireModelChain(
+      const running = await gateway.acquireModelCall(
         codex,
         { priority: 70, kind: "wiki", key: "wiki:test" },
         new AbortController().signal,
       );
-      const memory = gateway.acquireModelChain(
+      const memory = gateway.acquireModelCall(
         codex,
         { priority: 40, kind: "memory", key: "memory:test" },
         new AbortController().signal,
@@ -181,7 +181,7 @@ describe("RunnerGateway session compaction", () => {
 
   it("answers no_process when the Computer disconnects while compaction waits", async () => {
     const { gateway, connection } = await connect();
-    const running = await gateway.acquireModelChain(
+    const running = await gateway.acquireModelCall(
       { computerId: "runner-local", runtimeType: "codex" },
       { priority: 70, kind: "wiki", key: "wiki:test" },
       new AbortController().signal,

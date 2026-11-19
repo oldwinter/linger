@@ -283,6 +283,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/byok/check": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Validate BYOK upstream endpoint via localmodels */
+    post: operations["checkInstallerByok"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/runtime-login": {
     parameters: {
       query?: never;
@@ -398,6 +415,22 @@ export interface components {
     ModelCheckReport: {
       checks: components["schemas"]["CheckResult"][];
     };
+    ByokConfiguration: {
+      baseUrl: string;
+      apiKey?: string;
+      modelId: string;
+      contextWindow?: number;
+      /** @enum {string} */
+      runtime?: "claude" | "codex" | "pi";
+    };
+    ByokCheckReport: {
+      ok: boolean;
+      /** @enum {string} */
+      protocol: "openai-chat" | "openai-responses" | "anthropic";
+      baseUrl: string;
+      modelId: string;
+      contextWindow: number;
+    };
     /** @description Continue the private saved job input, replacing only model approval or explicit review. Omit both for an ordinary retry without spent authority. */
     LocalModelsAuthority: {
       localModelsApproval?: string;
@@ -429,6 +462,7 @@ export interface components {
        */
       preparation?: "codex" | "claude" | "pi";
       runtimeModel?: components["schemas"]["ModelConfiguration"];
+      byok?: components["schemas"]["ByokConfiguration"];
       /** @default default */
       instance: string;
       port?: number;
@@ -637,9 +671,17 @@ export interface components {
           vramFreeBytes?: number;
           vramRequiredBytes?: number;
         };
-        reasons: string[];
-        /** @description Human-readable upstream explanations in the same order as reasons; model eligibility remains upstream-owned. */
-        reasonMessages?: string[];
+        /** @description Upstream stack.reasons. Clients choose their copy by code and its counts; message is upstream diagnostic text for logs, never shown or matched on. */
+        reasons: {
+          code: string;
+          message: string;
+          /** @description On gpu-memory-required, the card other programs hold memory on. */
+          gpuIndex?: number;
+          /** @description On gpu-memory-required (that card's VRAM) and free-memory-required (RAM), the memory free now. */
+          freeBytes?: number;
+          /** @description The memory the install needs free, for the same resource as freeBytes. */
+          requiredBytes?: number;
+        }[];
         /**
          * @description Present when the upstream plan fits this computer's hardware only once other programs release the memory they hold now (reason free-memory-required); installing plans again against the memory free then.
          * @enum {string}
@@ -1506,6 +1548,48 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["ModelCheckReport"];
+        };
+      };
+      /** @description Invalid request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["InstallerError"];
+        };
+      };
+      /** @description Local installer session required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["InstallerError"];
+        };
+      };
+    };
+  };
+  checkInstallerByok: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ByokConfiguration"];
+      };
+    };
+    responses: {
+      /** @description BYOK check result */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ByokCheckReport"];
         };
       };
       /** @description Invalid request */

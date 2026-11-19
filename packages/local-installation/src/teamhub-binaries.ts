@@ -132,7 +132,15 @@ export async function installTeamhubBinaries(
     );
   const destination = path.join(repo, TEAMHUB_BINARY_DIRECTORY);
   const current = await readTeamhubBinaries(destination).catch(() => undefined);
-  if (JSON.stringify(current) === JSON.stringify(manifest)) return "current";
+  if (JSON.stringify(current) === JSON.stringify(manifest)) {
+    try {
+      await verifyTeamhubBinaries(destination, manifest);
+      return "current";
+    } catch {
+      // A matching manifest can outlive a missing or damaged binary. Restore
+      // the bundled copy before Native has to fall back to compiling it.
+    }
+  }
   await rm(destination, { recursive: true, force: true });
   await mkdir(destination, { recursive: true });
   try {

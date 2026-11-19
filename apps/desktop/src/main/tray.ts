@@ -108,7 +108,6 @@ export class TrayModule implements Module, DesktopTrayHost {
     }
     this.#unsubscribe.push(
       ctx.bus.on("status.changed", () => this.#refresh()),
-      ctx.bus.on("computer.identity_conflict", () => this.#refresh()),
       ctx.bus.on("power.changed", () => this.#refresh()),
       ctx.bus.on("update.changed", () => this.#refresh()),
     );
@@ -170,12 +169,10 @@ export class TrayModule implements Module, DesktopTrayHost {
     const power = this.#ctx!.get<PowerGuardModule>("PowerGuard");
     const status = this.#status();
     const update = this.#ctx!.get<UpdaterModule>("Updater").state();
-    const config = this.#ctx!.config.get();
     const items = trayMenu({
       status,
       preventSleep: power.alwaysOn(),
-      enrolled: !!config.computerId,
-      identityConflict: !!config.identityConflict,
+      enrolled: !!this.#ctx!.config.get().computerId,
       update,
       canSendDiagnostics:
         !!this.#ctx!.get<DiagnosticsModule>("Diagnostics").uploadUrl(),
@@ -202,9 +199,6 @@ export class TrayModule implements Module, DesktopTrayHost {
         // A new computer goes through setup; a connected one re-enrolls.
         if (ctx.config.get().computerId) void this.#enroll();
         else ctx.get<SetupWindowModule>("SetupWindow").show();
-        break;
-      case "resolve-identity-conflict":
-        void this.#resolveIdentityConflict();
         break;
       case "open":
         ctx.get<SetupWindowModule>("SetupWindow").showApp();
@@ -271,25 +265,5 @@ export class TrayModule implements Module, DesktopTrayHost {
         ? dialog.showMessageBox(window, options)
         : dialog.showMessageBox(options));
     }
-  }
-
-  async #resolveIdentityConflict(): Promise<void> {
-    const ctx = this.#ctx!;
-    const windows = ctx.get<WindowManagerModule>("WindowManager");
-    const window = windows.window();
-    const options = {
-      type: "warning" as const,
-      message: "Set up this computer again?",
-      detail:
-        "This computer's Daemon Identity belongs to another Computer. Setting up again discards the conflicting identity and reopens setup so you can reconnect.",
-      buttons: ["Cancel", "Set Up Again"],
-      defaultId: 1,
-      cancelId: 0,
-    };
-    const { response } = await (window
-      ? dialog.showMessageBox(window, options)
-      : dialog.showMessageBox(options));
-    if (response !== 1) return;
-    ctx.bus.emit("local-server.reset");
   }
 }

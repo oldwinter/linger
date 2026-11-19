@@ -32,13 +32,26 @@ export interface AgentContextRoots {
 
 export type RuntimeViewMappingKind = "inbox_view" | "memory" | "playground";
 
-export interface RuntimeViewMapping {
+interface RuntimeViewMount {
   readonly kind: RuntimeViewMappingKind;
-  readonly sourcePath: string;
-  readonly fileLinkRootPaths?: readonly string[];
   readonly targetPath: string;
   readonly access: "read_only" | "read_write";
 }
+
+interface DirectoryViewMapping extends RuntimeViewMount {
+  readonly sourcePath: string;
+  readonly fileLinkRootPaths?: readonly string[];
+  readonly inlineFiles?: never;
+}
+
+interface InlineViewMapping extends RuntimeViewMount {
+  readonly kind: "memory";
+  readonly access: "read_only";
+  readonly inlineFiles: Readonly<Record<string, string>>;
+  readonly sourcePath?: never;
+}
+
+export type RuntimeViewMapping = DirectoryViewMapping | InlineViewMapping;
 
 export interface RuntimeViewPlan {
   readonly ref: ExecutionContextRef;
@@ -50,8 +63,8 @@ export interface RuntimeViewPlan {
 }
 
 export interface StagedDocumentProjection {
-  readonly mapping: RuntimeViewMapping;
-  activate(): Promise<RuntimeViewMapping>;
+  readonly mapping: DirectoryViewMapping;
+  activate(): Promise<DirectoryViewMapping>;
   discard(): Promise<void>;
   release(): Promise<void>;
 }
@@ -197,7 +210,7 @@ class FileSystemAgentContextHost implements AgentContextHost {
       stateRoot,
       path.join(stateRoot, currentDocument.documentId),
     );
-    const mapping: RuntimeViewMapping = Object.freeze({
+    const mapping: DirectoryViewMapping = Object.freeze({
       kind: "inbox_view",
       sourcePath: scopeRoot,
       targetPath: path.posix.join(
@@ -207,7 +220,7 @@ class FileSystemAgentContextHost implements AgentContextHost {
       access: "read_only",
     });
     let released = false;
-    const activate = (): Promise<RuntimeViewMapping> =>
+    const activate = (): Promise<DirectoryViewMapping> =>
       this.withTail(this.agentTails, input.agentId, async () => {
         if (released) throw new Error("Document projection stage is released");
         await atomicWriteFile(

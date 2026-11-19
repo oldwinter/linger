@@ -19,7 +19,6 @@
 // (RUNTIME_LAYOUTS); packaging/mac/package.py signs them.
 //
 //   node scripts/build-native-runtime.mjs --target win32-x64 --source linger-<label>.tar.gz
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream, existsSync } from "node:fs";
 import {
@@ -34,7 +33,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { builtinModules } from "node:module";
-import { tmpdir } from "node:os";
+import { availableParallelism, tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
@@ -43,10 +42,11 @@ import zlib, { createZstdCompress } from "node:zlib";
 import { build } from "esbuild";
 
 import {
+  ensureNodeRuntimeArchive,
   NODE_RUNTIME_RELEASES,
   NODE_RUNTIME_VERSION,
-  nodeRuntimeDownloadUrls,
 } from "../../../scripts/local-computer-node-distributions.mjs";
+import { run } from "./build-daemon.mjs";
 import { bundleNodeServices } from "./bundle-node-services.mjs";
 import { sourceCommit } from "./build-teamhub.mjs";
 
@@ -91,6 +91,7 @@ export const MODEL_PACKAGE_GROUPS = [
 export const modelPackageGroup = (name) =>
   MODEL_PACKAGE_GROUPS.find(([pattern]) => pattern.test(name))?.[1];
 // Registries holding the same tarballs; the lockfile integrity checks both.
+// Node Services tries the one in its download region (SIMPLEX_REGION) first.
 const MODEL_REGISTRIES = [
   "https://registry.npmjs.org/",
   "https://registry.npmmirror.com/",
@@ -108,6 +109,12 @@ const OPTIONAL_IMPORTS = new Set([
   "utf-8-validate",
 ]);
 
+// Dependencies the services never load, left out with everything only they
+// need. officeparser imports tesseract.js (an OCR engine with about 40 MB of
+// wasm) only when a parse asks for OCR, and document-office-extract.ts
+// always passes `ocr: false`.
+const UNLOADED_PACKAGES = new Set(["tesseract.js"]);
+
 export const runtimeDirectory = (target) =>
   path.join(desktop, "dist/installer/native", `runtime-${target}`);
 
@@ -115,13 +122,6 @@ const sha256File = async (file) => {
   const hash = createHash("sha256");
   for await (const chunk of createReadStream(file)) hash.update(chunk);
   return hash.digest("hex");
-};
-
-const run = (command, args, options = {}) => {
-  const result = spawnSync(command, args, { stdio: "inherit", ...options });
-  if (result.error) throw result.error;
-  if (result.status !== 0)
-    throw new Error(`${command} ${args.join(" ")} failed (${result.status})`);
 };
 
 const packageName = (specifier) =>
@@ -163,6 +163,7 @@ export async function copyExternals(
     }
   };
   const visit = async (name, from, required) => {
+    if (UNLOADED_PACKAGES.has(name)) return;
     const directory = find(name, from);
     if (!directory) {
       if (required)
@@ -254,47 +255,31 @@ async function listFiles(root) {
   return files;
 }
 
-// Node archives already downloaded by an earlier build; they are checked
-// against the pinned sha256 like a download.
-const nodeCache = path.join(desktop, "node_modules/.cache/linger-node");
+// Shared with scripts/prepare-local-computer-release.mjs so both the Native
+// runtime and Computer tools reuse one pinned Node.js download per target.
+const nodeCache = path.join(
+  desktop,
+  "../../.linger-runtime/node-distributions",
+);
 
 async function downloadNode(target, output) {
   const release = NODE_RUNTIME_RELEASES[target];
   const file = path.join(output, release.archive);
-  const cached = path.join(nodeCache, release.archive);
-  if (existsSync(cached) && (await sha256File(cached)) === release.sha256) {
-    await cp(cached, file);
-    return {
-      version: NODE_RUNTIME_VERSION,
-      file: release.archive,
-      sha256: release.sha256,
-      bytes: (await stat(file)).size,
-    };
-  }
-  for (const url of nodeRuntimeDownloadUrls(release.archive)) {
-    const response = await fetch(url).catch(() => undefined);
-    if (!response?.ok) continue;
-    await writeFile(file, Buffer.from(await response.arrayBuffer()));
-    if ((await sha256File(file)) !== release.sha256) continue;
-    await mkdir(nodeCache, { recursive: true });
-    await cp(file, cached);
-    return {
-      version: NODE_RUNTIME_VERSION,
-      file: release.archive,
-      sha256: release.sha256,
-      bytes: (await stat(file)).size,
-    };
-  }
-  throw new Error(
-    `Could not download ${release.archive} with its pinned sha256`,
-  );
+  const cached = await ensureNodeRuntimeArchive(target, nodeCache);
+  await cp(cached, file);
+  return {
+    version: NODE_RUNTIME_VERSION,
+    file: release.archive,
+    sha256: release.sha256,
+    bytes: (await stat(file)).size,
+  };
 }
 
 // bin/node and the license from a Node.js release tar.gz, into `output`/node.
 async function unpackNode(archive, output, work) {
   const unpacked = path.join(work, "node-release");
   await mkdir(unpacked);
-  run("tar", ["-xzf", archive, "-C", unpacked, "--strip-components=1"]);
+  await run("tar", ["-xzf", archive, "-C", unpacked, "--strip-components=1"]);
   const node = path.join(output, NODE_DIRECTORY);
   await mkdir(path.join(node, "bin"), { recursive: true });
   await cp(path.join(unpacked, "bin/node"), path.join(node, "bin/node"));
@@ -376,7 +361,7 @@ export async function buildRuntime(
     const services = path.join(root, "node-services");
     const web = path.join(root, "web");
     await mkdir(source);
-    run("tar", ["-xzf", archive, "-C", source, "--strip-components=1"]);
+    await run("tar", ["-xzf", archive, "-C", source, "--strip-components=1"]);
     await timed("install", () =>
       run(
         "pnpm",
@@ -394,93 +379,106 @@ export async function buildRuntime(
         { cwd: source },
       ),
     );
-    await timed("web", async () => {
-      run("pnpm", ["--filter", "@linger/web", "build:assets"], {
-        cwd: source,
-      });
-      // The precompressed twins halve Web's share of the package and save
-      // nothing on loopback; the host serves the plain file without them.
-      await cp(path.join(source, "apps/web/dist"), path.join(web, "dist"), {
-        recursive: true,
-        filter: (file) =>
-          !/\.(?:gz|br)$/.test(file) ||
-          !existsSync(file.replace(/\.(?:gz|br)$/, "")),
-      });
-      await build({
-        absWorkingDir: path.join(source, "apps/web"),
-        entryPoints: [path.join(source, "apps/web/static-host.mjs")],
-        outfile: path.join(web, "static-host.mjs"),
-        bundle: true,
-        platform: "node",
-        format: "esm",
-        target: "node26",
-        logLevel: "warning",
-      });
-    });
-    const bundled = await timed("node-services", async () => {
-      const result = await bundleNodeServices(source, services);
-      await cp(
-        path.join(source, "apps/node-services/prompts"),
-        path.join(services, "prompts"),
-        { recursive: true },
-      );
-      await writeFile(
-        path.join(services, "package.json"),
-        JSON.stringify(
-          { name: "@linger/node-services", private: true, type: "module" },
-          null,
-          2,
-        ),
-      );
-      return result;
-    });
-    const packages = await timed("externals", async () => {
-      const deployed = path.join(work, "deploy");
-      run(
-        "pnpm",
-        [
-          "--filter",
-          "@linger/node-services",
-          "deploy",
-          "--config.inject-workspace-packages=true",
-          "--config.node-linker=hoisted",
-          "--prod",
-          // Every native package here ships prebuilt per platform.
-          "--ignore-scripts",
-          `--os=${platform.os}`,
-          `--cpu=${platform.cpu}`,
-          ...(platform.libc ? [`--libc=${platform.libc}`] : []),
-          deployed,
-        ],
-        { cwd: source },
-      );
-      const builtins = new Set(builtinModules);
-      const roots = new Set(RUNTIME_PACKAGES);
-      for (const specifier of bundled.imports) {
-        const name = packageName(specifier);
-        if (!builtins.has(name) && !OPTIONAL_IMPORTS.has(name)) roots.add(name);
-      }
-      const copied = await copyExternals(
-        deployed,
-        services,
-        [...roots].sort(),
-        modelPackageGroup,
-      );
-      await writeFile(
-        path.join(services, "models.json"),
-        JSON.stringify(
-          modelPackages(
-            await readFile(path.join(source, "pnpm-lock.yaml"), "utf8"),
-            copied.excluded,
-          ),
-          null,
-          2,
-        ),
-      );
-      return copied;
-    });
+    const [, { bundled, packages }, downloadedNode] = await Promise.all([
+      timed("web", async () => {
+        const webSource = path.join(source, "apps/web");
+        // Forward --skip-precompress to build:assets so Web keeps one build
+        // recipe while skipping .gz/.br twins the loopback host does not serve.
+        await run(
+          "pnpm",
+          [
+            "--filter",
+            "@linger/web",
+            "run",
+            "build:assets",
+            "--skip-precompress",
+          ],
+          { cwd: source },
+        );
+        await cp(path.join(webSource, "dist"), path.join(web, "dist"), {
+          recursive: true,
+        });
+        await build({
+          absWorkingDir: webSource,
+          entryPoints: [path.join(webSource, "static-host.mjs")],
+          outfile: path.join(web, "static-host.mjs"),
+          bundle: true,
+          platform: "node",
+          format: "esm",
+          target: "node26",
+          logLevel: "warning",
+        });
+      }),
+      (async () => {
+        const bundledResult = await timed("node-services", async () => {
+          const result = await bundleNodeServices(source, services);
+          await cp(
+            path.join(source, "apps/node-services/prompts"),
+            path.join(services, "prompts"),
+            { recursive: true },
+          );
+          await writeFile(
+            path.join(services, "package.json"),
+            JSON.stringify(
+              { name: "@linger/node-services", private: true, type: "module" },
+              null,
+              2,
+            ),
+          );
+          return result;
+        });
+        const packagesResult = await timed("externals", async () => {
+          const deployed = path.join(work, "deploy");
+          await run(
+            "pnpm",
+            [
+              "--filter",
+              "@linger/node-services",
+              "deploy",
+              "--config.inject-workspace-packages=true",
+              "--config.node-linker=hoisted",
+              "--prod",
+              // Every native package here ships prebuilt per platform.
+              "--ignore-scripts",
+              `--os=${platform.os}`,
+              `--cpu=${platform.cpu}`,
+              ...(platform.libc ? [`--libc=${platform.libc}`] : []),
+              deployed,
+            ],
+            { cwd: source },
+          );
+          const builtins = new Set(builtinModules);
+          const roots = new Set(RUNTIME_PACKAGES);
+          for (const specifier of bundledResult.imports) {
+            const name = packageName(specifier);
+            if (!builtins.has(name) && !OPTIONAL_IMPORTS.has(name))
+              roots.add(name);
+          }
+          const copied = await copyExternals(
+            deployed,
+            services,
+            [...roots].sort(),
+            modelPackageGroup,
+          );
+          await writeFile(
+            path.join(services, "models.json"),
+            JSON.stringify(
+              modelPackages(
+                await readFile(path.join(source, "pnpm-lock.yaml"), "utf8"),
+                copied.excluded,
+              ),
+              null,
+              2,
+            ),
+          );
+          return copied;
+        });
+        return { bundled: bundledResult, packages: packagesResult };
+      })(),
+      timed("node", () => downloadNode(target, output)),
+    ]);
     const layout = RUNTIME_LAYOUTS[target];
-    let node = await timed("node", () => downloadNode(target, output));
+    let node = downloadedNode;
     await timed("archive", async () => {
       const files = await listFiles(root);
       await writeFile(
@@ -498,7 +496,7 @@ export async function buildRuntime(
         ),
       );
       if (layout === "directory") return;
-      run("tar", [
+      await run("tar", [
         "--sort=name",
         "--format=posix",
         "--owner=0",
@@ -519,6 +517,10 @@ export async function buildRuntime(
           params: {
             [zlib.constants.ZSTD_c_compressionLevel]: 12,
             [zlib.constants.ZSTD_c_windowLog]: 24,
+            [zlib.constants.ZSTD_c_nbWorkers]: Math.min(
+              availableParallelism(),
+              4,
+            ),
           },
         }),
         createWriteStream(path.join(output, RUNTIME_ARCHIVE)),

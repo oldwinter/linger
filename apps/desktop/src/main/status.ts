@@ -10,8 +10,6 @@ export interface StatusInput {
   readonly runtime: RuntimeState;
   readonly enrolled: boolean;
   readonly running: number;
-  // The Gateway refused this computer's identity as another Computer's.
-  readonly identityConflict?: boolean;
 }
 
 export interface StatusSummary {
@@ -22,15 +20,16 @@ export interface StatusSummary {
 // One line shown at the top of the tray menu.
 export const summarizeStatus = (input: StatusInput): StatusSummary => {
   if (!input.enrolled) return { tone: "setup", label: "Not Connected" };
-  // Reconnecting cannot clear a refusal: only a new setup enrolls this
-  // computer again.
-  if (input.identityConflict)
-    return { tone: "error", label: "Identity Conflict · Set Up Again" };
   switch (input.connection) {
     case "auth_failed":
       return {
         tone: "error",
         label: "Sign-in Expired · Reconnect This Computer",
+      };
+    case "identity_conflict":
+      return {
+        tone: "error",
+        label: "Computer Identity Conflict · Reconnect This Computer",
       };
     case "upgrade_required":
       return { tone: "error", label: "Update Required" };
@@ -61,7 +60,6 @@ export class StatusModule implements Module {
     const update = (): void => this.#update();
     this.#unsubscribe.push(
       ctx.bus.on("computer.connection", update),
-      ctx.bus.on("computer.identity_conflict", update),
       ctx.bus.on("runtime.state", update),
       ctx.bus.on("runtime.activity", update),
       ctx.bus.on("computer.changed", update),
@@ -85,9 +83,6 @@ export class StatusModule implements Module {
       runtime: daemon.state(),
       enrolled: !!ctx.config.get().computerId,
       running: daemon.running(),
-      identityConflict:
-        daemon.connectionError() !== undefined ||
-        !!ctx.config.get().identityConflict,
     });
     if (next.tone === this.#current.tone && next.label === this.#current.label)
       return;

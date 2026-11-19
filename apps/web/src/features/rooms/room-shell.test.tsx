@@ -35,7 +35,11 @@ import {
   TeamHubRuntimeProvider,
 } from "@/features/teamhub/teamhub-runtime";
 
-import { teamHubIdentityQueryKey } from "./room-queries";
+import {
+  teamHubIdentityQueryKey,
+  teamHubIdentityQueryOptions,
+  teamHubTenantQueryOptions,
+} from "./room-queries";
 import { browserRoomMessageOutbox } from "./chat/room-message-outbox";
 import { RoomShell } from "./room-shell";
 import {
@@ -488,6 +492,14 @@ describe("Room shell Tenant transition", () => {
       ],
       { initialEntries: ["/t/tenant-northstar/rooms/room-all/chat"] },
     );
+    // Loading what RoomShell suspends on before rendering skips React's
+    // Suspense reveal throttle, which otherwise costs the test a fixed delay.
+    await Promise.all([
+      queryClient.ensureQueryData(teamHubIdentityQueryOptions(runtime.client)),
+      queryClient.ensureQueryData(
+        teamHubTenantQueryOptions(runtime.client, "tenant-northstar"),
+      ),
+    ]);
     render(
       <QueryClientProvider client={queryClient}>
         <TeamHubRuntimeProvider runtime={runtime}>
@@ -698,7 +710,8 @@ describe("Room shell Tenant transition", () => {
     );
 
     expect(await screen.findByText("Current Room content")).toBeVisible();
-    fireEvent.click(screen.getByRole("link", { name: "gtm-launch" }));
+    // The Room list is a lazy chunk that can settle after the Room content.
+    fireEvent.click(await screen.findByRole("link", { name: "gtm-launch" }));
     await waitFor(() =>
       expect(router.state.location.pathname).toBe(
         "/t/tenant-northstar/rooms/room-gtm-launch/chat",

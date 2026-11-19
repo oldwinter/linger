@@ -101,6 +101,7 @@ export class JobManager {
       events: Event[];
       input: Input;
       controller: AbortController;
+      starting?: Promise<void>;
       task?: Promise<void>;
       cancelRequested?: boolean;
       executing?: boolean;
@@ -162,7 +163,7 @@ export class JobManager {
   }
   get busy() {
     return [...this.records.values()].some(
-      (record) => active(record.job) && record.executing,
+      (record) => record.starting || (active(record.job) && record.executing),
     );
   }
   private timers = new Map<string, NodeJS.Timeout>();
@@ -203,6 +204,7 @@ export class JobManager {
       input.password,
       input.model?.apiKey,
       input.runtimeModel?.apiKey,
+      input.byok?.apiKey,
     ])
       if (secret) clean = clean.split(secret).join("[hidden]");
     clean = clean
@@ -261,11 +263,15 @@ export class JobManager {
     };
     // Windows protects every job file with a PowerShell call, so progress
     // is saved at most once a second; any other event is saved at once.
-    if (event.progress) this.persistSoon(id, failed);
-    else {
-      clearTimeout(this.timers.get(id));
-      this.timers.delete(id);
-      void this.persist(id).catch(failed);
+    // start() saves these events once the private input is durable. Publishing
+    // a job first would leave an unreadable record if that initial save fails.
+    if (!record.starting) {
+      if (event.progress) this.persistSoon(id, failed);
+      else {
+        clearTimeout(this.timers.get(id));
+        this.timers.delete(id);
+        void this.persist(id).catch(failed);
+      }
     }
     for (const listener of this.listeners.get(id) ?? [])
       listener(structuredClone(event));
@@ -331,19 +337,26 @@ export class JobManager {
       input: structuredClone(input),
       events: [] as Event[],
       controller: new AbortController(),
+      starting: undefined as Promise<void> | undefined,
       task: undefined as Promise<void> | undefined,
       cancelRequested: false,
       executing: false,
     };
     this.records.set(id, record);
-    try {
+    record.starting = (async () => {
       await replaced;
       await privateWrite(path.join(this.directory, `${id}.input.json`), input);
       await this.persist(id);
+    })();
+    try {
+      await record.starting;
     } catch (error) {
       this.records.delete(id);
       throw error;
+    } finally {
+      record.starting = undefined;
     }
+    if (record.cancelRequested) return structuredClone(job);
     record.executing = true;
     record.task = this.execute(id).catch(() => {
       record.executing = false;
@@ -416,7 +429,14 @@ export class JobManager {
             "LOCAL_MODELS_UNAVAILABLE",
             "LOCAL_MODELS_APPROVAL_REQUIRED",
             "LOCAL_MODELS_RECOVERY_REQUIRED",
-          ].includes(String(details.code))
+          ].includes(String(details.code)) ||
+          // Why the runtime could not be installed, in place of INSTALL_FAILED.
+          (record.job.state === "failed" &&
+            [
+              "RUNTIME_PLAN_REFUSED",
+              "RUNTIME_ACTION_FAILED",
+              "RUNTIME_EXTENSIONS_FAILED",
+            ].includes(String(details.code)))
         ) {
           record.job.errorCode = String(details.code);
           if (details.code === "LOCAL_MODELS_APPROVAL_REQUIRED") {
@@ -496,6 +516,8 @@ export class JobManager {
           state: "canceled",
           message: "Installation stopped. Existing data was kept.",
         });
+        await record.starting;
+        // The first snapshot may have been captured before this cancellation.
         await this.persist(id);
         return this.get(id);
       }
@@ -527,14 +549,31 @@ export class JobManager {
   }
   async shutdown() {
     const running = [...this.records.values()].filter(
-      (record) => record.executing,
+      (record) => record.starting || record.executing,
     );
-    for (const record of running) await this.cancel(record.job.id);
-    await Promise.all(running.map((record) => record.task));
+    const cancellations = await Promise.allSettled(
+      running.map((record) => this.cancel(record.job.id)),
+    );
+    await Promise.all(
+      running.map(async (record) => {
+        // start() reports a failed initial write to its caller.
+        await record.starting?.catch(() => {});
+        await record.task;
+      }),
+    );
     await this.writes;
+    // A failed start removes its record and reports the error to its caller.
+    for (const [index, result] of cancellations.entries())
+      if (
+        result.status === "rejected" &&
+        this.records.has(running[index]!.job.id)
+      )
+        throw result.reason;
   }
   async wait(id: string) {
-    await this.records.get(id)?.task;
+    const record = this.records.get(id);
+    await record?.starting;
+    await record?.task;
     await this.writes;
   }
   replay(id: string, after: number): Event[] {

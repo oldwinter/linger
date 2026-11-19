@@ -16,6 +16,7 @@ import {
   type RuntimeStateSchemas,
   type TeamHubRuntimeStateClient,
 } from "../executor/teamhub-runtime-state-client.js";
+import { RunnerDaemonIdentityInUseError } from "./runner-operation.js";
 
 export interface LocalComputerOwner {
   readonly ownerActorId: string;
@@ -121,26 +122,40 @@ export const createTeamHubLocalComputerRegistry = (
     status,
     recommendedVersion,
   }) {
-    const result = await client.connectLocalComputer({
-      computer_id: computerId,
-      owner: { tenant_id: owner.tenantId, owner_actor_id: owner.ownerActorId },
-      credential_generation: String(credentialGeneration),
-      daemon_id: hello.daemon_identity.daemon_id,
-      daemon_public_key: hello.daemon_identity.public_key,
-      identity_version: String(hello.daemon_identity.identity_version),
-      status,
-      seen_at: new Date().toISOString(),
-      display_name: hello.display_name ?? computerId,
-      platform: hello.platform,
-      ...(hello.capacity === undefined ? {} : { capacity: hello.capacity }),
-      runtimes: [...hello.runtimes],
-      runtime_diagnostics: jsonObjects(hello.runtime_diagnostics),
-      workspace_grants: jsonObjects(hello.workspace_grants),
-      daemon_version: hello.daemon_version,
-      ...(recommendedVersion === undefined
-        ? {}
-        : { recommended_version: recommendedVersion }),
-    });
+    let result: RuntimeStateSchemas["ConnectAgentRuntimeLocalComputerResult"];
+    try {
+      result = await client.connectLocalComputer({
+        computer_id: computerId,
+        owner: {
+          tenant_id: owner.tenantId,
+          owner_actor_id: owner.ownerActorId,
+        },
+        credential_generation: String(credentialGeneration),
+        daemon_id: hello.daemon_identity.daemon_id,
+        daemon_public_key: hello.daemon_identity.public_key,
+        identity_version: String(hello.daemon_identity.identity_version),
+        status,
+        seen_at: new Date().toISOString(),
+        display_name: hello.display_name ?? computerId,
+        platform: hello.platform,
+        ...(hello.capacity === undefined ? {} : { capacity: hello.capacity }),
+        runtimes: [...hello.runtimes],
+        runtime_diagnostics: jsonObjects(hello.runtime_diagnostics),
+        workspace_grants: jsonObjects(hello.workspace_grants),
+        daemon_version: hello.daemon_version,
+        ...(recommendedVersion === undefined
+          ? {}
+          : { recommended_version: recommendedVersion }),
+      });
+    } catch (error) {
+      if (
+        error instanceof TeamHubRuntimeStateError &&
+        error.code === "DAEMON_IDENTITY_IN_USE"
+      ) {
+        throw new RunnerDaemonIdentityInUseError(error.message);
+      }
+      throw error;
+    }
     return result.placements.map((placement) => ({
       agentId: placement.agent_id,
       tenantId: placement.tenant_id,

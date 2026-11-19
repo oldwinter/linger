@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { TeamHubExternalConnection } from "@/features/teamhub/teamhub-types";
 
 import {
+  accountIdentityText,
   activeExternalConnections,
   connectLinkOpen,
   establishedExternalConnections,
@@ -77,5 +78,18 @@ describe("Connect Link reuse", () => {
     expect(
       connectLinkOpen({ connect_expires_at: "2026-01-01T00:00:00Z" }),
     ).toBe(false);
+  });
+});
+
+describe("accountIdentityText", () => {
+  it("shows an Outlook label as the sign-in name, not a mailbox", () => {
+    expect(accountIdentityText("outlook", "me@example.net")).toBe(
+      "Signed in as me@example.net",
+    );
+    expect(accountIdentityText("gmail", "me@example.com")).toBe(
+      "me@example.com",
+    );
+    expect(accountIdentityText("outlook", "")).toBeUndefined();
+    expect(accountIdentityText("outlook", undefined)).toBeUndefined();
   });
 });

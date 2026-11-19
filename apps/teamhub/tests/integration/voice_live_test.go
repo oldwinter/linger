@@ -28,6 +28,13 @@ const voiceLiveRuntimeToken = "voice-live-test-token"
 // Agent is her AnotherMe, after proving the Room is ineligible without one.
 func newVoiceLiveRoom(t *testing.T, configure ...func(*config.Config)) (*testEnv, *http.Client, string, string) {
 	t.Helper()
+	return newVoiceLiveRoomWith(t, nil, configure...)
+}
+
+// newVoiceLiveRoomWith is newVoiceLiveRoom with extra App options, such as
+// starting background work the test observes.
+func newVoiceLiveRoomWith(t *testing.T, options []appOption, configure ...func(*config.Config)) (*testEnv, *http.Client, string, string) {
+	t.Helper()
 	providerAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/protobuf")
 		w.WriteHeader(http.StatusOK)
@@ -40,7 +47,7 @@ func newVoiceLiveRoom(t *testing.T, configure ...func(*config.Config)) (*testEnv
 		for _, more := range configure {
 			more(cfg)
 		}
-	}, withVoiceMedia(media))
+	}, append([]appOption{withVoiceMedia(media)}, options...)...)
 	provider, err := voicemedia.NewLiveKitProvider(voicemedia.LiveKitConfig{APIURL: providerAPI.URL, PublicURL: providerAPI.URL, APIKey: "test", APISecret: "test"}, env.pool)
 	if err != nil {
 		t.Fatal(err)

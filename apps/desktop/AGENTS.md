@@ -32,12 +32,18 @@ Gateway and runs Agents. The daemon exits with the app.
   `win32-x64` daemon target. Needs the
   `wintool` image from `packaging/win/Dockerfile`. Neither is
   Authenticode-signed. The updater runs the setup program with
-  `/S /relaunch`; the portable folder only links to the release page.
+  `/update /relaunch` (a progress page only; Retry/Cancel prompts stay
+  visible); the portable folder only links to the release page.
 - `python3 packaging/linux/package.py`: build
   `out/Linger-<version>-linux-x64.tar.gz` (one folder with the `linger`
   executable) after `node build.mjs` with the `linux-x64` daemon target.
 
 ## Structure
+
+- Connector OAuth opens in the system browser. The desktop prepares an
+  expiring, one-time IPv4 loopback callback before TeamHub creates the link.
+  The callback restores the originating window and forwards the return to its
+  signed-in SPA, which requests TeamHub verification.
 
 - `src/main/modules.ts`: `Module` interface, typed bus and the host that starts
   modules in dependency layers and stops them in reverse.
@@ -47,7 +53,8 @@ Gateway and runs Agents. The daemon exits with the app.
   status summary, tray menu and tray icons, drawn from the logo PNGs in
   `resources/tray/` with a status badge.
 - `src/main/local-server.ts`: LocalServer, the setup page's Quick Install
-  path. It fetches the pinned Node runtime and unpacks the linger source package
+  path. It fetches the pinned Node runtime (sources in the download region's
+  order, `scripts/installs/README.md`) and unpacks the linger source package
   into the install location (the default home, or a folder picked under
   Customize; tar runs inside the target with relative paths, and the
   finished folder is moved into place with `renameRetrying`, which waits out
@@ -133,8 +140,14 @@ Gateway and runs Agents. The daemon exits with the app.
   Quick Install installs the `recommendation` of the localmodels setup
   report (`installer.js --inspect`, run once as the setup window opens):
   `local-models` is the planned model served by Pi, shown with the model,
-  GPU, memory and download, plus the tool's caveat when it has one;
-  otherwise the named runtime, with the tool's reason for no local model.
+  GPU, memory and download (the card's memory is the whole stack's, so
+  "with its services"); otherwise the named runtime, with why there is no
+  local model. The page words each reason by its code and the counts it
+  carries (`gpuIndex`, `freeBytes`, `requiredBytes`); the tool's message
+  goes only to the main process log (`local_server.inspected`), never to
+  the page. Under Customize the Local model card stays visible once the
+  check ends: disabled, "Not available on this computer", with that reason.
+  Off macOS the page names the system tray, not the menu bar.
   Under Customize the local model runs only behind Pi: with another runtime
   it is greyed (`aria-disabled`, still focusable), does not toggle, and says
   "Local models are only available with the Pi runtime."; choosing another
@@ -144,10 +157,11 @@ Gateway and runs Agents. The daemon exits with the app.
   memory it needs now; a tool before that field marks it by `basis:
 "capacity"` or reason `free-memory-required`, either one), the install
   would plan again against the memory free then and stop, so the local model
-  shows on hold and is not offered. With the tool's `stack.memory` the page
-  says "quit other programs first; it needs X of memory, Y is free" (and the
-  graphics memory on a discrete GPU), adding the tool's words for any other
-  reason code; without it, the tool's reason. Quick Install installs the
+  shows on hold and is not offered. `gpu-memory-required` names the GPU and
+  its free against needed memory and says to close programs that use the
+  GPU; `free-memory-required` gives the RAM counts (from the reason, or the
+  tool's `stack.memory` when the reason has none). The page still words
+  `gpu-ownership-unknown`, which localmodels 0.1.0.dev39 reports. Quick Install installs the
   runtime the installer recommends instead, and Check again
   (`local.recheck`) runs the check again. A tool before `stack.state` still
   recommends `local-models` there, so the installer's setup adapter
@@ -167,37 +181,68 @@ Gateway and runs Agents. The daemon exits with the app.
   file and renamed, so a power loss leaves the old record or none) and, while
   the window still uses that origin and the computer is enrolled, restarts the
   services on launch with `installer.js --resume`, which also restarts them
-  when the instance's `user.env` changed. A source folder removed since is
-  unpacked again from the app's package first. A Quick Install that stopped
+  when the instance's `user.env` changed. When another program took the web
+  port, the installer moves the services to a free one and reports the new
+  origin (`details.origin`, or the setup job's `origin`). The record, the
+  window's `serverUrl` and the `savedEnrollments` entry follow it together
+  (`setServer` with the previous origin emits `server.moved`, not
+  `server.changed`), so the Computer stays enrolled: it reaches TeamHub
+  through the gateway URL TeamHub gave it, and the session cookies are not
+  port-scoped. The record and `serverUrl` change only together, so a later
+  launch still resumes. A source folder removed since, or
+  one the installer no longer accepts as a Linger checkout (such as one the
+  earlier Simplex app unpacked, or this package's own folder with files
+  missing since), is unpacked again from the app's package first and
+  replaces the recorded one. The record also names the app
+  version that unpacked the source; when this app brings another source
+  package (it was installed over an older one), that launch unpacks it and
+  resumes on it, with the "Updating Linger" page instead of the older
+  interface. Only when the installer reports the services serving from the
+  new folder (`details.source`) and the origin answers does it record that
+  folder and prune the older one; otherwise the older services keep running
+  from their folder, the record keeps naming it, and the start failure page's
+  Retry moves them again. An app older than the recorded version
+  (a downgrade) leaves the services on their newer source and logs
+  `local_server.source_newer_than_app`. When the local model stops a resume,
+  the start failure names the stack's first known binding reason code
+  (`details.reasons`, such as `pi-extensions-unavailable`) in its own words
+  and, by `details.code`, the action that works: Try Again for
+  `LOCAL_MODELS_RECOVERY_REQUIRED` (the resume applies the approved plan
+  again), Set Up Again to review a new plan or choose another runtime. A Quick Install that stopped
   before the computer enrolled is not resumed: setup shows again and Install
   finishes it, reusing a finished job only while its origin answers (a stopped
   server gets a new job, which starts the services again). The start failure
-  page's Set Up Again forgets the record, clears the
-  server address and shows setup; the instance and its data stay. It keeps the
-  Computer id and the server origin as a renewal reference (never the
-  credential), so the next enrollment against that origin renews the same
-  Computer; choosing another server forgets the reference. If TeamHub answers
-  a renewal with `404 INVALID_ENROLLMENT` the desktop enrolls a new Computer
-  once instead of looping. The Daemon Identity in
-  `computer/state/daemon-identity.json` stays with the Computer that first
-  presented it, since TeamHub binds it there for good: an enrollment that does
-  not renew that Computer discards it once that enrollment is stored
-  (`daemon-identity.ts`), so the daemon makes one for the Computer now
-  enrolled. A Gateway report that the identity is another Computer's persists in
-  `config.json` (`identityConflict`) across daemon backoff and app restarts,
-  until this Computer connects with it or the identity is discarded; Set Up
-  Again (from setup or the tray menu) discards it, and Reconnect This Computer
-  refuses with that reason instead of renewing into the same conflict.
+  page's Set Up Again forgets the record (`local-server.json`), clears the
+  active enrollment while keeping per-origin `savedEnrollments` in
+  `config.json` (`legacy_data_set_aside` clears `savedEnrollments` as well),
+  clears the server address, and shows setup; the instance and its data stay.
+  `Enrollment` (`src/main/enrollment.ts`) sends the local `daemon_id` derived
+  from `<userData>/computer/state/daemon-identity.json`'s public key along
+  with any remembered `computerId` for that origin and owner so re-enrolling or
+  recovering an interrupted exchange renews the existing Computer ID and
+  surfaces `DAEMON_IDENTITY_IN_USE` / `DAEMON_IDENTITY_MISMATCH` conflicts.
+  It sends `daemon_id` only when the server's `/v0/me` lists the
+  `local_computer_enrollment_daemon_id` server capability; a TeamHub older
+  than the desktop omits it and would reject the field. `config.json` keeps
+  the `daemonId` the active enrollment named, and at start an enrollment that
+  named none or another one is renewed once the server lists the capability,
+  so a computer an earlier Set Up Again paired anew gets back the Computer
+  that holds its Daemon Identity, with its Agents.
   Before installing or resuming it moves the
   `COMPOSIO_API_KEY`, `SONIOX_API_KEY`, `XAI_API_KEY` and `TZ` of an unpacked
   source package's `.env` into `<home>/instances/desktop/user.env` once and
   deletes that `.env` (never a `LINGER_CHECKOUT`'s), logging only the names
   of other values it drops; the installer reads only `user.env` for the
-  desktop. Setup then waits up to five minutes for the
-  server to create the Another Me; on timeout it reads `local-computers` and
-  says what is missing (offline computer, no writable folder, or no signed-in
-  runtime with each runtime's reported state) and logs
-  `local_server.another_me_missing`. Customize → API keys takes the
+  desktop. Setup fails immediately on `identity_conflict`, `auth_failed`, or
+  `upgrade_required` daemon connection states (`computer-daemon.ts` maps
+  `identity-conflict` to `identity_conflict`, and `status.ts` summarizes it as
+  an error asking to reconnect), then waits up to five minutes for the
+  server to create the Another Me and for the enrolled Computer to report
+  `online` when `local-computers` is served; on timeout it reads
+  `local-computers` and says what is missing (offline computer, no writable
+  folder, or no signed-in runtime with each runtime's reported state) and logs
+  `local_server.another_me_missing` or
+  `local_server.computer_offline_after_agents`. Customize → API keys takes the
   Composio key only (`provider-keys.ts`); voice keys are saved in the app,
   and a `SONIOX_API_KEY` or `XAI_API_KEY` written into `user.env` by hand
   still reaches the services and overrides the app's. Install saves the edits
@@ -255,7 +300,9 @@ Gateway and runs Agents. The daemon exits with the app.
   `src/preload/quick-note.ts`).
 - `src/preload/index.ts`: the only SPA API, `window.lingerDesktop`. Its
   `notifications.setBadgeCount` sets the app icon's unread mention badge through
-  `app.setBadgeCount`, which macOS and Linux have and Windows does not.
+  `app.setBadgeCount`, which macOS and Linux have and Windows does not. Its
+  `update` reads the Updater's state (without the release page URL) and runs
+  the tray's install and check, for the SPA's account menu.
 - `src/shared/api.ts`, `src/shared/shell.ts`: preload contract types and IPC
   channel names.
 - `src/main/computer-daemon.ts`: ComputerDaemon. While the computer is
@@ -265,12 +312,11 @@ Gateway and runs Agents. The daemon exits with the app.
   credential in `LINGER_COMPUTER_TOKEN` (`gateway.token_env`). The config's
   `desktop` section puts the daemon in Desktop mode: no self-update, it exits
   when its stdin closes, and it reports `{"type":"status",...}` lines on
-  stdout, which drive the tray and the SPA status. Its optional
-  `connection_error: "daemon_identity_conflict"` means the Gateway refused the
-  Daemon Identity as another Computer's: the status shows the conflict, the
-  SPA receives it, and setup stops waiting with a message to reset the local
-  server and set it up again. Its log goes to
-  `<userData>/logs/computer-daemon.log`. Crashes restart with backoff; new
+  stdout, which drive the tray and the SPA status. Its log goes to
+  `<userData>/logs/computer-daemon.log`. Crashes restart with backoff; the
+  exit reason, logged with `computer_daemon.exited` and shown once starts
+  keep failing, is the last stderr line outside the daemon's log records (a
+  Go crash: its `panic:` line), or none; new
   folders or a new name restart it once tasks finish.
   On macOS it writes `{"type":"hello","features":["permissions.v1"]}` to
   the daemon's stdin after spawn and answers `permission.request` lines with
@@ -295,14 +341,15 @@ Gateway and runs Agents. The daemon exits with the app.
   without a credential is set aside as `Linger.before-move-<time>`, so the
   Computer keeps its identity.
   LocalServer runs `installer.js --migrate` when an instance record still
-  carries a `simplex-` project name, before it reads
-  `desktop/local-server.json`
+  carries a `simplex-` project name, in the default home and in the home
+  `desktop/local-server.json` names when the person chose another install
+  location, before it resumes
   (`packages/local-installation/src/legacy-migration.ts`). Instances the
   installer left unconverted are logged as
-  `local_server.legacy_instance_skipped` with their reason and do not hold
-  the app back; only when `desktop` itself stayed unconverted, or the
-  installer could not run, LocalServer enters the failed state with that
-  reason, and Retry runs the migration again. There is
+  `local_server.legacy_instance_skipped` with their home and reason and do
+  not hold the app back; only when `desktop` in the home in use stayed
+  unconverted, or the installer could not run there, LocalServer enters the
+  failed state with that reason, and Retry runs the migration again. There is
   no downgrade path: an older build reads neither the converted instances nor
   the moved data folder. The bundle ID and
   Windows AppUserModelID are `com.simplexai.linger.desktop.preview`. The
@@ -315,24 +362,41 @@ Gateway and runs Agents. The daemon exits with the app.
   stops the installation manager the desktop started (cancelling a running
   job) and the `desktop` instance's services in the default home and in the
   location `desktop/local-server.json` names; services already stopped are
-  left alone and it gives up after about two minutes. It keeps
-  `%APPDATA%\Linger` and the Linger home with all their data and asks nothing;
-  a later install starts the services again (resume, or setup's Install).
+  left alone and it gives up after about two minutes. When the stop fails,
+  the uninstaller offers Retry; Cancel (the default when silent) ends it with
+  exit code 1 before anything is removed, so the uninstall can be run again.
+  It keeps `%APPDATA%\Linger` and the Linger home with all their data; a
+  later install starts the services again (resume, or setup's Install).
   Setup over an installed release stops it the same way before it replaces
-  the files, since the services run on `Linger.exe` and hold it open. Each
+  the files, since the services run on `Linger.exe` and hold it open. Setup
+  always stops them with its own `installer.js`, copied to the plugins
+  folder, on the old `Linger.exe`: an earlier release's script may not stop
+  them (0.1.2's left TeamHub, web and node-services running on Windows). Each
   install writes `resources\stops-services`; a release without it would start
-  on `--quit` and has no `--stop`, so setup skips `--quit` (CloseLinger asks
-  the person to quit a running app) and runs its own `installer.js`, copied to
-  the plugins folder, on the old `Linger.exe`. Retry in that prompt runs the
-  stop again. Nothing running: the stop finds nothing and setup goes on. The
+  on `--quit`, so setup skips `--quit` for it (CloseLinger asks the person to
+  quit a running app). Retry in that prompt runs the stop again. Nothing running: the stop finds nothing and setup goes on. The
   stop also asks the pinned localmodels kit, when that kit is installed in the
-  home, to end its foundations controller under `runtime/model-services`
-  (`foundations stop`) and the stack's processes (`stack down`); it downloads
-  nothing, and Linger does not end the tool's processes itself.
-  Setup over a release runs that release's script, so a release from before
-  this stop leaves its controller running; on Windows the tool cannot prove
-  and end a controller from a kit that has no stop command either.
-  The tool refuses the chat stack on Windows, so no engine runs there.
+  home, to unload every model its model library loaded (`library status`,
+  then `library unload` for each `loaded` model), to end its foundations
+  controller under `runtime/model-services` (`foundations stop`), and to stop
+  the stack's processes and the gateway the tool started, the library's
+  Bifrost included (`stack down`); it downloads nothing, and Linger does not
+  end the tool's processes itself. Every step runs even when an earlier one
+  fails.
+  On Windows the tool cannot prove and end a controller from a kit that has
+  no stop command.
+  A quit the person chose (the tray, the app menu, the Dock) does the same
+  for the local models, except the controller, which serves the services
+  that keep running: `LocalServer` starts `installer.js --home <default
+home> --stop-local-models` under `ELECTRON_RUN_AS_NODE`, detached, with
+  its output in `<home>/installer/local-models-stop.log`, and does not wait
+  for it. It runs only when `desktop/local-server.json` names an
+  installation. The Computer exits with the app, so nothing uses the models
+  until the next launch, whose resume applies the approved plan again even
+  though the services still run, unless the person switched the Computer's
+  model source to a subscription or BYOK. A
+  quit for an update or a relaunch, and the `--quit` of setup or the
+  uninstaller (which stop the models themselves right after), leave them.
 - `src/main/legacy-migration.ts`: on start, stops a bridge an older version
   left running and moves its credential and the Desktop 0.16 daemon identity
   into the daemon layout, so the computer keeps its id.

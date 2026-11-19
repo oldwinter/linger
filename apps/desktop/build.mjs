@@ -246,7 +246,13 @@ const teamhubTargets = daemonTargets.filter((target) =>
 const runtimeTargets = daemonTargets.filter((target) =>
   RUNTIME_TARGETS.includes(target),
 );
-if (sourceArchive && (teamhubTargets.length || runtimeTargets.length)) {
+// Run the independent packaging build steps concurrently across available cores:
+// native TeamHub binaries, Native runtime services, teamhub CLI, and the Go
+// daemon + Computer tools (sequenced so buildDaemon finishes clearing
+// dist/computer before stageDesktopComputerTools links into it).
+const buildNativeOutputs = async () => {
+  if (!sourceArchive || (!teamhubTargets.length && !runtimeTargets.length))
+    return;
   let archive = bundledSource;
   const work = archive
     ? undefined
@@ -267,34 +273,41 @@ if (sourceArchive && (teamhubTargets.length || runtimeTargets.length)) {
         );
       await writeFile(archive, bytes);
     }
-    for (const target of teamhubTargets) {
-      const manifest = await buildTeamhub(target, archive);
-      console.log(
-        `TeamHub binaries for ${target} from ${manifest.sourceCommit.slice(0, 12)}`,
-      );
-    }
-    for (const target of runtimeTargets) {
-      const manifest = await buildRuntime(target, archive);
-      console.log(
-        `Native runtime for ${target} from ${manifest.sourceCommit.slice(0, 12)}: ${manifest.layout === "directory" ? "a folder" : `${manifest.archive.bytes} bytes`}`,
-      );
-    }
+    await Promise.all([
+      (async () => {
+        for (const target of teamhubTargets) {
+          const manifest = await buildTeamhub(target, archive);
+          console.log(
+            `TeamHub binaries for ${target} from ${manifest.sourceCommit.slice(0, 12)}`,
+          );
+        }
+      })(),
+      (async () => {
+        for (const target of runtimeTargets) {
+          const manifest = await buildRuntime(target, archive);
+          console.log(
+            `Native runtime for ${target} from ${manifest.sourceCommit.slice(0, 12)}: ${manifest.layout === "directory" ? "a folder" : `${manifest.archive.bytes} bytes`}`,
+          );
+        }
+      })(),
+    ]);
   } finally {
     if (work) await rm(work, { recursive: true, force: true });
   }
-}
+};
 
 // The teamhub CLI that runtimes use to reply, built from the same checkout as
 // the server so their API versions match (as the Go daemon bundles it). The
 // launcher runs it with the app's own Node, so the computer needs no Node.
-await run(
-  "../teamhub-cli/scripts/build-cli.mjs",
-  ["--outdir", "dist/teamhub-cli"],
-  "teamhub CLI build failed",
-);
-await writeFile(
-  "dist/teamhub-cli/teamhub",
-  `#!/bin/sh
+const buildTeamhubCli = async () => {
+  await run(
+    "../teamhub-cli/scripts/build-cli.mjs",
+    ["--outdir", "dist/teamhub-cli"],
+    "teamhub CLI build failed",
+  );
+  await writeFile(
+    "dist/teamhub-cli/teamhub",
+    `#!/bin/sh
 # Runs the bundled teamhub CLI with the Node built into Linger.
 dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app="$dir/../../../../MacOS/Linger"
@@ -303,26 +316,35 @@ app="$dir/../../../../MacOS/Linger"
 [ -x "$app" ] || app="\${LINGER_NODE:-node}"
 ELECTRON_RUN_AS_NODE=1 exec "$app" --use-env-proxy "$dir/teamhub.js" "$@"
 `,
-  { mode: 0o755 },
-);
-// The same for cmd and PowerShell on Windows, which run `teamhub.cmd`; Git
-// Bash takes the script above. The Computer's live voice cards start the app
-// at this relative path directly (cardCLIProgram in the local daemon's
-// playground_tools.go), so a layout change updates both.
-await writeFile(
-  "dist/teamhub-cli/teamhub.cmd",
-  `@echo off\r
+    { mode: 0o755 },
+  );
+  // The same for cmd and PowerShell on Windows, which run `teamhub.cmd`; Git
+  // Bash takes the script above. The Computer's live voice cards start the app
+  // at this relative path directly (cardCLIProgram in the local daemon's
+  // playground_tools.go), so a layout change updates both.
+  await writeFile(
+    "dist/teamhub-cli/teamhub.cmd",
+    `@echo off\r
 setlocal\r
 set "app=%~dp0..\\..\\..\\..\\Linger.exe"\r
 if not exist "%app%" set "app=node"\r
 set ELECTRON_RUN_AS_NODE=1\r
 "%app%" --use-env-proxy "%~dp0teamhub.js" %*\r
 `,
-);
+  );
+};
 
 // The Go Local Computer daemon (dist/computer/<platform>-<arch>/) for each
 // target, and the browser and computer-control tools it loads
 // (dist/computer-tools/<platform>-<arch>/). Without the tools the daemon runs
 // but offers Agents no browser or computer use.
-await buildDaemon(daemonTargets);
-await stageDesktopComputerTools(daemonTargets);
+const buildDaemonAndTools = async () => {
+  await buildDaemon(daemonTargets);
+  await stageDesktopComputerTools(daemonTargets);
+};
+
+await Promise.all([
+  buildNativeOutputs(),
+  buildTeamhubCli(),
+  buildDaemonAndTools(),
+]);

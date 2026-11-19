@@ -413,7 +413,12 @@ describe("advanceAgentStatusLine", () => {
 });
 
 describe("useAgentStatusLine", () => {
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    // Restore timer spies first: restoring one after the fake clock is gone
+    // would put the fake function back on the shared window.
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
 
   it("keeps one timer across rerenders and clears it once on unmount", () => {
     vi.useFakeTimers();

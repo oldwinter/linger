@@ -13,6 +13,7 @@ import (
 
 type eventProjection struct {
 	operationID string
+	canYield    bool
 	tools       map[string]string
 	// quiet holds tool calls that stay in history without a Room activity.
 	quiet map[string]bool
@@ -97,6 +98,9 @@ func (projection *eventProjection) projectActivity(message native.Event) []any {
 		message.ToolName = projection.tools[message.InvocationID]
 	}
 	event := normalizeMessage(message, projection.operationID).(map[string]any)
+	if session, ok := event["session"].(map[string]any); ok && projection.canYield {
+		session["canYield"] = true
+	}
 	if event["type"] == "message.delta" {
 		remaining := strings.ToValidUTF8(event["delta"].(string), "\ufffd")
 		events := make([]any, 0)

@@ -1,22 +1,29 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  collapsedRowBadges,
+  contextLabel,
   downloadPercent,
   downloadStatusDetail,
+  downloadStopped,
   formatGigabytes,
+  isModelOnComputer,
   loadCheck,
+  localSwitchTargets,
   makeRoomSelection,
   makesRoom,
+  memoryGuidance,
+  memoryReclaimable,
   memorySummary,
   modelCapabilities,
   modelEntries,
-  modelSourceLabel,
   parametersLabel,
   placeName,
   poolLabel,
-  rowBadges,
+  poolOtherBytes,
   safeModelSourceUrl,
   speedLabel,
+  usedByBadge,
 } from "./local-models-rules";
 import {
   gb,
@@ -24,6 +31,7 @@ import {
   labView,
   localModel,
   macView,
+  memoryPool,
   modelView,
 } from "./local-models-test-support";
 
@@ -79,15 +87,229 @@ describe("local models rules", () => {
 
   it("adds up GPU memory, or the memory of a Computer without GPUs", () => {
     expect(memorySummary(labView())).toEqual({
+      freeBytes: gb(2.6) + gb(22.9),
       gpu: true,
       totalBytes: gb(24) * 2,
       usedBytes: gb(21.4) + gb(1.1),
     });
     expect(memorySummary(macView())).toEqual({
+      freeBytes: gb(51.2) - gb(14.3),
       gpu: false,
       totalBytes: gb(51.2),
       usedBytes: gb(14.3),
     });
+  });
+
+  it("detects external app memory and surfaces cleanup guidance when it blocks models", () => {
+    expect(memoryGuidance(labView())).toBeNull();
+    expect(memoryGuidance(macView())).toBeNull();
+
+    const busyGpu = {
+      ...gpuPool(0, 24, [{ gb: 4, id: "small", name: "Small" }]),
+      used_bytes: gb(18),
+    };
+    expect(poolOtherBytes(busyGpu)).toBe(gb(14));
+    const eightGbAvailableView = labView({
+      models: [
+        modelView(
+          localModel({
+            id: "small:Q4",
+            memory_bytes: gb(5),
+            name: "Small",
+            pool: "gpu:0",
+          }),
+        ),
+      ],
+      pools: [busyGpu],
+    });
+    expect(memoryGuidance(eightGbAvailableView)).toBeNull();
+
+    const constrainedGpuView = labView({
+      models: [
+        modelView(
+          localModel({
+            id: "medium:Q4",
+            memory_bytes: gb(12),
+            name: "Medium",
+            pool: "gpu:0",
+          }),
+        ),
+      ],
+      pools: [busyGpu],
+    });
+    expect(memoryGuidance(constrainedGpuView)).toMatchObject({
+      gpu: true,
+      kind: "constrained_pool",
+      otherBytes: gb(14),
+    });
+
+    // A game holds 14 GB on a 24 GB card, so a 14 GB model is marked MEMORY_INSUFFICIENT.
+    const blockedDownloadModel = localModel({
+      availability: {
+        downloadable: false,
+        reason: {
+          code: "MEMORY_INSUFFICIENT",
+          have_bytes: gb(6),
+          need_bytes: gb(14),
+        },
+      },
+      fit: "none",
+      id: "qwen3.8-27b:IQ3_S",
+      name: "Qwen3.8 27B",
+      pool: undefined,
+    });
+    const blockedDownload = labView({
+      models: [modelView(blockedDownloadModel)],
+      pools: [busyGpu],
+    });
+    expect(memoryReclaimable(blockedDownload, blockedDownloadModel)).toBe(true);
+    expect(memoryGuidance(blockedDownload)).toMatchObject({
+      gpu: true,
+      kind: "blocked_download",
+      otherBytes: gb(14),
+    });
+
+    // On an 8 GB GPU + 64 GB RAM host, a 40 GB GPU-pool miss cannot fit by closing browser GPU tabs.
+    const smallGpuBusy = labView({
+      computer: {
+        ...labView().computer,
+        host: {
+          ...labView().computer.host!,
+          gpus: [
+            {
+              free_bytes: gb(4),
+              index: 0,
+              name: "RTX 4060",
+              total_bytes: gb(8),
+            },
+          ],
+          ram_total_bytes: gb(64),
+        },
+      },
+      pools: [{ ...gpuPool(0, 8), used_bytes: gb(4) }],
+    });
+    const fortyGbModel = localModel({
+      availability: {
+        downloadable: false,
+        reason: {
+          code: "MEMORY_INSUFFICIENT",
+          have_bytes: gb(4),
+          need_bytes: gb(40),
+        },
+      },
+      fit: "none",
+      id: "huge:Q4",
+      name: "Huge 40B",
+      pool: undefined,
+    });
+    expect(memoryReclaimable(smallGpuBusy, fortyGbModel)).toBe(false);
+
+    const blockedLoadModel = localModel({
+      id: "gemma3-12b:Q4_K_M",
+      memory_bytes: gb(10),
+      name: "Gemma 3 12B",
+      note: { code: "NO_ROOM_TO_LOAD" },
+      pool: "gpu:0",
+      state: "idle",
+    });
+    const blockedLoad = labView({
+      models: [modelView(blockedLoadModel)],
+      pools: [busyGpu],
+    });
+    expect(loadCheck(blockedLoad, blockedLoadModel)?.freeBytes).toBe(gb(6));
+    expect(memoryGuidance(blockedLoad)).toMatchObject({
+      gpu: true,
+      kind: "blocked_load",
+      otherBytes: gb(14),
+    });
+
+    const multiSpaceGpu = {
+      ...gpuPool(0, 96, [{ gb: 21, id: "loaded:Q4", name: "Loaded" }]),
+      used_bytes: gb(83),
+    };
+    const multiSpaceSystem = {
+      ...memoryPool("system", 400),
+      used_bytes: gb(340),
+    };
+    const gpuConstrainedWithBusyRam = labView({
+      models: [
+        modelView(
+          localModel({
+            id: "big-gpu:Q4",
+            memory_bytes: gb(40),
+            name: "Big GPU Model",
+            pool: "gpu:0",
+          }),
+        ),
+      ],
+      pools: [multiSpaceGpu, multiSpaceSystem],
+    });
+    expect(memoryGuidance(gpuConstrainedWithBusyRam)).toEqual({
+      freeBytes: gb(13),
+      gpu: true,
+      kind: "constrained_pool",
+      otherBytes: gb(62),
+      totalBytes: gb(96),
+    });
+
+    const cleanGpuBusyRam = labView({
+      models: [
+        modelView(
+          localModel({
+            fit: "system",
+            id: "ram-only:Q4",
+            memory_bytes: gb(80),
+            name: "System RAM Model",
+            pool: "system",
+          }),
+        ),
+      ],
+      pools: [
+        gpuPool(0, 96, [{ gb: 21, id: "loaded:Q4", name: "Loaded" }]),
+        multiSpaceSystem,
+      ],
+    });
+    expect(memoryGuidance(cleanGpuBusyRam)).toEqual({
+      freeBytes: gb(60),
+      gpu: false,
+      kind: "constrained_pool",
+      otherBytes: gb(340),
+      totalBytes: gb(400),
+    });
+  });
+
+  it("orders local switch targets with loaded models first, then recommended, then largest", () => {
+    const idleLarge = localModel({
+      id: "large:Q4",
+      memory_bytes: gb(20),
+      name: "Large",
+      state: "idle",
+    });
+    const idleSmallRec = localModel({
+      id: "small:Q4",
+      memory_bytes: gb(4),
+      name: "Small",
+      recommended: true,
+      state: "idle",
+    });
+    const loadedOther = localModel({
+      id: "loaded:Q4",
+      memory_bytes: gb(8),
+      name: "Loaded",
+      state: "loaded",
+    });
+    const view = macView({
+      models: [
+        modelView(idleLarge),
+        modelView(idleSmallRec),
+        modelView(loadedOther),
+      ],
+    });
+    expect(localSwitchTargets(view).map((model) => model.id)).toEqual([
+      "loaded:Q4",
+      "small:Q4",
+      "large:Q4",
+    ]);
   });
 
   it("loads at once when the reported pool has room", () => {
@@ -109,6 +331,9 @@ describe("local models rules", () => {
     expect(check.loaded.map((entry) => entry.model.name)).toEqual([
       "GPT-OSS 20B",
     ]);
+    // The loaded model is offered, so nothing else holds the pool.
+    expect(check.kept).toEqual([]);
+    expect(poolOtherBytes(check.pool)).toBe(0);
   });
 
   it("preselects the fewest models, preferring ones no Agent uses", () => {
@@ -122,6 +347,7 @@ describe("local models rules", () => {
         ...item,
         status: "loaded" as const,
       })),
+      kept: [],
       needBytes: gb(12),
       pool,
     };
@@ -181,7 +407,10 @@ describe("local models rules", () => {
       vision: true,
     });
     expect(parametersLabel(moe)).toBe("30B · 3B active (MoE)");
-    expect(rowBadges(moe)).toEqual(["3B active", "Vision", "Tool use", "+2"]);
+    expect(collapsedRowBadges(moe)).toEqual({
+      badges: ["3B active", "Vision", "Tool use", "+2"],
+      overflowTitle: "Reasoning, Coding",
+    });
 
     const dense = localModel({
       architecture: "dense",
@@ -191,18 +420,106 @@ describe("local models rules", () => {
       parameters: "4B",
     });
     expect(parametersLabel(dense)).toBe("4B (Dense)");
-    // Avoid repeating "4B" next to a model whose title already includes it.
-    expect(rowBadges(dense)).toEqual(["Tool use"]);
+    expect(collapsedRowBadges(dense)).toEqual({ badges: ["4B", "Tool use"] });
+
+    // Collapsed badges depend strictly on structured fields, never name or description.
+    expect(
+      collapsedRowBadges({
+        ...dense,
+        description: "Vision reasoning model with 70B scale.",
+        name: "Renamed Without Size",
+      }),
+    ).toEqual(collapsedRowBadges(dense));
 
     expect(
-      rowBadges(
+      collapsedRowBadges(
         localModel({
           id: "llama3.3:Q4_K_M",
           name: "Llama 3.3",
           parameters: "70B",
         }),
       ),
-    ).toEqual(["70B"]);
+    ).toEqual({ badges: ["70B"] });
+  });
+
+  it("identifies models on the computer and formats Agent usage chips", () => {
+    expect(
+      isModelOnComputer(localModel({ id: "m", name: "M" }), "available"),
+    ).toBe(false);
+    expect(
+      isModelOnComputer(localModel({ id: "m", name: "M" }), "unavailable"),
+    ).toBe(false);
+    expect(
+      isModelOnComputer(
+        localModel({
+          error: { code: "DOWNLOAD_FAILED" },
+          id: "m",
+          name: "M",
+          state: "failed",
+        }),
+        "failed",
+      ),
+    ).toBe(false);
+    expect(
+      isModelOnComputer(
+        localModel({ id: "m", name: "M", state: "loaded" }),
+        "loaded",
+      ),
+    ).toBe(true);
+
+    expect(
+      usedByBadge({
+        model: localModel({ id: "m", name: "M", state: "loaded" }),
+        status: "loaded",
+        used_by: [{ agent_id: "a1", name: "Research" }],
+      }),
+    ).toBe("1 Agent");
+    expect(
+      usedByBadge({
+        model: localModel({ id: "m", name: "M", state: "idle" }),
+        status: "idle",
+        used_by: [
+          { agent_id: "a1", name: "Research" },
+          { agent_id: "a2", name: "Writer" },
+        ],
+      }),
+    ).toBe("2 Agents");
+    expect(
+      usedByBadge({
+        model: localModel({ id: "m", name: "M", state: "loaded" }),
+        status: "loaded",
+        used_by: [],
+      }),
+    ).toBeUndefined();
+    expect(
+      usedByBadge(
+        {
+          model: localModel({ id: "m", name: "M", state: "loaded" }),
+          status: "loaded",
+          used_by: [],
+        },
+        ["Research", "Delegate"],
+      ),
+    ).toBe("2 Agents");
+    expect(
+      usedByBadge({
+        model: localModel({ id: "m", name: "M", state: "absent" }),
+        status: "available",
+        used_by: [{ agent_id: "a1", name: "Research" }],
+      }),
+    ).toBeUndefined();
+    expect(
+      usedByBadge({
+        model: localModel({
+          error: { code: "NETWORK_UNAVAILABLE" },
+          id: "m",
+          name: "M",
+          state: "failed",
+        }),
+        status: "failed",
+        used_by: [{ agent_id: "a1", name: "Research" }],
+      }),
+    ).toBeUndefined();
   });
 
   it("formats live download speed, ETA, prompt speed, and safe source URLs", () => {
@@ -245,6 +562,72 @@ describe("local models rules", () => {
     expect(safeModelSourceUrl("http://example.com/model")).toBeUndefined();
     const safe = safeModelSourceUrl("https://huggingface.co/Qwen/Qwen3-4B/");
     expect(safe).toBe("https://huggingface.co/Qwen/Qwen3-4B/");
-    expect(modelSourceLabel(safe!)).toBe("huggingface.co/Qwen/Qwen3-4B");
+    expect(
+      downloadStatusDetail(
+        localModel({
+          download: {
+            bytes_per_second: mb,
+            done_bytes: 0,
+            step: "download",
+            total_bytes: 3590 * mb,
+          },
+          id: "m",
+          name: "m",
+          state: "downloading",
+        }),
+      ),
+    ).toBe("0% · 1 MB/s · 1h left");
+    expect(contextLabel(512)).toBe("512 tokens");
+    expect(contextLabel(131_072)).toBe("128K tokens");
+
+    // A stopped download does not trigger blocked_load memory guidance.
+    const stoppedDownloadView = labView({
+      models: [
+        modelView(
+          localModel({
+            error: { code: "NETWORK_UNAVAILABLE" },
+            id: "stopped:Q4",
+            memory_bytes: gb(20),
+            name: "Stopped",
+            pool: "gpu:0",
+            state: "failed",
+          }),
+        ),
+      ],
+      pools: [{ ...gpuPool(0, 24), used_bytes: gb(12) }],
+    });
+    expect(memoryGuidance(stoppedDownloadView)).toBeNull();
+  });
+});
+
+describe("downloadStopped", () => {
+  const model = (fields: Parameters<typeof localModel>[0]) =>
+    localModel(fields);
+
+  it("is true only for a failed model with a download error code", () => {
+    const base = { id: "m", name: "M", state: "failed" as const };
+    expect(
+      downloadStopped(model({ ...base, error: { code: "DOWNLOAD_FAILED" } })),
+    ).toBe(true);
+    expect(
+      downloadStopped(
+        model({ ...base, error: { code: "NETWORK_UNAVAILABLE" } }),
+      ),
+    ).toBe(true);
+    expect(
+      downloadStopped(
+        model({ ...base, error: { code: "ENGINE_START_FAILED" } }),
+      ),
+    ).toBe(false);
+    expect(downloadStopped(model(base))).toBe(false);
+    expect(
+      downloadStopped(
+        model({
+          ...base,
+          error: { code: "DOWNLOAD_FAILED" },
+          state: "downloading",
+        }),
+      ),
+    ).toBe(false);
   });
 });

@@ -282,6 +282,22 @@ components:
           description: Diagnostic text for display; never matched on.
           type: string
           maxLength: 4000
+        cause:
+          description: >-
+            Why a GATEWAY_REGISTRATION_FAILED happened, when the Computer
+            supervised the failed job. GATEWAY_HOME_NOT_PRIVATE: the local
+            gateway's private folder at path has another owner; closing Linger
+            and renaming that folder lets the model load.
+          type: string
+          enum: [GATEWAY_HOME_NOT_PRIVATE]
+          x-enum-varnames: [LocalModelErrorCauseGatewayHomeNotPrivate]
+        path:
+          description: >-
+            The folder the cause names, on the Computer. The public view
+            carries it only for the Computer's owner.
+          type: string
+          minLength: 1
+          maxLength: 4096
     LocalModelNote:
       type: object
       additionalProperties: false
@@ -680,6 +696,17 @@ components:
               LocalModelActionAcceptedUnload,
               LocalModelActionAcceptedRemove,
             ]
+    LocalModelsRefreshAccepted:
+      type: object
+      additionalProperties: false
+      required: [computer_id, action]
+      properties:
+        computer_id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        action:
+          type: string
+          enum: [refresh]
+          x-enum-varnames: [LocalModelsRefreshAcceptedRefresh]
     LocalModelsErrorCode:
       description: >-
         error.code of a refused local-models action (403, 409, 502, 503, 504);

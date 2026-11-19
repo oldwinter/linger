@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import {
   ComputerSetupInstructions,
@@ -8,33 +9,9 @@ import {
 } from "./computer-setup-instructions";
 import { ConnectComputerDialog } from "./computer-empty-states";
 
-const originalClipboardDescriptor = Object.getOwnPropertyDescriptor(
-  navigator,
-  "clipboard",
-);
-const originalSecureContextDescriptor = Object.getOwnPropertyDescriptor(
-  window,
-  "isSecureContext",
-);
 const originalExecCommand = document.execCommand;
 
 afterEach(() => {
-  if (originalClipboardDescriptor) {
-    Object.defineProperty(navigator, "clipboard", originalClipboardDescriptor);
-  } else {
-    Reflect.deleteProperty(navigator, "clipboard");
-  }
-
-  if (originalSecureContextDescriptor) {
-    Object.defineProperty(
-      window,
-      "isSecureContext",
-      originalSecureContextDescriptor,
-    );
-  } else {
-    Reflect.deleteProperty(window, "isSecureContext");
-  }
-
   document.execCommand = originalExecCommand;
   vi.restoreAllMocks();
 });
@@ -215,14 +192,14 @@ describe("CopyValueButton", () => {
 });
 
 function setSecureContext(value: boolean) {
-  Object.defineProperty(window, "isSecureContext", {
+  defineGlobalProperty(window, "isSecureContext", {
     configurable: true,
     value,
   });
 }
 
 function setClipboard(clipboard: Pick<Clipboard, "writeText"> | undefined) {
-  Object.defineProperty(navigator, "clipboard", {
+  defineGlobalProperty(navigator, "clipboard", {
     configurable: true,
     value: clipboard,
   });

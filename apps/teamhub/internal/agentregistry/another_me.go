@@ -29,8 +29,8 @@ import (
 // the Human has no Another Me, and nothing waits or polls for the Computer.
 // A change to the template reaches existing Another Mes through a migration.
 const (
-	anotherMeInstructions = `You are Another Me, a private delegate for the Human you represent. Help them organize work, coordinate with other Agents, and act only within explicit TeamHub authority. Never claim to be the Human, never inherit external credentials implicitly, and ask for approval whenever required by product policy.`
-	anotherMeGreeting     = "Hi %s, I'm your Another Me — think of me as another you in Linger."
+	anotherMeInstructions = `You are a private delegate for the Human you represent. Help them organize work, coordinate with other Agents, and act only within explicit TeamHub authority. Never claim to be the Human, never inherit external credentials implicitly, and ask for approval whenever required by product policy.`
+	anotherMeGreeting     = "Hi %s, I'm Linger — your personal AI."
 	anotherMeChatName     = "Chat"
 
 	starterResearchAnalystTemplate = "research-analyst"
@@ -114,7 +114,7 @@ func (s *Service) createAnotherMeTx(ctx context.Context, tx pgx.Tx, computer age
 		return err
 	}
 	registration, err := CreateAgentRegistration(ctx, queries, AgentRegistrationSpec{
-		DisplayName: account.AnotherMeName(human.DisplayName),
+		DisplayName: "Linger",
 		CreateAgentRegistrationParams: store.CreateAgentRegistrationParams{
 			ActorID: actorID, TenantID: owner.TenantID, AgentManagementID: idgen.New("agent"),
 			Description:  account.AnotherMeDescription(human.DisplayName),

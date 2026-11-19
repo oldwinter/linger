@@ -13,7 +13,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import inputs from "./test-support/connector-tool-inputs.json" with { type: "json" };
 import { runCli } from "./cli.js";
 import { commandDefinitions } from "./domain-commands.js";
-import { appKeys, connectorVersions, type Json } from "./connector-runtime.js";
+import {
+  appKeys,
+  connectorVersions,
+  type Json,
+  validateSchema,
+} from "./connector-runtime.js";
 import { displayText } from "./display-text.js";
 import { requestBodyText, requestUrlText } from "./test-support/fetch-text.js";
 
@@ -663,6 +668,28 @@ describe("mail attachment downloads", () => {
       f.calls.filter((x) => x.body.tool_slug === "GMAIL_GET_ATTACHMENT"),
     ).toHaveLength(0);
   });
+  it.each([
+    [[], "OUTLOOK_QUERY_EMAILS"],
+    [["--folder", "all"], "OUTLOOK_QUERY_EMAILS"],
+    [["--folder", "sent", "--unread"], "OUTLOOK_QUERY_EMAILS"],
+    [["--unread"], "OUTLOOK_QUERY_EMAILS"],
+    [["--query", "invoice"], "OUTLOOK_LIST_MESSAGES"],
+    [["--query", "invoice", "--folder", "all"], "OUTLOOK_LIST_MESSAGES"],
+  ])(
+    "sends Outlook list %j arguments its tool schema accepts",
+    async (options, tool) => {
+      const seen: { slug: string; args: Json }[] = [];
+      const f = await fixture("outlook", (slug, args) => {
+        seen.push({ slug, args });
+        return { value: [] };
+      });
+      const result = await f.run(["outlook", "list", ...options]);
+      expect(result.error).toBeUndefined();
+      expect(seen.map((x) => x.slug)).toEqual([tool]);
+      const schema = (inputs as Record<string, Json>)[tool]!;
+      expect(await validateSchema(schema, seen[0]!.args)).toBe(true);
+    },
+  );
   it("requires an attachment ID for duplicate Outlook names", async () => {
     const f = await fixture("outlook", (slug) => {
       if (slug === "OUTLOOK_LIST_OUTLOOK_ATTACHMENTS")

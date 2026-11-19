@@ -127,3 +127,43 @@ func TestCanvasFileBlocksAreAttachedOnceInOrder(t *testing.T) {
 		t.Fatalf("files=%q", files)
 	}
 }
+
+func TestCanvasSourceDigestTracksMailContentButNotDeliveryStatus(t *testing.T) {
+	source := func(header, body string) []byte {
+		blocks := canvasCode(t, header)
+		var data map[string]any
+		raw, _ := json.Marshal(map[string]any{"blocks": blocks})
+		if err := json.Unmarshal(raw, &data); err != nil {
+			t.Fatal(err)
+		}
+		var rest []any
+		if err := json.Unmarshal([]byte(body), &rest); err != nil {
+			t.Fatal(err)
+		}
+		data["blocks"] = append(data["blocks"].([]any)[:1], rest...)
+		raw, _ = json.Marshal(data)
+		return raw
+	}
+	baseHeader := "canvas: gmail\nto: a@example.test\ncc:\nsubject: Test\nstatus: editing"
+	body := `[{"id":"body","type":"paragraph","content":[{"type":"text","text":"Hello","styles":{}}],"children":[]}]`
+	original, err := canvasSourceDigest(source(baseHeader, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unchanged, err := canvasSourceDigest(source(baseHeader+"\nstatus: draft\nexternal_id: draft-1\nlink: https://mail.google.com/mail/#drafts", body))
+	if err != nil || unchanged != original {
+		t.Fatalf("delivery bookkeeping changed digest: %v", err)
+	}
+	for name, input := range map[string][]byte{
+		"recipient":  source(strings.ReplaceAll(baseHeader, "a@example.test", "b@example.test"), body),
+		"subject":    source(strings.ReplaceAll(baseHeader, "subject: Test", "subject: Edited"), body),
+		"body":       source(baseHeader, strings.ReplaceAll(body, "Hello", "Updated")),
+		"attachment": source(baseHeader, strings.TrimSuffix(body, "]")+`,{"type":"file","props":{"url":"document-asset:asset_file"},"children":[]}]`),
+		"format":     source(baseHeader, strings.ReplaceAll(body, `"styles":{}`, `"styles":{"bold":true}`)),
+	} {
+		changed, err := canvasSourceDigest(input)
+		if err != nil || changed == original {
+			t.Fatalf("%s did not change digest: %v", name, err)
+		}
+	}
+}

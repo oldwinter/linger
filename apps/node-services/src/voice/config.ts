@@ -1,3 +1,4 @@
+import type { Region } from "@linger/service-kit";
 import { serviceCredential } from "@linger/service-kit/node";
 import { teamHubBaseUrl } from "../teamhub-base-url.js";
 
@@ -7,6 +8,11 @@ export interface VoiceConfig {
   readonly teamHubCredential: string | undefined;
   /** Authenticates TeamHub's reconcile notifications. */
   readonly managementCredential: string | undefined;
+  /**
+   * The download region the installer resolved (SIMPLEX_REGION); model
+   * packages come from its registry first. Global when unset.
+   */
+  readonly region: Region;
 }
 
 export function readVoiceConfig(environment: NodeJS.ProcessEnv): VoiceConfig {
@@ -17,5 +23,6 @@ export function readVoiceConfig(environment: NodeJS.ProcessEnv): VoiceConfig {
       "node-services-internal",
       environment,
     ),
+    region: environment.SIMPLEX_REGION === "cn" ? "cn" : "global",
   });
 }

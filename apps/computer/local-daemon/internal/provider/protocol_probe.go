@@ -21,6 +21,10 @@ const maxProbeOutputBytes = 1024 * 1024
 
 var errProbeOutputLimit = errors.New("Runtime probe output exceeded one MiB")
 
+// authProbeCap bounds every authentication probe; tests lower it while no
+// probe runs.
+var authProbeCap = 15 * time.Second
+
 type runtimeProbeOutcome struct {
 	Status           string
 	Code             string
@@ -224,7 +228,7 @@ func boundedAuthTimeout(timeout time.Duration) time.Duration {
 	// is busy, macOS included: a busy MacBook let `claude auth status` miss a
 	// five second budget and flipped a working Agent to unavailable. Preserve
 	// shorter caller budgets and the enclosing discovery context.
-	maximum := 15 * time.Second
+	maximum := authProbeCap
 	if timeout <= 0 || timeout > maximum {
 		return maximum
 	}

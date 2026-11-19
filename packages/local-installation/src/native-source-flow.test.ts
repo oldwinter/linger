@@ -9,7 +9,17 @@ vi.mock("./model-gateway.js", () => ({
 }));
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import net from "node:net";
 import path from "node:path";
 import os from "node:os";
 import { afterEach, expect, test, vi } from "vitest";
@@ -18,7 +28,9 @@ import {
   installNativeSource,
   stopNativeSource,
 } from "./native-source.js";
+import { localIdentityProof } from "./account.js";
 import { runProcess } from "./process.js";
+import { REGION_SCHEMA, regionFile } from "./region.js";
 import {
   installAppleDeveloperTools,
   needsAppleDeveloperTools,
@@ -39,7 +51,10 @@ import {
   TEAMHUB_COMMANDS,
 } from "./teamhub-binaries.js";
 import { prepareRuntime } from "./managed-runtimes.js";
+import { applyNativeSource } from "./byok-source.js";
+import { prepareLocalModels } from "./local-models.js";
 import {
+  inspectNativeListeners,
   inspectNativeProcess,
   nativeConfigurationChanged,
   startNativeProcess,
@@ -48,6 +63,7 @@ import {
 import { prepareNativeDatabase } from "./native-database.js";
 import { prepareSourceComputer } from "./source-computer.js";
 import { connectComputer } from "./computer.js";
+import { loadInstance } from "./instance.js";
 vi.mock("./process.js", () => ({ runProcess: vi.fn() }));
 vi.mock("./apple-developer-tools.js", () => ({
   needsAppleDeveloperTools: vi.fn(),
@@ -62,6 +78,17 @@ vi.mock("./native-livekit.js", async (original) => ({
   readLiveKitSettings: vi.fn(),
   startNativeLiveKit: vi.fn(),
 }));
+// Setting the model source runs the localmodels tool, which these tests never
+// install.
+vi.mock("./byok-source.js", async (original) => ({
+  ...(await original<typeof import("./byok-source.js")>()),
+  applyNativeSource: vi.fn(async () => undefined),
+}));
+// Deploying local models runs the localmodels tool too.
+vi.mock("./local-models.js", async (original) => ({
+  ...(await original<typeof import("./local-models.js")>()),
+  prepareLocalModels: vi.fn(async () => undefined),
+}));
 vi.mock("./managed-runtimes.js", () => ({
   runtimeVersionFailure: vi.fn(() => undefined),
   prepareRuntime: vi.fn(),
@@ -70,12 +97,32 @@ vi.mock("./managed-codex.js", () => ({
   managedRuntimeEnvironment: vi.fn(async () => ({})),
   configureManagedCodex: vi.fn(),
 }));
-vi.mock("./native-process.js", () => ({
-  inspectNativeProcess: vi.fn(),
-  nativeConfigurationChanged: vi.fn(),
-  startNativeProcess: vi.fn(),
-  stopNativeProcess: vi.fn(),
-}));
+vi.mock("./native-process.js", () => {
+  const inspectNativeProcess = vi.fn();
+  return {
+    inspectNativeProcess,
+    // Port ownership is checked only on Windows; elsewhere it is the
+    // process state.
+    inspectNativeListeners: vi.fn(
+      async (root: string, listeners: { name: string; port: number }[]) =>
+        Promise.all(
+          listeners.map(async ({ name }) => ({
+            running: Boolean(
+              (
+                (await inspectNativeProcess(root, name)) as {
+                  running?: boolean;
+                }
+              )?.running,
+            ),
+          })),
+        ),
+    ),
+    reclaimNativeOrphans: async () => [],
+    nativeConfigurationChanged: vi.fn(),
+    startNativeProcess: vi.fn(),
+    stopNativeProcess: vi.fn(),
+  };
+});
 vi.mock("./native-database.js", () => ({ prepareNativeDatabase: vi.fn() }));
 vi.mock("./source-computer.js", () => ({ prepareSourceComputer: vi.fn() }));
 vi.mock("./computer.js", () => ({
@@ -98,6 +145,17 @@ afterEach(async () => {
 async function fixture() {
   const home = await mkdtemp(path.join(os.tmpdir(), "native-flow-"));
   roots.push(home);
+  // A region resolved earlier, so no test probes the registries.
+  await mkdir(path.dirname(regionFile(home)), { recursive: true });
+  await writeFile(
+    regionFile(home),
+    JSON.stringify({
+      schema: REGION_SCHEMA,
+      region: "global",
+      resolved_at: new Date().toISOString(),
+      method: "probe",
+    }),
+  );
   const repo = path.join(home, "checkout");
   await mkdir(path.join(repo, "scripts"), { recursive: true });
   await writeFile(path.join(repo, "scripts/source-native.mjs"), "");
@@ -134,15 +192,39 @@ async function fixture() {
   });
   vi.stubGlobal(
     "fetch",
-    vi.fn(
-      async (url) =>
-        new Response("{}", {
-          status:
-            String(url).endsWith("/v0/auth/login") && !provisioned ? 401 : 200,
-        }),
+    vi.fn(async (url, init?: RequestInit) =>
+      String(url).endsWith("/v0/local/identity")
+        ? identityProof(home, String(url), init)
+        : new Response("{}", {
+            status:
+              String(url).endsWith("/v0/auth/login") && !provisioned
+                ? 401
+                : 200,
+          }),
     ),
   );
   return { home, repo, running };
+}
+// The instance's TeamHub answering at its origin (see account.ts).
+async function identityProof(home: string, url: string, init?: RequestInit) {
+  const origin = new URL(url).origin;
+  const { nonce } = JSON.parse(init?.body as string) as { nonce: string };
+  for (const name of await readdir(path.join(home, "instances"))) {
+    const root = path.join(home, "instances", name);
+    const instance = JSON.parse(
+      await readFile(path.join(root, "instance.json"), "utf8"),
+    ) as { origin: string };
+    if (instance.origin !== origin) continue;
+    const key = await readFile(path.join(root, "local-identity.key"), "utf8");
+    return Response.json({
+      proof: localIdentityProof(
+        Buffer.from(key.trim(), "base64"),
+        nonce,
+        origin,
+      ).toString("base64url"),
+    });
+  }
+  return new Response(null, { status: 404 });
 }
 test("native services and owner creation continue while selected Runtime authentication is pending", async () => {
   const f = await fixture();
@@ -195,6 +277,50 @@ test("native services and owner creation continue while selected Runtime authent
   expect(JSON.stringify(owner?.[1])).not.toContain(owner?.[2]?.input?.trim());
   expect(events.join("\n")).not.toContain(owner?.[2]?.input?.trim());
 });
+test("choosing local models makes them the model source", async () => {
+  const f = await fixture();
+  const result = await installNativeSource({
+    home: f.home,
+    repo: f.repo,
+    name: "native-flow",
+    setupChoice: "local-models",
+    signal: new AbortController().signal,
+    onEvent: () => {},
+  });
+  expect(result.code).toBe(0);
+  expect(prepareLocalModels).toHaveBeenCalled();
+  expect(applyNativeSource).toHaveBeenCalledWith(
+    path.resolve(f.home),
+    "local",
+    "pi",
+    expect.any(AbortSignal),
+  );
+});
+
+test("a restart of local models keeps the model source the person switched to", async () => {
+  const f = await fixture();
+  await installNativeSource({
+    home: f.home,
+    repo: f.repo,
+    name: "native-flow",
+    setupChoice: "local-models",
+    signal: new AbortController().signal,
+    onEvent: () => {},
+  });
+  vi.mocked(applyNativeSource).mockClear();
+  // A resume after a reboot or an update reads the saved choice.
+  const result = await installNativeSource({
+    home: f.home,
+    repo: f.repo,
+    name: "native-flow",
+    signal: new AbortController().signal,
+    onEvent: () => {},
+  });
+  expect(result.code).toBe(0);
+  expect(vi.mocked(prepareLocalModels).mock.calls).toHaveLength(2);
+  expect(applyNativeSource).not.toHaveBeenCalled();
+});
+
 test("only TeamHub's process gets the server identity key", async () => {
   const f = await fixture();
   vi.mocked(prepareRuntime).mockResolvedValue({
@@ -421,6 +547,35 @@ test("a failed dependency install retries from the next registry and reports pac
     message: "Installing dependencies: 30 of 90 packages\n",
     progress: { completed: 30, total: 90, unit: "packages" },
   });
+  // The China mirror worked where the global registry failed: later runs
+  // start there.
+  expect(JSON.parse(await readFile(regionFile(f.home), "utf8"))).toMatchObject({
+    region: "cn",
+    method: "fallback",
+  });
+});
+test("every native service gets the resolved download region", async () => {
+  const f = await fixture();
+  vi.mocked(prepareRuntime).mockResolvedValue({
+    code: 0,
+    state: "ready",
+    message: "ready",
+  });
+  await installNativeSource({
+    ...f,
+    name: "native-flow",
+    setupChoice: "pi",
+    signal: new AbortController().signal,
+    onEvent: () => {},
+  });
+  const services = vi
+    .mocked(startNativeProcess)
+    .mock.calls.map(([options]) => [options.name, options.env.SIMPLEX_REGION]);
+  expect(services).toEqual([
+    ["teamhub", "global"],
+    ["node-services", "global"],
+    ["web", "global"],
+  ]);
 });
 test("failed preparation never stops services that were already running", async () => {
   const f = await fixture();
@@ -462,6 +617,64 @@ async function runFlow(f: Awaited<ReturnType<typeof fixture>>) {
     onEvent: () => {},
   });
 }
+
+test("a move to a new checkout that fails before the restart leaves the services on the old one", async () => {
+  const f = await fixture();
+  const install = (repo: string) =>
+    installNativeSource({
+      home: f.home,
+      repo,
+      name: "desktop",
+      setupChoice: "pi",
+      externalComputer: true,
+      signal: new AbortController().signal,
+      onEvent: () => {},
+    });
+  vi.mocked(prepareRuntime).mockResolvedValue({
+    code: 0,
+    state: "ready",
+    message: "ready",
+  });
+  expect((await install(f.repo)).code).toBe(0);
+  const old = await realpath(f.repo);
+  const next = path.join(f.home, "next");
+  await cp(f.repo, next, { recursive: true });
+  // The Runtime (the local model, for one) is not ready on the new checkout.
+  vi.mocked(prepareRuntime).mockResolvedValue({
+    code: 4,
+    state: "action_required",
+    message: "The upstream stack is not ready.",
+    details: { code: "LOCAL_MODELS_RECOVERY_REQUIRED" },
+  });
+  vi.mocked(runProcess).mockClear();
+  vi.mocked(startNativeProcess).mockClear();
+  expect(await install(next)).toMatchObject({ code: 4 });
+  const stored = await loadInstance({ home: f.home, name: "desktop" });
+  expect(stored?.source?.repo).toBe(old);
+  expect(startNativeProcess).not.toHaveBeenCalled();
+  expect(
+    vi
+      .mocked(runProcess)
+      .mock.calls.some(([, args]) => args.includes("migrate")),
+  ).toBe(false);
+  // Trying again once the Runtime is ready restarts them on the new one.
+  vi.mocked(prepareRuntime).mockResolvedValue({
+    code: 0,
+    state: "ready",
+    message: "ready",
+  });
+  expect((await install(next)).code).toBe(0);
+  const moved = await realpath(next);
+  expect(
+    (await loadInstance({ home: f.home, name: "desktop" }))?.source?.repo,
+  ).toBe(moved);
+  expect(
+    vi
+      .mocked(startNativeProcess)
+      .mock.calls.filter(([options]) => options.name !== "livekit")
+      .map(([options]) => options.cwd),
+  ).toEqual([moved, moved, moved]);
+});
 
 test("an unchanged TeamHub leaves a running node-services alone", async () => {
   const f = await fixture();
@@ -581,6 +794,88 @@ test("a full disk ends startup at once instead of at the deadline", async () => 
   expect(result.message).toContain(
     "This computer's disk is full, so native teamhub could not be built.",
   );
+});
+
+test("a service that stops because another program took its port names the port", async () => {
+  const f = await fixture();
+  vi.mocked(prepareRuntime).mockResolvedValue({
+    code: 0,
+    state: "ready",
+    message: "ready",
+  });
+  // Another program takes TeamHub's port after Linger chose it, so TeamHub
+  // exits at once.
+  const holder = net.createServer();
+  let port: number | undefined;
+  vi.mocked(startNativeProcess).mockImplementation(async (options) => {
+    if (options.name !== "teamhub") {
+      f.running.add(options.name);
+      return { running: true, pid: 100 };
+    }
+    const instance = JSON.parse(
+      await readFile(
+        path.join(f.home, "instances", "native-flow", "instance.json"),
+        "utf8",
+      ),
+    ) as { source: { ports: { teamhub: number } } };
+    port = instance.source.ports.teamhub;
+    await new Promise<void>((resolve) =>
+      holder.listen(port, "127.0.0.1", resolve),
+    );
+    return { running: false };
+  });
+  try {
+    const result = await installNativeSource({
+      ...f,
+      name: "native-flow",
+      setupChoice: "pi",
+      signal: new AbortController().signal,
+      onEvent: () => {},
+    });
+    expect(result).toMatchObject({ code: 1 });
+    expect(result.message).toContain(
+      `Native teamhub cannot listen on port ${port}: another program is using it.`,
+    );
+  } finally {
+    await new Promise((resolve) => holder.close(resolve));
+  }
+});
+
+test("a port an earlier TeamHub still holds fails startup instead of passing its health check", async () => {
+  const f = await fixture();
+  vi.mocked(prepareRuntime).mockResolvedValue({
+    code: 0,
+    state: "ready",
+    message: "ready",
+  });
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    // The earlier TeamHub answers /healthz on the port; each probe is ten
+    // seconds later.
+    vi.mocked(inspectNativeListeners).mockImplementation(
+      async (_root, listeners) => {
+        vi.setSystemTime(Date.now() + 10_000);
+        return listeners.map(({ name }) =>
+          name === "teamhub"
+            ? { running: true, foreign: 4328 }
+            : { running: true },
+        );
+      },
+    );
+    const result = await installNativeSource({
+      ...f,
+      name: "native-flow",
+      setupChoice: "pi",
+      signal: new AbortController().signal,
+      onEvent: () => {},
+    });
+    expect(result).toMatchObject({ code: 1 });
+    expect(result.message).toMatch(
+      /Native teamhub cannot listen on port \d+: another program \(PID 4328\) is using it/,
+    );
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 // What scripts/source-native.mjs logs when go build fails, as on Windows

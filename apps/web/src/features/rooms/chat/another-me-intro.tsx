@@ -111,7 +111,7 @@ export function AnotherMeIntro({
             Hi{humanName ? `, ${humanName}` : ""}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            {"I'm your Another Me."}
+            {`I'm ${agent.display_name}.`}
           </p>
         </div>
       </div>

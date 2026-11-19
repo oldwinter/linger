@@ -124,13 +124,13 @@ func TestMailWhitelistAdmitsMailAndSyncsNightly(t *testing.T) {
 		t.Helper()
 		var sources int
 		if err := pool.QueryRow(ctx, `SELECT count(*) FROM wiki_source_items WHERE source_key=$1`,
-			fmt.Sprintf("mail:%s:message:human-%d", connectionID, window)).Scan(&sources); err != nil || sources != 1 {
+			externalsource.MailWikiSourceKey("gmail:"+connectionID, fmt.Sprintf("message:human-%d", window))).Scan(&sources); err != nil || sources != 1 {
 			t.Fatalf("window %d admitted Wiki sources=%d err=%v", window, sources, err)
 		}
 	}
 	assertMail(1)
 	var firstVersion string
-	const versionQuery = `SELECT document_version_id FROM wiki_source_items WHERE source_key='mail:gmail_whitelist:message:human-1'`
+	const versionQuery = `SELECT document_version_id FROM wiki_source_items WHERE source_key='mail:gmail:gmail_whitelist:message:human-1'`
 	if err = pool.QueryRow(ctx, versionQuery).Scan(&firstVersion); err != nil {
 		t.Fatal(err)
 	}
@@ -168,6 +168,107 @@ func TestMailWhitelistAdmitsMailAndSyncsNightly(t *testing.T) {
 	var syncs int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM river_job WHERE kind='external.mail_sync'`).Scan(&syncs); err != nil || syncs != 1 {
 		t.Fatalf("mail syncs queued=%d err=%v", syncs, err)
+	}
+}
+
+// Reconnecting a mailbox reads it again under a new Connection; its messages
+// keep the Wiki sources the earlier Connection wrote instead of gaining a
+// second Document each.
+func TestReconnectedMailboxKeepsItsWikiSources(t *testing.T) {
+	allowParallelIntegrationTest(t)
+	ctx := t.Context()
+	databaseURL := newIntegrationDatabase(t)
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	provider := &windowedMailProvider{fakeGmailProvider: &fakeGmailProvider{status: composio.ConnectionActive}}
+	cfg := config.ForTest(func(c *config.Config) {
+		c.DatabaseURL = databaseURL
+		c.SessionTTL = time.Hour
+		c.CookieName = "teamhub_session"
+		c.ArtifactStorageRoot = t.TempDir()
+		c.ArtifactMaxBytes = 2 << 20
+	})
+	newFakeComposio(t).configure(&cfg)
+	application, err := newIntegrationApp(ctx, cfg, withComposio(provider), starting(app.JobQueue))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(application.Close)
+
+	const mailbox = "gmail:alice@example.com"
+	importMailbox := func(connectionID string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `INSERT INTO external_connections(id,account_id,provider,upstream_connection_id,status,identity_label,remote_principal_key)
+			VALUES($1,'account_alice','gmail',$1||'-upstream','active','alice@example.com',$2)`, connectionID, mailbox); err != nil {
+			t.Fatal(err)
+		}
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		if err = jobs.InsertTx(ctx, tx, externalsource.MailConnectionArgs{AccountID: "account_alice", TenantID: acmeTenant, ConnectionID: connectionID}, nil); err != nil {
+			t.Fatal(err)
+		}
+		if err = tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		deadline := time.Now().Add(30 * time.Second)
+		for {
+			var completed bool
+			if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM external_connections WHERE id=$1 AND mail_import_status='completed')`, connectionID).Scan(&completed); err != nil {
+				t.Fatal(err)
+			}
+			if completed {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("the snapshot of %s did not complete", connectionID)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	sources := func() map[string][2]string {
+		t.Helper()
+		rows, err := pool.Query(ctx, `SELECT source_key,document_id,document_version_id FROM wiki_source_items WHERE tenant_id=$1`, acmeTenant)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		found := make(map[string][2]string)
+		for rows.Next() {
+			var key, documentID, versionID string
+			if err := rows.Scan(&key, &documentID, &versionID); err != nil {
+				t.Fatal(err)
+			}
+			found[key] = [2]string{documentID, versionID}
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return found
+	}
+	first := externalsource.MailWikiSourceKey(mailbox, "message:human-1")
+	importMailbox("gmail_before_reconnect")
+	before := sources()
+	if len(before) != 1 || before[first][0] == "" {
+		t.Fatalf("first Connection wrote Wiki sources %v, want only %s", before, first)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE external_connections SET status='revoked' WHERE id='gmail_before_reconnect'`); err != nil {
+		t.Fatal(err)
+	}
+	// The second snapshot reads the first message again, unchanged, and a new one.
+	importMailbox("gmail_after_reconnect")
+	after := sources()
+	if len(after) != 2 || after[first] != before[first] || after[externalsource.MailWikiSourceKey(mailbox, "message:human-2")][0] == "" {
+		t.Fatalf("reconnected mailbox Wiki sources=%v, want %s kept at %v and message:human-2 added", after, first, before[first])
+	}
+	var documents int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM documents WHERE tenant_id=$1 AND id LIKE 'document_onboarding_wiki_%'`, acmeTenant).Scan(&documents); err != nil || documents != 2 {
+		t.Fatalf("reconnected mailbox has %d mail Documents, want 2: %v", documents, err)
 	}
 }
 

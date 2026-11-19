@@ -334,6 +334,14 @@ components:
       properties:
         computer_id:
           $ref: "./common.yaml#/components/schemas/Id"
+        daemon_id:
+          type: string
+          pattern: "^[A-Za-z0-9_-]{43}$"
+          description: >-
+            SHA-256 of the local Daemon Ed25519 public key in base64url. When
+            supplied, TeamHub renews a live Computer already bound to this
+            Daemon Identity for the same owner and rejects claims by another
+            owner with 409 DAEMON_IDENTITY_IN_USE.
         display_name:
           type: string
           minLength: 1
@@ -669,6 +677,16 @@ components:
           description: Active Human Actor identities available to this Account, one per Tenant in V0.
           items:
             $ref: "#/components/schemas/Actor"
+        server_capabilities:
+          type: array
+          description: >-
+            Request fields this TeamHub accepts that earlier releases rejected, so a client
+            newer than its server sends one only when the server lists it. A TeamHub that
+            predates this list omits it. local_computer_enrollment_daemon_id: Local Computer
+            enrollment accepts daemon_id.
+          items:
+            type: string
+            enum: [local_computer_enrollment_daemon_id]
     Session:
       type: object
       additionalProperties: false

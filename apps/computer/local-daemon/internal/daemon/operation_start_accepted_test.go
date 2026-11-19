@@ -367,3 +367,61 @@ func TestAcceptedStartResolvesAgainOnlyAfterAuthorityChange(t *testing.T) {
 		d.WaitForOperations()
 	}
 }
+
+// acceptedSendFailingStream fails only the operation.accepted send, standing in
+// for a connection that drops between admission and acceptance delivery.
+type acceptedSendFailingStream struct {
+	*fakeStream
+	failures atomic.Int32
+}
+
+func (s *acceptedSendFailingStream) Send(ctx context.Context, event protocol.Event) error {
+	if event.Type == protocol.EventOperationAccepted {
+		s.failures.Add(1)
+		return errors.New("connection closed")
+	}
+	return s.fakeStream.Send(ctx, event)
+}
+
+// A failed acceptance send keeps the admitted Operation running, so the
+// reconnect reports it active and the re-sent start replays its acceptance.
+func TestOperationStartAcceptanceSendFailureKeepsOperationAdmitted(t *testing.T) {
+	providerRelease := make(chan struct{})
+	started := make(chan struct{}, 8)
+	d, stream := acceptedStartDaemon(t, newBlockingBinder("unused", nil), started, providerRelease)
+	dead := &acceptedSendFailingStream{fakeStream: &fakeStream{}}
+	start := daemonOperationStart("operation-accept-lost", "agent-1")
+
+	if err := d.handleOperationStart(context.Background(), dead, start); err == nil {
+		t.Fatal("acceptance send failure was not returned to the connection")
+	}
+	if got := dead.failures.Load(); got != 1 {
+		t.Fatalf("accepted send failures=%d, want 1", got)
+	}
+	awaitProviderStarts(t, started, 1)
+	active, err := d.ledger.Active(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(active), start.OperationID) {
+		t.Fatalf("ledger Active=%s does not report %s", active, start.OperationID)
+	}
+	begin, err := d.ledger.Begin(context.Background(), operationIdentity(start))
+	if err != nil || begin.Disposition != BeginRunning {
+		t.Fatalf("Begin=%+v err=%v, want running", begin, err)
+	}
+
+	if err := d.handleOperationStart(context.Background(), stream, start); err != nil {
+		t.Fatal(err)
+	}
+	awaitAcceptedOperationEvent(t, stream, start.OperationID, protocol.EventOperationAccepted)
+	close(providerRelease)
+	d.WaitForOperations()
+	awaitAcceptedOperationEvent(t, stream, start.OperationID, protocol.EventOperationCompleted)
+	assertNoProviderStart(t, started)
+	for _, event := range append(stream.snapshotEvents(), dead.snapshotEvents()...) {
+		if event.OperationID == start.OperationID && event.Type == protocol.EventOperationFailed {
+			t.Fatalf("admitted Operation recorded a failure: %s", event.Payload)
+		}
+	}
+}

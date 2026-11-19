@@ -17,12 +17,10 @@ func TestPiAuthenticationPreservesClosedContextStage(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fixture uses a POSIX shell")
 	}
-	for _, stage := range []string{"catalog", "auth"} {
-		for _, kind := range []string{"deadline", "cancel"} {
-			t.Run(stage+"/"+kind, func(t *testing.T) {
-				root := t.TempDir()
-				program := filepath.Join(root, "pi")
-				script := `#!/bin/sh
+	// Every case runs one shared executable: macOS scans each new executable
+	// on its first run, which can outlast the probe's one second budget.
+	program := filepath.Join(t.TempDir(), "pi")
+	script := `#!/bin/sh
 if [ "$FIXTURE_STAGE" = catalog ] || [ "$1" = auth ]; then echo $$ > "$HOME/pid"; exec /bin/sleep 60; fi
 while IFS= read -r line; do
  case "$line" in
@@ -31,12 +29,14 @@ while IFS= read -r line; do
  esac
 done
 `
-				if err := os.WriteFile(program, []byte(script), 0700); err != nil {
-					t.Fatal(err)
-				}
-				// macOS scans a new executable on its first run, which can
-				// outlast the probe's one second budget.
-				primeTestExecutable(t, program)
+	if err := os.WriteFile(program, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	primeTestExecutable(t, program)
+	for _, stage := range []string{"catalog", "auth"} {
+		for _, kind := range []string{"deadline", "cancel"} {
+			t.Run(stage+"/"+kind, func(t *testing.T) {
+				root := t.TempDir()
 				ctx, cancel := context.WithCancelCause(t.Context())
 				defer cancel(nil)
 				done := make(chan runtimeProbeOutcome, 1)

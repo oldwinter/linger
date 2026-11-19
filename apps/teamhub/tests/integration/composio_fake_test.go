@@ -40,6 +40,7 @@ type fakeComposio struct {
 	mu             sync.Mutex
 	accounts       map[string]*fakeComposioAccount
 	links          int
+	lastCallback   string
 	revoked        []string
 	statusRequests map[string]int
 	// intercept may answer a request before the default handling.
@@ -81,12 +82,14 @@ func (f *fakeComposio) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			AuthConfigID string `json:"auth_config_id"`
 			UserID       string `json:"user_id"`
+			CallbackURL  string `json:"callback_url"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		f.links++
+		f.lastCallback = input.CallbackURL
 		id := fmt.Sprintf("ca_link_%d", f.links)
 		// The account is authorized as soon as the link exists.
 		f.accounts[id] = &fakeComposioAccount{userID: input.UserID, toolkit: fakeComposioToolkit(input.AuthConfigID), authConfigID: input.AuthConfigID, status: composio.ConnectionActive}
@@ -194,6 +197,12 @@ func (f *fakeComposio) statusRequestCount(upstreamID string) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.statusRequests[upstreamID]
+}
+
+func (f *fakeComposio) callbackURL() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lastCallback
 }
 
 // completeAuthorizations stands in for the OAuth popup returning to TeamHub:

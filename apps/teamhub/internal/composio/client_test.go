@@ -19,15 +19,16 @@ import (
 )
 
 func TestClientCreateLinkSendsFixedCallbackURL(t *testing.T) {
+	const web = "https://workspace.example.com/oauth/composio-complete"
+	desktop := "http://127.0.0.1:43210/oauth/connector/" + strings.Repeat("a", 48)
+	got := make(chan any, 2)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v3.1/connected_accounts/link", func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		if body["callback_url"] != "https://workspace.example.com/oauth/composio-complete" {
-			t.Fatalf("unexpected link body: %#v", body)
-		}
+		got <- body["callback_url"]
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"connected_account_id":"ca_1","redirect_url":"https://connect.example/link","expires_at":"2026-08-05T12:00:00Z"}`))
 	})
@@ -36,13 +37,25 @@ func TestClientCreateLinkSendsFixedCallbackURL(t *testing.T) {
 
 	client, err := newTestClient(Config{
 		BaseURL: server.URL, APIKey: "restricted-key",
-		CallbackURL: "https://workspace.example.com/oauth/composio-complete", HTTPClient: server.Client(),
+		CallbackURL: web, HTTPClient: server.Client(),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.CreateConnectionLink(context.Background(), "gmail-auth", "account_1"); err != nil {
+	ctx, err := WithDesktopOAuthCallback(context.Background(), &desktop)
+	if err != nil {
 		t.Fatal(err)
+	}
+	for _, request := range []struct {
+		ctx  context.Context
+		want string
+	}{{ctx, desktop}, {context.Background(), web}} {
+		if _, err := client.CreateConnectionLink(request.ctx, "gmail-auth", "account_1"); err != nil {
+			t.Fatal(err)
+		}
+		if callback := <-got; callback != request.want {
+			t.Errorf("callback = %q, want %q", callback, request.want)
+		}
 	}
 }
 

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { applyMemoryUpdate, validateMemoryUpdate } from "./apply.js";
 import { collectDaily, loadAnotherMeSubjects } from "./collector.js";
+import { concurrencyLimit } from "./concurrency.js";
 import { assertDateString, localTimeZone } from "./date.js";
 import {
   ensureDir,
@@ -696,33 +697,13 @@ async function mapWithConcurrency<T, R>(
   concurrency: number,
   mapper: (value: T, index: number) => Promise<R>,
 ): Promise<R[]> {
-  const results: R[] = new Array(values.length);
-  const waiters: Array<() => void> = [];
-  let active = 0;
-
-  const runLimited = async (run: () => Promise<void>): Promise<void> => {
-    if (active >= concurrency) {
-      await new Promise<void>((resolve) => waiters.push(resolve));
-    }
-    active += 1;
-    try {
-      await run();
-    } finally {
-      active -= 1;
-      waiters.shift()?.();
-    }
-  };
-
-  const tasks = values.map((value, index) =>
-    runLimited(async () => {
-      results[index] = await mapper(value, index);
-    }),
+  const limit = concurrencyLimit(concurrency);
+  const settled = await Promise.allSettled(
+    values.map((value, index) => limit(() => mapper(value, index))),
   );
-
-  const settled = await Promise.allSettled(tasks);
   const failed = settled.find(
     (result): result is PromiseRejectedResult => result.status === "rejected",
   );
   if (failed) throw failed.reason;
-  return results;
+  return settled.map((result) => (result as PromiseFulfilledResult<R>).value);
 }

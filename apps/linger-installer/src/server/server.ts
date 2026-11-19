@@ -12,11 +12,13 @@ import { JobManager, type RunInstallation } from "./jobs.js";
 import { privateDirectory, privateWrite } from "./storage.js";
 import {
   instanceName,
+  validateByok,
   validateInput,
   validateModel,
   validateLocalModelsAuthority,
 } from "./validation.js";
 import { checkModel, openLocalTarget } from "./platform.js";
+import { checkByokEndpoint } from "@linger/local-installation/byok-source";
 import { checkRuntimeModel } from "@linger/local-installation/managed-codex";
 export interface ServerOptions {
   home: string;
@@ -408,6 +410,16 @@ export async function startInstallerServer(options: ServerOptions) {
               ],
             });
           }
+          return;
+        }
+        if (url.pathname === "/api/byok/check" && method === "POST") {
+          const byok = validateByok(await body(req));
+          const checked = await checkByokEndpoint(
+            options.home,
+            byok,
+            AbortSignal.timeout(45_000),
+          );
+          json(res, 200, checked);
           return;
         }
         if (url.pathname === "/api/runtime-login" && method === "DELETE") {

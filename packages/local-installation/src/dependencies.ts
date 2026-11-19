@@ -5,6 +5,7 @@ import { privateDirectory } from "./instance.js";
 import type { InstallOutcome, InstallerEvent } from "./events.js";
 import {
   installNativeRuntime,
+  runtimeFailureCode,
   runtimeVersionFailure,
   type RuntimeDependencies,
 } from "./managed-runtimes.js";
@@ -61,12 +62,9 @@ export async function prepareDependencies(
     emit("failed", message);
     const code =
       versionFailure?.code ??
-      (error &&
-      typeof error === "object" &&
-      "code" in error &&
-      (error.code === "LOCALMODELS_RUNTIME_UNAVAILABLE" ||
-        error.code === "COMMAND_TIMEOUT")
-        ? error.code
+      runtimeFailureCode(error) ??
+      ((error as { code?: unknown } | null)?.code === "COMMAND_TIMEOUT"
+        ? "COMMAND_TIMEOUT"
         : undefined);
     return {
       code: 5,

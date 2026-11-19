@@ -8,7 +8,16 @@ import {
   within,
 } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { LibraryLayout } from "@/features/library/library-layout";
@@ -24,9 +33,8 @@ import { WikiGraphPage } from "./wiki-graph-page";
 
 afterEach(() => vi.restoreAllMocks());
 // jsdom supplies no scroll geometry; the real-service proof verifies movement.
-Object.defineProperty(HTMLElement.prototype, "scrollTo", {
-  configurable: true,
-  value: vi.fn(),
+beforeEach(() => {
+  defineGlobalProperty(HTMLElement.prototype, "scrollTo", { value: vi.fn() });
 });
 
 describe("WikiGraphPage", () => {

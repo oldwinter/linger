@@ -168,7 +168,7 @@ export function RecordingAskBox({
     <div className="mx-4 mt-2 mb-4 flex shrink-0 items-end gap-2 rounded-2xl bg-app-surface py-1 pr-1 pl-3 shadow-(--composer-shadow) transition-shadow focus-within:shadow-(--composer-shadow-focus)">
       <textarea
         aria-label="Ask about this recording"
-        className="max-h-24 min-h-7 flex-1 resize-none self-center bg-transparent py-1 text-sm leading-5 text-app-ink [field-sizing:content] placeholder:text-app-muted focus:outline-none"
+        className="max-h-24 min-h-7 flex-1 resize-none self-center bg-transparent py-1 text-sm leading-5 text-app-ink [field-sizing:content] placeholder:text-app-placeholder focus:outline-none"
         onChange={(event) => setQuestion(event.target.value)}
         onKeyDown={onKey}
         placeholder="Ask something or ask to do something"

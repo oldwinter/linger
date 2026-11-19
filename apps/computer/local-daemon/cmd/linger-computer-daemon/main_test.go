@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/computerconfig"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/assignment"
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/localmodels"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider"
 )
 
@@ -231,5 +233,75 @@ func TestProviderInstallationsKeepDiscoveredContextWindows(t *testing.T) {
 	installations, _ := providerInstallations(discovered, nil)
 	if windows := installations["codex"].ContextWindows; len(windows) != 1 || windows["local"] != 64896 {
 		t.Fatalf("context windows = %v", windows)
+	}
+}
+
+func TestByokRuntimeCatalogsShowTheEnteredModel(t *testing.T) {
+	diagnostics := []provider.RuntimeDiagnostic{
+		{Type: "claude", Models: []provider.RuntimeModel{
+			{ID: "default", Label: "Default", IsDefault: true},
+			{ID: "localmodels-byok", Label: "localmodels-byok"},
+		}},
+		{Type: "codex", Models: []provider.RuntimeModel{{ID: "gpt-5", Label: "gpt-5", IsDefault: true}}},
+	}
+	byok := &localmodels.OverlayState{Mode: "byok", RuntimeModel: "localmodels-byok", ModelLabel: "vendor/model"}
+
+	shaped := byokRuntimeCatalogs(diagnostics, byok)
+	if want := []provider.RuntimeModel{{ID: "localmodels-byok", Label: "vendor/model", IsDefault: true}}; !reflect.DeepEqual(shaped[0].Models, want) {
+		t.Fatalf("Claude models = %+v, want %+v", shaped[0].Models, want)
+	}
+	if !reflect.DeepEqual(shaped[1].Models, diagnostics[1].Models) {
+		t.Fatalf("a Runtime without the BYOK route changed: %+v", shaped[1].Models)
+	}
+	if len(diagnostics[0].Models) != 2 || diagnostics[0].Models[1].Label != "localmodels-byok" {
+		t.Fatalf("input diagnostics were modified: %+v", diagnostics[0].Models)
+	}
+	for _, source := range []*localmodels.OverlayState{nil, {Mode: "local", RuntimeModel: "localmodels-byok", ModelLabel: "x"}} {
+		if got := byokRuntimeCatalogs(diagnostics, source); len(got[0].Models) != 2 {
+			t.Fatalf("source %+v reshaped the catalog: %+v", source, got[0].Models)
+		}
+	}
+}
+
+func TestWithManagedPiPathRespectsConfiguredPiAndClonesSafely(t *testing.T) {
+	if got := withManagedPiPath(nil, ""); got != nil {
+		t.Fatalf("empty managed path returned %v", got)
+	}
+	configured := map[string]string{"codex": "/bin/codex", "pi": "/custom/pi"}
+	if got := withManagedPiPath(configured, "/managed/pi"); got["pi"] != "/custom/pi" {
+		t.Fatalf("managed Pi overwrote configured path: %v", got)
+	}
+	original := map[string]string{"codex": "/bin/codex"}
+	merged := withManagedPiPath(original, "/managed/pi")
+	if merged["pi"] != "/managed/pi" || original["pi"] != "" {
+		t.Fatalf("merged=%v original=%v", merged, original)
+	}
+}
+
+func TestWithPiProvisionStatusMarksNotInstalledPiAsErrorWhenFailed(t *testing.T) {
+	original := []provider.RuntimeDiagnostic{
+		{Type: "codex", Status: "not_installed", Error: &provider.DiagnosticError{Code: "RUNTIME_NOT_INSTALLED", Message: "missing"}},
+		{Type: "pi", Status: "not_installed", Error: &provider.DiagnosticError{Code: "RUNTIME_NOT_INSTALLED", Message: "missing"}},
+		{Type: "claude", Status: "ready"},
+	}
+	unchanged := withPiProvisionStatus(original, false)
+	if unchanged[1].Status != "not_installed" {
+		t.Fatalf("expected not_installed when failed=false, got %+v", unchanged[1])
+	}
+
+	marked := withPiProvisionStatus(original, true)
+	if marked[1].Status != "error" || marked[1].Error == nil || marked[1].Error.Code != "RUNTIME_DIAGNOSTIC_FAILED" {
+		t.Fatalf("expected Pi error status when failed=true, got %+v", marked[1])
+	}
+	if marked[0].Status != "not_installed" || marked[2].Status != "ready" {
+		t.Fatalf("non-Pi diagnostics changed unexpectedly: %+v", marked)
+	}
+	if original[1].Status != "not_installed" {
+		t.Fatalf("input diagnostics mutated in place: %+v", original[1])
+	}
+
+	readyPi := []provider.RuntimeDiagnostic{{Type: "pi", Status: "ready"}}
+	if got := withPiProvisionStatus(readyPi, true); got[0].Status != "ready" {
+		t.Fatalf("ready Pi overwritten: %+v", got[0])
 	}
 }

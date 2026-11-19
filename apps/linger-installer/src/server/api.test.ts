@@ -14,7 +14,7 @@ vi.mock("@linger/local-installation/setup-plan", () => ({
     choices: ["local-models", "codex", "claude", "pi"],
     localModels: {
       eligible: false,
-      reasons: ["upstream-unavailable"],
+      reasons: [{ code: "upstream-unavailable", message: "" }],
       selectedGpuIndex: null,
       estimate: {
         model: "",

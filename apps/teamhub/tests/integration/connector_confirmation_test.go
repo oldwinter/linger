@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentauth"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentconnectedapps"
@@ -240,6 +241,96 @@ func TestConnectorConfirmationRunsStoredCallOnceAfterApproval(t *testing.T) {
 	if bodies := notices(); provider.sends != 1 || status(draft.DecisionID) != "failed" || !strings.Contains(bodies[len(bodies)-1], "draft changed") {
 		t.Fatalf("changed draft sends=%d status=%s notices=%v", provider.sends, status(draft.DecisionID), bodies)
 	}
+	// A canvas edit must invalidate an unchanged remote draft, including after restart.
+	if _, err := env.pool.Exec(t.Context(), `INSERT INTO documents(id,tenant_id,title,format,owner_actor_id,owner_actor_kind,creator_actor_id,creator_actor_kind,status) VALUES('document_mail_guard','tenant_acme','Mail','blocknote','actor_acme_alice','human','actor_acme_alice','human','active')`); err != nil {
+		t.Fatal(err)
+	}
+	source := &confirmationCanvasSource{digest: "sha256:" + strings.Repeat("a", 64)}
+	service.SetCanvasReader(source)
+	built := agentconnectedapps.CanvasDraft{Raw: "raw-draft", DocumentID: "document_mail_guard", SourceDigest: source.digest}
+	if _, err := service.SaveGmailCanvasDraft(ctx, issued.AccessToken, "connection_confirm_gmail", "draft-1", built); err != nil {
+		t.Fatal(err)
+	}
+	provider.draftBody = "Draft body"
+	draftInput := agentconnectedapps.ExecuteInput{ConnectionID: "connection_confirm_gmail", ToolSlug: "GMAIL_SEND_DRAFT", ToolVersion: "20261015_00", Arguments: map[string]any{"draft_id": "draft-1"}}
+	canvasStale := submit(draftInput, "canvas-stale")
+	source.digest = "sha256:" + strings.Repeat("b", 64)
+	service = agentconnectedapps.New(env.pool, agentauth.New(env.pool), newFakeComposio(t).externalSources(t, env.pool, nil), provider)
+	service.SetCanvasReader(source)
+	decide(canvasStale, "approve", "")
+	run(canvasStale.DecisionID)
+	if status(canvasStale.DecisionID) != "failed" || provider.sends != 1 {
+		t.Fatalf("stale canvas was sent: status=%s sends=%d", status(canvasStale.DecisionID), provider.sends)
+	}
+	if _, err := service.Execute(ctx, issued.AccessToken, draftInput); err == nil {
+		t.Fatal("stale canvas accepted a new confirmation")
+	}
+	built.SourceDigest = source.digest
+	if _, err := service.SaveGmailCanvasDraft(ctx, issued.AccessToken, "connection_confirm_gmail", "draft-1", built); err != nil {
+		t.Fatal(err)
+	}
+	fresh := submit(draftInput, "canvas-fresh")
+	decide(fresh, "approve", "")
+	run(fresh.DecisionID)
+	if status(fresh.DecisionID) != "succeeded" || provider.sends != 2 {
+		t.Fatalf("updated canvas was not sent: status=%s sends=%d", status(fresh.DecisionID), provider.sends)
+	}
+	// The confirmed send is recorded on the canvas, so its chat card cannot
+	// send the same email again.
+	if countRows(t, env, `SELECT count(*) FROM mail_canvas_deliveries WHERE document_id='document_mail_guard' AND status='sent' AND connection_id='connection_confirm_gmail'`) != 1 {
+		t.Fatal("the Agent's canvas send was not recorded")
+	}
+
+	// Draft saves of one connection take turns through a lease that holds
+	// no database connection during the upload.
+	exec := func(query string, arguments ...any) {
+		t.Helper()
+		if _, err := env.pool.Exec(t.Context(), query, arguments...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	binding := func() string {
+		t.Helper()
+		var digest string
+		if err := env.pool.QueryRow(t.Context(), `SELECT source_digest FROM gmail_canvas_drafts WHERE connection_id='connection_confirm_gmail' AND draft_id='draft-1'`).Scan(&digest); err != nil {
+			t.Fatal(err)
+		}
+		return digest
+	}
+	edited := built
+	edited.SourceDigest = "sha256:" + strings.Repeat("c", 64)
+	// Another save holds the lease: this one waits and gives up retryable
+	// without uploading.
+	exec(`INSERT INTO gmail_canvas_draft_leases(connection_id,holder,expires_at) VALUES('connection_confirm_gmail','other_save',clock_timestamp()+interval '1 minute')`)
+	waiting, cancel := context.WithTimeout(ctx, time.Second)
+	_, err = service.SaveGmailCanvasDraft(waiting, issued.AccessToken, "connection_confirm_gmail", "draft-1", edited)
+	cancel()
+	var busy *agentconnectedapps.Error
+	if !errors.As(err, &busy) || busy.Code != "provider_unavailable" || !busy.Retryable || provider.saves != 2 || binding() != built.SourceDigest {
+		t.Fatalf("save under another lease err=%v saves=%d binding=%s", err, provider.saves, binding())
+	}
+	// A lease a crashed save left is taken over once it expires.
+	exec(`UPDATE gmail_canvas_draft_leases SET expires_at=clock_timestamp()-interval '1 second'`)
+	if _, err := service.SaveGmailCanvasDraft(ctx, issued.AccessToken, "connection_confirm_gmail", "draft-1", edited); err != nil || binding() != edited.SourceDigest {
+		t.Fatalf("save after an expired lease err=%v binding=%s", err, binding())
+	}
+	if countRows(t, env, `SELECT count(*) FROM gmail_canvas_draft_leases`) != 0 {
+		t.Fatal("a finished save kept its lease")
+	}
+	// A save whose lease was taken over mid-upload leaves the draft unbound
+	// to its content, so no send trusts it.
+	provider.onSave = func() {
+		exec(`UPDATE gmail_canvas_draft_leases SET holder='other_save'`)
+	}
+	lost := built
+	lost.SourceDigest = "sha256:" + strings.Repeat("d", 64)
+	_, err = service.SaveGmailCanvasDraft(ctx, issued.AccessToken, "connection_confirm_gmail", "draft-1", lost)
+	provider.onSave = nil
+	var uncertain *agentconnectedapps.Error
+	if !errors.As(err, &uncertain) || uncertain.Code != "tool_execution_failed" || binding() != edited.SourceDigest {
+		t.Fatalf("save that lost its lease err=%v binding=%s", err, binding())
+	}
+
 }
 
 // An idempotent kind declares Rerun: a run that stopped midway runs again on
@@ -301,6 +392,9 @@ func TestDecisionRerunsAnIdempotentKindAfterAnInterruptedRun(t *testing.T) {
 type confirmationToolProvider struct {
 	sends     int
 	draftBody string
+	// saves counts draft uploads; onSave, when set, runs during one.
+	saves  int
+	onSave func()
 }
 
 func (p *confirmationToolProvider) SearchTools(context.Context, composio.ToolSearchRequest) ([]composio.Tool, error) {
@@ -327,4 +421,17 @@ func (p *confirmationToolProvider) ExecuteTool(_ context.Context, _, _, slug, _ 
 	}
 	p.sends++
 	return composio.ToolExecution{Successful: true, Data: map[string]any{"id": "sent-1"}}, nil
+}
+
+type confirmationCanvasSource struct{ digest string }
+
+func (s *confirmationCanvasSource) SourceDigest(context.Context, string, string, string) (string, error) {
+	return s.digest, nil
+}
+func (p *confirmationToolProvider) SaveGmailDraft(context.Context, string, string, string) (composio.GmailDraft, error) {
+	p.saves++
+	if p.onSave != nil {
+		p.onSave()
+	}
+	return composio.GmailDraft{DraftID: "draft-1"}, nil
 }

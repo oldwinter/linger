@@ -1,25 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import { writeClipboardText } from "./clipboard";
 
-const originalClipboard = Object.getOwnPropertyDescriptor(
-  Navigator.prototype,
-  "clipboard",
-);
 const originalExecCommand = document.execCommand;
 
 describe("clipboard fallback", () => {
   afterEach(() => {
-    if (originalClipboard) {
-      Object.defineProperty(
-        Navigator.prototype,
-        "clipboard",
-        originalClipboard,
-      );
-    } else {
-      Reflect.deleteProperty(Navigator.prototype, "clipboard");
-    }
     document.execCommand = originalExecCommand;
     document.body.replaceChildren();
     vi.restoreAllMocks();
@@ -27,7 +15,7 @@ describe("clipboard fallback", () => {
 
   it("uses the browser copy command when Clipboard API access is rejected", async () => {
     const writeText = vi.fn().mockRejectedValue(new Error("Permission denied"));
-    Object.defineProperty(Navigator.prototype, "clipboard", {
+    defineGlobalProperty(Navigator.prototype, "clipboard", {
       configurable: true,
       value: { writeText },
     });
@@ -41,7 +29,7 @@ describe("clipboard fallback", () => {
   });
 
   it("keeps the fallback control inside the active modal dialog", async () => {
-    Object.defineProperty(Navigator.prototype, "clipboard", {
+    defineGlobalProperty(Navigator.prototype, "clipboard", {
       configurable: true,
       value: undefined,
     });
@@ -73,7 +61,7 @@ describe("clipboard fallback", () => {
   ])(
     "restores focus and selection when execCommand %s",
     async (_label, execCommand) => {
-      Object.defineProperty(Navigator.prototype, "clipboard", {
+      defineGlobalProperty(Navigator.prototype, "clipboard", {
         configurable: true,
         value: undefined,
       });

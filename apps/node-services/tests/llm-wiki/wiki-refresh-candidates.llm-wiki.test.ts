@@ -18,9 +18,11 @@ import type {
   LlmWikiGenerateResult,
 } from "../../src/llm-wiki/backend.js";
 import { ActorAssetError } from "../../src/llm-wiki/actor-wiki/actor-asset-client.js";
+import { generationInvocationError } from "../../src/llm-wiki/wiki-candidate-tree.js";
 import { renderWikiPage } from "../../src/llm-wiki/wiki-page-template.js";
 import { WikiRefreshCandidateService } from "../../src/llm-wiki/wiki-refresh-candidates.js";
 import { WikiCandidateValidationError } from "../../src/llm-wiki/wiki-candidate-validation.js";
+import { ModelCallError } from "../../src/runtime-model-call.js";
 import { closeWikiServers, startWikiServer } from "./wiki-server-host.js";
 
 const serviceToken = "wiki-candidate-service-token-for-test";
@@ -683,6 +685,70 @@ describe("Wiki refresh candidate HTTP API", () => {
       },
     });
   });
+
+  it.each([
+    [
+      "WIKI_RUNTIME_INCOMPATIBLE",
+      "terminal",
+      500,
+      "The Wiki owner's Local Computer Runtime is incompatible",
+    ],
+    [
+      "WIKI_RUNTIME_AUTH_REQUIRED",
+      "terminal",
+      500,
+      "The Wiki owner's Local Computer Runtime requires sign-in",
+    ],
+    [
+      "WIKI_RUNTIME_UNAVAILABLE",
+      "retryable",
+      503,
+      "The Wiki owner's Local Computer Runtime is unavailable",
+    ],
+  ] as const)(
+    "reports %s with its own code and disposition",
+    async (code, disposition, status, message) => {
+      const { httpUrl } = await startServer({
+        backend: {
+          id: "test-openwiki",
+          async generate() {
+            throw new ActorAssetError(code, message, disposition);
+          },
+        },
+      });
+
+      const response = await fetch(
+        `${httpUrl}/internal/v1/wiki-refreshes/refresh-a/candidates`,
+        requestInit(candidateRequest(1)),
+      );
+
+      expect(response.status).toBe(status);
+      await expect(response.json()).resolves.toEqual({
+        error: { code, disposition, message },
+      });
+    },
+  );
+
+  it.each([
+    ["runtime_incompatible", "WIKI_RUNTIME_INCOMPATIBLE", "terminal"],
+    ["auth_required", "WIKI_RUNTIME_AUTH_REQUIRED", "terminal"],
+    ["runtime_unavailable", "WIKI_RUNTIME_UNAVAILABLE", "retryable"],
+    [undefined, "WIKI_RUNTIME_UNAVAILABLE", "retryable"],
+  ] as const)(
+    "maps ModelCallError runtimeOutcome %s to %s (%s)",
+    (runtimeOutcome, wantCode, wantDisposition) => {
+      const mapped = generationInvocationError(
+        new ModelCallError("runtime_unavailable", "Runtime cannot run", {
+          ...(runtimeOutcome ? { runtimeOutcome } : {}),
+        }),
+      );
+      expect(mapped).toBeInstanceOf(ActorAssetError);
+      expect(mapped).toMatchObject({
+        code: wantCode,
+        disposition: wantDisposition,
+      });
+    },
+  );
 
   it("does not retry a terminal OpenWiki invocation failure", async () => {
     const { httpUrl } = await startServer({

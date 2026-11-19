@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import {
   collectVoiceElements,
@@ -582,42 +583,21 @@ describe("Voice Mode screen actions", () => {
 
   it("scrolls the page itself when the middle of the screen is not in a scrolling area", () => {
     const sidebar = pane("sidebar");
+    // The document element outlives the test, so every patch on it is
+    // restored after the test.
     const page = document.documentElement;
-    Object.defineProperty(document, "scrollingElement", {
-      configurable: true,
-      value: page,
-    });
-    Object.defineProperty(page, "scrollHeight", {
-      configurable: true,
-      value: 3000,
-    });
-    Object.defineProperty(page, "clientHeight", {
-      configurable: true,
-      value: 800,
-    });
-    page.scrollBy = vi.fn();
+    defineGlobalProperty(document, "scrollingElement", { value: page });
+    defineGlobalProperty(page, "scrollHeight", { value: 3000 });
+    defineGlobalProperty(page, "clientHeight", { value: 800 });
+    const scrollBy = vi.fn();
+    defineGlobalProperty(page, "scrollBy", { value: scrollBy });
     const content = document.createElement("main");
     document.body.append(content);
-    document.elementsFromPoint = () => [content, document.body];
-    try {
-      expect(voiceScroll("down")).toBe(true);
-      expect(page.scrollBy).toHaveBeenCalled();
-      expect(sidebar.scrollBy).not.toHaveBeenCalled();
-    } finally {
-      // @ts-expect-error jsdom has no elementsFromPoint
-      delete document.elementsFromPoint;
-      Object.defineProperty(document, "scrollingElement", {
-        configurable: true,
-        value: null,
-      });
-      Object.defineProperty(page, "scrollHeight", {
-        configurable: true,
-        value: 0,
-      });
-      Object.defineProperty(page, "clientHeight", {
-        configurable: true,
-        value: 0,
-      });
-    }
+    defineGlobalProperty(document, "elementsFromPoint", {
+      value: () => [content, document.body],
+    });
+    expect(voiceScroll("down")).toBe(true);
+    expect(scrollBy).toHaveBeenCalled();
+    expect(sidebar.scrollBy).not.toHaveBeenCalled();
   });
 });

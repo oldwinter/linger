@@ -14,6 +14,7 @@ import tempfile
 import unittest
 import zipfile
 
+import archive
 import computer_tools
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -189,6 +190,33 @@ class MacSigningTest(unittest.TestCase):
         args = self.mac.Signing("rcodesign").app_args(app)
         self.assertIn("Contents/Resources/cli/computer-tools/cua/CuaDriver.app",
                       args[args.index("--exclude") + 1])
+
+
+class ArchiveHelperTest(unittest.TestCase):
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root)
+
+    def test_tar_gz_preserves_symlinks_and_applies_root_owner_option(self):
+        bundle = os.path.join(self.root, "Linger")
+        os.makedirs(bundle)
+        file_path = os.path.join(bundle, "hello.txt")
+        with open(file_path, "wb") as out:
+            out.write(b"linger\n")
+        os.symlink("hello.txt", os.path.join(bundle, "link.txt"))
+
+        owned = os.path.join(self.root, "owned.tar.gz")
+        archive.tar_gz(self.root, "Linger", owned, root_owner=True)
+        with tarfile.open(owned, "r:gz") as tf:
+            members = {m.name: m for m in tf.getmembers()}
+            self.assertEqual(members["Linger/hello.txt"].uid, 0)
+            self.assertEqual(members["Linger/hello.txt"].gid, 0)
+            self.assertTrue(members["Linger/link.txt"].issym())
+            self.assertEqual(members["Linger/link.txt"].linkname, "hello.txt")
+
+        plain = os.path.join(self.root, "plain.tar.gz")
+        archive.tar_gz(self.root, "Linger", plain)
+        self.assertEqual(archive.sha256(plain), sha256(plain))
 
 
 if __name__ == "__main__":

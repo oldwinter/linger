@@ -257,7 +257,7 @@ func aliceAccountID(t *testing.T, ctx context.Context, pool *pgxpool.Pool) strin
 
 func seedExternalConnection(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, accountID, provider, connectionStatus string) {
 	t.Helper()
-	if _, err := pool.Exec(ctx, `INSERT INTO external_connections(id,account_id,provider,upstream_connection_id,status,identity_label,remote_principal_key) VALUES($1,$2,$3,$1||'-upstream',$4,$1,$1||'-principal')`, id, accountID, provider, connectionStatus); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO external_connections(id,account_id,provider,upstream_connection_id,status,identity_label,remote_principal_key) VALUES($1,$2,$3,$1||'-upstream',$4,$1,$3||':'||$1)`, id, accountID, provider, connectionStatus); err != nil {
 		t.Fatal(err)
 	}
 }

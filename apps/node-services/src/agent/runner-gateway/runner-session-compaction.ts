@@ -1,3 +1,4 @@
+import type { ModelLease } from "../../model-tasks.js";
 import type {
   SessionCompact,
   SessionCompacted,
@@ -8,7 +9,6 @@ import {
 } from "@linger/wire-contracts/runner-gateway/validator";
 import { COMPACTION_PRIORITY } from "../../model-tasks.js";
 import { LocalComputerOfflineError } from "./local-computer-management.js";
-import type { ModelLease } from "./model-queue.js";
 import type {
   RunnerGatewayContext,
   RunnerGatewayControllers,

@@ -25,7 +25,6 @@ import {
   spawnDaemon,
 } from "./computer-daemon.js";
 import { ConfigStore } from "./config.js";
-import { daemonIdentityPath } from "./daemon-identity.js";
 import { DesktopIpcModule } from "./desktop-ipc.js";
 import { DiagnosticsModule } from "./diagnostics.js";
 import { EnrollmentModule } from "./enrollment.js";
@@ -192,6 +191,7 @@ async function main(): Promise<void> {
   const home = lingerHome();
   const localServer = new LocalServerModule({
     home,
+    version: VERSION,
     macosVersion: () => process.getSystemVersion(),
     installerDirectory: path.join(here, "../installer"),
     ...(__SOURCE_ARCHIVE__ ? { sourceArchive: __SOURCE_ARCHIVE__ } : {}),
@@ -222,7 +222,6 @@ async function main(): Promise<void> {
       ? updateInstallFor(process.platform, process.execPath, existsSync)
       : undefined,
     downloadDirectory: path.join(userData, "updates"),
-    services: localServer,
     announce: (state) => {
       if (!Notification.isSupported()) return;
       const notice = new Notification(updateNotice(state));
@@ -276,7 +275,11 @@ async function main(): Promise<void> {
     new EnrollmentModule({
       defaultDisplayName,
       credentials,
-      daemonIdentityFile: daemonIdentityPath(daemonDirectory),
+      daemonIdentityFile: path.join(
+        daemonDirectory,
+        "state",
+        "daemon-identity.json",
+      ),
       sessionCookie: webSessionCookie,
     }),
     new WorkspaceGrantsModule({
@@ -338,10 +341,14 @@ async function main(): Promise<void> {
   const host = new ModuleHost(modules, { config, log, bus: new EventBus() });
 
   const showApp = (): void => setup.showApp();
+  // The uninstaller, or setup replacing this release, asked to quit.
+  let replacing = false;
   app.on("second-instance", (_event, argv) => {
     // Without asking: the uninstaller is removing the app.
-    if (quitRequested(argv)) app.quit();
-    else showApp();
+    if (quitRequested(argv)) {
+      replacing = true;
+      app.quit();
+    } else showApp();
   });
   app.on("activate", showApp);
   // Closing the window only hides it; the tray keeps the app running.
@@ -352,10 +359,14 @@ async function main(): Promise<void> {
     if (quitting) return;
     quitting = true;
     event.preventDefault();
-    void host.stop(relaunch || updating ? "update" : "quit").finally(() => {
-      if (relaunch) app.relaunch();
-      app.exit(0);
-    });
+    // Setup and the uninstaller stop the services and the local models
+    // themselves right after --quit; a stop from here would race theirs.
+    void host
+      .stop(relaunch || updating || replacing ? "update" : "quit")
+      .finally(() => {
+        if (relaunch) app.relaunch();
+        app.exit(0);
+      });
   });
 
   // Tasks run in the app, so quitting takes the computer offline; ask first

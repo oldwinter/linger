@@ -78,6 +78,14 @@ done
 }
 
 func TestDiscoveryVersionFailuresRemainBounded(t *testing.T) {
+	// Every case runs one shared executable that takes its body from the
+	// environment, so only the first launch pays the macOS executable scan.
+	executable := filepath.Join(t.TempDir(), "pi")
+	script := "#!/bin/sh\nif [ \"$1\" = \"--fixture-warmup\" ]; then exit 0; fi\nif [ \"$1\" = \"--version\" ]; then\necho version >> \"$HOME/attempts\"\neval \"$FIXTURE_BODY\"\nexit\nfi\nexit 7\n"
+	if err := os.WriteFile(executable, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	warmVersionFixture(t, executable)
 	for _, tc := range []struct {
 		name, body, status string
 		attempts           int
@@ -94,12 +102,6 @@ func TestDiscoveryVersionFailuresRemainBounded(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
-			executable := filepath.Join(root, "pi")
-			script := "#!/bin/sh\nif [ \"$1\" = \"--fixture-warmup\" ]; then exit 0; fi\nif [ \"$1\" = \"--version\" ]; then\necho version >> \"$HOME/attempts\"\n" + tc.body + "\nexit\nfi\nexit 7\n"
-			if err := os.WriteFile(executable, []byte(script), 0700); err != nil {
-				t.Fatal(err)
-			}
-			warmVersionFixture(t, executable)
 			ctx := t.Context()
 			if tc.parentTimeout > 0 {
 				var cancel context.CancelFunc
@@ -107,7 +109,7 @@ func TestDiscoveryVersionFailuresRemainBounded(t *testing.T) {
 				defer cancel()
 			}
 			started := time.Now()
-			result, err := Discover(ctx, DiscoveryOptions{Environment: map[string]string{"HOME": root, "PATH": root}, ConfiguredPaths: map[string]string{"pi": executable}, Timeout: 500 * time.Millisecond})
+			result, err := Discover(ctx, DiscoveryOptions{Environment: map[string]string{"HOME": root, "PATH": root, "FIXTURE_BODY": tc.body}, ConfiguredPaths: map[string]string{"pi": executable}, Timeout: 500 * time.Millisecond})
 			if err != nil {
 				t.Fatal(err)
 			}

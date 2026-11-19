@@ -109,6 +109,27 @@ func (q *Queries) CompleteVoiceLiveToolCall(ctx context.Context, arg CompleteVoi
 	return err
 }
 
+const countVoiceLiveTurnCanvasChanges = `-- name: CountVoiceLiveTurnCanvasChanges :one
+SELECT count(*)::bigint FROM voice_live_tool_calls
+WHERE voice_session_id=$1::text
+  AND turn_id=$2::text
+  AND name IN ('open_email_canvas','edit_email_canvas','attach_email_file')
+`
+
+type CountVoiceLiveTurnCanvasChangesParams struct {
+	VoiceSessionID string `json:"voice_session_id"`
+	TurnID         string `json:"turn_id"`
+}
+
+// Whether a live turn wrote or changed a Gmail canvas: a send in that turn
+// would go out before the user saw the change.
+func (q *Queries) CountVoiceLiveTurnCanvasChanges(ctx context.Context, arg CountVoiceLiveTurnCanvasChangesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countVoiceLiveTurnCanvasChanges, arg.VoiceSessionID, arg.TurnID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countVoiceLiveTurnToolCalls = `-- name: CountVoiceLiveTurnToolCalls :one
 SELECT count(*)::bigint FROM voice_live_tool_calls
 WHERE voice_session_id=$1::text
@@ -731,21 +752,27 @@ SELECT message.id,message.author_actor_id,author.display_name AS author,author.k
  ARRAY(SELECT DISTINCT reference->>'document_id' FROM agent_history_messages history
   CROSS JOIN LATERAL jsonb_array_elements(history.resource_references) reference
   WHERE history.message_id=message.id AND history.tenant_id=message.tenant_id
-  ORDER BY reference->>'document_id')::text[] AS document_ids
+  ORDER BY reference->>'document_id')::text[] AS document_ids,
+ -- A recording's meeting summary is a card whose text lives on its Capture;
+ -- the live voice reads it here instead of only the card's label.
+ coalesce((SELECT capture.quick_notes FROM jsonb_array_elements(message.segments) segment
+  JOIN capture_sessions capture ON capture.id=segment->>'capture_id' AND capture.tenant_id=message.tenant_id
+  WHERE segment->>'type'='meeting_notes' AND capture.quick_notes_state='ready' LIMIT 1),'null'::jsonb)::jsonb AS meeting_summary
 FROM messages message JOIN actors author ON author.id=message.author_actor_id
 WHERE message.room_id=$1::text AND message.message_kind='conversation'
 ORDER BY message.created_at DESC,message.id DESC LIMIT 20
 `
 
 type ListVoiceLiveHandoverMessagesRow struct {
-	ID            string             `json:"id"`
-	AuthorActorID string             `json:"author_actor_id"`
-	Author        string             `json:"author"`
-	AuthorKind    string             `json:"author_kind"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	Body          string             `json:"body"`
-	Truncated     bool               `json:"truncated"`
-	DocumentIds   []string           `json:"document_ids"`
+	ID             string             `json:"id"`
+	AuthorActorID  string             `json:"author_actor_id"`
+	Author         string             `json:"author"`
+	AuthorKind     string             `json:"author_kind"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	Body           string             `json:"body"`
+	Truncated      bool               `json:"truncated"`
+	DocumentIds    []string           `json:"document_ids"`
+	MeetingSummary []byte             `json:"meeting_summary"`
 }
 
 func (q *Queries) ListVoiceLiveHandoverMessages(ctx context.Context, roomID string) ([]ListVoiceLiveHandoverMessagesRow, error) {
@@ -766,6 +793,7 @@ func (q *Queries) ListVoiceLiveHandoverMessages(ctx context.Context, roomID stri
 			&i.Body,
 			&i.Truncated,
 			&i.DocumentIds,
+			&i.MeetingSummary,
 		); err != nil {
 			return nil, err
 		}

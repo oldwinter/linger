@@ -209,7 +209,8 @@ func TestVoiceLiveSendsAnEmailCanvasOnlyAfterTheUserSaidYes(t *testing.T) {
 	if saves, _, _ := gmail.counts(); saves != 1 {
 		t.Fatalf("saves of an unchanged canvas=%d", saves)
 	}
-	// A canvas changed after the question asks again.
+	// A canvas changed after the question is asked about again when the
+	// model is not sure the user wants it sent.
 	edited := call("lt_edit", "edit-1", "edit_email_canvas", map[string]any{"document_id": documentID, "revision_id": "revision_unseen", "subject": "Wed afternoon pickup"})
 	if edited["status"] != "changed" {
 		t.Fatalf("edit=%v", edited)
@@ -221,9 +222,9 @@ func TestVoiceLiveSendsAnEmailCanvasOnlyAfterTheUserSaidYes(t *testing.T) {
 	gmail.mu.Lock()
 	gmail.gate = gate
 	gmail.mu.Unlock()
-	if changed := call("lt_yes", "send-3", "send_email_canvas", map[string]any{"document_id": documentID, "confirmed": true}); changed["status"] != "needs_confirmation" ||
+	if changed := call("lt_recheck", "send-3", "send_email_canvas", map[string]any{"document_id": documentID, "confirmed": false}); changed["status"] != "needs_confirmation" ||
 		!strings.Contains(changed["summary"].(string), "Wed afternoon pickup") {
-		t.Fatalf("yes to a changed canvas=%v", changed)
+		t.Fatalf("question about a changed canvas=%v", changed)
 	}
 	if saves, sends, _ := gmail.counts(); sends != 0 || saves != 1 {
 		t.Fatalf("the question waited for the draft: sends=%d saves=%d", sends, saves)
@@ -256,6 +257,47 @@ func TestVoiceLiveSendsAnEmailCanvasOnlyAfterTheUserSaidYes(t *testing.T) {
 	}
 	if countRows(t, env, `SELECT count(*) FROM documents WHERE id=$1 AND owner_actor_id='actor_acme_official'`, documentID) != 1 || roomID == "" {
 		t.Fatal("canvas missing")
+	}
+
+	// The canvas is open beside the chat: when the user says to send it, the
+	// first call sends it without asking again.
+	direct := call("lt_write_2", "email-2", "open_email_canvas", map[string]any{
+		"to": "amy@example.com", "subject": "Thu pickup", "body": "Hi Amy,\n\nThu 9 am?",
+	})
+	directID, _ := direct["document_id"].(string)
+	if sent := call("lt_send_now", "send-6", "send_email_canvas", map[string]any{"document_id": directID, "confirmed": true}); sent["status"] != "sent" {
+		t.Fatalf("direct send=%v", sent)
+	}
+	if _, sends, _ := gmail.counts(); sends != 2 {
+		t.Fatalf("direct send sends=%d", sends)
+	}
+	// A canvas written or changed in the same turn has not been seen yet:
+	// sending it then reads the details back for a yes first.
+	same := call("lt_write_send", "email-3", "open_email_canvas", map[string]any{
+		"to": "amy@example.com", "subject": "Fri pickup", "body": "Hi Amy,\n\nFri 9 am?",
+	})
+	sameID, _ := same["document_id"].(string)
+	savesBefore, _, _ := gmail.counts()
+	if asked := call("lt_write_send", "send-7", "send_email_canvas", map[string]any{"document_id": sameID, "confirmed": true}); asked["status"] != "needs_confirmation" {
+		t.Fatalf("send in the turn that wrote the canvas=%v", asked)
+	}
+	// The question saves its draft in the background; edit once it is done.
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if saves, _, _ := gmail.counts(); saves > savesBefore {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the draft behind the question was never saved")
+		}
+	}
+	if edited := call("lt_edit_send", "edit-3", "edit_email_canvas", map[string]any{"document_id": sameID, "revision_id": same["revision_id"], "to": "dan@example.com"}); edited["status"] != "changed" {
+		t.Fatalf("edit=%v", edited)
+	}
+	if asked := call("lt_edit_send", "send-8", "send_email_canvas", map[string]any{"document_id": sameID, "confirmed": true}); asked["status"] != "needs_confirmation" {
+		t.Fatalf("send in the turn that changed the canvas=%v", asked)
+	}
+	if _, sends, _ := gmail.counts(); sends != 2 {
+		t.Fatalf("a canvas sent before it was seen: sends=%d", sends)
 	}
 }
 
@@ -338,7 +380,7 @@ func TestVoiceLiveSavesAnAttachedCanvasDraftAhead(t *testing.T) {
 	if methods := saved(2); methods[1] != http.MethodPut {
 		t.Fatalf("second draft save=%v", methods)
 	}
-	asked := call("lt_ask", "send-1", "send_email_canvas", map[string]any{"document_id": documentID, "confirmed": true})
+	asked := call("lt_ask", "send-1", "send_email_canvas", map[string]any{"document_id": documentID, "confirmed": false})
 	if asked["status"] != "needs_confirmation" || !strings.Contains(asked["summary"].(string), "Pickup plan.md") {
 		t.Fatalf("ask=%v", asked)
 	}

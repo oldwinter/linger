@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   PERSONAL_WIKI_NODE_TYPES,
   formatPersonalWikiNodeTypeInstruction,
+  personalWikiIdentityRules,
 } from "../../src/llm-wiki/personal-wiki-node-types.js";
 
 vi.mock("node:fs", { spy: true });
@@ -205,6 +206,45 @@ describe("Personal Wiki Markdown extraction prompts", () => {
 
 describe("Shared durable entity rules", () => {
   const shared = readPrompt("entity-common.md");
+
+  it("includes internal colleagues in routing and page generation with the same evidence criteria", () => {
+    expect(normalize(readPrompt("routing.md"))).toContain(
+      "internal colleagues and external contacts under the same evidence criteria",
+    );
+    const identityRules = normalize(personalWikiIdentityRules());
+    for (const kind of ["client", "contact"] as const) {
+      const instructions = normalize(
+        formatPersonalWikiNodeTypeInstruction(
+          PERSONAL_WIKI_NODE_TYPES.get(kind)!,
+        ),
+      );
+      for (const rules of [identityRules, instructions]) {
+        expect(rules).toContain(
+          "Internal colleagues and external contacts qualify under the same identity and ongoing-relationship criteria",
+        );
+        expect(rules).toContain(
+          "A name alone, device/account attribution, or membership label is not enough",
+        );
+        expect(rules).not.toContain(
+          "or internal colleagues as clients or contacts",
+        );
+      }
+    }
+    expect(normalize(readPrompt("project.md"))).toContain(
+      "A named person, internal or external, who qualifies as a Contact gets a Contact page in the same run",
+    );
+  });
+
+  it("keeps evidence commentary out of page text and identity details beside the intro", () => {
+    expect(normalize(shared)).toContain(
+      "it never explains the authoring rules or comments on what the evidence does or does not establish",
+    );
+    const contact = normalize(readPrompt("contact.md"));
+    expect(contact).toContain(
+      "the intro summarizes the details and never replaces a detail line",
+    );
+    expect(contact).toContain("Put that reasoning in `reason`");
+  });
 
   it("gives every entity type a parts section from its registered sections", () => {
     for (const definition of definitions) {

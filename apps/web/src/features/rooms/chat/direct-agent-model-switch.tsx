@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useState } from "react";
+import { tenantLocalModelsQueryKey } from "@/features/local-models/local-models-queries";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { type TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type {
@@ -11,6 +12,7 @@ const EditAgentRuntimeDialog = lazy(async () => ({
   default: (await import("../members/edit-agent-runtime-dialog"))
     .EditAgentRuntimeDialog,
 }));
+import { useResolvedAgentModelLabel } from "../members/use-agent-model-selection";
 import { tenantAgentsQueryKey } from "../room-queries";
 import "./direct-agent-model-switch.css";
 
@@ -42,18 +44,12 @@ export function DirectAgentModelSwitch(props: Props) {
 function RuntimeSettingsEntry({ client, registration, tenantId, busy }: Props) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-  const computers = useQuery({
-    queryFn: () => client.listTenantLocalComputers(tenantId),
-    queryKey: ["teamhub", "local-computers", tenantId],
-    retry: false,
-  });
-  const placement = registration.runtime.placement;
-  const models = computers.data?.items
-    .find((item) => item.computer_id === placement?.computer_id)
-    ?.runtimes.find((item) => item.type === placement?.runtime_type)?.models;
-  const model = models?.find((item) => item.id === registration.runtime.model);
   const effort = registration.runtime.reasoning_effort;
-  const summary = `${model?.label ?? registration.runtime.model}${effort ? ` ${EFFORT_LABEL[effort]}` : ""}`;
+  const label = useResolvedAgentModelLabel(
+    client,
+    tenantId,
+    registration.runtime,
+  );
   const update = useMutation({
     mutationFn: (input: AgentRuntimeUpdateInput) =>
       teamHubData(
@@ -81,9 +77,14 @@ function RuntimeSettingsEntry({ client, registration, tenantId, busy }: Props) {
               }
             : current,
       );
-      void queryClient.invalidateQueries({
-        queryKey: tenantAgentsQueryKey(tenantId),
-      });
+      void Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: tenantAgentsQueryKey(tenantId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: tenantLocalModelsQueryKey(tenantId),
+        }),
+      ]);
       setOpen(false);
     },
   });
@@ -99,7 +100,16 @@ function RuntimeSettingsEntry({ client, registration, tenantId, busy }: Props) {
           setOpen(true);
         }}
       >
-        <span className="agent-model-switch-trigger-label">{summary}</span>
+        <span className="agent-model-switch-trigger-label">{label}</span>
+        {/* A long model label shortens with an ellipsis; the effort stays. */}
+        {effort ? (
+          <>
+            {" "}
+            <span className="agent-model-switch-trigger-effort">
+              {EFFORT_LABEL[effort]}
+            </span>
+          </>
+        ) : null}
       </button>
       {open ? (
         <Suspense

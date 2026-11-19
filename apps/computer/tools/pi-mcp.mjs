@@ -1,5 +1,14 @@
 import { readFileSync, lstatSync } from "node:fs";
 import { isAbsolute } from "node:path";
+// The Daemon puts the Computer tools on NODE_PATH so Pi can load this
+// extension. Node has read it by now; put back the value Pi inherited so the
+// commands Pi starts never resolve a package from the tools.
+if (process.env.LINGER_PI_INHERITED_NODE_PATH !== undefined) {
+  if (process.env.LINGER_PI_INHERITED_NODE_PATH)
+    process.env.NODE_PATH = process.env.LINGER_PI_INHERITED_NODE_PATH;
+  else delete process.env.NODE_PATH;
+  delete process.env.LINGER_PI_INHERITED_NODE_PATH;
+}
 // An installed Pi may alias bare package imports to its own version. Resolve
 // the pinned public entry by URL so this adapter keeps its shipped API.
 const { createMcpExtension } = await import(

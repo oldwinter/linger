@@ -267,6 +267,19 @@ func TestPiSteerCompletionRace(t *testing.T) {
 	}
 }
 
+func TestPiCompletionRacingAbort(t *testing.T) {
+	h := piNewHarness(t, "complete-on-abort", nil)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	run := h.start(ctx, "go", RunSpec{})
+	piWaitRunning(t, run)
+	cancel()
+	_, out := piCollect(t, run)
+	if out.Status != statusCompleted || out.Output != "done" || !out.ExitConfirmed || out.ExitUnconfirmed {
+		t.Fatalf("outcome = %+v", out)
+	}
+}
+
 func TestPiCancelClearsQueueAndReapsChildren(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "child.pid")
 	commands := filepath.Join(t.TempDir(), "commands")
@@ -448,6 +461,9 @@ func TestPiLaunchArguments(t *testing.T) {
 	if got := strings.Split(string(data), "\n"); strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("argv\n got %q\nwant %q", got, want)
 	}
+	if nodePath, _ := os.ReadFile(argv + ".node_path"); string(nodePath) != filepath.Join(filepath.Dir(filepath.Dir(extension)), "node_modules") {
+		t.Fatalf("NODE_PATH = %q", nodePath)
+	}
 	instructions, err := os.ReadFile(filepath.Join(sessionDir, piInstructionsName))
 	if err != nil || string(instructions) != "be brief" {
 		t.Fatalf("instructions = %q, %v", instructions, err)
@@ -460,6 +476,24 @@ func TestPiLaunchArguments(t *testing.T) {
 	data, _ = os.ReadFile(argv)
 	if outcome.Status != statusCompleted || strings.Contains(string(data), "--model") || strings.Contains(string(data), "--thinking") || !strings.HasSuffix(string(data), "--tools\n"+piBaseTools) {
 		t.Fatalf("default argv = %q (%+v)", data, outcome)
+	}
+	if nodePath, _ := os.ReadFile(argv + ".node_path"); len(nodePath) != 0 {
+		t.Fatalf("NODE_PATH without an extension = %q", nodePath)
+	}
+}
+
+func TestPiExtensionNodePath(t *testing.T) {
+	extension := filepath.Join("tools", "extensions", "pi-mcp.mjs")
+	modules := filepath.Join("tools", "node_modules")
+	env := map[string]string{}
+	piExtensionNodePath(env, extension)
+	if env[piNodePathKey] != modules || env[piInheritedNodePathKey] != "" || len(env) != 2 {
+		t.Fatalf("fresh env = %q", env)
+	}
+	env = map[string]string{"Node_Path": "own"}
+	piExtensionNodePath(env, extension)
+	if len(env) != 2 || env["Node_Path"] != modules+string(filepath.ListSeparator)+"own" || env[piInheritedNodePathKey] != "own" {
+		t.Fatalf("existing NODE_PATH = %q", env)
 	}
 }
 
@@ -623,6 +657,8 @@ func TestPiCatalogLabelsAModelByItsName(t *testing.T) {
 		json.RawMessage(`{"id":"same","name":"same","provider":"local"}`),
 		json.RawMessage(`{"id":"blank","name":" ","provider":"local"}`),
 		json.RawMessage(`{"id":"unnamed","provider":"local"}`),
+		json.RawMessage(`{"id":"q4","name":"Qwen 27B","provider":"localmodels-library"}`),
+		json.RawMessage(`{"id":"q4","name":"Qwen 27B","provider":"other"}`),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -632,10 +668,10 @@ func TestPiCatalogLabelsAModelByItsName(t *testing.T) {
 		ids = append(ids, model.ID)
 		labels = append(labels, model.Label)
 	}
-	if !slices.Equal(ids, []string{"localmodels/localmodels-agent", "local/same", "local/blank", "local/unnamed"}) {
+	if !slices.Equal(ids, []string{"localmodels/localmodels-agent", "local/same", "local/blank", "local/unnamed", "localmodels-library/q4", "other/q4"}) {
 		t.Fatalf("ids = %v", ids)
 	}
-	if !slices.Equal(labels, []string{"ling-3.0-tiny (localmodels/localmodels-agent)", "local/same", "local/blank", "local/unnamed"}) {
+	if !slices.Equal(labels, []string{"ling-3.0-tiny", "local/same", "local/blank", "local/unnamed", "Qwen 27B (localmodels-library/q4)", "Qwen 27B (other/q4)"}) {
 		t.Fatalf("labels = %v", labels)
 	}
 }

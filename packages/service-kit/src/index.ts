@@ -72,3 +72,38 @@ export const requestBodyText = (body: unknown): string => {
   }
   return body;
 };
+
+/** Where a download source serves from: a mainland-China mirror, or anywhere else. */
+export type Region = "cn" | "global";
+
+// Hosts that mirror public downloads inside mainland China.
+const chinaMirrorDomains = ["npmmirror.com", "aliyun.com", "goproxy.cn"];
+
+/** The region of a download source's host; an unparsable URL counts as global. */
+export function sourceRegion(source: string | URL): Region {
+  let host: string;
+  try {
+    host = new URL(source).hostname;
+  } catch {
+    return "global";
+  }
+  return chinaMirrorDomains.some(
+    (domain) => host === domain || host.endsWith(`.${domain}`),
+  )
+    ? "cn"
+    : "global";
+}
+
+/**
+ * Sources of the same bytes with those in `region` first. Each region keeps
+ * its listed order, and no source is dropped.
+ */
+export function orderByRegion<T extends string | URL>(
+  region: Region,
+  sources: readonly T[],
+): T[] {
+  return [
+    ...sources.filter((source) => sourceRegion(source) === region),
+    ...sources.filter((source) => sourceRegion(source) !== region),
+  ];
+}

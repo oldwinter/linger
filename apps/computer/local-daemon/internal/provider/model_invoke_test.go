@@ -36,8 +36,12 @@ func argValue(args []string, name string) string {
 func disabledFeatures(args []string) []string {
 	var features []string
 	for index, arg := range args {
-		if arg == "--disable" {
-			features = append(features, args[index+1])
+		if (arg == "-c" || arg == "--config") && index+1 < len(args) {
+			if name, ok := strings.CutPrefix(args[index+1], "features."); ok {
+				if feature, isFalse := strings.CutSuffix(name, "=false"); isFalse {
+					features = append(features, feature)
+				}
+			}
 		}
 	}
 	return features
@@ -54,6 +58,9 @@ func TestCodexModelInvokeArgsPinEffortIsolationAndNoPrompt(t *testing.T) {
 	}
 	if !slices.Contains(args, `model_reasoning_effort="low"`) || !slices.Contains(args, `web_search="disabled"`) {
 		t.Fatalf("args lack effort or web search override: %q", args)
+	}
+	if slices.Contains(args, "--disable") {
+		t.Fatalf("codex exec must disable features via -c overrides rather than --disable: %q", args)
 	}
 	want := []string{
 		"shell_tool", "unified_exec", "code_mode_host", "multi_agent", "goals",
@@ -78,6 +85,9 @@ func TestCodexModelInvokeArgsPinEffortIsolationAndNoPrompt(t *testing.T) {
 	if argValue(workspace, "--sandbox") != "workspace-write" {
 		t.Fatalf("workspace args = %q", workspace)
 	}
+	if slices.Contains(workspace, "--disable") {
+		t.Fatalf("workspace mode passed --disable: %q", workspace)
+	}
 	// Workspace mode keeps only the code-mode host, which carries apply_patch;
 	// a shell could read any file the user can.
 	if got := disabledFeatures(workspace); !slices.Equal(got, slices.DeleteFunc(slices.Clone(want), func(f string) bool { return f == "code_mode_host" })) {
@@ -86,6 +96,36 @@ func TestCodexModelInvokeArgsPinEffortIsolationAndNoPrompt(t *testing.T) {
 	for _, setting := range []string{"sandbox_workspace_write.exclude_slash_tmp=true", "sandbox_workspace_write.exclude_tmpdir_env_var=true"} {
 		if !slices.Contains(workspace, setting) || slices.Contains(text, setting) {
 			t.Fatalf("workspace writable roots are not confined: %q", workspace)
+		}
+	}
+}
+
+func TestCodexModelInvokeAvoidsUnknownDisableFlagsOnOlderCodex(t *testing.T) {
+	// Codex 0.150.1 rejects unknown --disable names (such as sleep_tool) at
+	// startup while ignoring unknown -c features.<name>=false overrides.
+	fixture := newCodexInvokeFixture(t, func(_ context.Context, command *exec.Cmd) error {
+		for index, arg := range command.Args {
+			if arg == "--disable" && index+1 < len(command.Args) && command.Args[index+1] == "sleep_tool" {
+				_, _ = io.WriteString(command.Stderr, "Error: Unknown feature flag: sleep_tool\n")
+				return errors.New("exit status 1")
+			}
+		}
+		return os.WriteFile(argValue(command.Args, "-o"), []byte(`{"answer":"ok"}`), 0o600)
+	})
+	lookup := fixture.invoker.Lookup
+	fixture.invoker.Lookup = func(ctx context.Context, runtimeType string) (ModelInvokeRuntime, bool, error) {
+		installed, ok, err := lookup(ctx, runtimeType)
+		installed.Version = "codex-cli 0.150.1"
+		return installed, ok, err
+	}
+	for _, request := range []ModelInvokeRequest{
+		structuredRequest(),
+		{RuntimeType: "codex", Mode: ModelInvokeText, ReasoningEffort: "low", Input: "hello", Timeout: time.Minute},
+		{RuntimeType: "codex", Mode: ModelInvokeWorkspace, ReasoningEffort: "low", Input: "edit", Timeout: time.Minute},
+	} {
+		result := fixture.invoker.Invoke(context.Background(), request)
+		if result.Outcome != ModelInvokeCompleted {
+			t.Fatalf("mode %s on Codex 0.150.1: %+v", request.Mode, result)
 		}
 	}
 }
@@ -366,9 +406,9 @@ func TestModelInvokerRejectsUnsupportedOrMissingRuntimes(t *testing.T) {
 	called := false
 	fixture := newCodexInvokeFixture(t, func(context.Context, *exec.Cmd) error { called = true; return nil })
 	request := structuredRequest()
-	request.RuntimeType = "pi"
+	request.RuntimeType = "unsupported"
 	if result := fixture.invoker.Invoke(context.Background(), request); result.Outcome != ModelInvokeRuntimeUnavailable {
-		t.Fatalf("pi result = %+v", result)
+		t.Fatalf("unsupported result = %+v", result)
 	}
 	request.RuntimeType = "claude"
 	if result := fixture.invoker.Invoke(context.Background(), request); result.Outcome != ModelInvokeRuntimeUnavailable {

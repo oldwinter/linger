@@ -61,6 +61,8 @@ async function harness(
     child: Worker;
   }[] = [];
   const health = { healthy: options.healthy ?? true };
+  let nextPort = 40_000;
+  const probed: number[] = [];
   const log = vi.fn();
   let route: HttpRoute | undefined;
   const unmount = vi.fn();
@@ -75,7 +77,11 @@ async function harness(
     environment: { ...environment, ...options.env },
     fetch: fetchImpl as unknown as typeof fetch,
     installModels: async () => undefined,
-    probeWorker: async () => health.healthy,
+    probeWorker: async (port) => {
+      probed.push(port);
+      return health.healthy;
+    },
+    allocatePort: async () => nextPort++,
     spawnWorker: (worker, spec) => {
       const child = new Worker();
       spawned.push({ worker, spec, child });
@@ -100,6 +106,7 @@ async function harness(
     log,
     route: route!,
     unmount,
+    probed,
   };
 }
 
@@ -134,6 +141,11 @@ describe("voice worker reconcile", () => {
       expect(spec.args.join(" ")).not.toContain(SONIOX);
     }
     expect(of("recorder")[0]!.spec.args).toContain("--recorder");
+    // Each process gets its own free health port, not a fixed one.
+    expect(spawned.map(({ spec }) => spec.env.VOICE_WORKER_PORT)).toEqual([
+      "40000",
+      "40001",
+    ]);
     teamHub.keys = { soniox_api_key: SONIOX, xai_api_key: XAI };
     await service.reconcile();
     expect(of("live")).toHaveLength(1);
@@ -285,7 +297,7 @@ describe("voice worker reconcile", () => {
   });
 
   it("answers a reconcile once the wanted workers are registered", async () => {
-    const { route, teamHub, health, shutdown, of } = await harness({
+    const { route, teamHub, health, shutdown, of, probed } = await harness({
       healthy: false,
     });
     teamHub.keys = { xai_api_key: XAI };
@@ -303,6 +315,10 @@ describe("voice worker reconcile", () => {
     await vi.advanceTimersByTimeAsync(250);
     await answered;
     expect(answer).toEqual({ ready: true });
+    // The probe asks the port the worker was started with.
+    expect(new Set(probed)).toEqual(
+      new Set([Number(of("live")[0]!.spec.env.VOICE_WORKER_PORT)]),
+    );
     await shutdown();
   });
 

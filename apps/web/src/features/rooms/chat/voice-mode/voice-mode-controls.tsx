@@ -72,6 +72,8 @@ export function VoiceModeControls(props: {
   // the click then asks for a Soniox or xAI key.
   const offered = supported || policy?.voice_available === true;
   const [keyDialogOpen, setKeyDialogOpen] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string>();
   // Once Voice Mode is offered, its code loads in the background.
   const prepare = voice?.prepare;
   useEffect(() => {
@@ -84,25 +86,32 @@ export function VoiceModeControls(props: {
   const entered = Boolean(here?.entered);
   const closing = Boolean(here?.closing);
   const enter = (next = modes) => {
-    if (!voice || props.disabled || session) return;
+    if (!voice || props.disabled || session || starting) return;
     if (!next.dictation && !next.live) {
       if (offered) setKeyDialogOpen(true);
       return;
     }
-    // Only this click may open the floating window that stays over other
-    // tabs and apps, so it opens now while the session starts.
-    void openVoicePip("voice-mode");
-    voice.start(
-      {
-        accountId: props.target.accountId ?? "",
-        recipient: props.target.recipient,
-        roomId,
-        roomName: props.target.roomName ?? "",
-        tenantId,
-      },
-      props.prefix,
-      next,
-    );
+    setStarting(true);
+    setStartError(undefined);
+    void voice
+      .start(
+        {
+          accountId: props.target.accountId ?? "",
+          recipient: props.target.recipient,
+          roomId,
+          roomName: props.target.roomName ?? "",
+          tenantId,
+        },
+        props.prefix,
+        next,
+        () => openVoicePip("voice-mode"),
+      )
+      .catch((cause: unknown) => {
+        setStartError(
+          cause instanceof Error ? cause.message : "Unable to start Voice Mode",
+        );
+      })
+      .finally(() => setStarting(false));
   };
   if (!entered && !closing && (!props.empty || !offered)) return null;
   if (!entered)
@@ -111,7 +120,8 @@ export function VoiceModeControls(props: {
         <Button
           aria-label={closing ? "Finishing Voice Mode" : "Start Voice Mode"}
           title={
-            closing
+            startError ??
+            (closing
               ? "Finishing last words and releasing the microphone"
               : elsewhere
                 ? `Voice Mode is on in ${elsewhere.target.roomName || "another Room"}`
@@ -119,16 +129,21 @@ export function VoiceModeControls(props: {
                   ? "Voice Mode: a live conversation with Grok"
                   : modes.dictation
                     ? "Voice Mode: sends when you finish speaking"
-                    : "Voice Mode: add a Soniox or xAI key to start"
+                    : "Voice Mode: add a Soniox or xAI key to start")
           }
           className="message-composer-send"
-          disabled={closing || props.disabled || Boolean(elsewhere)}
+          disabled={starting || closing || props.disabled || Boolean(elsewhere)}
           onClick={() => enter()}
           size="compactIcon"
           tone="primary"
         >
           <Icon icon={AudioWave01Icon} size={16} />
         </Button>
+        {startError ? (
+          <span className="sr-only" role="alert">
+            {startError}
+          </span>
+        ) : null}
         {keyDialogOpen ? (
           <LazyVoiceKeyDialog
             onClose={() => setKeyDialogOpen(false)}

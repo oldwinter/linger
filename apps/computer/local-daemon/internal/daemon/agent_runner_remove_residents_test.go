@@ -54,15 +54,23 @@ while IFS= read -r line; do
 done
 `
 
-// parkClaudeFor runs one turn on a Claude process of the Context and Agent, which
-// leaves the process parked, and returns its pid.
-func parkClaudeFor(t *testing.T, contextKey, agentID string) int {
+// writeParkedScript writes one fixture executable that every resident of a
+// Runtime shares: macOS scans each new executable on its first launch, so
+// one file per Runtime keeps that wait out of every further launch.
+func writeParkedScript(t *testing.T, name, script string) string {
 	t.Helper()
-	root := t.TempDir()
-	executable := filepath.Join(root, "claude")
-	if err := os.WriteFile(executable, []byte(parkedClaudeScript), 0o755); err != nil {
+	executable := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(executable, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	return executable
+}
+
+// parkClaudeFor runs one turn on a Claude process of the Context and Agent, which
+// leaves the process parked, and returns its pid.
+func parkClaudeFor(t *testing.T, executable, contextKey, agentID string) int {
+	t.Helper()
+	root := t.TempDir()
 	backend, err := native.Open("claude", native.Profile{
 		Program: executable, Logger: slog.Default(), ContextKey: contextKey, AgentID: agentID,
 		Env: map[string]string{"LINGER_CLAUDE_SESSION_ROOT": filepath.Join(root, "sessions"), "FAKE_DIR": root},
@@ -89,13 +97,9 @@ func parkClaudeFor(t *testing.T, contextKey, agentID string) int {
 	return pid
 }
 
-func parkCodexFor(t *testing.T, contextKey, agentID string) int {
+func parkCodexFor(t *testing.T, executable, contextKey, agentID string) int {
 	t.Helper()
 	root := t.TempDir()
-	executable := filepath.Join(root, "codex")
-	if err := os.WriteFile(executable, []byte(parkedCodexScript), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	home := filepath.Join(root, "codex-home")
 	if err := os.MkdirAll(filepath.Join(home, "sessions"), 0o700); err != nil {
 		t.Fatal(err)
@@ -151,10 +155,12 @@ func newRemoveTestDaemon(t *testing.T, stream *fakeStream) *Daemon {
 // another Agent's residents stay parked.
 func TestAgentRunnerRemoveStopsOnlyThatAgentsParkedResidents(t *testing.T) {
 	t.Cleanup(func() { _, _ = native.StopAllParkedResidents() })
-	removed := parkClaudeFor(t, "context-a1", "agent-1")
-	removedCodex := parkCodexFor(t, "context-a1", "agent-1")
-	kept := parkClaudeFor(t, "context-b1", "agent-2")
-	keptCodex := parkCodexFor(t, "context-b1", "agent-2")
+	claude := writeParkedScript(t, "claude", parkedClaudeScript)
+	codex := writeParkedScript(t, "codex", parkedCodexScript)
+	removed := parkClaudeFor(t, claude, "context-a1", "agent-1")
+	removedCodex := parkCodexFor(t, codex, "context-a1", "agent-1")
+	kept := parkClaudeFor(t, claude, "context-b1", "agent-2")
+	keptCodex := parkCodexFor(t, codex, "context-b1", "agent-2")
 	stream := &fakeStream{}
 	d := newRemoveTestDaemon(t, stream)
 	ctx := context.Background()

@@ -1,9 +1,25 @@
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { useEffect, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
+import { RecordingEntry } from "@/features/rooms/voice-control/recording-entry";
+import {
+  openRecordingWindow,
+  resetRecordingWindowForTest,
+} from "@/features/rooms/voice-control/recording-window-store";
+import {
+  VoiceControlContext,
+  type VoiceControlContextValue,
+} from "@/features/rooms/voice-control/voice-control-context";
 import type { VoiceModeEvent } from "./voice-mode-controller";
 import {
   useOptionalVoiceModeSession,
@@ -15,6 +31,17 @@ const transport = vi.hoisted(() => ({
   receive: undefined as undefined | ((event: VoiceModeEvent) => void),
   close: vi.fn<() => Promise<void>>(async () => undefined),
   open: vi.fn(async () => undefined),
+  openLive: vi.fn(async () => undefined),
+}));
+vi.mock("./live/voice-live-transport", () => ({
+  openVoiceLive: async () => {
+    await transport.openLive();
+    return {
+      close: transport.close,
+      commit: async () => undefined,
+      setMuted: async () => undefined,
+    };
+  },
 }));
 vi.mock("./voice-mode-transport", () => ({
   openVoiceMode: async (input: {
@@ -80,16 +107,124 @@ function renderSession(children?: ReactNode) {
 
 afterEach(async () => {
   cleanup();
+  resetRecordingWindowForTest();
   await act(async () => undefined);
   vi.clearAllMocks();
 });
 
 describe("Voice Mode session", () => {
+  it.each(["recording", "finalizing"] as const)(
+    "releases a %s Meeting before opening Voice Mode",
+    async (status) => {
+      let released!: () => void;
+      const leavePage = vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            released = resolve;
+          }),
+      );
+      const hardware = {
+        captureState: { status },
+        leavePage,
+      } as unknown as VoiceControlContextValue;
+      render(
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <VoiceControlContext value={hardware}>
+            <VoiceModeSessionProvider>
+              <CaptureApi />
+            </VoiceModeSessionProvider>
+          </VoiceControlContext>
+        </TeamHubRuntimeProvider>,
+      );
+      openRecordingWindow();
+      const openWindow = vi.fn();
+      act(() => {
+        void api.start(
+          target,
+          prefix,
+          { dictation: false, live: true },
+          openWindow,
+        );
+      });
+      expect(leavePage).toHaveBeenCalledOnce();
+      expect(openWindow).not.toHaveBeenCalled();
+      expect(transport.openLive).not.toHaveBeenCalled();
+
+      await act(async () => released());
+      await waitFor(() => expect(transport.openLive).toHaveBeenCalledOnce());
+      expect(openWindow).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([
+    ["idle", "Meetings"],
+    ["finalizing", "Start a new Meeting"],
+  ])(
+    "switches from Voice Mode with Meeting %s using %s",
+    async (status, label) => {
+      let floated!: () => void;
+      const floating = new Promise<void>((resolve) => {
+        floated = resolve;
+      });
+      let released!: () => void;
+      transport.close.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            released = resolve;
+          }),
+      );
+      const selectTargetRoom = vi.fn(async () => undefined);
+      const hardware = {
+        captureState: { status },
+        composerMicrophoneActive: true,
+        leavePage: vi.fn(async () => undefined),
+        selectTargetRoom,
+      } as unknown as VoiceControlContextValue;
+      render(
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <VoiceControlContext value={hardware}>
+            <VoiceModeSessionProvider>
+              <CaptureApi />
+              <RecordingEntry
+                anotherMeRoomId="room-meeting"
+                tenantId={target.tenantId}
+              />
+            </VoiceModeSessionProvider>
+          </VoiceControlContext>
+        </TeamHubRuntimeProvider>,
+      );
+      act(() => {
+        void api.start(
+          target,
+          prefix,
+          { dictation: false, live: true },
+          () => floating,
+        );
+      });
+      await waitFor(() => expect(transport.openLive).toHaveBeenCalledOnce());
+      const meetings = screen.getByRole("button", { name: label });
+      expect(meetings).toBeEnabled();
+      fireEvent.click(meetings);
+      expect(transport.close).not.toHaveBeenCalled();
+      await act(async () => floated());
+      expect(transport.close).toHaveBeenCalledOnce();
+      expect(selectTargetRoom).not.toHaveBeenCalled();
+
+      await act(async () => released());
+      await waitFor(() =>
+        expect(selectTargetRoom).toHaveBeenCalledExactlyOnceWith(
+          "room-meeting",
+        ),
+      );
+      expect(api.session).toBeUndefined();
+    },
+  );
+
   it("keeps one transport across Room navigation and sends there directly", async () => {
     const dispatch = vi.fn(async () => undefined);
     const prepareSend = vi.fn(() => dispatch);
     const view = renderSession(<VoiceRoomComposer prepareSend={prepareSend} />);
-    act(() => api.start(target, prefix));
+    await act(() => api.start(target, prefix));
     await waitFor(() => expect(transport.open).toHaveBeenCalledOnce());
 
     act(() =>
@@ -136,7 +271,7 @@ describe("Voice Mode session", () => {
 
   it("ends from anywhere, closing once and keeping unsent words for the Room", async () => {
     renderSession();
-    act(() => api.start(target, prefix));
+    await act(() => api.start(target, prefix));
     await waitFor(() => expect(transport.open).toHaveBeenCalledOnce());
     act(() =>
       transport.receive?.({
@@ -146,7 +281,9 @@ describe("Voice Mode session", () => {
       }),
     );
 
-    act(() => api.exit());
+    act(() => {
+      void api.exit();
+    });
     expect(api.session?.closing).toBe(true);
     await waitFor(() => expect(api.session).toBeUndefined());
     expect(transport.close).toHaveBeenCalledOnce();
@@ -164,7 +301,7 @@ describe("Voice Mode session", () => {
         () => new Promise(() => undefined),
       );
       renderSession();
-      act(() => api.start(target, prefix));
+      await act(() => api.start(target, prefix));
       await vi.waitFor(() => expect(transport.open).toHaveBeenCalledOnce());
       await act(async () => undefined);
       act(() =>
@@ -175,7 +312,9 @@ describe("Voice Mode session", () => {
         }),
       );
 
-      act(() => api.exit());
+      act(() => {
+        void api.exit();
+      });
       expect(api.session?.closing).toBe(true);
       await act(async () => vi.advanceTimersByTime(voiceModeExitCeilingMs - 1));
       expect(api.session?.closing).toBe(true);
@@ -193,8 +332,11 @@ describe("Voice Mode session", () => {
 
   it("allows only one session at a time", async () => {
     renderSession();
-    act(() => api.start(target, prefix));
-    act(() => api.start({ ...target, roomId: "room-other" }, prefix));
+    await act(async () => {
+      const started = api.start(target, prefix);
+      await api.start({ ...target, roomId: "room-other" }, prefix);
+      await started;
+    });
     await waitFor(() => expect(transport.open).toHaveBeenCalledOnce());
     expect(api.session?.target.roomId).toBe("room-voice");
   });

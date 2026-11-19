@@ -4,6 +4,7 @@ import {
   ArrowRight01Icon,
   CheckmarkCircle02Icon,
   Clock01Icon,
+  Delete02Icon,
   PlusSignIcon,
 } from "@hugeicons/core-free-icons";
 import { useEffect, useRef, useState } from "react";
@@ -35,6 +36,7 @@ import {
   dayHeading,
   formatTimeOfDay,
   formatWhen,
+  isEditableRoutine,
   isScheduled,
 } from "./routine-cadence";
 import { laterTodayRunAt } from "./later-today";
@@ -42,7 +44,7 @@ import {
   joinedRoutineInstruction,
   routinesInTheSameMinute,
 } from "./routine-same-minute";
-import { RoutineDialog } from "./routine-dialog";
+import { deleteRoomRoutine, RoutineDialog } from "./routine-dialog";
 import { PanelLoading } from "./panel-loading";
 
 /** One Agent's Routines in a Room, laid out by the day they next run. */
@@ -75,7 +77,9 @@ export function RemindersPanel({
   );
   const open =
     openId && openId !== "new"
-      ? routines.filter(isScheduled).find((item) => item.id === openId)
+      ? routines
+          .filter(isScheduled)
+          .find((item) => item.id === openId && isEditableRoutine(item))
       : undefined;
 
   return (
@@ -154,6 +158,7 @@ function RoutineAgenda({
 }) {
   const queryClient = useQueryClient();
   const [showDone, setShowDone] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   // The Routine as the last pause or enable left it, offered for undo for a
   // few seconds.
   const [offer, setOffer] = useState<{
@@ -252,8 +257,13 @@ function RoutineAgenda({
     );
   }
   const onToggled = (routine: TeamHubRoutine) => {
+    setDeleteError(null);
     undo.reset();
     setOffer({ routine, secondsLeft: UNDO_SECONDS });
+  };
+  const onDeleted = (routineId: string) => {
+    setDeleteError(null);
+    setOffer((current) => (current?.routine.id === routineId ? null : current));
   };
   const scheduled = routines.filter(isScheduled);
   const listeners = routines.filter((routine) => !isScheduled(routine));
@@ -272,9 +282,21 @@ function RoutineAgenda({
   );
   const done = scheduled.filter(isDone);
   const upcoming = [...reminders].sort((a, b) => runTime(a) - runTime(b));
-  const rowProps = { agentActorId, client, onToggled, tenantId };
+  const rowProps = {
+    agentActorId,
+    client,
+    onDeleteError: setDeleteError,
+    onDeleted,
+    onToggled,
+    tenantId,
+  };
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5 pb-6 font-(family-name:--app-room-font)">
+      {deleteError ? (
+        <p className="px-1.5 text-sm text-destructive" role="alert">
+          {deleteError}
+        </p>
+      ) : null}
       {scheduled.length === 0 && listeners.length === 0 ? (
         <SettingsGroup ariaLabel="No routines">
           <SettingsRow icon={<Icon icon={Clock01Icon} size={16} />}>
@@ -460,6 +482,8 @@ function RoutineRow({
   agentActorId,
   detail,
   laterAt,
+  onDeleteError,
+  onDeleted,
   onOpen,
   routine,
   ...toggle
@@ -467,6 +491,8 @@ function RoutineRow({
   agentActorId?: string;
   detail: string;
   laterAt?: Date;
+  onDeleteError: (message: string | null) => void;
+  onDeleted: (routineId: string) => void;
   onOpen: () => void;
   routine: TeamHubScheduledRoutine;
 }) {
@@ -486,6 +512,30 @@ function RoutineRow({
     : wakesOther
       ? `Wakes ${target?.actor.display_name ?? "an Agent"}`
       : undefined;
+  const description = [detail, audience].filter(Boolean).join(" · ");
+  if (!isEditableRoutine(routine)) {
+    return (
+      <li>
+        <SettingsRow icon={<Icon icon={Clock01Icon} size={16} />}>
+          <SettingsRowText
+            description={description}
+            muted={!routine.enabled}
+            title={routine.name}
+          />
+          <div className="flex shrink-0 items-center gap-2">
+            <RoutineDeleteButton
+              client={toggle.client}
+              onDeleted={() => onDeleted(routine.id)}
+              onError={onDeleteError}
+              routine={routine}
+              tenantId={toggle.tenantId}
+            />
+            <RoutineSwitch routine={routine} {...toggle} />
+          </div>
+        </SettingsRow>
+      </li>
+    );
+  }
   return (
     <li className="group transition-colors duration-150 hover:bg-muted/40">
       <SettingsRow icon={<Icon icon={Clock01Icon} size={16} />}>
@@ -495,7 +545,7 @@ function RoutineRow({
           type="button"
         >
           <SettingsRowText
-            description={[detail, audience].filter(Boolean).join(" · ")}
+            description={description}
             muted={!routine.enabled}
             title={routine.name}
           />
@@ -559,6 +609,48 @@ function LaterTodayButton({
         </span>
       ) : null}
     </span>
+  );
+}
+
+function RoutineDeleteButton({
+  client,
+  onDeleted,
+  onError,
+  routine,
+  tenantId,
+}: {
+  client: TeamHubClient;
+  onDeleted: () => void;
+  onError: (message: string | null) => void;
+  routine: TeamHubScheduledRoutine;
+  tenantId: string;
+}) {
+  const queryClient = useQueryClient();
+  const remove = useMutation({
+    mutationFn: () => deleteRoomRoutine(client, routine),
+    onMutate: () => onError(null),
+    onSuccess: async () => {
+      onDeleted();
+      await queryClient.invalidateQueries({
+        queryKey: roomRoutinesQueryKey(tenantId, routine.room_id),
+      });
+    },
+    onError: (cause) =>
+      onError(
+        cause instanceof Error ? cause.message : "Could not delete routine.",
+      ),
+  });
+  return (
+    <button
+      aria-label="Delete routine"
+      className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+      disabled={remove.isPending}
+      onClick={() => remove.mutate()}
+      title="Delete routine"
+      type="button"
+    >
+      <Icon icon={Delete02Icon} size={14} />
+    </button>
   );
 }
 

@@ -1,9 +1,8 @@
 import type { StatusSummary } from "./status.js";
-import type { UpdateState } from "./updater.js";
+import type { AnnouncedUpdate, UpdateState } from "./updater.js";
 
 export type TrayAction =
   | "enroll"
-  | "resolve-identity-conflict"
   | "open"
   | "quick-note"
   | "toggle-prevent-sleep"
@@ -28,7 +27,6 @@ export interface TrayMenuState {
   readonly status: StatusSummary;
   readonly preventSleep: boolean;
   readonly enrolled: boolean;
-  readonly identityConflict?: boolean;
   // The updater's progress; a failure says why, since it is otherwise only
   // in the log.
   readonly update?: UpdateState;
@@ -40,15 +38,6 @@ export interface TrayMenuState {
 // (pause, approvals) are added with those features.
 export const trayMenu = (state: TrayMenuState): TrayMenuItem[] => [
   { kind: "label", label: state.status.label },
-  ...(state.identityConflict
-    ? ([
-        {
-          kind: "action",
-          action: "resolve-identity-conflict",
-          label: "Set Up Again…",
-        },
-      ] as const)
-    : []),
   ...updateItems(state.update),
   { kind: "separator" },
   { kind: "action", action: "open", label: "Open Linger" },
@@ -101,24 +90,16 @@ const updateItems = (update: TrayMenuState["update"]): TrayMenuItem[] => {
         {
           kind: "action",
           action: "install-update",
-          label: update.services
-            ? "Update Linger on This Computer"
-            : `Restart to Update (${update.version})`,
+          label: `Restart to Update (${update.version})`,
         },
       ];
     case "waiting":
       return [
         {
           kind: "label",
-          label: update.services
-            ? "Updating When Tasks Finish"
-            : `Updating to ${update.version} When Tasks Finish`,
+          label: `Updating to ${update.version} When Tasks Finish`,
         },
       ];
-    case "installing":
-      return update.services
-        ? [{ kind: "label", label: "Updating Linger on This Computer…" }]
-        : [];
     case "available":
       return [
         {
@@ -148,7 +129,7 @@ const updateItems = (update: TrayMenuState["update"]): TrayMenuItem[] => {
 
 // The notification for an update once it is ready or available; clicking it
 // does what the tray's update item does.
-export function updateNotice(update: UpdateState): {
+export function updateNotice(update: AnnouncedUpdate): {
   title: string;
   body: string;
 } {
@@ -157,13 +138,8 @@ export function updateNotice(update: UpdateState): {
       title: "Update available",
       body: `Linger ${update.version} is available. Click to open its download page.`,
     };
-  if (update.kind === "ready" && !update.services)
-    return {
-      title: "Update ready",
-      body: `Linger ${update.version} is downloaded. Click to restart Linger and update.`,
-    };
   return {
     title: "Update ready",
-    body: "Click to update Linger on this computer. It restarts in about a minute.",
+    body: `Linger ${update.version} is downloaded. Click to restart Linger and update.`,
   };
 }

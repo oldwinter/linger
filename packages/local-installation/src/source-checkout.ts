@@ -1,5 +1,4 @@
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
-import net from "node:net";
 import path from "node:path";
 import { parseEnv } from "node:util";
 import {
@@ -16,13 +15,23 @@ import {
   readLiveKitSettings,
 } from "./native-livekit.js";
 import { readUserEnvironment } from "./user-environment.js";
+import { localAccountProvisioned } from "./account.js";
+import { latestLegacyBackup } from "./legacy-database.js";
+import {
+  inspectNativeProcess,
+  reclaimNativeOrphans,
+  type NativeService,
+} from "./native-process.js";
+import { freePort, portFree } from "./ports.js";
 import type { SetupChoice } from "./setup-plan.js";
+import type { ByokConfiguration } from "./byok-source.js";
 import type { InstallerEvent } from "./events.js";
 
 // A Native installation of one Linger source checkout: the desktop client's
 // unpacked source package, or a developer's clone.
 export interface SourceInstallOptions {
   setupChoice?: SetupChoice;
+  byok?: ByokConfiguration;
   shareGpu?: boolean;
   localModelsApproval?: string;
   localModelsReplan?: boolean;
@@ -74,22 +83,47 @@ export async function validateSourceRepository(
   }
   return repo;
 }
-async function allocatePort(reserved: Set<number>): Promise<number> {
-  for (;;) {
-    const port = await new Promise<number>((resolve, reject) => {
-      const server = net.createServer();
-      server.once("error", reject);
-      server.listen(0, "127.0.0.1", () => {
-        const port = (server.address() as net.AddressInfo).port;
-        server.close((error) => (error ? reject(error) : resolve(port)));
-      });
-    });
-    if (!reserved.has(port)) {
-      reserved.add(port);
-      return port;
-    }
-  }
+// Points an instance at another checkout of the same source; its data and
+// ports stay.
+function rebind(instance: Instance, repo: string): void {
+  const previous = instance.releaseDir;
+  instance.releaseDir = repo;
+  instance.source!.repo = repo;
+  if (instance.computerExecutable.startsWith(previous + path.sep))
+    instance.computerExecutable = path.join(
+      repo,
+      path.relative(previous, instance.computerExecutable),
+    );
 }
+/**
+ * Records that the instance's services run from the checkout it was
+ * prepared with. Call it under the instance lock. Until then instance.json
+ * keeps naming the checkout the running services came from, so a resume
+ * never takes services left on an older checkout for the new one.
+ */
+export async function saveSourceBinding(instance: Instance): Promise<void> {
+  const stored = await loadInstance({
+    name: instance.name,
+    home: path.resolve(instance.root, "../.."),
+  });
+  if (!stored?.source || stored.releaseDir === instance.releaseDir) return;
+  rebind(stored, instance.releaseDir);
+  await atomicPrivate(
+    path.join(stored.root, "instance.json"),
+    JSON.stringify(stored, null, 2) + "\n",
+  );
+}
+// Which native service listens on each of the instance's ports.
+const portOwners = {
+  web: "web",
+  teamhub: "teamhub",
+  nodeServices: "node-services",
+  document: "node-services",
+  postgres: "postgres",
+} as const satisfies Record<
+  keyof NonNullable<Instance["source"]>["ports"],
+  NativeService
+>;
 export async function prepareSourceConfiguration(
   repository: string,
   options: {
@@ -98,6 +132,10 @@ export async function prepareSourceConfiguration(
     port?: number;
     computerName?: string;
     externalComputer?: boolean;
+    // A source instance bound to another checkout follows this one, in
+    // memory only: the caller saves the binding (saveSourceBinding) once
+    // the services run from it.
+    rebindSource?: boolean;
   },
 ): Promise<{
   instance: Instance;
@@ -107,6 +145,13 @@ export async function prepareSourceConfiguration(
   const repo = await validateSourceRepository(repository);
   const instance = await initializeInstance({ ...options, releaseDir: repo });
   return withInstanceLock(instance, async () => {
+    if (
+      options.rebindSource &&
+      instance.mode === "source-native" &&
+      instance.source &&
+      instance.releaseDir !== repo
+    )
+      rebind(instance, repo);
     if (
       instance.releaseDir !== repo ||
       (!instance.source &&
@@ -139,6 +184,8 @@ export async function prepareSourceConfiguration(
           if (livekit) reserved.add(livekit.httpPort).add(livekit.rtcPort);
         }
       }
+      const livekit = await readLiveKitSettings(instance.root);
+      if (livekit) reserved.add(livekit.httpPort).add(livekit.rtcPort);
       return reserved;
     };
     if (!instance.source) {
@@ -147,15 +194,77 @@ export async function prepareSourceConfiguration(
         repo,
         ports: {
           web: instance.port,
-          teamhub: await allocatePort(reserved),
-          nodeServices: await allocatePort(reserved),
-          document: await allocatePort(reserved),
-          postgres: await allocatePort(reserved),
+          teamhub: await freePort(reserved),
+          nodeServices: await freePort(reserved),
+          document: await freePort(reserved),
+          postgres: await freePort(reserved),
         },
       };
       await atomicPrivate(
         path.join(instance.root, "instance.json"),
         JSON.stringify(instance, null, 2) + "\n",
+      );
+    }
+    const warnings: string[] = [];
+    // A port another program took since it was chosen moves to a free one
+    // while the service that listens there is stopped; the services then
+    // restart because their environment names the new port. The web port is
+    // the product origin. The desktop app follows it to a new port and keeps
+    // its Computer and session, so for the desktop it moves like the others.
+    // A Computer this installer enrolled keeps it once the owner account
+    // exists (or a database set aside from an older install marks the
+    // account to be made again): its self-update source and a pending
+    // enrollment credential name the origin. There the web service reports
+    // the program on its port instead.
+    const keepsOrigin =
+      !options.externalComputer &&
+      ((await localAccountProvisioned(instance.root)) ||
+        (await latestLegacyBackup(instance.root)) !== undefined);
+    const movable = Object.entries(portOwners).filter(
+      ([name]) => !keepsOrigin || name !== "web",
+    ) as [keyof typeof portOwners, NativeService][];
+    let reserved: Set<number> | undefined;
+    for (const [name, owner] of movable) {
+      const port = instance.source.ports[name];
+      if (
+        (await inspectNativeProcess(instance.root, owner)).running ||
+        (await portFree(port))
+      )
+        continue;
+      // The program may be one an earlier run left behind.
+      await reclaimNativeOrphans(instance.root, {
+        ports: [port],
+        paths: [path.resolve(instance.root, "../.."), instance.root, repo],
+      });
+      if (await portFree(port)) continue;
+      reserved ??= await reservedPorts();
+      const next = await freePort(reserved);
+      instance.source.ports[name] = next;
+      if (name === "web") {
+        instance.port = next;
+        instance.origin = `http://localhost:${next}`;
+      }
+      // Only the ports change on disk: a checkout this run rebinds to is
+      // saved once the services serve from it (saveSourceBinding).
+      const stored = (await loadInstance({
+        name: instance.name,
+        home: path.resolve(instance.root, "../.."),
+      }))!;
+      await atomicPrivate(
+        path.join(instance.root, "instance.json"),
+        JSON.stringify(
+          {
+            ...stored,
+            port: instance.port,
+            origin: instance.origin,
+            source: { ...stored.source!, ports: { ...instance.source.ports } },
+          },
+          null,
+          2,
+        ) + "\n",
+      );
+      warnings.push(
+        `Port ${port} is in use by another program; Linger's ${owner} uses port ${next} instead.\n`,
       );
     }
     const envFile = path.join(instance.root, "native.env");
@@ -182,7 +291,6 @@ export async function prepareSourceConfiguration(
           });
       }
     }
-    const warnings: string[] = [];
     const user = await readUserEnvironment(instance.root, (message) =>
       warnings.push(message),
     );
@@ -216,17 +324,27 @@ export async function prepareSourceConfiguration(
       AGENT_HOME: path.join(instance.root, "data/agent"),
       COMPUTER_RELEASE_DIR: path.join(instance.root, "native/computer-release"),
       PORT: String(ports.web),
-      HOST: "127.0.0.1",
+      // Both loopback addresses, so no other program answers for the origin.
+      HOST: "127.0.0.1,::1",
       // Native runs its own LiveKit on loopback with this instance's ports
       // and keys.
       ...liveKitEnvironment(
-        await prepareLiveKitSettings(instance.root, await reservedPorts()),
+        await prepareLiveKitSettings(
+          instance.root,
+          await reservedPorts(),
+          (message) => warnings.push(message),
+        ),
       ),
     };
     const quote = (value: string) => {
-      if (/[\r\n\0']/.test(value))
-        throw new Error("Source environment contains unsupported characters.");
-      return `'${value}'`;
+      if (!/[\r\n\0]/.test(value)) {
+        // Match the launcher's parser, including literal Windows backslashes.
+        for (const delimiter of ["'", "`", '"', ""]) {
+          const quoted = `${delimiter}${value}${delimiter}`;
+          if (parseEnv(`VALUE=${quoted}`).VALUE === value) return quoted;
+        }
+      }
+      throw new Error("Source environment contains unsupported characters.");
     };
     const nativeFileOmissions = new Set([
       "WEB_HTTP_PORT",
@@ -236,13 +354,17 @@ export async function prepareSourceConfiguration(
       "HOST",
       "LOCAL_ENV_FILE",
     ]);
-    await atomicPrivate(
-      envFile,
-      Object.entries(generated)
-        .filter(([key]) => !nativeFileOmissions.has(key))
-        .map(([key, value]) => `${key}=${quote(value)}`)
-        .join("\n") + "\n",
+    const entries = Object.entries(generated).filter(
+      ([key]) => !nativeFileOmissions.has(key),
     );
+    const text =
+      entries.map(([key, value]) => `${key}=${quote(value)}`).join("\n") + "\n";
+    // An unmatched leading quote can consume a later entry, even if the
+    // isolated value round-trips. Validate exactly what the launcher reads.
+    const parsed = parseEnv(text);
+    if (entries.some(([key, value]) => parsed[key] !== value))
+      throw new Error("Source environment contains unsupported characters.");
+    await atomicPrivate(envFile, text);
     return { instance, env: generated, warnings };
   });
 }

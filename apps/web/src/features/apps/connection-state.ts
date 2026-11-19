@@ -1,3 +1,4 @@
+import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { TeamHubExternalConnection } from "@/features/teamhub/teamhub-types";
 
 const NEEDS_ATTENTION = new Set<TeamHubExternalConnection["status"]>([
@@ -11,6 +12,22 @@ export function externalConnectionNeedsAttention(
   return (
     NEEDS_ATTENTION.has(connection.status) &&
     connection.status_error_code !== "duplicate_remote_principal"
+  );
+}
+
+/**
+ * The pending connection of an app whose authorization can still be resumed,
+ * so a new attempt reuses it instead of creating another row.
+ */
+export function openPendingExternalConnection(
+  connections: TeamHubExternalConnection[],
+  appKey: string,
+) {
+  return connections.find(
+    (connection) =>
+      connection.provider === appKey &&
+      connection.status === "pending" &&
+      !connection.status_error_code,
   );
 }
 
@@ -51,6 +68,25 @@ export function usableConnectUrl(authorization?: {
     : undefined;
 }
 
+/**
+ * The Connect Link that reauthorizes a connection: the open link of one in
+ * progress, otherwise a new reauthorization's.
+ */
+export async function startReauthorization(
+  client: Pick<TeamHubClient, "createExternalConnectionReauthorization">,
+  connection: TeamHubExternalConnection,
+) {
+  return (
+    reauthorizationConnectUrl(connection) ??
+    reauthorizationConnectUrl(
+      await client.createExternalConnectionReauthorization(
+        connection.id,
+        connection.revision,
+      ),
+    )
+  );
+}
+
 /** The open Connect Link of a reauthorization in progress, if any. */
 export function reauthorizationConnectUrl(connection?: {
   reauthorizing?: boolean;
@@ -62,4 +98,17 @@ export function reauthorizationConnectUrl(connection?: {
     connect_url: connection.reauthorization_connect_url,
     connect_expires_at: connection.reauthorization_connect_expires_at,
   });
+}
+
+/**
+ * A connection's identity label as display text, or undefined when it has
+ * none. An Outlook label is the Microsoft account's sign-in name, which can
+ * belong to another mail provider, so it is never shown as the mailbox.
+ */
+export function accountIdentityText(
+  provider: string,
+  label: string | null | undefined,
+): string | undefined {
+  if (!label) return undefined;
+  return provider === "outlook" ? `Signed in as ${label}` : label;
 }

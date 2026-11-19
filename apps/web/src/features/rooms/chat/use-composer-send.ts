@@ -8,6 +8,7 @@ import type { ComposerAttachments } from "./use-composer-attachments";
 import {
   type ComposerDraft,
   messageLengthError,
+  unavailableMentionsError,
   TEAMHUB_MESSAGE_MAX_LENGTH,
 } from "./use-composer-draft";
 import type { ComposerPicker } from "./use-composer-picker";
@@ -87,9 +88,19 @@ export function useComposerSend({
       mentions,
       pendingAvailability,
       skillReferences,
+      unavailableMentions,
     } = resolveReferences(normalized);
     if (pendingAvailability) {
       setMessageError("Message references are still loading. Try again.");
+      return;
+    }
+    if (unavailableMentions.length) {
+      setMessageError(
+        unavailableMentionsError(
+          unavailableMentions,
+          (noun) => `Remove the ${noun} to send.`,
+        ),
+      );
       return;
     }
 

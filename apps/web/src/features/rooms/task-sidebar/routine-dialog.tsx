@@ -71,6 +71,21 @@ function routineName(draft: RoutineDraft) {
   return draft.instruction.trim().split("\n")[0]!.slice(0, 60).trim();
 }
 
+/** Deletes a scheduled Routine at its current revision. */
+export function deleteRoomRoutine(
+  client: TeamHubClient,
+  routine: Pick<TeamHubScheduledRoutine, "id" | "revision">,
+) {
+  return teamHubDone(
+    client.api.DELETE("/v0/routines/{routineId}", {
+      params: {
+        path: { routineId: routine.id },
+        query: { expected_revision: routine.revision },
+      },
+    }),
+  );
+}
+
 export function RoutineDialog({
   agentScoped = false,
   client,
@@ -142,14 +157,7 @@ export function RoutineDialog({
   const remove = useMutation({
     mutationFn: async () => {
       if (!routine) return;
-      await teamHubDone(
-        client.api.DELETE("/v0/routines/{routineId}", {
-          params: {
-            path: { routineId: routine.id },
-            query: { expected_revision: routine.revision },
-          },
-        }),
-      );
+      await deleteRoomRoutine(client, routine);
     },
     onSuccess: onSaved,
     onError: fail("Could not delete routine."),
@@ -335,7 +343,7 @@ export function RoutineDialog({
 }
 
 const FIELD =
-  "rounded-md border border-input bg-card px-3 text-sm font-normal text-foreground transition-colors duration-150 placeholder:text-muted-foreground hover:border-border-hover focus:border-foreground focus:outline-none focus:ring-2 focus:ring-ring";
+  "rounded-md border border-input bg-card px-3 text-sm font-normal text-foreground transition-colors duration-150 placeholder:text-app-placeholder hover:border-border-hover focus:border-foreground focus:outline-none focus:ring-2 focus:ring-ring";
 
 function WhenEditor({
   disabled,

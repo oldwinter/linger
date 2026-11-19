@@ -13,7 +13,21 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { planChecks, readWorkspace } from "../check-plan.mjs";
+
 const gate = join(process.cwd(), "scripts/ci/check-repository-gate.sh");
+const changedFilesCheck = join(
+  process.cwd(),
+  "scripts/ci/check-changed-files.sh",
+);
+const appLintedPaths = readFileSync(
+  join(process.cwd(), "scripts/ci/app-linted-paths.txt"),
+  "utf8",
+)
+  .split("\n")
+  .filter(Boolean);
+// The pnpm stub fails `pnpm exec eslint` when a listed file contains this.
+const lintError = "export const LINT_ERROR = 1;\n";
 const cleanEnv = Object.fromEntries(
   Object.entries(process.env).filter(([name]) => name !== "BASE"),
 );
@@ -25,6 +39,8 @@ interface GateOptions {
   deletedPath?: string;
   // Pass a target branch that moved past the merge base, as a local run does.
   advancedTarget?: boolean;
+  // Run check-changed-files.sh --worktree on an uncommitted change instead.
+  worktree?: boolean;
 }
 
 // Runs the gate in a temporary repository whose pnpm and make are stubs that
@@ -62,8 +78,11 @@ function runGate(options: GateOptions = {}) {
       join(root, changed),
       options.changedContent ?? "export {};\n",
     );
-    git("add", ".");
-    git("commit", "-q", "-m", "head");
+    if (options.worktree) git("add", ".");
+    else {
+      git("add", ".");
+      git("commit", "-q", "-m", "head");
+    }
     const head = git("rev-parse", "HEAD");
     let baseInput = base;
     if (options.advancedTarget) {
@@ -80,7 +99,10 @@ function runGate(options: GateOptions = {}) {
       join(bin, "pnpm"),
       `#!/usr/bin/env bash
 printf 'pnpm %s\\n' "$*" >> "$COMMAND_LOG"
-exit 0
+if [[ "$1 $2" == "exec eslint" ]]; then
+  shift 2
+  ! grep -q LINT_ERROR "$@"
+fi
 `,
     );
     writeFileSync(
@@ -94,7 +116,10 @@ exit 0
     for (const command of ["pnpm", "make"])
       chmodSync(join(bin, command), 0o755);
 
-    const result = spawnSync("bash", [gate], {
+    const command = options.worktree
+      ? [changedFilesCheck, base, "--worktree"]
+      : [gate];
+    const result = spawnSync("bash", command, {
       cwd: root,
       encoding: "utf8",
       env: {
@@ -136,7 +161,6 @@ describe("local repository gate", { timeout: 60_000 }, () => {
       expect.stringMatching(/^pnpm exec commitlint --from \S+ --to \S+/),
       "pnpm env:inventory:check",
       "pnpm exec prettier --check apps/web/src/example.ts",
-      "pnpm exec eslint apps/web/src/example.ts",
       "make check-scripts-fast check-docs",
     ]);
   });
@@ -180,6 +204,35 @@ describe("local repository gate", { timeout: 60_000 }, () => {
     );
   });
 
+  it("leaves ESLint under app-linted prefixes to the app checks", () => {
+    const appLinted = runGate({
+      changedPath: "apps/web/src/example.ts",
+      changedContent: lintError,
+    });
+    expect(appLinted.status).toBe(0);
+    expect(appLinted.commands).toContain(
+      "pnpm exec prettier --check apps/web/src/example.ts",
+    );
+    expect(appLinted.commands.some((line) => line.includes("eslint"))).toBe(
+      false,
+    );
+
+    for (const changedPath of ["apps/web/vite.config.ts", "scripts/new.mjs"]) {
+      const gateLinted = runGate({ changedPath, changedContent: lintError });
+      expect(gateLinted.status).not.toBe(0);
+      expect(gateLinted.commands).toContain(`pnpm exec eslint ${changedPath}`);
+    }
+  });
+
+  it("lints every changed file in the local worktree mode", () => {
+    const result = runGate({ worktree: true, changedContent: lintError });
+    expect(result.status).not.toBe(0);
+    expect(result.commands).toEqual([
+      "pnpm exec prettier --check apps/web/src/example.ts",
+      "pnpm exec eslint apps/web/src/example.ts",
+    ]);
+  });
+
   it("checks migration history only when migration SQL changed", () => {
     const unchanged = runGate();
     expect(unchanged.stderr).not.toContain("migration");
@@ -207,4 +260,39 @@ describe("local repository gate", { timeout: 60_000 }, () => {
     expect(result.commands.at(-1)).toBe("make check-scripts-fast check-docs");
     expect(result.commands[0]).toContain(`--from ${result.base} `);
   });
+});
+
+// The gate skips ESLint under a prefix only because an app check lints it.
+describe("app-linted paths", () => {
+  const workspace = readWorkspace();
+
+  it.each(appLintedPaths)("CI selects an app check for %s", (prefix) => {
+    const plan = planChecks([`${prefix}example.ts`], workspace);
+    expect(plan.all).toBe(false);
+    expect(plan.selected.filter((entry) => entry.ci).length).toBeGreaterThan(0);
+  });
+
+  it.each(appLintedPaths)(
+    "the owning package lints all of %s with no warnings",
+    (prefix) => {
+      const directory = prefix.replace(/\/$/, "");
+      let packageDirectory = directory;
+      while (!existsSync(join(process.cwd(), packageDirectory, "package.json")))
+        packageDirectory = packageDirectory.split("/").slice(0, -1).join("/");
+      const relative =
+        directory === packageDirectory
+          ? "."
+          : directory.slice(packageDirectory.length + 1);
+      const manifest = JSON.parse(
+        readFileSync(
+          join(process.cwd(), packageDirectory, "package.json"),
+          "utf8",
+        ),
+      ) as { scripts?: { lint?: string } };
+      const lint = (manifest.scripts?.lint ?? "").split(/\s+/);
+      expect(lint[0]).toBe("eslint");
+      expect(lint).toContain("--max-warnings=0");
+      expect(lint.includes(relative) || lint.includes(".")).toBe(true);
+    },
+  );
 });

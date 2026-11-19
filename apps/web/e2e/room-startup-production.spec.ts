@@ -68,9 +68,14 @@ test("production Room startup records cold and warm document loads", async ({
     const directoryPath = `/v0/tenants/${fixture.tenant_id}/agents`;
     const directory = await page.request.get(directoryPath + "?limit=200");
     expect(directory.ok()).toBe(true);
-    const agents = (await directory.json()).items;
-    // The single Human sees all eight seeded Agents, including the one that
-    // used to be outside the directory's former multi-Human scope.
+    // The directory also lists the Another Me and starter Agents that TeamHub
+    // creates for Alice; the assertions cover the SQL-seeded Agents.
+    const agents = (await directory.json()).items.filter(
+      (agent: { actor: { id: string } }) =>
+        agent.actor.id === "actor_acme_official" ||
+        agent.actor.id.startsWith("actor_directory_"),
+    );
+    // The single Human sees all eight seeded Agents.
     expect(agents).toHaveLength(8);
     expect(
       agents.reduce(
@@ -78,7 +83,7 @@ test("production Room startup records cold and warm document loads", async ({
           sum + agent.skill_bindings.length,
         0,
       ),
-    ).toBe(8 * 13 + 6); // Thirteen defaults each; three explicit bindings on two Agents.
+    ).toBe(8 * 13 + 8); // Thirteen defaults each; four explicit bindings on two Agents.
     const target = agents.find(
       (agent: { actor: { display_name: string } }) =>
         agent.actor.display_name === "Directory Agent 1",

@@ -13,6 +13,11 @@ import (
 	wire "github.com/simplexai-labs/linger/contracts-go/runnergateway"
 )
 
+// serviceFeatureLocalModels in runner.welcome's service_features says the
+// Agent Service accepts runner.local_models and sends local_models commands.
+// An Agent Service that predates them closes the connection on the frame.
+const serviceFeatureLocalModels = "local_models"
+
 // LocalModelLibrary runs the actions a Computer owner chooses on this
 // Computer's localmodels library. The Daemon never picks a model itself.
 type LocalModelLibrary interface {
@@ -33,13 +38,13 @@ func (d *Daemon) refreshLocalModels(ctx context.Context) {
 }
 
 // PublishLocalModels sends one runner.local_models snapshot on the live
-// connection. Without one it does nothing: every connection starts with a
-// fresh read.
+// connection when its Agent Service accepts them. Otherwise it does nothing:
+// every connection starts with a fresh read.
 func (d *Daemon) PublishLocalModels(snapshot wire.LocalModelsSnapshot) {
 	d.localModelsMu.Lock()
 	defer d.localModelsMu.Unlock()
 	d.connectionMu.Lock()
-	stream := d.diagnosticsStream
+	stream := d.localModelsStream
 	d.connectionMu.Unlock()
 	if stream == nil {
 		return
@@ -87,6 +92,11 @@ func (d *Daemon) handleLocalModelsCommand(ctx context.Context, stream transport.
 	case !validLocalModelAction(action):
 		slog.Warn("local_models.command_rejected", "reason", "shape", "action", request.Action)
 		refusal = &wire.LocalModelActionRefusal{Code: "MODEL_UNKNOWN", Detail: "the command names no valid model action"}
+	case !d.acceptsLocalModels(stream):
+		// The welcome did not name local_models, so no snapshot follows the
+		// action on this connection.
+		slog.Warn("local_models.command_rejected", "reason", "service_features", "action", request.Action)
+		refusal = &wire.LocalModelActionRefusal{Code: localmodels.CodeToolFailed, Detail: "the Agent Service did not announce local models on this connection"}
 	case d.localModels == nil:
 		refusal = &wire.LocalModelActionRefusal{Code: localmodels.CodeToolNotInstalled}
 	default:
@@ -149,4 +159,12 @@ func validLocalModelAction(action localmodels.Action) bool {
 		return true
 	}
 	return false
+}
+
+// acceptsLocalModels reports whether stream is the live connection and its
+// welcome named local_models.
+func (d *Daemon) acceptsLocalModels(stream transport.Stream) bool {
+	d.connectionMu.Lock()
+	defer d.connectionMu.Unlock()
+	return d.localModelsStream != nil && d.localModelsStream == stream
 }

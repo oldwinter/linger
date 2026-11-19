@@ -1,3 +1,5 @@
+import { desktopConnectorOAuth } from "@/features/apps/desktop-connector-oauth";
+
 import type {
   TeamHubDisconnectExternalConnectionInput,
   TeamHubExternalAppKey,
@@ -86,6 +88,10 @@ export function createHttpTeamHubExternalSourceClient(
   const connection = (externalConnectionId: string) => ({
     path: { externalConnectionId },
   });
+  const desktopCallback = async () => {
+    const url = await desktopConnectorOAuth()?.prepare();
+    return url ? { desktop_callback_url: url } : {};
+  };
   return {
     completeExternalConnectionAuthorization: (connectedAccountId) =>
       done(
@@ -95,13 +101,13 @@ export function createHttpTeamHubExternalSourceClient(
             : {},
         }),
       ),
-    createExternalConnection: (appKey) =>
+    createExternalConnection: async (appKey) =>
       data(
         api.POST("/v0/external-connections", {
-          body: { app_key: appKey },
+          body: { app_key: appKey, ...(await desktopCallback()) },
         }),
       ),
-    createExternalConnectionReauthorization: (
+    createExternalConnectionReauthorization: async (
       externalConnectionId,
       expectedRevision,
     ) =>
@@ -110,7 +116,10 @@ export function createHttpTeamHubExternalSourceClient(
           "/v0/external-connections/{externalConnectionId}/reauthorizations",
           {
             params: connection(externalConnectionId),
-            body: { expected_revision: expectedRevision },
+            body: {
+              expected_revision: expectedRevision,
+              ...(await desktopCallback()),
+            },
           },
         ),
       ),

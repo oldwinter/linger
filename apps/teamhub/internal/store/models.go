@@ -818,6 +818,19 @@ type ExternalMailImportDocument struct {
 	ConnectionID string `json:"connection_id"`
 }
 
+type GmailCanvasDraft struct {
+	ConnectionID string `json:"connection_id"`
+	DraftID      string `json:"draft_id"`
+	DocumentID   string `json:"document_id"`
+	SourceDigest string `json:"source_digest"`
+}
+
+type GmailCanvasDraftLease struct {
+	ConnectionID string             `json:"connection_id"`
+	Holder       string             `json:"holder"`
+	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
+}
+
 type LocalComputer struct {
 	ComputerID            string             `json:"computer_id"`
 	DisplayName           string             `json:"display_name"`
@@ -864,6 +877,19 @@ type LocalComputerModelSnapshot struct {
 	Host       []byte             `json:"host"`
 	ObservedAt pgtype.Timestamptz `json:"observed_at"`
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MailCanvasDelivery struct {
+	DocumentID   string             `json:"document_id"`
+	ID           string             `json:"id"`
+	AccountID    string             `json:"account_id"`
+	ConnectionID pgtype.Text        `json:"connection_id"`
+	SourceDigest string             `json:"source_digest"`
+	Status       string             `json:"status"`
+	DraftID      string             `json:"draft_id"`
+	MessageID    string             `json:"message_id"`
+	ErrorMessage string             `json:"error_message"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 }
 
 type MemoryIndexChunk struct {
@@ -1548,7 +1574,6 @@ type RoomReminder struct {
 	Timezone             string             `json:"timezone"`
 	Hour                 pgtype.Int4        `json:"hour"`
 	Minute               pgtype.Int4        `json:"minute"`
-	IntervalHours        pgtype.Int4        `json:"interval_hours"`
 	Enabled              bool               `json:"enabled"`
 	NextRunAt            pgtype.Timestamptz `json:"next_run_at"`
 	Revision             int64              `json:"revision"`
@@ -1562,6 +1587,7 @@ type RoomReminder struct {
 	RunAt                pgtype.Timestamptz `json:"run_at"`
 	TrackingItemID       pgtype.Text        `json:"tracking_item_id"`
 	TrackingPurpose      pgtype.Text        `json:"tracking_purpose"`
+	IntervalMinutes      pgtype.Int4        `json:"interval_minutes"`
 }
 
 type RoomRoutineListener struct {

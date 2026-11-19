@@ -39,7 +39,7 @@ signed app the installed app replaces itself with. The release's signed
 manifest lists it (scripts/ci/desktop-release.sh manifest).
 """
 import argparse
-import hashlib
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import plistlib
@@ -48,7 +48,6 @@ import shutil
 import stat
 import subprocess
 import sys
-import tarfile
 import tempfile
 import urllib.request
 import zipfile
@@ -56,6 +55,7 @@ import zipfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 DESKTOP = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.dirname(HERE))
+from archive import sha256, tar_gz  # noqa: E402
 import computer_tools  # noqa: E402
 from native_bundle import check_runtime, check_teamhub, refresh  # noqa: E402
 BUNDLE_ID = "com.simplexai.linger.desktop.preview"
@@ -326,26 +326,26 @@ def build_dmg(stage, workdir, output, volume_name):
         out.truncate(size * 2 + 128 * 1024 * 1024)
     for asset in ("background.tiff", "dsstore.py"):
         shutil.copy(os.path.join(HERE, asset), os.path.join(workdir, asset))
-    dmgtool(workdir, "python3", "dsstore.py", "DS_Store", volume_name)
-    dmgtool(workdir, "mkfs.hfsplus", "-v", volume_name, "vol.hfs")
-    # The Finder layout in DS_Store points at the background by catalog ID,
-    # so /.background and its image must be the first items (IDs 16 and 17).
-    dmgtool(workdir, "hfsplus", "vol.hfs", "mkdir", "/.background")
-    dmgtool(workdir, "hfsplus", "vol.hfs", "add", "background.tiff", "/.background/background.tiff")
-    # Keep the bundle's symlinks (framework Versions/Current, Applications).
-    dmgtool(workdir, "sh", "-c", "hfsplus -s clone_link vol.hfs addall stage > /dev/null")
-    dmgtool(workdir, "hfsplus", "vol.hfs", "add", "DS_Store", "/.DS_Store")
-    dmgtool(workdir, "dmg", "dmg", "vol.hfs", "out.dmg")
+    # Run the HFS+ and UDIF steps in one container invocation. The Finder
+    # layout in DS_Store points at the background by catalog ID, so /.background
+    # and its image must be the first items (IDs 16 and 17).
+    script = (
+        'python3 dsstore.py DS_Store "$1" && '
+        'mkfs.hfsplus -v "$1" vol.hfs && '
+        'hfsplus vol.hfs mkdir /.background && '
+        'hfsplus vol.hfs add background.tiff /.background/background.tiff && '
+        'hfsplus -s clone_link vol.hfs addall stage > /dev/null && '
+        'hfsplus vol.hfs add DS_Store /.DS_Store && '
+        'dmg dmg vol.hfs out.dmg'
+    )
+    dmgtool(workdir, "sh", "-ec", script, "_", volume_name)
     shutil.move(os.path.join(workdir, "out.dmg"), output)
 
 
 def update_archive(app, output):
     """The signed bundle as Linger.app/ in a tar.gz; tar keeps its symlinks."""
-    with tarfile.open(output, "w:gz") as archive:
-        archive.add(app, arcname="Linger.app")
-    with open(output, "rb") as source:
-        digest = hashlib.sha256(source.read()).hexdigest()
-    print(f"{output} {os.path.getsize(output)} sha256={digest}")
+    tar_gz(os.path.dirname(app), os.path.basename(app), output)
+    print(f"{output} {os.path.getsize(output)} sha256={sha256(output)}", flush=True)
 
 
 def main():
@@ -384,16 +384,26 @@ def main():
             signing.notarize(app)
             computer_tools.check(os.path.join(app, RESOURCES), f"darwin-{arch}")
             output = os.path.join(args.out, f"Linger-{version}-{arch}.dmg")
-            build_dmg(stage, workdir, output, f"Linger {version}")
-            signing.sign_dmg(output)
-            signing.notarize(output)
-            with open(output, "rb") as dmg:
-                digest = hashlib.sha256(dmg.read()).hexdigest()
-            print(f"{output} {os.path.getsize(output)} sha256={digest}")
-            if args.update_archive:
+
+            def make_dmg():
+                build_dmg(stage, workdir, output, f"Linger {version}")
+                signing.sign_dmg(output)
+                signing.notarize(output)
+                print(f"{output} {os.path.getsize(output)} sha256={sha256(output)}", flush=True)
+
+            def make_update():
                 archive = os.path.join(args.out, f"Linger-{version}-{arch}.app.tar.gz")
                 update_archive(app, archive)
                 computer_tools.check_archive(archive, "Linger.app/Contents/Resources/", f"darwin-{arch}")
+
+            if args.update_archive:
+                # Both only read the signed, stapled bundle.
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    futures = [pool.submit(make_dmg), pool.submit(make_update)]
+                    for future in futures:
+                        future.result()
+            else:
+                make_dmg()
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
 

@@ -330,6 +330,7 @@ export class ContextExecutor<TRuntimeSettings> {
         instructedAgent(composed, this.#ghost.agent, this.record, {
           connectedApps: true,
           connectedAppKeys: [],
+          connectableAppKeys: [],
           compactInstructions: false,
         }),
       ),

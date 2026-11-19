@@ -104,6 +104,7 @@ async function sourceFiles(dir: string, prefix = ""): Promise<string[]> {
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const path = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
+      if (path === "test") continue;
       files.push(...(await sourceFiles(join(dir, entry.name), path)));
       continue;
     }

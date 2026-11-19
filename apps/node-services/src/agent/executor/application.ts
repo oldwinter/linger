@@ -466,7 +466,6 @@ export const createAgentManagerApplication = (
     memoryClient && stateBackend.kind === "teamhub"
       ? createAgentMemoryServices({
           memory: memoryClient,
-          contextHost: options.contextHost,
           runtimeState: stateBackend.client,
           logger: createAgentLogger({ component: "agent-memory" }),
           ...(options.agentMemoryMaintenance

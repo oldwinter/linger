@@ -21,6 +21,7 @@ export const routesByToolName: Readonly<Record<string, TeamHubApiPostPath>> = {
   stop_task: "/api/agent/v1/tasks/stop",
   create_team_md: "/api/agent/v1/team-md",
   add_room_member: "/api/agent/v1/room-members/add",
+  hand_off_to_room: "/api/agent/v1/room-handoffs",
   get_room_members: "/api/agent/v1/room-members/query",
   get_team_md: "/api/agent/v1/team-md/query",
   list_available_agents: "/api/agent/v1/available-agents",

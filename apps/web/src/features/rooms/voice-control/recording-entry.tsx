@@ -5,6 +5,7 @@ import {
 import { use, useEffect, useEffectEvent, useRef, useState } from "react";
 import { Icon } from "@/components/ui/icon";
 
+import { useOptionalVoiceModeSession } from "../chat/voice-mode/voice-mode-session";
 import { LazyVoiceKeyDialog } from "./lazy-voice-key-dialog";
 import { openRecordingWindow } from "./recording-window-store";
 import {
@@ -28,6 +29,8 @@ export function RecordingEntry({
 }) {
   const livekit = useOptionalVoiceControl();
   const voice = livekit;
+  const voiceMode = useOptionalVoiceModeSession();
+  const voiceInputBusy = voice?.composerMicrophoneActive && !voiceMode?.session;
   // Recording transcribes with Soniox; xAI alone does not offer it.
   const capabilities = use(VoiceCapabilitiesContext);
   const retryConnection = use(VoiceConnectionRetryContext);
@@ -44,16 +47,19 @@ export function RecordingEntry({
     status === "finalizing" ||
     (status === "recovering" &&
       !(voice && isTranscriptRecoveryPaused(voice.captureState)));
+  const switchFromLive = Boolean(voiceMode?.session);
   const standby = voice?.listenerStatus === "standby";
   // Until voice connects, including while it reconnects, the icon spins.
   const connecting = !voice && !connectionFailed && !needsKey;
   const label = recording
     ? "Return to recording"
-    : saving
-      ? "View save progress"
-      : connectionFailed
-        ? "Retry voice connection"
-        : "Meetings";
+    : saving && switchFromLive
+      ? "Start a new Meeting"
+      : saving
+        ? "View save progress"
+        : connectionFailed
+          ? "Retry voice connection"
+          : "Meetings";
   const hint =
     error ??
     (connectionFailed
@@ -62,7 +68,7 @@ export function RecordingEntry({
         ? label
         : !voice || !anotherMeRoomId
           ? "Meeting is loading"
-          : voice.composerMicrophoneActive
+          : voiceInputBusy
             ? "Finish voice input first"
             : standby
               ? "Recording is active in another tab"
@@ -76,20 +82,33 @@ export function RecordingEntry({
       setKeyDialogOpen(true);
       return;
     }
-    if (!voice || !anotherMeRoomId || pending || voice.composerMicrophoneActive)
-      return;
+    if (!voice || !anotherMeRoomId || pending || voiceInputBusy) return;
     setPending(true);
     setError(undefined);
     // Only this click may open the window that floats over other apps;
     // the browser allows it for a few seconds after, enough to load it.
-    const pip = import("../chat/voice-mode/voice-pip");
-    void pip.then(({ openVoicePip }) => openVoicePip("recording"));
-    void (async () => {
-      await livekit?.selectTargetRoom?.(anotherMeRoomId);
-      openRecordingWindow({ autoStart: true });
-    })()
+    const startRecording = async () => {
+      const pip = import("../chat/voice-mode/voice-pip");
+      // A new Meeting opens expanded, even if the browser remembers a small
+      // window from a recording that ended while minimized.
+      const opened = pip.then(({ openVoicePip }) =>
+        openVoicePip("recording", { preferInitialWindowPlacement: true }),
+      );
+      try {
+        await voice.selectTargetRoom?.(anotherMeRoomId);
+        await opened;
+        openRecordingWindow({
+          autoStart: !saving || switchFromLive,
+        });
+      } catch (cause) {
+        await opened;
+        const { closeVoicePip } = await pip;
+        closeVoicePip("recording");
+        throw cause;
+      }
+    };
+    void (voiceMode ? voiceMode.startMeeting(startRecording) : startRecording())
       .catch((cause: unknown) => {
-        void pip.then(({ closeVoicePip }) => closeVoicePip("recording"));
         setError(
           cause instanceof Error ? cause.message : "Unable to open recording",
         );
@@ -119,21 +138,20 @@ export function RecordingEntry({
         disabled={
           !connectionFailed &&
           !needsKey &&
-          (pending ||
-            !voice ||
-            !anotherMeRoomId ||
-            voice.composerMicrophoneActive)
+          (pending || !voice || !anotherMeRoomId || voiceInputBusy)
         }
         onClick={start}
         title={hint}
         type="button"
       >
-        {saving || connecting ? (
+        {(saving && !switchFromLive) || connecting ? (
           <Icon icon={Loading03Icon} className="animate-spin" size={16} />
         ) : (
           <Icon icon={AiTranscribeAudioIcon} size={16} />
         )}
-        <span className="xs-nav-btn-label">Meetings</span>
+        <span className="xs-nav-btn-label">
+          {saving && switchFromLive ? "New Meeting" : "Meetings"}
+        </span>
         {recording || connectionFailed ? (
           <span
             aria-hidden="true"

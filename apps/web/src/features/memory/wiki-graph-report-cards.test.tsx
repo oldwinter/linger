@@ -1,25 +1,41 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+
+import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
+import { defineGlobalProperty } from "@/test/global-properties";
+import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
+
 import { WikiGraphReportCards } from "./wiki-graph-report-cards";
 import type { NodeMoment } from "./wiki-graph-model";
 
-const { reports } = vi.hoisted(() => ({
-  reports: { data: [], isPending: false },
-}));
-vi.mock("./wiki-period-reports", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./wiki-period-reports")>()),
-  usePeriodReports: () => reports,
-  usePeriodReport: () => ({ isPending: false }),
-}));
-
 afterEach(() => vi.restoreAllMocks());
-Object.defineProperty(HTMLElement.prototype, "scrollTo", {
-  configurable: true,
-  value: vi.fn(),
-});
+
+// No reports exist yet: the lists are cached fresh, so nothing is fetched.
+function noReportsWrapper() {
+  const queryClient = new QueryClient();
+  for (const kind of ["daily", "weekly"]) {
+    queryClient.setQueryData(
+      ["teamhub", "tenant-northstar", "personal-memory", `${kind}-entries`],
+      [],
+    );
+  }
+  const runtime = createTestTeamHubRuntime();
+  return function NoReports({ children }: { children: ReactNode }) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <TeamHubRuntimeProvider runtime={runtime}>
+          {children}
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>
+    );
+  };
+}
 
 it("preserves the requested card on resize and observes each mounted track only once", () => {
+  defineGlobalProperty(HTMLElement.prototype, "scrollTo", { value: vi.fn() });
   const observers: {
     callback: ResizeObserverCallback;
     observe: ReturnType<typeof vi.fn>;
@@ -56,7 +72,9 @@ it("preserves the requested card on resize and observes each mounted track only 
     onSelectReport: vi.fn(),
     onPeriodChange: vi.fn(),
   };
-  const view = render(<WikiGraphReportCards {...props} granularity="day" />);
+  const view = render(<WikiGraphReportCards {...props} granularity="day" />, {
+    wrapper: noReportsWrapper(),
+  });
   expect(screen.queryByText("Attachment")).not.toBeInTheDocument();
   expect(
     screen.queryByRole("button", { name: "Topic" }),

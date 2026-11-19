@@ -75,7 +75,6 @@ it("waits with the page Another Me finished yesterday until it is opened", async
     expect(screen.queryByRole("link", { name: "Launch" })).toBeNull(),
   );
 });
-
 it("shows real collection pages on the Wiki tab and returns to Profile", async () => {
   const runtime = createTestTeamHubRuntime();
   const page = wikiDocument("project-one", "Launch.md", "wiki_page");
@@ -224,6 +223,29 @@ it("offers no Surprise me before the Wiki has pages", async () => {
   // The listing settles before the action's absence means anything.
   expect(await screen.findByText("No projects yet.")).toBeVisible();
   expect(screen.queryByRole("button", { name: "Surprise me" })).toBeNull();
+});
+
+it("shows the actionable failure reason when the latest Wiki refresh failed", async () => {
+  const runtime = createTestTeamHubRuntime();
+  serveWikiDocuments(runtime).mockResolvedValue({
+    items: [],
+    page: { has_more: false },
+  });
+  serveWikiStatus(runtime).mockResolvedValue({
+    created_at: "2026-08-23T00:00:00.000Z",
+    failure_reason: "runtime_incompatible",
+    id: "wiki-tenant-northstar",
+    latest_refresh_id: "refresh-2",
+    owner_actor_id: "actor-human",
+    published_generation: 0,
+    state: "failed",
+    tenant_id: "tenant-northstar",
+    updated_at: "2026-08-23T00:00:00.000Z",
+  });
+  renderWikiHome(runtime);
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Wiki update failed — Runtime incompatible. Update your local CLI or Linger.",
+  );
 });
 
 it("never renders a Human Publish command", async () => {

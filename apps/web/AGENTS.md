@@ -11,36 +11,68 @@ React Router Data Mode and TanStack Query power the active Room-first UI.
   before opening a pull request. If the change adds a static import on the
   Room or app initial graph, also run `pnpm --filter @linger/web run
 build:assets` to check the initial JS budget.
-  CI runs it as `make check-web-static` plus `make check-web-tests` in three
-  shards (`SHARD=1/3` and so on).
+  CI runs it as `make check-web-static` plus `make check-web-tests` in two
+  shards (`SHARD=1/2` and `SHARD=2/2`).
 
 ## Structure
+
+- Connector authorization uses the Web completion route or, when the desktop
+  bridge is available, its one-time browser callback. The signed-in desktop
+  page asks TeamHub to verify the return and refreshes its connector queries.
 
 - `src/app`: routes, providers, route error boundaries, and global CSS.
 - `src/features/teamhub`: Human API, Session, error, and realtime adapters.
 - `src/features/rooms`: Room routes, Chat, Timeline, the right sidebar (Agent Info, Activity, Thread, Document) and membership UI. Catch up freezes the chats that had new messages or mentions and walks them one at a time; opening a chat leaves the rest of the walk in place. Finishing the walk can keep that list, with each chat's last line, on today's Pocket note. Today's Pocket note can be sent into Another Me's chat; the note is saved first, and Open chat shows the message that was sent. While agents are working, the room list gathers those rooms and says whether each is still on your message or already replying. A one-time reminder that can still run today can be held three hours later; Another Me then runs it at that time. While an agent is working in a Room, Watch the work opens that run on its own page and keeps reading it until the agent replies. Add a document lets the Human choose documents they can share and bind them into the Room. How work moves reads the room's team.md as the sequence of who starts, who receives a handoff, and who the result is reported to. A newly published team.md replaces that page. Who can manage lets an owner choose which people may change the room afterwards. The room keeps those roles. While a run is in progress, Steer this run shows the plan the agent published and can stop it before the next step. Who is speaking (`/t/:tenantId/voices`) names the voices in the open recording; the recording keeps those names on this computer. Right now (`/t/:tenantId/hearing`) shows the words a recording is hearing as they arrive. Who is awake (`/t/:tenantId/awake`) shows which agents can be reached and opens a chat with one. Surprise me (`/t/:tenantId/surprise`) spins the rooms you belong to and opens the one it lands on. Stepping out of a regular room stops new messages and sending until you come back. Hand this off (`/t/:tenantId/rooms/:roomId/hand-off`) creates an issue for someone else in that room, so the job waits on the dashboard. What an agent can do (`/t/:tenantId/agents/:agentId/can-do`) turns that agent's skills on or off for the next time they work. A shared conversation can be watched in the order it happened: each message waits a compressed beat of the gap before it, and a quiet stretch is named. A Room in the sidebar and in search leads with the face of whoever spoke last. When every person in a room has reacted to one message, that message stays above the timeline until the agreement breaks. Earlier conversation takes the room back one stretch of five quiet minutes or a new day; later messages leave until Back to now, and sending a message returns to the live room. Words still in the Room composer sit at the end of the timeline in the writer's place until they are sent or cleared. A voice draft or a message already on its way keeps that place instead. Two messages from different people within three seconds land as one moment, side by side once the room is wide enough. When Another Me says something new while the person is somewhere else in the app, those words arrive where they already are. Opening Another Me's chat or dismissing the arrival leaves it. The first reading only marks the latest message, and quiet hours still hold it. In Another Me's chat, and on the sidebar card while that chat is open, Another Me wears your picture, or your initials when you have not set one. Leaving the chat returns their own figure. Scrolling today's page continues into the newest earlier day that has words; that day stays read-only and is not written onto today. An open Pocket note stays open while you move between rooms. When more than one enabled routine would fire in the same minute, the oldest keeps that minute and its instruction gains the others' work; the rest of that minute is removed. Coming back to this window after a minute opens the one room whose conversation moved while it was hidden, unless you are already there, writing, or a dialog is open. Messages that arrive while this window is hidden stay unread until you click, type, or scroll. A message the server never confirmed is sent again when this window becomes visible after being hidden. A mention of someone who leaves the room is lifted out of the message that has not been sent. A profile stays open only while that person is in the room; once they leave, it closes. Sitting still in an open room that stays quiet lets the timeline rest, so the next message does not pull the view. Words still being said after the last confirmed line stay on the recording while it saves, until that line arrives. A sentence that finishes while someone is still talking stays on the recording, and the words still being said continue after it. Words that continue the last confirmed line grow on that line, under the person who is already talking. A sentence that does not continue it, including one said again, stays its own line. When someone you named has not answered for an hour, an empty composer in that room becomes a follow-up to them on that message. If they answer before it is sent, and it was not edited, the follow-up leaves. When a run you started finishes while you are in another room, its reply stays in the working list until you open that room. When two agents answer the same message, those answers sit together. A question you asked yesterday that is still unanswered leads the room this morning, until you speak again or leave. - `src/features/auth`: When a session expires, signing in opens the page you were on. A link cannot choose that page. Logging out leaves the next sign-in on Rooms. - `src/features/rooms/files`: A PDF page keeps its words on top of the picture, so a sentence can be selected and copied.
-- `src/features/settings`: Settings. My Rules can review newly learned shadow rules one at a time. Promote makes a rule active; Leave keeps it in shadow. What this changes next shows where a shadow rule would have decided differently, then lets it decide so the next match follows it. On Shortcuts, pressing a shortcut says what it does and every place it works. - `src/features/rooms`: Room routes, Chat, Timeline, the right sidebar (Agent Info, Activity, Thread, Document) and membership UI. Catch up freezes the chats that had new messages or mentions and walks them one at a time; opening a chat leaves the rest of the walk in place. Today's Pocket note can be sent into Another Me's chat; the note is saved first, and Open chat shows the message that was sent. While agents are working, the room list gathers those rooms and says whether each is still on your message or already replying. A one-time reminder that can still run today can be held three hours later; Another Me then runs it at that time. While an agent is working in a Room, Watch the work opens that run on its own page and keeps reading it until the agent replies. Add a document lets the Human choose documents they can share and bind them into the Room. How work moves reads the room's team.md as the sequence of who starts, who receives a handoff, and who the result is reported to. A newly published team.md replaces that page. Who can manage lets an owner choose which people may change the room afterwards. The room keeps those roles. While a run is in progress, Steer this run shows the plan the agent published and can stop it before the next step. Who is speaking (`/t/:tenantId/voices`) names the voices in the open recording; the recording keeps those names on this computer. Right now (`/t/:tenantId/hearing`) shows the words a recording is hearing as they arrive. Who is awake (`/t/:tenantId/awake`) shows which agents can be reached and opens a chat with one. Surprise me (`/t/:tenantId/surprise`) spins the rooms you belong to and opens the one it lands on. Stepping out of a regular room stops new messages and sending until you come back. Hand this off (`/t/:tenantId/rooms/:roomId/hand-off`) creates an issue for someone else in that room, so the job waits on the dashboard. What an agent can do (`/t/:tenantId/agents/:agentId/can-do`) turns that agent's skills on or off for the next time they work.
-- `src/features/work-items`: What happened opens one Work Item's description and the recorded story, and can open the Room doing the work. Two selected cards can be read side by side, including how they differ on state, priority, and whether a room is doing the work. The board itself still edits through its existing peek, selection, and menus. When the Work Item was opened while a meeting was still underway, the story names that meeting, how far in, and opens it. When a Pocket note exists for the day the Work Item was opened, the story shows that note. When someone is assigned and is not a member of the room doing the work, the story says so. A Work Item you created and assigned to yourself, still open after the day you created it, leads Todo. - `src/features/memory`: A finished meeting whose summary has outcomes and no decision opens on the last words of the transcript. - `src/features/memory`: A line copied from a meeting keeps who said it and where - `src/features/settings`: Settings. My Rules can review newly learned shadow rules one at a time. Promote makes a rule active; Leave keeps it in shadow. What this changes next shows where a shadow rule would have decided differently, then lets it decide so the next match follows it.
-  it was in the recording. Opening that line returns to that moment. When a step fails and that same step then succeeds, the activity log keeps both lines it published. - `src/features/work-items`: What happened opens one Work Item's description and the recorded story, and can open the Room doing the work. The board itself still edits through its existing peek, selection, and menus. Accepting a decision a task is waiting on brings that task to the person it belongs to.
+- `src/features/settings`: Settings. My Rules can review newly learned shadow rules one at a time. Promote makes a rule active; Leave keeps it in shadow. What this changes next shows where a shadow rule would have decided differently, then lets it decide so the next match follows it. On Shortcuts, pressing a shortcut says what it does and every place it works.
+- `src/features/work-items`: What happened opens one Work Item's description and the recorded story, and can open the Room doing the work. Two selected cards can be read side by side, including how they differ on state, priority, and whether a room is doing the work. The board itself still edits through its existing peek, selection, and menus. When the Work Item was opened while a meeting was still underway, the story names that meeting, how far in, and opens it. When a Pocket note exists for the day the Work Item was opened, the story shows that note. When someone is assigned and is not a member of the room doing the work, the story says so. A Work Item you created and assigned to yourself, still open after the day you created it, leads Todo. Accepting a decision a task is waiting on brings that task to the person it belongs to.
 - `src/features/jump`: one field that opens a room, a meeting, or a library
   place. Cmd/Ctrl+J opens it from the shell. It does not search message text.
-- `src/features/memory`: Meetings. Reading the transcript while its summary is
-  still being written keeps that place when the summary arrives. A recording
-  already playing while its summary is still being written stays where it is
-  when the summary arrives. - `src/features/wiki`: A Wiki page Another Me finished yesterday waits at the
+- `src/features/memory`: Meetings. A finished meeting whose summary has outcomes and no decision opens on the last words of the transcript. A line copied from a meeting keeps who said it and where it was in the recording. Opening that line returns to that moment. When a step fails and that same step then succeeds, the activity log keeps both lines it published. Reading the transcript while its summary is still being written keeps that place when the summary arrives. A recording already playing while its summary is still being written stays where it is when the summary arrives.
+- `src/features/wiki`: A Wiki page Another Me finished yesterday waits at the
   front of Wiki until that page is opened.
 - `src/features/local-computer`: What this Mac can do asks macOS for Screen Recording and Accessibility on one computer, then relaunches Linger when a new grant needs it. Opening Computers on this Mac opens that computer when several are connected. All computers stays on the list.
-- `src/features/local-models`: Settings › Local models (`settings/local-models?computer=<id>`),
-  one Computer's model library as TeamHub last stored it. The Computer decides
-  fit, availability, placement, the recommendation and memory; the page only
-  orders and labels them, picks the Make room default, renders family icons,
-  capability/parameter badges, download speed/ETA and model-card facts from
-  structured `LocalModel` fields in `local-models-rules.ts`, and maps every
-  code and enum label to English in `local-models-copy.ts`. Without `?computer=`
-  the desktop app opens
-  its own Computer. Only the Computer's owner can act; actions return at once
-  and progress arrives as `local-models` invalidation hints. A Computer's
-  detail on the Computers page links here and reads no model state itself.
+- `src/features/local-models`: Settings › Models (`settings/models?computer=<id>`).
+  Its tabs read and switch the Computer's model source (Local model, BYOK)
+  through TeamHub's `model-source` API, which asks the Computer live; the page
+  offers no switch to Subscription, and a Computer already on one opens on
+  Local model; the page never holds a saved API key (reusing a saved key only
+  for the saved endpoint's origin, clearing entered keys after saving, offering
+  manual model ID entry even when endpoints list models, and disabling BYOK
+  edits while offline), and a switch refused with `AGENT_HAS_ACTIVE_RUNS`
+  retries with `force_terminate` only after the owner confirms. The Local model
+  tab is one Computer's model library as TeamHub last stored it. The Computer
+  decides fit, availability, placement, the recommendation and memory; the page
+  only orders and labels them, picks the Make room default (including
+  external-app cleanup & `Recheck memory` prompts when other apps occupy pool
+  memory or unified memory is constrained), shows an explicit `Memory guidance`
+  banner and `Recheck memory` button (`POST .../local-models`), lets owners
+  pick among installed local models in `SwitchToLocalNotice` or click
+  `Use for Agents` on a loaded row, renders tinted family icon tiles, Agent
+  usage counts, structured capability/parameter badges (never matched against
+  `name` or `description`), state-distinct cards (`loaded`, `recommended`,
+  `failed` with short failure reasons and direct `Remove` for damaged/missing
+  files, `unavailable`), download speed/ETA, live Bifrost (`Pi`) `Gateway`
+  readiness, and top diagnostic callouts with a two-column model-card facts
+  grid from structured `LocalModel` fields in `local-models-rules.ts`, resolves
+  Sponsor-owned Agent eligibility and `Pi` runtime switch payloads in
+  `local-model-agents.ts` (`Use with <Another Me>`, `Open chat`,
+  `Switch Agent…` in `Used by`, and `Make room` automatic Agent handoff once
+  the replacement model loads when `Pi` is ready), and maps every code and enum
+  label to English in `local-models-copy.ts`. Without `?computer=` the desktop
+  app opens its own Computer and a browser prefers an online Computer. Only the
+  Computer's owner can act; actions return at once and progress arrives as
+  `local-models` invalidation hints (while `directory` hints and model-source
+  switches keep `Used by` and Agent registrations synchronized). From the click
+  until a snapshot with another status, error code, or observation time, or a
+  refusal (or while offline), the row shows a requested load or download as
+  started, labels a cancel, unload or remove under way (Cancelling, Unloading,
+  Removing), and spins that action's button, with the row's actions off; a
+  download the Computer accepted can be cancelled before its first progress.
+  Make room filters stale unloaded IDs out of `unload_first`, lists what else
+  holds the pool (components, and other apps from `used_bytes` no holder
+  accounts for) when unloading models cannot free enough, and says a model
+  cannot fit only when it needs more than the pool's total. A Computer's detail
+  on the Computers page links here and reads no model state itself.
 - `src/test`: unit-test support, including the in-process TeamHub test server.
 - `e2e`: Playwright product workflows; every spec runs on the real TeamHub and
   Document Runtime stack (`make check-e2e-room-document`).
@@ -66,6 +98,78 @@ build:assets` to check the initial JS budget.
   those fixed menus. Close native dialogs before React removes their DOM so the
   browser can return focus to a connected opener. Handle only the dialog's own
   cancel event; a nested dialog's Escape must not dismiss its parent.
+- The first-visit Agent introduction uses its display name from TeamHub,
+  including the default `Linger` name and any name the Human chooses.
+- The login page keeps Linger's headline and day timeline on the left,
+  and the sign-in form on the right. A faint white grid fades gently into the
+  form's white background without a dark panel, colored glow, or blur. The
+  timeline speaks in the first person and uses dark and muted text on white;
+  reduced motion holds its first nudge still. Below 64rem the illustration is
+  hidden, while the form keeps its visible labels and optional desktop account sign-in.
+- Login body copy uses the Room font and chat body typography tokens. Times,
+  dividers, and the footer use the chat metadata tokens. Its titles keep their
+  own scale, with desktop content inset toward the middle on both sides and
+  the left copy and timeline inset by two additional 40px grid cells. Linger
+  uses the red panda portrait on its warm brown tile.
+- The login header uses the transparent horizontal Linger wordmark in
+  `public/linger-wordmark.svg`, with the proportions of `assets/logo-horizontal.svg`.
+- Switching between Meeting and Voice Mode ends the previous session and
+  releases its microphone before the new mode starts. Meeting saving can
+  continue in the background. If browser activation expires during the
+  switch, the new mode opens in the page and can be floated from there.
+  During Live, the Meeting entry offers to start a new Meeting even while an
+  earlier one is saving. Both in-page voice windows retain a visible, draggable
+  title bar: dark in browsers, the window's own surface colour in the desktop
+  app. Picture-in-picture keeps the browser title bar. The desktop app cannot
+  open picture-in-picture, so there voice windows stay in the page, offer no
+  float button, and on macOS stay out of the window drag strip.
+- The compact primary rail reveals labels on hover and keyboard focus without
+  moving link hit areas or neighbouring links. A stationary pointer at an edge
+  must not trigger repeated hover enter/leave; sidebar expansion and Chat list
+  collapse remain explicit button actions. Pointer movement only resizes during
+  an active drag; keyboard resizing and double-click reset remain available.
+- Opening Meeting from the sidebar requests the initial picture-in-picture
+  size so a new expanded recording cannot inherit the browser's cached
+  minimized window bounds. Floating an existing in-page recording keeps the
+  browser's usual placement behavior.
+- Recording picture-in-picture collapse remembers that window's actual
+  expanded outer dimensions and restores both dimensions with an absolute
+  resize inside the user's click, bounded by the current screen. A pending
+  native resize must not replace the saved expanded size with collapsed
+  metrics. Collapse never closes the window or stops the recording; native
+  window placement remains under browser control. Stop preserves the current
+  recording view and window dimensions. A minimized window, in the page
+  (including the desktop app) or picture-in-picture, shows the confirmation
+  actions side by side within its control row, so they stay on screen wherever
+  the row sits; an open window keeps the vertical confirmation card.
+- Recording and Voice Mode distinguish the native window's close action from
+  back to tab through the shared PiP return detection. Back to tab keeps the
+  session running in the page and exposes a Float action; close ends it.
+  Recording moves one portal host between documents so paused state, Ask
+  drafts and transcript scroll survive the move. Hide it while classifying a
+  native close, and ignore a late result after unmount or a replacement window.
+- Pausing a recording mutes the shared microphone for that recording only:
+  the microphone track can outlive it, so a new recording turns the
+  microphone back on before it starts, and Start on a running paused
+  recording keeps it paused.
+- Gmail and Outlook message approvals show the subject and recipients once.
+  The subject row toggles the preview and owns its hover highlight; the
+  recipient line stays outside the control. The shared AutoHeight transition
+  and chevron rotation use the chat resize timing and reduced-motion setting.
+  Expanding replaces the compact recipient line with read-only
+  From/To/Cc/Bcc headers, followed by the full body and attachments. An empty
+  Cc row reads None; Bcc appears only when populated. Email
+  actions are Send and Don't send; declining does not request a reason.
+- A gmail canvas message segment renders as its email card
+  (`rooms/chat/message-mail-canvas.tsx`), laid out like a message approval:
+  subject row with open-in-panel and expand controls, recipient line, then
+  Send and Don't send, or one receipt line once decided; an unknown result
+  keeps Send again and Don't send. Only members who can edit see the actions,
+  and with several Gmail accounts a Send from picker chooses the sender.
+  Expanding mounts the same collaborative editor as the side panel; Send waits
+  until it is saved and posts the digest the card last loaded, refreshed after
+  each durable save. Clicking Send is what uploads to Gmail; the side-panel
+  canvas has no Send.
 - Active product data comes from TeamHub, never retired Workspace APIs. Web has
   no fixture backend and no build mode that swaps TeamHub out.
 - Unit tests that need TeamHub use `createTestTeamHubRuntime`
@@ -108,6 +212,11 @@ build:assets` to check the initial JS budget.
   `--color-app-*` roles such as `text-app-ink`) instead of hex arbitrary values;
   when no token fits, add one to `src/app/visual-theme.css` and the
   `@theme inline` block in `src/app/globals.css`.
+- Input hints use `--app-placeholder` / `text-app-placeholder` across native
+  fields, chat composers, select prompts, and editable empty states. Keep
+  entered text and adjacent labels on their own text tokens.
+- Room avatar stacks give each tile an opaque surface behind the member's
+  portrait or initials so overlapping members never show through one another.
 - Compose conditional class names with `cn` from `src/lib/cn.ts`.
 - Do not add CSS Modules or feature-level `.css` files, and do not add new hex
   colors in TSX. Use inline `style` only for runtime-computed values.

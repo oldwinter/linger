@@ -229,14 +229,15 @@ func (s *Service) RedeliverUnconfirmedRunInputs(ctx context.Context, runID strin
 	})
 }
 
-func (s *Service) ContextHasQueuedRuns(ctx context.Context, contextKey string) (bool, error) {
+// NextRunInputOrigins reads scheduling metadata without claiming the next Run.
+func (s *Service) NextRunInputOrigins(ctx context.Context, contextKey string) ([]store.NextAgentRunInputOriginsRow, error) {
 	if s == nil || s.pool == nil {
-		return false, ErrInvalid
+		return nil, ErrInvalid
 	}
 	if _, err := DecodeContextKey(contextKey); err != nil {
-		return false, ErrInvalid
+		return nil, ErrInvalid
 	}
-	return store.New(s.pool).AgentRuntimeContextHasQueuedRun(ctx, contextKey)
+	return store.New(s.pool).NextAgentRunInputOrigins(ctx, contextKey)
 }
 
 func enqueueSteerRows(

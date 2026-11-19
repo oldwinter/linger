@@ -41,6 +41,11 @@ STACK_SCRIPT=""
 KIT_PYTHON=""
 PROMPT_VALUE=""
 
+# >>> stack release pin
+STACK_PIN_NPM_VERSION='0.1.0-dev.43'
+STACK_PIN_SHA256='b481ab03f04f222840eda2c230077d9a3dc8884ba256bdcd7d06019854fb2bae'
+# <<< stack release pin
+
 usage() {
   cat <<EOF
 Usage: $SELF_CMD [options]
@@ -359,6 +364,95 @@ ensure_kit_home() {
   fi
 }
 
+sha256_file() {
+  local target="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$target" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$target" | awk '{print $1}'
+  else
+    die "sha256sum or shasum is required."
+  fi
+}
+
+download_pinned_stack_script() {
+  local dest="$1"
+  command -v tar >/dev/null 2>&1 || die "tar is required."
+  [[ -n "$STACK_PIN_NPM_VERSION" && -n "$STACK_PIN_SHA256" ]] ||
+    die "Local model runtime release pin is missing."
+
+  local registries=()
+  local override="${SIMPLEX_NPM_REGISTRY:-}"
+  if [[ -n "$override" ]]; then
+    override="${override%/}"
+    case "$override" in
+      https://?* | http://127.0.0.1 | http://127.0.0.1:* | http://127.0.0.1/* | http://localhost | http://localhost:* | http://localhost/*) ;;
+      *) die "SIMPLEX_NPM_REGISTRY must use https or loopback http." ;;
+    esac
+    registries=("$override")
+  else
+    local region="${SIMPLEX_REGION:-auto}"
+    case "$region" in
+      auto | global) registries=("https://registry.npmjs.org" "https://registry.npmmirror.com") ;;
+      cn) registries=("https://registry.npmmirror.com" "https://registry.npmjs.org") ;;
+      *) die "SIMPLEX_REGION must be auto, global, or cn." ;;
+    esac
+  fi
+
+  local tgz_file="$WORK_DIR/localmodels-launcher.tgz"
+  local extracted="$WORK_DIR/stack.sh.download"
+  local base="" proto="" tar_url="" pipe_rc="" extracted_bytes="" actual_sha=""
+  for base in "${registries[@]}"; do
+    case "$base" in
+      https://*) proto='=https' ;;
+      *) proto='=http,https' ;;
+    esac
+    tar_url="$base/@simplexai/localmodels/-/localmodels-${STACK_PIN_NPM_VERSION}.tgz"
+    rm -f "$tgz_file" "$extracted"
+    if ! curl -fsSL --proto "$proto" --proto-redir '=https' --max-redirs 5 --max-filesize 16777216 --retry 2 --connect-timeout 15 --max-time 60 -o "$tgz_file" "$tar_url" 2>/dev/null; then
+      continue
+    fi
+    if (( $(wc -c < "$tgz_file" | tr -d ' ') > 16777216 )); then
+      rm -f "$tgz_file"
+      continue
+    fi
+    set +e
+    tar -xzOf "$tgz_file" package/stack.sh 2>/dev/null | head -c 16777217 > "$extracted"
+    pipe_rc="${PIPESTATUS[0]}:${PIPESTATUS[1]}"
+    set -e
+    extracted_bytes="$(wc -c < "$extracted" 2>/dev/null | tr -d ' ' || printf '0')"
+    if (( extracted_bytes > 16777216 )); then
+      rm -f "$extracted" "$tgz_file" "$dest"
+      die "Local model runtime bootstrap exceeds maximum size."
+    fi
+    if [[ "$pipe_rc" != "0:0" ]]; then
+      rm -f "$extracted"
+      if ! tar -tzf "$tgz_file" >/dev/null 2>&1; then
+        rm -f "$tgz_file"
+        continue
+      fi
+      rm -f "$tgz_file"
+      die "Downloaded runtime bootstrap archive is missing stack.sh."
+    fi
+    if [[ ! -s "$extracted" ]]; then
+      rm -f "$extracted" "$tgz_file"
+      die "Downloaded runtime bootstrap archive is missing stack.sh."
+    fi
+    actual_sha="$(sha256_file "$extracted")"
+    if [[ "$actual_sha" != "$STACK_PIN_SHA256" ]]; then
+      rm -f "$extracted" "$tgz_file" "$dest"
+      die "Local model runtime bootstrap checksum mismatch."
+    fi
+    mv -f "$extracted" "$dest"
+    chmod 0700 "$dest"
+    rm -f "$tgz_file"
+    return 0
+  done
+
+  rm -f "$tgz_file" "$extracted"
+  die "Could not download the local model runtime bootstrap."
+}
+
 ensure_engine() {
   check_supported_platform
   ensure_kit_home
@@ -367,11 +461,13 @@ ensure_engine() {
     STACK_SCRIPT="$LINGER_STACK_SCRIPT"
   elif [[ -n "$REPO_ROOT" && -r "$REPO_ROOT/scripts/installs/stack.sh" ]]; then
     STACK_SCRIPT="$REPO_ROOT/scripts/installs/stack.sh"
+  elif [[ -n "${LINGER_STACK_URL:-}" ]]; then
+    STACK_SCRIPT="$WORK_DIR/engine.sh"
+    curl -fsSL "$LINGER_STACK_URL" -o "$STACK_SCRIPT" || die "Could not download the local model runtime bootstrap."
+    chmod 0700 "$STACK_SCRIPT"
   else
     STACK_SCRIPT="$WORK_DIR/engine.sh"
-    local engine_url="${LINGER_STACK_URL:-https://simplexai.com/stack.sh}"
-    curl -fsSL "$engine_url" -o "$STACK_SCRIPT" || die "Could not download the local model runtime bootstrap."
-    chmod 0700 "$STACK_SCRIPT"
+    download_pinned_stack_script "$STACK_SCRIPT"
   fi
 
   local bootstrap_out=""

@@ -2,7 +2,7 @@ components:
   schemas:
     RoutineCadenceKind:
       type: string
-      enum: [daily, weekly, every_n_hours, once]
+      enum: [daily, weekly, every_n_hours, every_n_minutes, once]
     RoutineWeekday:
       type: string
       enum: [monday, tuesday, wednesday, thursday, friday, saturday, sunday]
@@ -41,6 +41,12 @@ components:
           minimum: 1
           maximum: 168
           description: Repeat interval for every_n_hours cadences.
+        interval_minutes:
+          type: integer
+          minimum: 10
+          maximum: 10080
+          multipleOf: 10
+          description: Repeat interval in minutes for every_n_minutes cadences, in 10-minute increments.
         run_at:
           type: string
           format: date-time

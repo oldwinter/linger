@@ -53,6 +53,7 @@ import {
 import { cn } from "@/lib/cn";
 import { artifactFileTypeLabel } from "../files/artifact-file-kind";
 import { MessageFileAttachment } from "../files/message-file-attachment";
+import { MessageMailCanvas } from "./message-mail-canvas";
 import { selectArtifactRenderer } from "../files/artifact-renderer-policy";
 import { chatImageSize, useDecodedImage } from "../files/local-message-images";
 import {
@@ -506,7 +507,7 @@ function ConversationMessageRow({
       // An attached file already knows its type and version, so it shows as
       // what it is before the Document metadata arrives.
       const attachment = attachmentByDocument.get(block.segment.document_id);
-      return (
+      const file = (
         <MessageFileAttachment
           {...documentFile(block.segment.document_id, block.segment.content)}
           // A live Document opens in its editor rather than previewing.
@@ -524,6 +525,18 @@ function ConversationMessageRow({
             attachment?.document.current_version?.id
           }
         />
+      );
+      // A gmail canvas shows as the email itself; other canvases as files.
+      return block.segment.presentation === "canvas" ? (
+        <MessageMailCanvas
+          documentId={block.segment.document_id}
+          fallback={file}
+          key={block.segment.document_id}
+          onOpen={() => onOpenMessageFile(block.segment)}
+          tenantId={tenantId}
+        />
+      ) : (
+        file
       );
     }
     const attachedName = block.segment.filename ?? block.segment.content;

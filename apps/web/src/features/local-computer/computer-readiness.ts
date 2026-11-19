@@ -27,6 +27,15 @@ export const appDescriptions = {
   pi: "Open-source coding agent",
 } satisfies Record<TeamHubLocalRuntimeType, string>;
 
+export const runtimeStatusLabels = {
+  authentication_required: "Sign-in required",
+  error: "Could not check",
+  incompatible: "Update needed",
+  not_installed: "Not installed",
+  ready: "Ready",
+  unknown: "Checking",
+} satisfies Record<RuntimeStatus, string>;
+
 export type ComputerReadiness =
   | { kind: "reconnecting" }
   | { kind: "offline" }

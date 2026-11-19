@@ -37,6 +37,9 @@ status and `longest_line_bytes` (a PDF without a text layer has no text and stay
 refresh freezes the admitted ones by `document_text_version_id`. Texts come from text layers only; there is no OCR, so
 raster images have no text.
 Mail the whitelist filters out never becomes a source and is not recorded.
+An imported message's `wiki_source_items.source_key` is `mail:<mailbox>:<remote id>`, where the mailbox is its
+Connection's `remote_principal_key`, so reconnecting the same mailbox updates the Documents an earlier Connection
+wrote instead of adding a second copy of each message.
 The Wiki's Session sources are not Documents: `wiki_session_sources` reads the Human's Room and recording Sessions
 from the Memory index (`memory_index.sources` at their `source_versions` text), `wiki_current_sources` joins them
 to the bound Documents, and a refresh freezes each Session at the SHA-256 of its indexed text.
@@ -50,6 +53,14 @@ answers `in_progress`: a nightly request sets `followup_requested`, so the refre
 queues a follow-up over every changed source; a meeting request is not admitted and is sent again. The dispatcher
 reads text and metadata only for the sources a refresh adds or changes, so a source frozen at its published version
 needs neither.
+
+Every refresh request of a Human, from Memory or the Web, is admitted in a `REPEATABLE READ` transaction that starts
+only after it holds that Human's admission lock, so it sees the previous admission and joins or replays it. Admissions
+of different Humans neither wait for nor abort each other, so Memory's nightly requests for every Human can run at
+once; a settlement or dispatch status change of the same Wiki is a write conflict, and the admission retries. Before
+admission, every request except a meeting refresh binds the Human's new My pages as Wiki sources. That binding stays `SERIALIZABLE`, so
+the bindings of all Humans run one at a time under one database-wide lock, taken before each binding transaction
+starts, and each retries a serialization failure.
 
 ## History points
 

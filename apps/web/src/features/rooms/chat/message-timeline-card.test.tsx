@@ -1006,16 +1006,26 @@ describe("Room Message timeline cards", () => {
       { content: " today", type: "text" },
     ];
     const onOpenMessageFile = vi.fn();
-    renderTimeline(message, { onOpenMessageFile });
+    renderTimeline(message, {
+      onOpenMessageFile,
+      documentMetadata: {
+        "document-plan": {
+          title: "Launch plan.md",
+          format: "blocknote",
+          representation_format: "markdown",
+        },
+      },
+    });
 
     const reference = screen.getByRole("button", {
-      name: "Open Launch_plan",
+      name: "Open Launch plan.md",
     });
+    expect(reference).toHaveTextContent("Launch plan.md");
     expect(reference).toHaveAttribute("data-reference-kind", "document");
     expect(screen.queryByText("Review @Launch_plan today")).toBeNull();
     fireEvent.click(reference);
     expect(onOpenMessageFile).toHaveBeenCalledWith({
-      content: "Launch_plan",
+      content: "Launch plan.md",
       document_id: "document-plan",
       presentation: "inline",
       type: "document",

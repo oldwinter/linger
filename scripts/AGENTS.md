@@ -28,8 +28,8 @@ Scripts support existing build, generation, and verification entrypoints.
   `make check-scripts-fast`. Changes to the Local Computer installer,
   uninstaller, installer fixtures, bundle or manifest generation, signatures,
   or release images must also run `make check-scripts-heavy` locally.
-- Before delivery, run `make check BASE=<target-branch>`, which runs every
-  app's fast check. Do not replace installer security failures,
+- Before delivery, run `make check BASE=<target-branch>`, which runs the
+  fast checks the change selects through `scripts/check-plan.mjs`. Do not replace installer security failures,
   the complete install path, signature or rollback checks, or release
   integrity with pure unit coverage unless equivalent end-to-end coverage is
   identified and documented.

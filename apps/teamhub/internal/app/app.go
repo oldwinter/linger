@@ -39,6 +39,7 @@ import (
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentcreationapproval"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentdirectmessage"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentdocument"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentroomhandoff"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentruntimestate"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentsendmessage"
 	artifactstore "github.com/simplexai-labs/linger/apps/teamhub/internal/artifact"
@@ -48,6 +49,7 @@ import (
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/documenttext"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/externalsource"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/jobs"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/mailcanvas"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/mcpcontext"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/memoryclient"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/permissionreview"
@@ -141,6 +143,7 @@ type App struct {
 	mcpContexts                    mcpContextService
 	agentAuth                      agentauth.Authorizer
 	agentDirectMessages            agentDirectMessageService
+	agentRoomHandoffs              agentRoomHandoffService
 	agentDocumentCreations         agentDocumentCreateService
 	agentDocumentComments          agentDocumentCommentService
 	agentDocumentSemanticMutations agentDocumentSemanticService
@@ -155,6 +158,7 @@ type App struct {
 	agents                         *agentregistry.Service
 	agentMessages                  *agentmessages.Service
 	canvas                         *agentconnectedapps.Canvas
+	mailCanvas                     *mailcanvas.Service
 	voice                          *voice.Service
 	agentCredentials               *agentcredential.Service
 	tracking                       *reminder.TrackingService
@@ -633,6 +637,7 @@ func (a *App) registerAgentTools(cfg config.Config, deps Deps, agentAuthorizatio
 	a.agentDocumentCreations = agentdocument.NewCreateTool(agentAuthorization, a.documents)
 	a.agentDocumentSemanticMutations = agentdocument.NewSemanticTool(agentAuthorization, a.documents)
 	a.agentDirectMessages = agentdirectmessage.New(a.pool, agentAuthorization)
+	a.agentRoomHandoffs = agentroomhandoff.New(a.pool, agentAuthorization)
 	messageSender := agentsendmessage.New(a.pool, agentAuthorization, a.documents, a.artifacts)
 	a.agentSendMessages = messageSender
 	a.registerPermissionReview(cfg.PermissionReview, models, deps.PermissionJudge)
@@ -649,6 +654,8 @@ func (a *App) registerAccounts(deps Deps) {
 	a.agentCredentials = agentcredential.New(a.pool)
 	a.tracking = reminder.NewTrackingService(a.pool)
 	a.canvas = agentconnectedapps.NewCanvas(a.documents, a.artifacts)
+	a.agentConnectedApps.SetCanvasReader(a.canvas)
+	a.mailCanvas = mailcanvas.New(a.pool, a.documents, a.canvas, a.externalSources, a.composioClient)
 	a.passwordHashes = account.NewHashLimiter(passwordHashPermits, passwordHashWait)
 	a.verifyPassword = account.VerifyPassword
 	if deps.VerifyPassword != nil {
@@ -777,6 +784,7 @@ func (a *App) startJobs(ctx context.Context, runs func(Worker) bool) error {
 	river.AddWorker(riverWorkers, &stoppedTaskApprovalsWorker{app: a})
 	river.AddWorker(riverWorkers, a.collaboration.MessageAttachmentExpiryWorker())
 	river.AddWorker(riverWorkers, &decisionRunWorker{app: a})
+	a.mailCanvas.AddWorker(riverWorkers)
 	river.AddWorker(riverWorkers, &decisionExpireWorker{app: a})
 	taskexecution.AddJobWorkers(riverWorkers, a.pool)
 	riverOptions := jobs.Options{

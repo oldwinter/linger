@@ -52,11 +52,12 @@ type ToolProvider interface {
 }
 
 type Service struct {
-	pool        *pgxpool.Pool
-	contexts    *agentauth.Service
-	connections connectionAuthority
-	provider    ToolProvider
-	logger      *slog.Logger
+	canvasSource CanvasSourceReader
+	pool         *pgxpool.Pool
+	contexts     *agentauth.Service
+	connections  connectionAuthority
+	provider     ToolProvider
+	logger       *slog.Logger
 	// pinnedTools keeps fetched tool versions for pinnedToolTTL; every call
 	// otherwise waits on the same Composio lookup before it runs.
 	pinnedTools sync.Map
@@ -305,7 +306,7 @@ func (s *Service) execute(ctx context.Context, input ExecuteInput, authorize fun
 	if _, err := s.pinnedTool(ctx, connection, input.ToolSlug, input.ToolVersion, "execute"); err != nil {
 		return Result{}, err
 	}
-	if accessOf(input.ToolSlug) == accessConfirm {
+	if accessOf(input.ToolSlug, input.Arguments) == accessConfirm {
 		return s.prepareConfirmation(ctx, connection, confirmationAction{
 			ToolSlug: input.ToolSlug, ToolVersion: input.ToolVersion, Arguments: input.Arguments,
 		})

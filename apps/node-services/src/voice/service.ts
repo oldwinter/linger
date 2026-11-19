@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { createServer, type AddressInfo } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isRecord } from "@linger/service-kit";
@@ -16,11 +17,6 @@ import { hasBearerToken } from "../service-bearer-auth.js";
 import { readVoiceConfig, type VoiceConfig } from "./config.js";
 
 export type VoiceWorker = "asr" | "recorder" | "live";
-export const voiceWorkerPorts = {
-  asr: 4324,
-  recorder: 4325,
-  live: 4326,
-} as const;
 const VOICE_WORKERS = ["asr", "recorder", "live"] as const;
 // LiveKit drains for 2 s, then allows jobs 68 s to save their final media.
 export const VOICE_DRAIN_MS = 72_000;
@@ -101,12 +97,25 @@ async function fetchProviderKeys(
   };
 }
 
+/** Each worker process gets a port the system offers, so another program on a
+ * fixed port never keeps a worker from starting. */
+function freeWorkerPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address() as AddressInfo;
+      server.close((error) => (error ? reject(error) : resolve(port)));
+    });
+  });
+}
+
 /** A LiveKit agents worker answers 2xx on its health port only once it is
  * registered with LiveKit, so this is when it can take a dispatched job. */
-async function probeVoiceWorker(worker: VoiceWorker): Promise<boolean> {
+async function probeVoiceWorker(port: number): Promise<boolean> {
   try {
     return (
-      await fetch(`http://127.0.0.1:${voiceWorkerPorts[worker]}/`, {
+      await fetch(`http://127.0.0.1:${port}/`, {
         signal: AbortSignal.timeout(1_000),
       })
     ).ok;
@@ -127,17 +136,20 @@ export async function startVoiceService(options: {
   spawnWorker?: (worker: VoiceWorker, spec: VoiceWorkerSpawn) => ChildProcess;
   installModels?: () => Promise<void>;
   fetch?: typeof fetch;
-  probeWorker?: (worker: VoiceWorker) => Promise<boolean>;
+  probeWorker?: (port: number) => Promise<boolean>;
+  allocatePort?: () => Promise<number>;
 }) {
   const env = options.environment ?? process.env;
   const config = readVoiceConfig(env);
   const fetchImpl = options.fetch ?? fetch;
   const probeWorker = options.probeWorker ?? probeVoiceWorker;
+  const allocatePort = options.allocatePort ?? freeWorkerPort;
   // The VAD model's native package, when the runtime ships it separately: the
   // workers wait for its first download and find it on NODE_PATH.
   const models = modelPackageNames("voice");
   const installModels =
-    options.installModels ?? (() => installModelPackages(models, env));
+    options.installModels ??
+    (() => installModelPackages(models, env, { region: config.region }));
   // Worker starts share one download, so concurrent starts never fetch twice.
   let installing: Promise<void> | undefined;
   const install = () =>
@@ -163,6 +175,8 @@ export async function startVoiceService(options: {
       child?: ChildProcess;
       /** The generation that started `child`; an older one is draining. */
       childGeneration?: number;
+      /** The health port of `child`. */
+      port?: number;
       exited?: Promise<void>;
       retry?: NodeJS.Timeout;
       failures: number;
@@ -223,51 +237,57 @@ export async function startVoiceService(options: {
       }, restart);
       return;
     }
-    const workerEntry = fileURLToPath(
-      import.meta.resolve("@linger/voice-runtime/worker"),
-    );
-    let child: ChildProcess;
-    try {
-      // Keys travel only in the child's environment. Both provider variables
-      // are set explicitly, so a key inherited by node-services never wins.
-      child = launch(worker, {
-        args: [
-          ...(workerEntry.endsWith(".ts")
-            ? ["--import", "tsx"]
-            : ["--conditions=linger-production"]),
-          workerEntry,
-          "start",
-          ...(worker === "asr" ? [] : [`--${worker}`]),
-        ],
-        env: {
-          ...env,
-          ...modelPath,
-          SONIOX_API_KEY: "",
-          XAI_API_KEY: "",
-          [key.variable]: key.key,
-          TEAMHUB_BASE_URL: config.teamHubBaseUrl,
-          VOICE_WORKER_PORT: String(voiceWorkerPorts[worker]),
-        },
-      });
-    } catch (error) {
-      restart(error);
-      return;
-    }
-    entry.child = child;
-    entry.childGeneration = generation;
-    entry.exited = new Promise<void>((resolve) => {
-      let settled = false;
-      const finish = (error?: unknown) => {
-        if (settled) return;
-        settled = true;
-        if (entry.child === child) entry.child = undefined;
-        killGroup(child);
-        resolve();
+    allocatePort().then((port) => {
+      if (current()) spawnWorker(port, key);
+    }, restart);
+    function spawnWorker(port: number, key: { variable: string; key: string }) {
+      const workerEntry = fileURLToPath(
+        import.meta.resolve("@linger/voice-runtime/worker"),
+      );
+      let child: ChildProcess;
+      try {
+        // Keys travel only in the child's environment. Both provider variables
+        // are set explicitly, so a key inherited by node-services never wins.
+        child = launch(worker, {
+          args: [
+            ...(workerEntry.endsWith(".ts")
+              ? ["--import", "tsx"]
+              : ["--conditions=linger-production"]),
+            workerEntry,
+            "start",
+            ...(worker === "asr" ? [] : [`--${worker}`]),
+          ],
+          env: {
+            ...env,
+            ...modelPath,
+            SONIOX_API_KEY: "",
+            XAI_API_KEY: "",
+            [key.variable]: key.key,
+            TEAMHUB_BASE_URL: config.teamHubBaseUrl,
+            VOICE_WORKER_PORT: String(port),
+          },
+        });
+      } catch (error) {
         restart(error);
-      };
-      child.once("error", finish);
-      child.once("exit", (code, signal) => finish({ code, signal }));
-    });
+        return;
+      }
+      entry.child = child;
+      entry.childGeneration = generation;
+      entry.port = port;
+      entry.exited = new Promise<void>((resolve) => {
+        let settled = false;
+        const finish = (error?: unknown) => {
+          if (settled) return;
+          settled = true;
+          if (entry.child === child) entry.child = undefined;
+          killGroup(child);
+          resolve();
+          restart(error);
+        };
+        child.once("error", finish);
+        child.once("exit", (code, signal) => finish({ code, signal }));
+      });
+    }
   };
   const apply = (keys: ProviderKeys) => {
     const wanted = workerKeys(keys);
@@ -293,7 +313,7 @@ export async function startVoiceService(options: {
         start(worker);
         continue;
       }
-      // The replacement binds the same port, so it waits for the old drain.
+      // The replacement starts after the old worker drains its jobs.
       void drain(child, entry.exited).then(() => {
         if (generation === entry.generation) start(worker);
       });
@@ -346,12 +366,12 @@ export async function startVoiceService(options: {
       await Promise.all(
         wantedWorkers().map(async (worker) => {
           const entry = entries.get(worker)!;
-          // A replaced worker answers on the same port until it exits, so
-          // only the child of the current generation counts.
+          // A replaced worker may still answer until it exits, so only the
+          // child of the current generation counts.
           return (
             Boolean(entry.child) &&
             entry.childGeneration === entry.generation &&
-            (await probeWorker(worker))
+            (await probeWorker(entry.port!))
           );
         }),
       )

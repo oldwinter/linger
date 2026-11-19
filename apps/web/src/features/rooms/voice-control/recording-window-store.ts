@@ -79,6 +79,10 @@ export function useRecordingWindow() {
   );
 }
 
+export function isRecordingWindowOpen() {
+  return state.open;
+}
+
 export function resetRecordingWindowForTest() {
   state = closed;
   listeners.clear();

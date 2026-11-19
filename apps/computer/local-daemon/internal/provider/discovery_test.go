@@ -216,6 +216,17 @@ func TestDiscoverUsesCodexRuntimeEnvironmentForModelCatalog(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ambient, "catalog.json"), []byte(`{"data":[{"id":"grok-4.7"}],"nextCursor":null}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// Every mode runs one shared executable: macOS scans each new executable
+	// on its first launch.
+	codex := filepath.Join(t.TempDir(), "codex")
+	script := `#!/bin/sh
+[ "$HOME" = "$EXPECTED_HOME" ] && [ "$CODEX_HOME" != "$AMBIENT_CODEX_HOME" ] || exit 2
+if [ "$1" = "--version" ]; then echo 'codex-cli 0.144.1'; exit 0; fi
+[ "$CODEX_HOME" != "$EXPECTED_CODEX_HOME" ] || exit 2
+` + fakeCodexModelCatalog
+	if err := os.WriteFile(codex, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	for _, mode := range []string{"CODEX_HOME", "HOME", "tilde"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
@@ -239,15 +250,6 @@ func TestDiscoverUsesCodexRuntimeEnvironmentForModelCatalog(t *testing.T) {
 			}
 			catalogPath := filepath.Join(home, "catalog.json")
 			if err := os.WriteFile(catalogPath, []byte(`{"data":[{"id":"deepseek-v4.1-flash","supportedReasoningEfforts":[{"reasoningEffort":"max"}],"defaultReasoningEffort":"max"}],"nextCursor":null}`), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			codex := filepath.Join(root, "codex")
-			script := `#!/bin/sh
-[ "$HOME" = "$EXPECTED_HOME" ] && [ "$CODEX_HOME" != "$AMBIENT_CODEX_HOME" ] || exit 2
-if [ "$1" = "--version" ]; then echo 'codex-cli 0.144.1'; exit 0; fi
-[ "$CODEX_HOME" != "$EXPECTED_CODEX_HOME" ] || exit 2
-` + fakeCodexModelCatalog
-			if err := os.WriteFile(codex, []byte(script), 0o700); err != nil {
 				t.Fatal(err)
 			}
 			options := DiscoveryOptions{ConfiguredPaths: map[string]string{"codex": codex}, Environment: environment, Timeout: 10 * time.Second}

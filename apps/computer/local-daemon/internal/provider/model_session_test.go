@@ -25,6 +25,15 @@ func init() {
 }
 
 func fakeSessionServer(record string) int {
+	for index, arg := range os.Args[1:] {
+		if arg == "--disable" && index+2 < len(os.Args) {
+			name := os.Args[index+2]
+			if name != "plugins" && name != "goals" {
+				fmt.Fprintf(os.Stderr, "Error: Unknown feature flag: %s\n", name)
+				return 1
+			}
+		}
+	}
 	launch, _ := json.Marshal(map[string]any{"args": os.Args[1:], "codex_home": os.Getenv("CODEX_HOME"), "tmpdir": os.Getenv("TMPDIR"), "teamhub": os.Getenv("TEAMHUB_CLI_TOKEN")})
 	file, err := os.OpenFile(record, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -111,7 +120,9 @@ func TestModelInvokerAnswersSessionCallsOnOneResidentCodex(t *testing.T) {
 		t.Fatal(err)
 	}
 	args := strings.Join(launch.Args, " ")
-	if launch.Args[0] != "app-server" || !strings.Contains(args, "--disable shell_tool") || !strings.Contains(args, `--config web_search="disabled"`) {
+	if launch.Args[0] != "app-server" || !strings.Contains(args, "--config features.shell_tool=false") ||
+		!strings.Contains(args, "--config features.sleep_tool=false") || strings.Contains(args, "--disable sleep_tool") ||
+		!strings.Contains(args, `--config web_search="disabled"`) {
 		t.Fatalf("app-server args %v", launch.Args)
 	}
 	if launch.CodexHome != filepath.Join(root, "codex-home") || launch.TempDir != filepath.Join(root, "tmp") || launch.TeamHub != "" {

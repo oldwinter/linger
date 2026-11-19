@@ -32,6 +32,7 @@ import {
   parseServerUrl,
   permissionAllowed,
   sameOrigin,
+  serverSwitch,
 } from "./navigation.js";
 
 // Must run before app "ready".
@@ -241,14 +242,19 @@ export class WindowManagerModule implements Module {
   }
 
   // Points the app at another server; false when the address is invalid.
-  setServer(value: string): boolean {
+  // `movedFrom` names the origin the same server answered at before (the
+  // installer moved this computer's server off a taken port): the window
+  // follows it as `server.moved`, which keeps this computer's enrollment,
+  // instead of `server.changed`, which drops it.
+  setServer(value: string, movedFrom?: string): boolean {
     const serverUrl = parseServerUrl(value);
     if (!serverUrl) return false;
     const ctx = this.#ctx!;
-    if (serverUrl !== ctx.config.get().serverUrl) {
-      ctx.config.update({ serverUrl });
-      ctx.bus.emit("server.changed", serverUrl);
-    }
+    const previous = ctx.config.get().serverUrl;
+    const { moved, changed } = serverSwitch(previous, serverUrl, movedFrom);
+    if (serverUrl !== previous) ctx.config.update({ serverUrl });
+    if (moved) ctx.bus.emit("server.moved", movedFrom!, serverUrl);
+    if (changed) ctx.bus.emit("server.changed", serverUrl);
     setImmediate(() => {
       this.loadServer();
       this.#pushState();

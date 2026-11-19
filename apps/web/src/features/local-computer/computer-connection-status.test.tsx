@@ -16,8 +16,10 @@ function ComputerConnectionStatus({
 
 afterEach(() => {
   cleanup();
-  vi.useRealTimers();
+  // Restore timer spies first: restoring one after the fake clock is gone
+  // would put the fake function back on the shared window.
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 it("keeps reconnect churn stable and only settles after sustained availability", () => {

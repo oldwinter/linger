@@ -70,6 +70,10 @@ func (d *Daemon) handleProviderPrepare(ctx context.Context, stream transport.Str
 		d.admissionMu.Unlock()
 		return d.sendProviderPrepared(ctx, stream, command, request.PrepareID, "not_eligible", "Local Computer Daemon is draining", 0)
 	}
+	if d.runtimeCleanupUnconfirmed(command.RuntimeType) {
+		d.admissionMu.Unlock()
+		return d.sendProviderPrepared(ctx, stream, command, request.PrepareID, "not_eligible", cleanupUnconfirmedMessage, 0)
+	}
 	d.activeMu.Lock()
 	stopped := d.locallyStopped[command.AgentID]
 	d.activeMu.Unlock()

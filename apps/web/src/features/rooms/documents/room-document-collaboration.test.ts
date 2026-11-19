@@ -243,15 +243,26 @@ describe("Room Document collaboration", () => {
 
     window.dispatchEvent(new Event("offline"));
     expect(session.getSaveSnapshot().status).toBe("Offline");
-    provider.onStatus({ status: "connected" });
-    expect(session.getSaveSnapshot().status).toBe("Connecting");
-    provider.onSynced({ state: true });
+    // The socket survived the browser's offline blip, so no provider event
+    // follows; the online event alone must restore the status.
+    window.dispatchEvent(new Event("online"));
     expect(session.getSaveSnapshot().status).toBe("Saved");
     provider.onClose();
     expect(session.getSaveSnapshot().status).toBe("Offline");
     provider.onStatus({ status: "connected" });
     expect(session.getSaveSnapshot().status).toBe("Connecting");
     provider.onSynced({ state: true });
+    expect(session.getSaveSnapshot().status).toBe("Saved");
+
+    session.document.getText("content").insert(0, "blip ");
+    window.dispatchEvent(new Event("offline"));
+    expect(session.getSaveSnapshot().status).toBe("Offline pending");
+    window.dispatchEvent(new Event("online"));
+    expect(session.getSaveSnapshot().status).toBe("Local pending");
+    provider.onUnsyncedChanges({ number: 0 });
+    provider.onStateless({
+      payload: JSON.stringify(envelope(session.document, 2)),
+    });
     expect(session.getSaveSnapshot().status).toBe("Saved");
 
     session.document.getText("content").insert(0, "local");
@@ -262,7 +273,7 @@ describe("Room Document collaboration", () => {
     expect(session.getSaveSnapshot().status).toBe("Offline pending");
     provider.onStatus({ status: "connected" });
     provider.onStateless({
-      payload: JSON.stringify(envelope(session.document, 2)),
+      payload: JSON.stringify(envelope(session.document, 3)),
     });
     expect(session.getSaveSnapshot().status).toBe("Local pending");
     provider.onSynced({ state: true });

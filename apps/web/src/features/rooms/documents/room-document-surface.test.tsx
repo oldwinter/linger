@@ -97,6 +97,7 @@ vi.mock("./room-document-blocknote-editor-loader", () => ({
     knowledgeDocumentTitle,
     surfaceEditorRef,
     onCanvasSentChange,
+    onCanvasTargetChange,
     onHeadingsChange,
   }: {
     commentsOpen?: boolean;
@@ -112,6 +113,7 @@ vi.mock("./room-document-blocknote-editor-loader", () => ({
       } | null;
     };
     onCanvasSentChange?: (sent: boolean) => void;
+    onCanvasTargetChange?: (target?: string) => void;
     onHeadingsChange: (headings: unknown[]) => void;
   }) => {
     const editor = {
@@ -178,6 +180,9 @@ vi.mock("./room-document-blocknote-editor-loader", () => ({
         </button>
         <button onClick={() => onCanvasSentChange?.(true)} type="button">
           Report sent canvas
+        </button>
+        <button onClick={() => onCanvasTargetChange?.("gmail")} type="button">
+          Report mail canvas
         </button>
       </div>
     );
@@ -287,6 +292,32 @@ describe("Unified Document legacy convergence", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Document mode" }));
     expect(screen.getByRole("menuitem", { name: "Edit" })).toBeDisabled();
+  });
+
+  it("uses the Mail header and removes generic document chrome for a mail canvas", async () => {
+    const runtime = createDocumentTestRuntime();
+    const document = seedRoomDocument(runtime, "mail-canvas-layout");
+    showDocument(runtime, { ...document, can_edit_native_content: true });
+    renderUnifiedDocumentPage(
+      runtime,
+      `/t/tenant-northstar/documents/${document.id}`,
+    );
+    await screen.findByTestId("document-body");
+    fireEvent.click(screen.getByRole("button", { name: "Report mail canvas" }));
+    expect(await screen.findByText("Mail", { exact: true })).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Document mode" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Table of contents" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Report sent canvas" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("document-body")).toHaveAttribute(
+        "data-editable",
+        "false",
+      ),
+    );
   });
 
   it.each(["wiki_page", "wiki_source"] as const)(
@@ -1673,7 +1704,10 @@ describe("Unified Document page", () => {
       screen.queryByRole("button", { name: "Duplicate Document" }),
     ).not.toBeInTheDocument();
     await chooseDocumentAction("Page history");
-    expect(screen.getByRole("heading", { name: "Page history" })).toBeVisible();
+    // The history dialog is a lazy chunk on its first open.
+    expect(
+      await screen.findByRole("heading", { name: "Page history" }),
+    ).toBeVisible();
     expect(await screen.findByText("No page history saved yet.")).toBeVisible();
     expect(screen.queryByRole("tab")).not.toBeInTheDocument();
   });

@@ -29,6 +29,7 @@ import {
   roomRoutinesQueryKey,
   roomTeamMdQueryKey,
   tenantActorsQueryKey,
+  tenantAgentAvailabilityQueryKey,
   tenantAgentsQueryKey,
   tenantRoomsQueryKey,
 } from "../room-queries";
@@ -233,6 +234,24 @@ async function projectEvent(
       });
       return;
     case "room.member.added":
+      await Promise.all([
+        refreshQueriesInBackground(queryClient, {
+          queryKey: roomMembersQueryKey(tenantId, roomId),
+        }),
+        // A private Agent becomes visible in the caller's Agent directory once
+        // it shares a Room with them; the @ picker hides members missing there.
+        ...(payload.member.actor.kind === "agent"
+          ? [
+              refreshQueriesInBackground(queryClient, {
+                queryKey: tenantAgentsQueryKey(tenantId),
+              }),
+              refreshQueriesInBackground(queryClient, {
+                queryKey: tenantAgentAvailabilityQueryKey(tenantId),
+              }),
+            ]
+          : []),
+      ]);
+      return;
     case "room.member.role_changed":
       await refreshQueriesInBackground(queryClient, {
         queryKey: roomMembersQueryKey(tenantId, roomId),

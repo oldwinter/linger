@@ -20,7 +20,11 @@ import {
   externalAppsQueryOptions,
   externalConnectionsQueryOptions,
 } from "@/features/apps/connected-apps-queries";
-import { activeExternalConnections } from "@/features/apps/connection-state";
+import {
+  activeExternalConnections,
+  openPendingExternalConnection,
+  accountIdentityText,
+} from "@/features/apps/connection-state";
 import { teamHubDone } from "@/features/teamhub/teamhub-api";
 import {
   createTeamHubIdempotencyKey,
@@ -274,10 +278,7 @@ function SetupAppRow({
   const active = showConnections
     ? activeExternalConnections(connections)[0]
     : undefined;
-  const pending = connections.find(
-    (connection) =>
-      connection.status === "pending" && !connection.status_error_code,
-  );
+  const pending = openPendingExternalConnection(connections, appKey);
   const verifying = connections.some(
     (connection) =>
       connection.status === "pending" &&
@@ -299,7 +300,8 @@ function SetupAppRow({
               className="size-1.5 shrink-0 rounded-full bg-[var(--app-status-success-text)]"
             />
             <span className="truncate">
-              {active.identity_label ?? "Connected"}
+              {accountIdentityText(active.provider, active.identity_label) ??
+                "Connected"}
             </span>
           </span>
         ) : verifying && showConnections ? (
@@ -525,7 +527,7 @@ function ProfileSetupSources(props: Props) {
             <div className={rowClassName}>
               <input
                 aria-label="Paste a link"
-                className="h-8 min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+                className="h-8 min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-app-placeholder"
                 onChange={(event) => {
                   setDraft(event.target.value);
                   setInputError(null);

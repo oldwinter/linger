@@ -105,7 +105,8 @@ describe("Document role", () => {
     );
   });
 
-  // Two real worker startups and teardown surround the bounded 10s wait.
+  // Two real worker startups and teardown surround the bounded 10s wait. A
+  // short first restart delay keeps the wait on the rebuild, not the backoff.
   it("starts without the thread while its port is busy and serves once the port frees", async () => {
     const blocker = createServer();
     const port = await occupyPort(blocker);
@@ -115,12 +116,15 @@ describe("Document role", () => {
     });
     const { logger, log } = testLogger();
 
-    const role = await startDocumentService({ logger });
+    const role = await startDocumentService({
+      logger,
+      firstRestartDelayMs: 50,
+    });
     try {
       expect(log).toHaveBeenCalledWith(
         "error",
         "document.thread_failed",
-        expect.objectContaining({ restart_in_ms: 1_000 }),
+        expect.objectContaining({ restart_in_ms: 50 }),
       );
       await new Promise<void>((resolve) => blocker.close(() => resolve()));
       await vi.waitFor(
@@ -128,7 +132,7 @@ describe("Document role", () => {
           const response = await fetch(`http://127.0.0.1:${port}/healthz`);
           expect(response.status).toBe(200);
         },
-        { timeout: 10_000, interval: 100 },
+        { timeout: 10_000, interval: 20 },
       );
     } finally {
       blocker.close();

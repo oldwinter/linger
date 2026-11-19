@@ -63,7 +63,7 @@ export function EditAgentInstructionsDialog({
       <form className="px-5 py-4" id={formId} onSubmit={submit}>
         <textarea
           aria-label="Agent instructions"
-          className="min-h-64 w-full resize-y rounded-md border border-border bg-card px-3 py-2.5 text-sm leading-6 text-foreground outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-muted-foreground hover:border-border-hover focus:border-foreground focus:ring-2 focus:ring-ring disabled:opacity-60"
+          className="min-h-64 w-full resize-y rounded-md border border-border bg-card px-3 py-2.5 text-sm leading-6 text-foreground outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-app-placeholder hover:border-border-hover focus:border-foreground focus:ring-2 focus:ring-ring disabled:opacity-60"
           disabled={disabled}
           maxLength={50000}
           onChange={(event) => setDraft(event.target.value)}

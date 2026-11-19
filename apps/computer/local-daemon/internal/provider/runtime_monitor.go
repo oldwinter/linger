@@ -11,8 +11,11 @@ import (
 )
 
 type RuntimeMonitorOptions struct {
-	Initial               DiscoveryResult
-	Discovery             DiscoveryOptions
+	Initial   DiscoveryResult
+	Discovery DiscoveryOptions
+	// ResolveDiscovery returns the live DiscoveryOptions when Runtime profile
+	// environments or executable paths can change without restarting the Daemon.
+	ResolveDiscovery      func() DiscoveryOptions
 	RefreshInterval       time.Duration
 	FullRefreshEveryTicks int
 	OnChanged             func(DiscoveryResult) error
@@ -34,7 +37,16 @@ func MonitorRuntimeDiagnostics(ctx context.Context, options RuntimeMonitorOption
 	if options.RefreshInterval <= 0 || options.FullRefreshEveryTicks < 1 || options.OnChanged == nil {
 		return errors.New("Runtime diagnostic monitor options are invalid")
 	}
+	resolveDiscovery := func() DiscoveryOptions {
+		if options.ResolveDiscovery != nil {
+			return options.ResolveDiscovery()
+		}
+		return options.Discovery
+	}
 	current := options.Initial
+	activeDiscovery := resolveDiscovery()
+	prevEnv := maps.Clone(activeDiscovery.Environment)
+	prevPaths := maps.Clone(activeDiscovery.ConfiguredPaths)
 	transientFailures := make(map[string]int)
 	authenticationFailures := make(map[string]int)
 	discover := options.Discover
@@ -53,13 +65,17 @@ func MonitorRuntimeDiagnostics(ctx context.Context, options RuntimeMonitorOption
 		case <-options.Refresh:
 			requested = true
 		}
+		activeDiscovery = resolveDiscovery()
+		envChanged := !maps.Equal(prevEnv, activeDiscovery.Environment) || !maps.Equal(prevPaths, activeDiscovery.ConfiguredPaths)
 		var next DiscoveryResult
 		var err error
-		if (requested || tick%options.FullRefreshEveryTicks == 0 || runtimeExecutablesChanged(current.Diagnostics)) &&
+		if (requested || envChanged || tick%options.FullRefreshEveryTicks == 0 || runtimeExecutablesChanged(current.Diagnostics)) &&
 			(options.FullRefreshAllowed == nil || options.FullRefreshAllowed()) {
-			next, err = discover(ctx, options.Discovery)
+			next, err = discover(ctx, activeDiscovery)
 			if err == nil {
 				requested = false
+				prevEnv = maps.Clone(activeDiscovery.Environment)
+				prevPaths = maps.Clone(activeDiscovery.ConfiguredPaths)
 				for _, diagnostic := range next.Diagnostics {
 					if diagnostic.Status == "ready" {
 						delete(authenticationFailures, diagnostic.Type)
@@ -68,7 +84,7 @@ func MonitorRuntimeDiagnostics(ctx context.Context, options RuntimeMonitorOption
 				next = retainReadyRuntimesDuringTransientFailures(current, next, transientFailures)
 			}
 		} else {
-			next, err = refreshRuntimeAuthentication(ctx, current, options.Discovery, tick%options.FullRefreshEveryTicks == 0)
+			next, err = refreshRuntimeAuthentication(ctx, current, activeDiscovery, tick%options.FullRefreshEveryTicks == 0)
 			if err == nil {
 				if options.RuntimeBusy != nil && options.RuntimeBusy() {
 					next = retainReadyRuntimesDuringInconclusiveProbes(current, next)
@@ -83,7 +99,7 @@ func MonitorRuntimeDiagnostics(ctx context.Context, options RuntimeMonitorOption
 			}
 			return err
 		}
-		if sameRuntimeDiagnostics(current.Diagnostics, next.Diagnostics) {
+		if !envChanged && sameRuntimeDiagnostics(current.Diagnostics, next.Diagnostics) {
 			// Retain internal probe provenance even when the public status did not
 			// change; only this provenance permits a safe auth-only recovery.
 			current = next

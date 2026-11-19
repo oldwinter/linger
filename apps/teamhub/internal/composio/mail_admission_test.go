@@ -89,15 +89,15 @@ func TestGmailMailImportFiltersSendersWithoutReadingTheirBodies(t *testing.T) {
 
 func TestOutlookMailImportKeepsFocusedAndOwnMail(t *testing.T) {
 	end := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
-	item := func(id, from, classification string) map[string]any {
-		return map[string]any{"id": id, "subject": "Re " + id, "receivedDateTime": end.Add(-time.Hour).Format(time.RFC3339), "parentFolderId": "inbox",
+	item := func(id, folder, from, classification string) map[string]any {
+		return map[string]any{"id": id, "subject": "Re " + id, "receivedDateTime": end.Add(-time.Hour).Format(time.RFC3339), "parentFolderId": folder,
 			"inferenceClassification": classification, "from": map[string]any{"emailAddress": map[string]string{"address": from}},
 			"body": map[string]string{"contentType": "text", "content": fmt.Sprintf("Body of %s.", id)}}
 	}
 	client := mailImportClient(t, func(request proxyRequest) any {
 		switch request.Endpoint {
-		case "https://graph.microsoft.com/v1.0/me":
-			return map[string]string{"id": "alice", "mail": "alice@example.test"}
+		case "/v1.0/me/mailFolders/sentitems":
+			return map[string]string{"id": "sent"}
 		case "/v1.0/me/mailFolders/junkemail":
 			return map[string]string{"id": "junk"}
 		case "/v1.0/me/mailFolders/deleteditems":
@@ -109,10 +109,10 @@ func TestOutlookMailImportKeepsFocusedAndOwnMail(t *testing.T) {
 			}
 		}
 		return map[string]any{"value": []any{
-			item("focused", "bob@example.test", "focused"),
-			item("other", "carol@example.test", "other"),
-			item("sent", "alice@example.test", "other"),
-			item("robot", "notifications@service.example", "focused"),
+			item("focused", "inbox", "bob@example.test", "focused"),
+			item("other", "inbox", "carol@example.test", "other"),
+			item("sent", "sent", "alice@example.test", "other"),
+			item("robot", "inbox", "notifications@service.example", "focused"),
 		}}
 	})
 	page, err := client.FetchMailImportPage(context.Background(), "account", "outlook", MailImportPageOptions{Start: MailImportStart(end), End: end, Limit: 10})

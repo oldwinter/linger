@@ -11,6 +11,9 @@ inputs:
   go:
     description: Set up Go. Checks that build or run no Go pass false.
     default: "true"
+  save-node-modules:
+    description: Save the installed node_modules when no entry matched. Only one job passes true, so the other jobs never upload the same tree.
+    default: "false"
 
 runs:
   using: composite
@@ -18,9 +21,14 @@ runs:
     # A push's `before` shares no history with HEAD after a branch's first push
     # (all zeros) or a force push that replaced the history. The checks then
     # compare HEAD with itself: the changed-file checks have nothing to check and
-    # every whole-tree check still runs.
+    # every whole-tree check still runs. Shallow checkouts belong to jobs that do
+    # not use BASE, so anything there that starts using it fails loudly on the
+    # unknown ref instead of silently comparing HEAD with itself.
     - shell: bash
       run: |
+        if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+          exit 0
+        fi
         if ! git merge-base "$BASE" HEAD >/dev/null 2>&1; then
           echo "::notice::BASE $BASE shares no history with HEAD; the changed-file checks compare HEAD with itself."
           echo "BASE=$(git rev-parse HEAD)" >>"$GITHUB_ENV"
@@ -33,37 +41,67 @@ runs:
       shell: bash
       run: |
         echo "node=$(tr -d '[:space:]' <.node-version)" >>"$GITHUB_OUTPUT"
-        # setup-go@v5 installs the go.mod `go` directive (a full x.y.z here) and
-        # ignores `toolchain`. Change this together with any setup-go bump, or
-        # the restored directory stops matching the one setup-go looks for.
-        echo "go=$(sed -n 's/^go //p' apps/teamhub/go.mod)" >>"$GITHUB_OUTPUT"
-    - uses: actions/cache@v4
+        # setup-go@v7 installs the go.mod `toolchain` directive first (falling
+        # back to `go` when absent) and sets GOTOOLCHAIN=local. Match that here
+        # so the restored toolcache directory matches what setup-go looks for.
+        go_ver=$(sed -n 's/^toolchain go//p' apps/teamhub/go.mod | head -n 1)
+        [ -n "$go_ver" ] || go_ver=$(sed -n 's/^go //p' apps/teamhub/go.mod | head -n 1)
+        echo "go=$go_ver" >>"$GITHUB_OUTPUT"
+    - uses: actions/cache@v6
       if: inputs.node == 'true'
       with:
         path: ${{ runner.tool_cache }}/node/${{ steps.versions.outputs.node }}
         key: toolcache-node-${{ runner.os }}-${{ runner.arch }}-${{ steps.versions.outputs.node }}
-    - uses: actions/cache@v4
+    - uses: actions/cache@v6
       if: inputs.go == 'true'
       with:
         path: ${{ runner.tool_cache }}/go/${{ steps.versions.outputs.go }}
         key: toolcache-go-${{ runner.os }}-${{ runner.arch }}-${{ steps.versions.outputs.go }}
-    # Reads the version from packageManager in package.json.
-    - uses: pnpm/action-setup@v4
+    # The installed tree, keyed on everything that decides its contents. Only an
+    # exact match is restored: a partial tree would make the install below
+    # fetch without the pnpm store. The paths match pnpm-workspace.yaml's
+    # `packages` globs and must stay identical in the save step below, since
+    # the cache version hashes them.
+    - id: node-modules
+      uses: actions/cache/restore@v6
       if: inputs.install == 'true'
-    - uses: actions/setup-node@v4
+      with:
+        path: |
+          node_modules
+          apps/*/node_modules
+          packages/*/node_modules
+          contracts/generated/typescript/node_modules
+        key: node-modules-${{ runner.os }}-${{ runner.arch }}-${{ steps.versions.outputs.node }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc', 'patches/**', 'package.json', 'apps/*/package.json', 'packages/*/package.json', 'contracts/generated/typescript/package.json') }}
+    # Reads the version from packageManager in package.json.
+    - uses: pnpm/action-setup@v6
+      if: inputs.install == 'true'
+    - uses: actions/setup-node@v7
       if: inputs.node == 'true'
       with:
         node-version-file: .node-version
-        cache: ${{ inputs.install == 'true' && 'pnpm' || '' }}
+        # The pnpm store is needed only when the node_modules entry missed.
+        cache: ${{ inputs.install == 'true' && steps.node-modules.outputs.cache-hit != 'true' && 'pnpm' || '' }}
     # The caller caches Go per job: setup-go's one shared entry is saved by
     # whichever job finishes first, often one that compiled no Go, and its key
     # never changes while go.sum stays the same.
-    - uses: actions/setup-go@v5
+    - uses: actions/setup-go@v7
       if: inputs.go == 'true'
       with:
         go-version-file: apps/teamhub/go.mod
         cache: false
     # No install scripts: none of the checks that run here loads a native addon.
+    # On a restored tree this only verifies it against the lockfile.
     - shell: bash
       if: inputs.install == 'true'
       run: pnpm install --frozen-lockfile --ignore-scripts
+    # Saved before any check runs, so tool caches such as node_modules/.vite
+    # never enter the entry.
+    - uses: actions/cache/save@v6
+      if: inputs.install == 'true' && inputs.save-node-modules == 'true' && steps.node-modules.outputs.cache-hit != 'true'
+      with:
+        path: |
+          node_modules
+          apps/*/node_modules
+          packages/*/node_modules
+          contracts/generated/typescript/node_modules
+        key: ${{ steps.node-modules.outputs.cache-primary-key }}

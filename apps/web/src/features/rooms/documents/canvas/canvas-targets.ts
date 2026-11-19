@@ -19,7 +19,7 @@ export const canvasTargets: Record<string, CanvasTarget> = {
     label: "Gmail",
     fields: [
       { key: "to", label: "To", placeholder: "name@example.com" },
-      { key: "cc", label: "Cc" },
+      { key: "cc", label: "Cc", placeholder: "Add recipients" },
       { key: "subject", label: "Subject" },
     ],
   },

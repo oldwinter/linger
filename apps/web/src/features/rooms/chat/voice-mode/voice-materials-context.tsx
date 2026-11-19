@@ -14,7 +14,7 @@ import {
 } from "../../room-drafts";
 import type { TeamHubRoom } from "@/features/teamhub/teamhub-types";
 
-interface VoiceMaterials {
+export interface VoiceMaterials {
   /** Room whose next voice turn receives these materials. */
   roomId: string;
   /** False while collecting from another Room: only Message text crosses over. */
@@ -28,7 +28,7 @@ interface VoiceMaterials {
   setVoiceModeEntered: (entered: boolean) => void;
 }
 
-const VoiceMaterialsContext = createContext<VoiceMaterials | undefined>(
+export const VoiceMaterialsContext = createContext<VoiceMaterials | undefined>(
   undefined,
 );
 

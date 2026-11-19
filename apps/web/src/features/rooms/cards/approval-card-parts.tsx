@@ -250,7 +250,7 @@ export function DecisionActions({
           >
             <input
               aria-label="Reason for denying"
-              className="h-full w-0 min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+              className="h-full w-0 min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-app-placeholder"
               disabled={disabled}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={onReasonKeyDown}

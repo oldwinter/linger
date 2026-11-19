@@ -79,7 +79,7 @@ func (a *App) resolveConnectorAccount(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ready", "account": agentConnectedAppToContract(*selected)})
 		return
 	}
-	if len(candidates) > 1 {
+	if len(candidates) > 0 {
 		items := make([]api.AgentConnectedApp, len(candidates))
 		for i, candidate := range candidates {
 			items[i] = agentConnectedAppToContract(candidate)
@@ -91,15 +91,30 @@ func (a *App) resolveConnectorAccount(c *gin.Context) {
 		a.writeAgentAPIError(c, 400, api.AgentApiErrorCodeInvalidInput, "Unsupported application")
 		return
 	}
-	prompt := fmt.Sprintf("Please connect and authorize the %s account so the command can continue.", input.AppKey)
-	if selector != "" {
-		prompt = fmt.Sprintf("Please connect and authorize the %s account %s so the command can continue.", input.AppKey, selector)
+	displayName := input.AppKey
+	catalog := a.externalSources.ListApps()
+	if i := slices.IndexFunc(catalog, func(app externalsource.ExternalApp) bool { return app.Key == input.AppKey }); i >= 0 {
+		displayName = catalog[i].DisplayName
+	}
+	prompt := connectorAuthorizationPrompt(displayName, selector)
+	requestedAccount := selector
+	if isConnectionIDSelector(selector) {
+		requestedAccount = ""
 	}
 	if roomID, card, ok := a.postConnectorCard(c, token, prompt, typedcard.DecisionCommand{
-		ConnectionAuth: &typedcard.ConnectionAuthDecision{Prompt: prompt, AppKey: input.AppKey, ReusePending: true},
+		ConnectionAuth: &typedcard.ConnectionAuthDecision{Prompt: prompt, AppKey: input.AppKey, Account: requestedAccount, ReusePending: true},
 	}); ok {
 		c.JSON(200, gin.H{"status": "authorization_required", "room_id": roomID, "message_id": card.MessageID, "interaction_id": card.DecisionID})
 	}
+}
+
+// connectorAuthorizationPrompt is the Human-facing ask on a ConnectionAuth
+// card. A selector that is a connection ID is internal and never shown.
+func connectorAuthorizationPrompt(displayName, selector string) string {
+	if selector == "" || isConnectionIDSelector(selector) {
+		return fmt.Sprintf("Please connect and authorize your %s account so I can continue.", displayName)
+	}
+	return fmt.Sprintf("Please connect and authorize the %s account %s so I can continue.", displayName, selector)
 }
 
 // requestProviderKey posts, or reuses, the card asking the Agent's Human for
@@ -173,6 +188,7 @@ func (a *App) postConnectorCard(c *gin.Context, token, prompt string, command ty
 }
 
 func selectConnectorAccount(connections []agentconnectedapps.ConnectedApp, app, selector string) (*agentconnectedapps.ConnectedApp, []agentconnectedapps.ConnectedApp) {
+	staleID := isConnectionIDSelector(selector)
 	items := make([]agentconnectedapps.ConnectedApp, 0)
 	for _, connection := range connections {
 		if connection.AppKey != app {
@@ -181,14 +197,28 @@ func selectConnectorAccount(connections []agentconnectedapps.ConnectedApp, app, 
 		if selector != "" && connection.ConnectionID == selector {
 			return &connection, nil
 		}
-		if selector == "" || connection.Identity == selector {
+		if selector == "" || staleID || strings.EqualFold(connection.Identity, selector) {
 			items = append(items, connection)
 		}
+	}
+	// A connection ID that matches nothing is stale: the Agent must choose
+	// again rather than be handed another account, even when only one exists.
+	if staleID {
+		return nil, items
 	}
 	if len(items) == 1 {
 		return &items[0], nil
 	}
+	if len(items) == 0 {
+		return nil, nil
+	}
 	return nil, items
+}
+
+// isConnectionIDSelector reports whether an account selector has the
+// structured connection ID format rather than being an identity label.
+func isConnectionIDSelector(selector string) bool {
+	return strings.HasPrefix(selector, "external_connection_")
 }
 
 func (a *App) prepareConnectorMailBody(c *gin.Context) {

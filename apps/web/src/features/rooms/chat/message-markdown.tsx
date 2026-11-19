@@ -1,4 +1,4 @@
-import { Copy01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { Copy01Icon, File01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import {
   createContext,
   memo,
@@ -273,18 +273,22 @@ function MarkdownLink({
 
   const document = href ? documentsByUrl.get(href) : undefined;
   if (document) {
-    if (readOnlyReferences)
-      return <span className="message-composer-reference">{children}</span>;
+    const title = documentTitles[document.document_id];
+    const Reference = readOnlyReferences ? "span" : "button";
     return (
-      <button
-        aria-label={`Open ${documentTitles[document.document_id] ?? document.content.slice(1)}`}
-        className="message-composer-reference"
+      <Reference
+        {...(!readOnlyReferences && {
+          "aria-label": `Open ${title ?? document.content.slice(1)}`,
+          onClick: () => onOpenDocument?.(document),
+          type: "button" as const,
+        })}
+        className="inline-flex max-w-full items-center gap-1 rounded-md border border-current/25 px-1.5 text-left align-middle font-medium text-inherit [&:is(button)]:cursor-pointer [&:is(button):hover]:bg-current/10 focus-visible:outline-2 focus-visible:outline-offset-2"
         data-reference-kind="document"
-        onClick={() => onOpenDocument?.(document)}
-        type="button"
+        title={title ?? document.content}
       >
-        {children}
-      </button>
+        <Icon className="shrink-0" icon={File01Icon} size={14} />
+        <span className="min-w-0 truncate">{title ?? children}</span>
+      </Reference>
     );
   }
   const mentionedActor = href ? mentionsByUrl.get(href) : undefined;

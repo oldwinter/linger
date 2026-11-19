@@ -75,6 +75,35 @@ describe("apps connect", () => {
     expect(text).toContain("authorization_required");
     expect(text).toContain("Authorization card: message_card");
   });
+  it("renders an Outlook account as the Microsoft sign-in name", async () => {
+    const f = fixture({
+      status: "ready",
+      account: {
+        connection_id: "c1",
+        identity_label: "a@b",
+        app_key: "outlook",
+      },
+    });
+    expect(await runCli(["apps", "connect", "outlook"], f.deps)).toBe(0);
+    expect(f.output.join("")).toContain(
+      "Connected: c1 (a@b - Microsoft sign-in name, the mailbox address may differ)",
+    );
+  });
+  it("marks only Outlook candidates as sign-in names", async () => {
+    const f = fixture({
+      status: "account_ambiguous",
+      candidates: [
+        { connection_id: "c2", identity_label: "w@x", app_key: "outlook" },
+        { connection_id: "c3", identity_label: "g@x", app_key: "gmail" },
+      ],
+    });
+    expect(await runCli(["apps", "connect", "outlook"], f.deps)).not.toBe(0);
+    const text = f.errors.join("");
+    expect(text).toContain(
+      "Account: c2  w@x - Microsoft sign-in name, the mailbox address may differ",
+    );
+    expect(text).toMatch(/Account: c3 {2}g@x$/m);
+  });
   it("reports ambiguous accounts with candidates", async () => {
     const f = fixture({
       status: "account_ambiguous",
@@ -85,6 +114,8 @@ describe("apps connect", () => {
     ).not.toBe(0);
     expect(JSON.parse(f.errors.join("")).error).toMatchObject({
       code: "account_ambiguous",
+      message:
+        "The requested account is unavailable or more than one account matches. If one of the candidates is the account you meant, run again with --account set to its connection ID; otherwise pass the account's label (for example its email address) with --account to ask the user to authorize it.",
       details: { candidates: [{ connection_id: "c2" }] },
     });
   });

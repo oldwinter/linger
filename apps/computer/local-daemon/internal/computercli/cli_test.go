@@ -286,6 +286,12 @@ func TestDaemonStartShowsProcessConnectionAndRuntimes(t *testing.T) {
 		t.Fatalf("exit=%d", code)
 	}
 	contains(t, f.stdout.String(), "Connection  Rejected by the server. Run linger-computer login to authorize again.\n")
+	f.clear()
+	f.gatewayState = "identity-conflict"
+	if code := f.run("daemon", "start", "--config", f.configPath); code != 11 {
+		t.Fatalf("exit=%d", code)
+	}
+	contains(t, f.stdout.String(), "Connection  This computer's identity is already bound to another Computer registration. Run linger-computer doctor --prune to reset local state.\n")
 }
 
 func TestDefaultConfigLocations(t *testing.T) {
@@ -711,6 +717,19 @@ func TestDoctorFailures(t *testing.T) {
 	}
 	contains(t, f.stdout.String(), "{\n      \"name\": \"runtime:codex\",\n      \"category\": \"capabilityProbe\",\n      \"status\": \"fail\",\n      \"detail\": \"Codex authentication is required\"\n    }")
 	contains(t, f.stdout.String(), "{\n      \"name\": \"credential\",\n      \"category\": \"credential\",\n      \"status\": \"pass\",")
+
+	f = newFixture(t)
+	f.gatewayState = "identity-conflict"
+	f.deps.inspectDaemon = func(ctx context.Context, _ string) doctorCheck {
+		return inspectDaemonHealth(ctx, fakeClient{f: f}, "linger-computer")
+	}
+	if code := f.run("doctor", "--json", "--config", f.configPath); code != 11 {
+		t.Fatalf("identity-conflict doctor exit=%d", code)
+	}
+	contains(t, f.stdout.String(), "Run linger-computer doctor --prune to reset local state")
+	if strings.Contains(f.stdout.String(), "login to reconnect") {
+		t.Fatalf("unexpected login reconnect hint: %s", f.stdout.String())
+	}
 }
 
 func TestDoctorPrune(t *testing.T) {

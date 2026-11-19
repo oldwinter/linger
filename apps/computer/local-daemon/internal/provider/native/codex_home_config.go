@@ -19,6 +19,8 @@ import (
 const (
 	codexConfigName  = "config.toml"
 	codexConfigLimit = 32 << 20
+	// codexOAuthStoreKey selects where Codex keeps MCP OAuth credentials.
+	codexOAuthStoreKey = "mcp_oauth_credentials_store"
 )
 
 var (
@@ -27,8 +29,8 @@ var (
 )
 
 // codexProjectMCP writes the managed MCP set into <home>/config.toml,
-// replacing the mcp_servers namespace and keeping every other key. All file
-// access stays inside home.
+// replacing the mcp_servers namespace and the MCP OAuth credential store and
+// keeping every other key. All file access stays inside home.
 func codexProjectMCP(home string, raw json.RawMessage) error {
 	raw = mcpNamespace(raw)
 	if strings.TrimSpace(home) == "" {
@@ -55,6 +57,11 @@ func codexProjectMCP(home string, raw json.RawMessage) error {
 	}
 	codexDropMCPServers(config)
 	config["mcp_servers"] = servers
+	// Every managed server carries its access in its URL or headers, never
+	// OAuth. The default store asks the OS keyring for each URL server, and
+	// on Linux a session bus whose Secret Service never answers blocks the
+	// turn and thread/resume until the Run times out.
+	config[codexOAuthStoreKey] = "file"
 	encoded, err := toml.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("encode Codex configuration: %w", err)
@@ -191,7 +198,6 @@ func codexProjectServer(server map[string]any) map[string]any {
 			}
 			delete(out, "headers")
 		}
-		out["experimental_use_rmcp_client"] = true
 	}
 	return out
 }

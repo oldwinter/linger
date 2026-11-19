@@ -49,6 +49,8 @@ export interface SetupLocalServer {
   };
   // While the "signin" step shows: the AI runtime's own sign-in.
   readonly signIn?: SetupRuntimeSignIn;
+  // Latest BYOK endpoint check requested from the setup page.
+  readonly byokCheck?: SetupByokCheck;
   // Once installed: the owner account, for signing in again after logging
   // out.
   readonly account?: SetupLocalAccount;
@@ -56,6 +58,29 @@ export interface SetupLocalServer {
   // not upgrade (~ for the home folder).
   readonly legacyBackup?: string;
 }
+
+export type SetupByokProtocol =
+  | "openai-chat"
+  | "openai-responses"
+  | "anthropic";
+
+export interface SetupByokConfig {
+  readonly baseUrl: string;
+  readonly apiKey?: string;
+  readonly modelId: string;
+  readonly runtime: "claude" | "codex" | "pi";
+}
+
+export type SetupByokCheck =
+  | { readonly state: "idle" | "checking" }
+  | {
+      readonly state: "ready";
+      // The wire format the endpoint answered, found by the check.
+      readonly protocol: SetupByokProtocol;
+      readonly modelId: string;
+      readonly contextWindow: number;
+    }
+  | { readonly state: "failed"; readonly message: string };
 
 // The owner account in the installation's local-account.json. The password
 // is present only while the person chose to show it; error says why the
@@ -98,6 +123,18 @@ export interface SetupTransfer {
   readonly partial?: boolean;
 }
 
+// The localmodels tool's reason code with the counts it carries. Its words
+// stay in the main process log; the page has its own copy per code.
+export interface SetupReason {
+  readonly code: string;
+  // On gpu-memory-required: the card other programs hold memory on.
+  readonly gpuIndex?: number;
+  // The memory free now and what the install needs free: that card's VRAM,
+  // or RAM on free-memory-required.
+  readonly freeBytes?: number;
+  readonly requiredBytes?: number;
+}
+
 export type SetupLocalModelsCheck =
   | { readonly state: "unchecked" | "unavailable" }
   // While the check first downloads the localmodels tool: its bytes.
@@ -122,12 +159,10 @@ export type SetupLocalModelsCheck =
         readonly diskBytes: number | null;
         readonly memoryBytes: number | null;
       };
-      // The localmodels tool's code and words for why not, or, when
-      // eligible, for what could still stop the install.
-      readonly reasons?: readonly {
-        readonly code: string;
-        readonly message?: string;
-      }[];
+      // The localmodels tool's code for why not, or, when eligible, for
+      // what could still stop the install, with the counts it carries. The
+      // page words each code itself.
+      readonly reasons?: readonly SetupReason[];
       // The localmodels tool's pick, which Quick Install installs:
       // "local-models" is the model above served by Pi.
       readonly recommendation?: SetupChoice;
@@ -199,7 +234,12 @@ export type SetupCommand =
   | {
       readonly op: "local.start";
       readonly runtime?: SetupLocalRuntime;
+      readonly byok?: SetupByokConfig;
       readonly keys?: SetupProviderKeys;
+    }
+  | {
+      readonly op: "local.byok.check";
+      readonly byok: SetupByokConfig;
     }
   // Checks this computer for a local model again.
   | { readonly op: "local.recheck" }
@@ -216,6 +256,10 @@ export type SetupCommand =
   | {
       readonly op: "local.signin.switch";
       readonly runtime: "codex" | "claude" | "pi";
+    }
+  | {
+      readonly op: "local.signin.byok";
+      readonly byok: SetupByokConfig;
     }
   // The finished install's account: show or hide the password, copy it to
   // the clipboard, or show its file in the file manager.

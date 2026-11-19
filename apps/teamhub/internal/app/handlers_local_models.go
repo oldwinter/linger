@@ -147,6 +147,10 @@ func localModelsView(record agentruntimestate.LocalModelsRecord, viewerID string
 				}
 			}
 		}
+		// A cause's path is a folder on the owner's machine; only they can act on it.
+		if model.Error != nil && !view.ViewerIsOwner {
+			model.Error.Path = nil
+		}
 		view.Models = append(view.Models, httpapi.LocalModelView{Model: model, UsedBy: users})
 	}
 	return view, nil
@@ -168,6 +172,28 @@ func (a *App) actOnLocalComputerModel(c *gin.Context) {
 		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "Local model action is invalid")
 		return
 	}
+	var unloadFirst []string
+	if request.UnloadFirst != nil {
+		unloadFirst = *request.UnloadFirst
+	}
+	a.forwardLocalModelAction(c, string(request.Action), modelID, unloadFirst, func(computerID string) {
+		c.JSON(http.StatusAccepted, httpapi.LocalModelActionAccepted{
+			ComputerId: computerID, ModelId: modelID, Action: httpapi.LocalModelActionAcceptedAction(request.Action),
+		})
+	})
+}
+
+// refreshLocalComputerModels asks an owned connected Computer to recheck
+// free memory and models and report a fresh library snapshot.
+func (a *App) refreshLocalComputerModels(c *gin.Context) {
+	a.forwardLocalModelAction(c, "refresh", "", nil, func(computerID string) {
+		c.JSON(http.StatusAccepted, httpapi.LocalModelsRefreshAccepted{
+			ComputerId: computerID, Action: httpapi.LocalModelsRefreshAcceptedRefresh,
+		})
+	})
+}
+
+func (a *App) forwardLocalModelAction(c *gin.Context, action string, modelID string, unloadFirst []string, onAccepted func(computerID string)) {
 	tenantID, computerID := c.Param("tenantId"), c.Param("computerId")
 	viewerID, ok := a.spaceHuman(c, tenantID)
 	if !ok {
@@ -197,18 +223,13 @@ func (a *App) actOnLocalComputerModel(c *gin.Context) {
 	}
 	command := roomagent.LocalModelActionCommand{
 		TenantID: tenantID, OwnerActorID: viewerID, ComputerID: computerID,
-		RequestID: ids.New("local_model_action"), Action: string(request.Action), ModelID: modelID,
-		ExpiresAt: time.Now().UTC().Add(localModelActionLifetime),
-	}
-	if request.UnloadFirst != nil {
-		command.UnloadFirst = *request.UnloadFirst
+		RequestID: ids.New("local_model_action"), Action: action, ModelID: modelID,
+		UnloadFirst: unloadFirst, ExpiresAt: time.Now().UTC().Add(localModelActionLifetime),
 	}
 	refusal, err := a.localComputers.ActOnLocalModels(c.Request.Context(), command)
 	switch {
 	case err == nil && refusal == nil:
-		c.JSON(http.StatusAccepted, httpapi.LocalModelActionAccepted{
-			ComputerId: computerID, ModelId: modelID, Action: httpapi.LocalModelActionAcceptedAction(request.Action),
-		})
+		onAccepted(computerID)
 	case err == nil:
 		code, known := localModelRefusalCodes[refusal.Code]
 		if !known {
@@ -322,6 +343,9 @@ func validLocalModelsSnapshot(snapshot teamhubinternal.LocalModelsSnapshot) bool
 			return false
 		}
 		if model.PromptTokensPerSecond != nil && *model.PromptTokensPerSecond < 0 {
+			return false
+		}
+		if model.Error != nil && model.Error.Cause != nil && !model.Error.Cause.Valid() {
 			return false
 		}
 		seen[model.Id] = true

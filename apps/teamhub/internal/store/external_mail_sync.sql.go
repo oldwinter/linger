@@ -43,6 +43,7 @@ func (q *Queries) AdvanceMailSync(ctx context.Context, arg AdvanceMailSyncParams
 
 const getMailSync = `-- name: GetMailSync :one
 SELECT account_id, mail_import_tenant_id::text AS tenant_id, provider, upstream_connection_id,
+       coalesce(remote_principal_key, '')::text AS mailbox,
        mail_synced_until::timestamptz AS synced_until
 FROM external_connections
 WHERE id = $1::text AND revision = $2::bigint AND status = 'active'
@@ -60,6 +61,7 @@ type GetMailSyncRow struct {
 	TenantID             string             `json:"tenant_id"`
 	Provider             string             `json:"provider"`
 	UpstreamConnectionID string             `json:"upstream_connection_id"`
+	Mailbox              string             `json:"mailbox"`
 	SyncedUntil          pgtype.Timestamptz `json:"synced_until"`
 }
 
@@ -73,6 +75,7 @@ func (q *Queries) GetMailSync(ctx context.Context, arg GetMailSyncParams) (GetMa
 		&i.TenantID,
 		&i.Provider,
 		&i.UpstreamConnectionID,
+		&i.Mailbox,
 		&i.SyncedUntil,
 	)
 	return i, err

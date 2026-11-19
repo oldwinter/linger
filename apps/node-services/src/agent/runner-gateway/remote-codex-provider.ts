@@ -1,5 +1,7 @@
+import { runPriorities, type CapacityPriority } from "../../model-tasks.js";
 import { displayText } from "@linger/service-kit";
 import {
+  OPERATION_OUTCOME_UNKNOWN,
   RunnerOperationInputError,
   RunnerGatewayError,
   type RunnerCapacityPermit,
@@ -26,6 +28,7 @@ import {
   RuntimeExecutionError,
   StreamingAgentRun,
   ProviderRunCleanupError,
+  ProviderRunYieldedError,
   ProviderRunInterruptedError,
   ProviderRunStartError,
   runtimeSessionStartsFresh,
@@ -155,11 +158,14 @@ export class RemoteRuntimeProvider implements AgentProvider {
   #capacityPermit?: RunnerCapacityPermit;
   readonly #closed = new AbortController();
 
-  async acquireRunCapacity(signal: AbortSignal): Promise<() => void> {
+  async acquireRunCapacity(
+    signal: AbortSignal,
+    priority?: CapacityPriority,
+  ): Promise<() => void> {
     let permit: RunnerCapacityPermit | undefined;
     try {
       permit = await this.#dispatcher.acquireOperationCapacity?.(
-        this.#target,
+        { ...this.#target, priority },
         AbortSignal.any([signal, this.#closed.signal]),
       );
     } catch (error) {
@@ -478,6 +484,7 @@ export class RemoteRuntimeProvider implements AgentProvider {
         signal,
         spec.runContext.executionEpoch,
         spec.runKind,
+        spec.beforeYieldResume,
       );
       if (spec.runContext.cancellationRequested) {
         await this.#cancel(operation, "Durable user cancellation");
@@ -682,18 +689,23 @@ export class RemoteRuntimeProvider implements AgentProvider {
     signal: AbortSignal = this.#closed.signal,
     executionEpoch?: string,
     runKind?: RunnerOperationTarget["runKind"],
+    beforeYieldResume?: () => Promise<void>,
   ): Promise<RunnerOperation> {
     if (this.#closePromise) {
       throw new Error("Remote Codex provider is closed");
     }
     const permit =
       this.#capacityPermit ??
-      (await this.#dispatcher.acquireOperationCapacity?.(this.#target, signal));
+      (await this.#dispatcher.acquireOperationCapacity?.(
+        { ...this.#target, priority: runPriorities[runKind ?? "chat"] },
+        signal,
+      ));
     try {
       const operation = await this.#dispatcher.startOperation({
         ...this.#target,
         executionEpoch,
         ...(runKind ? { runKind } : {}),
+        ...(beforeYieldResume ? { beforeYieldResume } : {}),
         signal,
         contextViewRef: this.#contextRunResources.currentContextViewRef(),
         request,
@@ -881,6 +893,7 @@ export class RemoteRuntimeProvider implements AgentProvider {
     return {
       run_context: {
         ...toContextRunContext(context),
+        ...(spec.beforeYieldResume ? { resume_after_yield: true } : {}),
         ...this.#runAuthorization(),
       },
       run_resources: runResources,
@@ -1036,6 +1049,8 @@ class RemoteAgentRun implements AgentRun {
       replaceOpaqueObject(this.#session, runResult.session);
       return { finalResponse: runResult.final_response };
     } catch (error) {
+      if (error instanceof ProviderRunYieldedError)
+        replaceOpaqueObject(this.#session, error.session);
       throw localRunFailure(error, true);
     }
   }
@@ -1077,7 +1092,13 @@ const localRunFailure = (
       cause: error,
     });
   }
-  if (error.code === "cancelled" || error.code === "DAEMON_RESTARTED") {
+  // A restarted Daemon and a start the Computer never confirmed both leave
+  // the native outcome unknown: the Run was interrupted, not refused.
+  if (
+    error.code === "cancelled" ||
+    error.code === "DAEMON_RESTARTED" ||
+    error.code === OPERATION_OUTCOME_UNKNOWN
+  ) {
     return new ProviderRunInterruptedError(error.message, { cause: error });
   }
   return error;

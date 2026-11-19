@@ -1,6 +1,5 @@
 import { useCallback } from "react";
 
-import { isActiveCapture } from "./voice-control-helpers";
 import { tryAcquireVoicePublisherLease } from "./voice-publisher-lease";
 import type { VoiceControlState } from "./use-voice-control-state";
 
@@ -19,13 +18,17 @@ export function useComposerMicrophone(
 
   return useCallback(
     async (options?: { resumeListening?: boolean }) => {
+      const recording = () => {
+        const status = refs.captureRef.current?.status;
+        return status === "starting" || status === "recording";
+      };
       if (
         refs.composerLeaseRef.current ||
         refs.startPromiseRef.current ||
         refs.enablePromiseRef.current
       )
         throw new Error("Another voice input is using the microphone");
-      if (refs.captureRef.current && isActiveCapture(refs.captureRef.current)) {
+      if (recording()) {
         throw new Error("Hardware recording is using the microphone");
       }
       // Chat dictation has a separate purpose and must not reuse a hardware
@@ -35,7 +38,7 @@ export function useComposerMicrophone(
         refs.composerLeaseRef.current ||
         refs.startPromiseRef.current ||
         refs.enablePromiseRef.current ||
-        (refs.captureRef.current && isActiveCapture(refs.captureRef.current))
+        recording()
       )
         throw new Error("Another voice input is using the microphone");
       if (!refs.publisherLeaseRef.current) {
@@ -45,7 +48,8 @@ export function useComposerMicrophone(
         if (
           refs.composerLeaseRef.current ||
           refs.startPromiseRef.current ||
-          refs.enablePromiseRef.current
+          refs.enablePromiseRef.current ||
+          recording()
         ) {
           release();
           throw new Error("Another voice input is using the microphone");

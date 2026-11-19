@@ -18,8 +18,12 @@ import {
   externalConnectionsQueryOptions,
 } from "@/features/apps/connected-apps-queries";
 import {
+  externalConnectionNeedsAttention,
+  openPendingExternalConnection,
   reauthorizationConnectUrl,
+  startReauthorization,
   usableConnectUrl,
+  accountIdentityText,
 } from "@/features/apps/connection-state";
 import { openOAuthUrl } from "@/features/apps/oauth-popup";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
@@ -40,6 +44,9 @@ interface Props {
 }
 
 const label = "App authorization requested";
+
+/** The account picker value for a new account; never a connection id. */
+const NEW_ACCOUNT = "__new_account__";
 
 /**
  * A connection authorization: the Human picks or connects an account of the
@@ -110,6 +117,11 @@ function ConnectionAuthCard({
           icon={<ConnectedAppIcon appKey={appKey} size={16} />}
           title={appName}
         />
+        {card.connection_auth?.account ? (
+          <p className="pb-1 text-sm text-muted-foreground [overflow-wrap:anywhere]">
+            {`Requested account: ${card.connection_auth.account}`}
+          </p>
+        ) : null}
         {children}
         {done ??
           (card.status === "authorizing" ? (
@@ -173,17 +185,45 @@ function ConnectionAuthorizationActions({
   const app = apps.data?.apps.find((item) => item.key === appKey);
   const appName = app?.display_name ?? fallbackAppName;
   const agentName = card.requester.display_name;
-  const available = (connections.data?.connections ?? []).filter(
-    (item) =>
-      item.provider === appKey &&
-      !["disconnecting", "revoke_pending"].includes(item.status),
+  const appConnections = (connections.data?.connections ?? []).filter(
+    (item) => item.provider === appKey,
   );
-  if (created && !available.some((item) => item.id === created.id))
-    available.push(created);
-  const selected =
-    available.find((item) => item.id === selectedId) ??
+  // Only accounts the Human can use or repair; abandoned pending attempts and
+  // rejected duplicates are not accounts.
+  const available = appConnections.filter(
+    (item) =>
+      item.status === "active" || externalConnectionNeedsAttention(item),
+  );
+  // The connection this card just started stays visible while it is pending.
+  const createdNow =
+    created &&
+    (appConnections.find((item) => item.id === created.id) ?? created);
+  if (
+    createdNow?.status === "pending" &&
+    !available.some((item) => item.id === createdNow.id)
+  )
+    available.push(createdNow);
+  const canConnectNew =
+    app?.availability === "available" &&
+    app.capabilities.includes("agent_tools");
+  // The account the Agent asked for is preselected; when it is not connected
+  // yet, connecting a new account is. The Human may still choose another.
+  const requestedAccount = card.connection_auth?.account?.toLowerCase();
+  const requested = requestedAccount
+    ? available.find(
+        (item) => item.identity_label?.toLowerCase() === requestedAccount,
+      )
+    : undefined;
+  const fallback =
     available.find((item) => item.status === "active") ??
-    available[0];
+    available.find(externalConnectionNeedsAttention);
+  const defaultSelection = !requestedAccount
+    ? fallback
+    : (requested ?? (canConnectNew ? undefined : fallback));
+  const selected =
+    selectedId === NEW_ACCOUNT
+      ? undefined
+      : (available.find((item) => item.id === selectedId) ?? defaultSelection);
   const resumeUrl =
     fallbackUrl ||
     reauthorizationConnectUrl(bound.data) ||
@@ -219,20 +259,27 @@ function ConnectionAuthorizationActions({
       if (!connection) {
         if (!app || !app.capabilities.includes("agent_tools"))
           throw new Error("This app is unavailable for Agent access.");
-        connection = await client.createExternalConnection(app.key);
+        // Resume an open pending attempt of this app instead of adding a row.
+        const pending = openPendingExternalConnection(
+          connections.data?.connections ?? [],
+          app.key,
+        );
+        // A pending row that cannot be read is abandoned for a new one.
+        const detail = pending
+          ? await client
+              .getExternalConnection(pending.id)
+              .catch(() => undefined)
+          : undefined;
+        connectUrl = usableConnectUrl(detail) ?? "";
+        connection =
+          detail && connectUrl
+            ? detail
+            : await client.createExternalConnection(app.key);
+        if (!connectUrl) connectUrl = connection.connect_url ?? "";
         setCreated(connection);
         setSelectedId(connection.id);
-        connectUrl = connection.connect_url ?? "";
       } else if (connection.status !== "active" && !connectUrl) {
-        connectUrl =
-          reauthorizationConnectUrl(connection) ??
-          reauthorizationConnectUrl(
-            await client.createExternalConnectionReauthorization(
-              connection.id,
-              connection.revision,
-            ),
-          ) ??
-          "";
+        connectUrl = (await startReauthorization(client, connection)) ?? "";
       }
       // Consent is durable before OAuth navigation; backend confirmation publishes the completion.
       await decide("approve", connection.id);
@@ -269,10 +316,11 @@ function ConnectionAuthorizationActions({
     }
   }
   const loadError = apps.error ?? connections.error ?? bound.error;
-  const canConnectNew =
-    app?.availability === "available" &&
-    app.capabilities.includes("agent_tools");
   const loading = !authorizing && (connections.isPending || apps.isPending);
+  const showPicker =
+    !authorizing &&
+    available.length > 0 &&
+    (canConnectNew || available.length > 1);
   const primaryAction = resumeUrl ? (
     <Button
       aria-label="Open authorization window"
@@ -341,24 +389,29 @@ function ConnectionAuthorizationActions({
           : undefined)
       }
     >
-      {!authorizing && available.length > 1 ? (
+      {showPicker ? (
         <div className="pb-1">
           <Select
             aria-label={`${appName} account`}
             className="h-8 w-full px-2.5 text-sm"
             disabled={busy}
             onValueChange={setSelectedId}
-            value={selected?.id ?? ""}
+            value={selected?.id ?? (canConnectNew ? NEW_ACCOUNT : "")}
           >
             {available.map((connection) => (
               <SelectItem key={connection.id} value={connection.id}>
-                {`${connection.identity_label || appName}${
-                  connection.status !== "active"
-                    ? ` (${connection.status})`
-                    : ""
+                {`${accountIdentityText(connection.provider, connection.identity_label) || appName}${
+                  connection.status === "active"
+                    ? ""
+                    : connection.status === "pending"
+                      ? " (pending)"
+                      : " (needs reconnecting)"
                 }`}
               </SelectItem>
             ))}
+            {canConnectNew ? (
+              <SelectItem value={NEW_ACCOUNT}>Connect a new account</SelectItem>
+            ) : null}
           </Select>
         </div>
       ) : null}

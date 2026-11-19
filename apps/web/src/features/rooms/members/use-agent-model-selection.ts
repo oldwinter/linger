@@ -1,6 +1,13 @@
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
-import type { TeamHubAgentReasoningEffort } from "@/features/teamhub/teamhub-types";
+import { localComputersQueryOptions } from "@/features/local-computer/local-computer-queries";
+import { localModelsQueryOptions } from "@/features/local-models/local-models-queries";
+import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
+import type {
+  TeamHubAgentReasoningEffort,
+  TeamHubTenantAgent,
+} from "@/features/teamhub/teamhub-types";
 
 interface RuntimeModel {
   id: string;
@@ -52,4 +59,52 @@ export function reasoningEffortLabel(value: TeamHubAgentReasoningEffort) {
       ultra: "Ultra",
     } satisfies Record<TeamHubAgentReasoningEffort, string>
   )[value];
+}
+
+/**
+ * Resolves the human-readable model label for an Agent's current runtime,
+ * falling back to the Computer's local-models catalog for Bifrost-backed Pi
+ * models not yet reflected in the Computer runtime catalog.
+ */
+export function useResolvedAgentModelLabel(
+  client: TeamHubClient,
+  tenantId: string,
+  runtime: TeamHubTenantAgent["runtime"],
+): string;
+export function useResolvedAgentModelLabel(
+  client: TeamHubClient,
+  tenantId: string,
+  runtime: TeamHubTenantAgent["runtime"] | undefined,
+): string | undefined;
+export function useResolvedAgentModelLabel(
+  client: TeamHubClient,
+  tenantId: string,
+  runtime: TeamHubTenantAgent["runtime"] | undefined,
+): string | undefined {
+  const placement = runtime?.placement;
+  const computerId =
+    placement?.type === "local" ? placement.computer_id : undefined;
+  const computers = useQuery({
+    ...localComputersQueryOptions(client, tenantId),
+    enabled: Boolean(computerId),
+  });
+  const catalogLabel = computers.data?.items
+    .find((item) => item.computer_id === computerId)
+    ?.runtimes.find((item) => item.type === placement?.runtime_type)
+    ?.models.find((item) => item.id === runtime?.model)?.label;
+  const localModels = useQuery({
+    ...localModelsQueryOptions(client, tenantId, computerId ?? ""),
+    enabled: Boolean(
+      placement?.runtime_type === "pi" &&
+      computerId &&
+      !catalogLabel &&
+      runtime?.model?.startsWith("localmodels-library/"),
+    ),
+  });
+  const localModelLabel = localModels.data?.available
+    ? localModels.data.models.find(
+        (item) => item.model.pi_model === runtime?.model,
+      )?.model.name
+    : undefined;
+  return catalogLabel ?? localModelLabel ?? runtime?.model;
 }

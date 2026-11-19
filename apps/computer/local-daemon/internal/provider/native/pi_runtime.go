@@ -206,6 +206,7 @@ func (p *piRuntime) spawn(ctx context.Context, plan piLaunchPlan, lock *os.File)
 	}
 	if mcp.wired() {
 		env[piMCPConfigEnvKey] = mcp.configPath
+		piExtensionNodePath(env, mcp.extension)
 	}
 	if p.profile.RetainProcessTemp != nil {
 		if releaseTemp, err = p.profile.RetainProcessTemp(); err != nil {

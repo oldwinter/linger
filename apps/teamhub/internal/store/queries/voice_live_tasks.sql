@@ -97,6 +97,13 @@ INSERT INTO voice_live_confirmations(id,voice_session_id,turn_id,tool,arguments_
 VALUES(sqlc.arg(id)::text,sqlc.arg(voice_session_id)::text,sqlc.arg(turn_id)::text,sqlc.arg(tool)::text,
   sqlc.arg(arguments_hash)::text,sqlc.arg(goal)::text,sqlc.arg(surface)::text);
 
+-- name: CreateUsedVoiceLiveConfirmation :exec
+-- A yes the user gave in their own turn without a question first, used at
+-- once, so a retry within that turn is admitted like any used yes.
+INSERT INTO voice_live_confirmations(id,voice_session_id,turn_id,tool,arguments_hash,goal,surface,used_at,used_turn_id)
+VALUES(sqlc.arg(id)::text,sqlc.arg(voice_session_id)::text,sqlc.arg(turn_id)::text,sqlc.arg(tool)::text,
+  sqlc.arg(arguments_hash)::text,'','',clock_timestamp(),sqlc.arg(turn_id)::text);
+
 -- name: GetVoiceLiveConfirmation :one
 -- A confirmation still usable from this turn, without using it.
 SELECT goal,surface FROM voice_live_confirmations

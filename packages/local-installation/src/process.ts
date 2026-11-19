@@ -118,8 +118,7 @@ export async function runProcess(
           options.timeoutMs,
         )
       : undefined;
-    const output = (chunk: Buffer, stream: "stdout" | "stderr") => {
-      const value = chunk.toString();
+    const output = (value: string, stream: "stdout" | "stderr") => {
       if (
         options.capture !== false &&
         stdout.length + stderr.length + value.length > 2_000_000
@@ -133,8 +132,12 @@ export async function runProcess(
       }
       options.onOutput?.(value);
     };
-    child.stdout!.on("data", (chunk: Buffer) => output(chunk, "stdout"));
-    child.stderr!.on("data", (chunk: Buffer) => output(chunk, "stderr"));
+    child
+      .stdout!.setEncoding("utf8")
+      .on("data", (value: string) => output(value, "stdout"));
+    child
+      .stderr!.setEncoding("utf8")
+      .on("data", (value: string) => output(value, "stderr"));
     child.once("error", () => {
       failure = new Error("Command executable unavailable");
     });

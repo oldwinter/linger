@@ -108,13 +108,14 @@ function profileArticleParts(
 function oldestFirst(
   entries: TeamHubPersonalProfileTimelineEntry[],
 ): TeamHubPersonalProfileTimelineEntry[] {
-  // A bare year is a start year and "–2013" an end year; sort by the first
-  // year shown, and within one year put an entry that ends before one that
-  // starts. A period with no year ("Present") goes last.
+  // A bare year is a start year, and "–2013" or the upper bound "≤2013" an
+  // end year; sort by the first year shown, and within one year put an entry
+  // that ends before one that starts. A period with no year ("Present") goes
+  // last.
   const start = (period: string) => {
     const match = /(\d{4})/.exec(period);
     if (!match) return Infinity;
-    const endsHere = /^\s*[–-]\s*\d{4}/.test(period);
+    const endsHere = /^\s*[–≤-]\s*\d{4}/.test(period);
     return Number(match[1]) * 10 + (endsHere ? 0 : 1);
   };
   return entries

@@ -157,6 +157,7 @@ describe("Message Markdown", () => {
         onOpenDocument={nextDocument}
       />,
     );
+    expect(screen.getByText("New title")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "@Alice" }));
     fireEvent.click(screen.getByRole("button", { name: "Open New title" }));
     expect(nextActor).toHaveBeenCalledWith("alice");
@@ -597,10 +598,40 @@ describe("Message Markdown", () => {
       />,
     );
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Open Launch plan.md" }),
+    const reference = screen.getByRole("button", {
+      name: "Open Launch plan.md",
+    });
+    expect(reference).toHaveTextContent("Launch plan.md");
+    expect(reference).toHaveAttribute("title", "Launch plan.md");
+    expect(reference).not.toHaveTextContent("@Launch_plan_md");
+    expect(reference.querySelector("svg")).toHaveAttribute(
+      "aria-hidden",
+      "true",
     );
+    fireEvent.click(reference);
     expect(onOpenDocument).toHaveBeenCalledWith(document);
+  });
+
+  it("keeps the original Document token when no title is available", () => {
+    const document = {
+      content: "@Launch_plan_md",
+      document_id: "document-plan",
+      type: "document" as const,
+    };
+    render(
+      <MessageMarkdown
+        authorKind="human"
+        body="Review @Launch_plan_md"
+        documentReferences={[document]}
+        readOnlyReferences
+      />,
+    );
+
+    const reference = screen
+      .getByText("@Launch_plan_md")
+      .closest('[data-reference-kind="document"]');
+    expect(reference?.querySelector("svg")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
   it("keeps Agent local files as text while preserving external links", () => {

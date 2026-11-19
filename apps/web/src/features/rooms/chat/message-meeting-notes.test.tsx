@@ -17,7 +17,7 @@ type QuickNotes = NonNullable<TeamHubVoiceCapture["quick_notes"]>;
 
 const segment: TeamHubMessageMeetingNotesSegment = {
   type: "meeting_notes",
-  content: "Quick notes",
+  content: "Meeting summary",
   capture_id: "capture_launch",
 };
 
@@ -169,7 +169,7 @@ describe("MessageMeetingNotes", () => {
         screen.queryByText("Pulling the key points out of the transcript…"),
       ).toBeNull(),
     );
-    expect(screen.queryByText("Quick notes")).toBeNull();
+    expect(screen.queryByText("Meeting summary")).toBeNull();
     expect(
       screen.getByRole("link", { name: "Library › Meetings" }),
     ).toBeInTheDocument();

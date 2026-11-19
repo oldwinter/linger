@@ -329,7 +329,7 @@ describe("UpdaterModule with the Windows setup program", () => {
     expect(calls).toEqual([
       {
         file: path.join(downloads, SETUP),
-        args: ["/S", "/relaunch"],
+        args: ["/update", "/relaunch"],
         options: { detached: true, stdio: "ignore" },
       },
     ]);
@@ -404,52 +404,6 @@ describe("UpdaterModule for a download", () => {
     });
     await updater.check();
     expect(updater.state()).toEqual({ kind: "idle" });
-  });
-});
-
-describe("UpdaterModule with services on this computer", () => {
-  it("offers the services update the app brings and still checks for a newer app", async () => {
-    const feed = release("0.16.7");
-    let available = false;
-    let updates = 0;
-    const { updater, host, announced } = await setup(feed, {
-      services: {
-        sourceUpdateAvailable: () => available,
-        updateSource: async () => {
-          updates += 1;
-          available = false;
-        },
-      },
-    });
-    available = true;
-    host.ctx.bus.emit("local-server.changed");
-    const services = { kind: "ready", version: "0.16.7", services: true };
-    expect(updater.state()).toEqual(services);
-    expect(announced).toEqual([services]);
-
-    await updater.check();
-    expect(feed.requested).toHaveLength(2);
-    expect(updater.state()).toEqual(services);
-    expect(announced).toHaveLength(1);
-
-    await updater.install();
-    expect(updates).toBe(1);
-    expect(updater.state()).toEqual({ kind: "idle" });
-    await host.stop("quit");
-  });
-
-  it("replaces the services update with a newer app, which brings its own", async () => {
-    const feed = release("0.17.0");
-    const { updater, host } = await setup(feed, {
-      services: {
-        sourceUpdateAvailable: () => true,
-        updateSource: async () => {},
-      },
-    });
-    expect(updater.state()).toMatchObject({ services: true });
-    await updater.check();
-    expect(updater.state()).toEqual({ kind: "ready", version: "0.17.0" });
-    await host.stop("quit");
   });
 });
 

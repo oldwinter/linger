@@ -190,14 +190,19 @@ describe("TeamHub Agent wake stream", () => {
       onReconcile: vi.fn(),
       onConnectionChanged,
     });
+    // The reconnect backoff runs on the fake clock: 1 s, then 2 s.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
       handle.start();
-      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3), {
-        timeout: 10_000,
-      });
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
       expect(onConnectionChanged.mock.calls).toEqual([[true], [false]]);
     } finally {
       await handle.close();
+      vi.useRealTimers();
     }
   });
 

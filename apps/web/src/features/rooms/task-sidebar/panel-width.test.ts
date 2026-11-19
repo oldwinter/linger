@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import {
   clampPanelSidebarWidth,
@@ -13,7 +14,7 @@ import {
 describe("panel sidebar width", () => {
   beforeEach(() => {
     const store = new Map<string, string>();
-    Object.defineProperty(globalThis, "localStorage", {
+    defineGlobalProperty(globalThis, "localStorage", {
       configurable: true,
       value: {
         get length() {

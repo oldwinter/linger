@@ -771,3 +771,136 @@ describe("weekly routine editing", () => {
     expect(updateRoutine).not.toHaveBeenCalled();
   });
 });
+
+describe("minute-interval routines", () => {
+  it("displays Every N min without an edit entry while allowing pause, resume, and delete", async () => {
+    const minuteRoutine: TeamHubRoutine = {
+      ...reminder,
+      id: "routine_min_10",
+      name: "Check build",
+      instruction: "Check CI status",
+      mention_actor_id: AGENT,
+      cadence: {
+        kind: "every_n_minutes",
+        timezone: "UTC",
+        interval_minutes: 10,
+      },
+      enabled: true,
+      revision: 3,
+    };
+    const pausedRoutine: TeamHubRoutine = {
+      ...minuteRoutine,
+      enabled: false,
+      revision: 4,
+    };
+    const resumedRoutine: TeamHubRoutine = {
+      ...minuteRoutine,
+      enabled: true,
+      revision: 5,
+    };
+    let current = minuteRoutine;
+    const updateRoutine = vi
+      .fn<TestRouteHandler>()
+      .mockImplementationOnce(() => {
+        current = pausedRoutine;
+        return pausedRoutine;
+      })
+      .mockImplementationOnce(() => {
+        current = resumedRoutine;
+        return resumedRoutine;
+      });
+    const deleteRoutine = vi.fn<TestRouteHandler>();
+    renderPanel({
+      listRoomRoutines: () => ({ items: [current], page: { has_more: false } }),
+      updateRoutine,
+      deleteRoutine,
+    });
+    expect(await screen.findByText("Check build")).toBeVisible();
+    expect(screen.getByText("Every 10 min")).toBeVisible();
+    // Clicking the minute routine row does not open an edit dialog.
+    expect(screen.queryByRole("button", { name: /^Check build/ })).toBeNull();
+    fireEvent.click(screen.getByText("Check build"));
+    expect(screen.queryByRole("dialog", { name: "Edit routine" })).toBeNull();
+    // Pause sends only expected_revision and enabled (never alters cadence).
+    fireEvent.click(screen.getByRole("switch", { name: "Pause routine" }));
+    await waitFor(() => expect(updateRoutine).toHaveBeenCalledTimes(1));
+    expect(sentBody(updateRoutine, 0)).toEqual({
+      expected_revision: 3,
+      enabled: false,
+    });
+    // Resume sends only expected_revision and enabled.
+    fireEvent.click(
+      await screen.findByRole("switch", { name: "Enable routine" }),
+    );
+    await waitFor(() => expect(updateRoutine).toHaveBeenCalledTimes(2));
+    expect(sentBody(updateRoutine, 1)).toEqual({
+      expected_revision: 4,
+      enabled: true,
+    });
+    expect(await screen.findByText("Every 10 min")).toBeVisible();
+    // Delete works directly from the row.
+    fireEvent.click(screen.getByRole("button", { name: "Delete routine" }));
+    await waitFor(() =>
+      expect(deletedRoutines(deleteRoutine)).toContainEqual([
+        "routine_min_10",
+        5,
+      ]),
+    );
+  });
+
+  it("shows an error alert when deleting a minute-interval routine fails", async () => {
+    const minuteRoutine: TeamHubRoutine = {
+      ...reminder,
+      id: "routine_min_conflict",
+      name: "Check build",
+      cadence: {
+        kind: "every_n_minutes",
+        timezone: "UTC",
+        interval_minutes: 10,
+      },
+      revision: 3,
+    };
+    const deleteRoutine = vi.fn<TestRouteHandler>(
+      () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: "CONFLICT",
+              message: "Routine revision is out of date.",
+              request_id: "req-conflict",
+            },
+          }),
+          { status: 409, headers: { "content-type": "application/json" } },
+        ),
+    );
+    renderPanel({
+      listRoomRoutines: list([minuteRoutine]),
+      deleteRoutine,
+    });
+    expect(await screen.findByText("Check build")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Delete routine" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /revision is out of date/i,
+    );
+  });
+
+  it("keeps creating and editing hourly routines unchanged without minute options", async () => {
+    const createRoomRoutine = vi.fn<TestRouteHandler>(() => reminder);
+    renderPanel({ listRoomRoutines: list([]), createRoomRoutine });
+    fireEvent.click(await screen.findByRole("button", { name: "New routine" }));
+    const dialog = screen.getByRole("dialog", { name: "New routine" });
+    fireEvent.change(within(dialog).getByLabelText("Instruction"), {
+      target: { value: "Hourly status check" },
+    });
+    await chooseWhen(dialog, "Every few hours");
+    for (const label of ["1h", "2h", "3h", "4h", "6h", "12h"]) {
+      expect(within(dialog).getByRole("button", { name: label })).toBeVisible();
+    }
+    expect(within(dialog).queryByRole("button", { name: /min/i })).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(createRoomRoutine).toHaveBeenCalledTimes(1));
+    expect(sentBody(createRoomRoutine, 0)).toMatchObject({
+      cadence: { kind: "every_n_hours", interval_hours: 2 },
+    });
+  });
+});

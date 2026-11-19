@@ -2,6 +2,7 @@ package collaboration
 
 import (
 	"context"
+	"errors"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentcredential"
@@ -59,18 +60,27 @@ func (s *Service) AgentRoomMembers(ctx context.Context, token, inboxID string) (
 }
 
 // AgentTeamMd reads the team document of a Room or Thread Inbox the Agent
-// credential's Agent belongs to.
+// credential's Agent belongs to. A readable Room without a team.md answers
+// Published false; a missing or unreadable Room reports pgx.ErrNoRows.
 func (s *Service) AgentTeamMd(ctx context.Context, token, inboxID string) (api.AgentTeamMdResponse, error) {
 	return readAgentContext(ctx, s, token, func(p agentcredential.Principal, q *store.Queries) (api.AgentTeamMdResponse, error) {
 		room, err := q.GetAgentContextReadRoom(ctx, store.GetAgentContextReadRoomParams{TenantID: p.TenantID, ActorID: p.AgentActorID, InboxID: inboxID})
 		if err != nil {
 			return api.AgentTeamMdResponse{}, err
 		}
+		// Room access was established in this snapshot, which also keeps the
+		// membership Room undeleted, so no row here only means no team.md yet.
 		team, err := q.GetRoomTeamDocument(ctx, store.GetRoomTeamDocumentParams{TenantID: p.TenantID, RoomID: room.MembershipRoomID})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return api.AgentTeamMdResponse{RoomId: room.MembershipRoomID}, nil
+		}
 		if err != nil {
 			return api.AgentTeamMdResponse{}, err
 		}
-		return api.AgentTeamMdResponse{RoomId: room.MembershipRoomID, RawMarkdown: team.RawMarkdown, Revision: team.Revision, UpdatedAt: team.UpdatedAt.Time}, nil
+		return api.AgentTeamMdResponse{
+			RoomId: room.MembershipRoomID, Published: true, RawMarkdown: &team.RawMarkdown,
+			Revision: team.Revision, UpdatedAt: &team.UpdatedAt.Time,
+		}, nil
 	})
 }
 

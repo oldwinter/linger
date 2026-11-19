@@ -12,6 +12,10 @@ const readingPositions = new Map<
   }
 >();
 
+export function resetRoomTimelineReadingPositionsForTest() {
+  readingPositions.clear();
+}
+
 /** Content changes this soon after the reader's own input are theirs to keep. */
 const INPUT_SETTLE_MS = 1_000;
 

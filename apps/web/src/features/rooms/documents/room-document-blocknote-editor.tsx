@@ -94,6 +94,9 @@ import {
   canvasHiddenBlockRule,
   useCanvas,
 } from "./canvas/canvas-header";
+import { CanvasMailAttachments } from "./canvas/canvas-mail-attachments";
+import { CanvasMailSentSync } from "./canvas/canvas-mail-send";
+import { CanvasMailSender } from "./canvas/canvas-mail-sender";
 
 const ignoreCommentsOpenChange = () => undefined;
 
@@ -112,6 +115,7 @@ export interface RoomDocumentBlockNoteEditorProps {
   surfaceEditorRef?: MutableRefObject<RoomDocumentEditor | null>;
   /** Reports whether the Document is a canvas that has already been sent. */
   onCanvasSentChange?: (sent: boolean) => void;
+  onCanvasTargetChange?: (target?: string) => void;
   onHeadingsChange?: (headings: RoomDocumentHeading[]) => void;
   onCommentsOpenChange?: (open: boolean) => void;
   onReadOnlySessionResync?: () => void;
@@ -139,6 +143,7 @@ export function RoomDocumentBlockNoteEditor({
   knowledgeDocumentTitle,
   surfaceEditorRef,
   onCanvasSentChange,
+  onCanvasTargetChange,
   onHeadingsChange,
   onCommentsOpenChange,
   onReadOnlySessionResync,
@@ -419,6 +424,10 @@ export function RoomDocumentBlockNoteEditor({
   const { agentEditing, canvas } = useCanvas(editor, session.awareness);
   const canvasRule = canvasHiddenBlockRule(knowledge.scope, canvas);
   const canvasSent = canvas?.status === "sent";
+  const canvasTarget = canvas?.target.id;
+  useLayoutEffect(() => {
+    onCanvasTargetChange?.(canvasTarget);
+  }, [canvasTarget, onCanvasTargetChange]);
   useEffect(() => {
     onCanvasSentChange?.(canvasSent);
   }, [canvasSent, onCanvasSentChange]);
@@ -448,6 +457,7 @@ export function RoomDocumentBlockNoteEditor({
       aria-label="Room Document editor"
       className="room-document-blocknote relative min-h-[420px]"
       data-editable={String(editable)}
+      data-canvas-target={canvasTarget}
       data-empty={String(isEmptyDocument)}
       data-knowledge-presentation={
         knowledgeTitle !== undefined ? "true" : undefined
@@ -522,6 +532,11 @@ export function RoomDocumentBlockNoteEditor({
           canvas={canvas}
           editable={editable}
           editor={editor}
+          sender={
+            canvasTarget === "gmail" ? (
+              <CanvasMailSender client={client} />
+            ) : undefined
+          }
         />
       ) : null}
       <BlockNoteView
@@ -612,6 +627,25 @@ export function RoomDocumentBlockNoteEditor({
         >
           {roomDocumentTextCountLabel(textCount)}
         </p>
+      ) : null}
+      {canvasTarget === "gmail" ? (
+        <CanvasMailAttachments
+          key={`${documentId}:${editable && !canvasSent}`}
+          client={client}
+          documentId={documentId}
+          editable={editable && !canvasSent}
+          editor={editor}
+          scope={knowledge.scope}
+        />
+      ) : null}
+      {canvasTarget === "gmail" && canvas ? (
+        <CanvasMailSentSync
+          canvas={canvas}
+          client={client}
+          documentId={documentId}
+          editable={editable}
+          editor={editor}
+        />
       ) : null}
       {!readOnlyCommentPending && (
         <ReadOnlySelectionCommentControl

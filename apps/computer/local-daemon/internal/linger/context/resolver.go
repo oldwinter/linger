@@ -129,6 +129,9 @@ func (r ExecutionResolver) Resolve(ctx context.Context, command protocol.Command
 	if resumeSessionID == "" {
 		resumeSessionID = request.Session.SessionID
 	}
+	if request.RunContext.ResumeAfterYield && resumeSessionID == "" {
+		return provider.OperationSpec{}, errors.New("a yielded Run requires its native session identity")
+	}
 	if command.RuntimeType == "codex" && resumeSessionID == "" && (request.Session.ThreadIDCamel == nil || *request.Session.ThreadIDCamel != "") {
 		return provider.OperationSpec{}, errors.New("Codex run.start requires a retained session or an explicit first-run marker")
 	}
@@ -153,6 +156,7 @@ func (r ExecutionResolver) Resolve(ctx context.Context, command protocol.Command
 		ExecutablePath: installation.ExecutablePath, WorkingDirectory: workingDirectory,
 		Model: request.Runtime.Model, Prompt: request.Input.Text,
 		ExecutionRunRef:   strings.TrimSpace(request.RunContext.ExecutionRunRef),
+		ResumeAfterYield:  request.RunContext.ResumeAfterYield,
 		HumanInteractions: request.RunContext.HumanInteractions,
 		PermissionReview:  request.RunContext.PermissionReview,
 		TeamHubCLIBin:     r.TeamHubCLIBin,
@@ -227,7 +231,7 @@ func (r ExecutionResolver) Resolve(ctx context.Context, command protocol.Command
 		spec.ClaudeSkillNames = authorizedClaudeSkillNames(view.View.Mappings)
 	}
 	spec.ContextSkillDigest = contextSkillDigest(view.View.Mappings)
-	if (command.RuntimeType == "claude" || command.RuntimeType == "pi") && resumeSessionID != "" && !request.Session.materialized() {
+	if (command.RuntimeType == "claude" || command.RuntimeType == "pi") && resumeSessionID != "" && !spec.ResumeAfterYield && !request.Session.materialized() {
 		spec.CreateProviderSessionID = resumeSessionID
 		spec.ResumeSessionID = ""
 	}
@@ -364,6 +368,7 @@ type semanticRequest struct {
 	} `json:"run_resources,omitempty"`
 	RunContext struct {
 		ExecutionRunRef   string `json:"execution_run_ref,omitempty"`
+		ResumeAfterYield  bool   `json:"resume_after_yield,omitempty"`
 		HumanInteractions bool   `json:"human_interactions,omitempty"`
 		PermissionReview  bool   `json:"permission_review,omitempty"`
 	} `json:"run_context,omitempty"`

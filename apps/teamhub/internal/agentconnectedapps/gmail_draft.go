@@ -222,7 +222,10 @@ func (s *Service) SaveGmailDraft(ctx context.Context, token, connectionID, draft
 	if connection.ToolkitSlug != "gmail" {
 		return composio.GmailDraft{}, ErrInvalid
 	}
-	defer func() { s.logCall(ctx, "gmail/canvas-draft", connection, "", "", callOutcome(err)) }()
+	var providerError string
+	defer func() {
+		s.logCall(ctx, "gmail/canvas-draft", connection, "", "", callOutcome(err), "provider_error", providerError)
+	}()
 	status, err := s.provider.GetConnectionStatusForToolkit(ctx, connection.UpstreamConnectionID, connection.ToolkitSlug)
 	if err != nil {
 		return composio.GmailDraft{}, mapToolError(&providerOperationError{phase: "connection_status", err: err}, "execute")
@@ -239,6 +242,7 @@ func (s *Service) SaveGmailDraft(ctx context.Context, token, connectionID, draft
 	}
 	draft, err = provider.SaveGmailDraft(ctx, connection.UpstreamConnectionID, draftID, raw)
 	if err != nil {
+		providerError = err.Error()
 		return composio.GmailDraft{}, uncertainExecutionError(err)
 	}
 	return draft, nil

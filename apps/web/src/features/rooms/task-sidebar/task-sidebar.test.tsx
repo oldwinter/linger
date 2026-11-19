@@ -10,6 +10,7 @@ import {
 import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import { NavigationDrawer } from "@/components/ui/navigation-drawer";
 import {
@@ -92,7 +93,7 @@ describe("TaskSidebar", () => {
 
   beforeEach(() => {
     const store = new Map<string, string>();
-    Object.defineProperty(globalThis, "localStorage", {
+    defineGlobalProperty(globalThis, "localStorage", {
       configurable: true,
       value: {
         get length() {

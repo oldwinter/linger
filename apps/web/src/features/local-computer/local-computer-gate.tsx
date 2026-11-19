@@ -21,7 +21,12 @@ import {
   computerInstallCommand,
   ComputerPlatformSelector,
 } from "./computer-platform";
-import { appNames, appOrder, appStatus } from "./computer-readiness";
+import {
+  appNames,
+  appOrder,
+  appStatus,
+  runtimeStatusLabels,
+} from "./computer-readiness";
 import { useDesktopComputer } from "./desktop-computer";
 import { DesktopComputerSetup } from "./desktop-computer-setup";
 import { localComputersQueryOptions } from "./local-computer-queries";
@@ -35,15 +40,6 @@ type RuntimeStatus = LocalComputer["runtimes"][number]["status"];
 // Runtime installs and sign-ins happen on the Computer and reach the Web only
 // through the inventory, so the gate polls while it is open.
 const pollIntervalMs = 3_000;
-
-const statusLabels: Record<RuntimeStatus, string> = {
-  authentication_required: "Sign-in required",
-  error: "Could not check",
-  incompatible: "Update needed",
-  not_installed: "Not installed",
-  ready: "Ready",
-  unknown: "Checking",
-};
 
 /**
  * Every model call, Another Me's included, runs on the Human's own Computer,
@@ -249,9 +245,9 @@ function AppSetup({
         Or run a model on {computer.display_name} itself: load one in{" "}
         <Link
           className="text-foreground underline underline-offset-2"
-          to={`/t/${encodeURIComponent(tenantId)}/settings/local-models?computer=${encodeURIComponent(computer.computer_id)}`}
+          to={`/t/${encodeURIComponent(tenantId)}/settings/models?computer=${encodeURIComponent(computer.computer_id)}`}
         >
-          Local models
+          Settings › Models
         </Link>
         .
       </p>
@@ -286,7 +282,7 @@ function AppRow({
               : "text-muted-foreground",
         )}
       >
-        {statusLabels[status]}
+        {runtimeStatusLabels[status]}
       </span>
     </li>
   );

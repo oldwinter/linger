@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { inspectSetup, assertLocalModelsEligible } from "./setup-plan.js";
+import { inspectSetup } from "./setup-plan.js";
 
 const upstream = (available = true) => ({
   schema: "localmodels.setup-report/v1",
@@ -97,15 +97,11 @@ it("preserves upstream rejection and never substitutes downstream eligibility", 
   const localmodels = runner(upstream(false));
   const report = await inspectSetup({ localmodels });
   expect(report.localModels.state).toBe("unavailable");
-  expect(report.localModels.reasons).toEqual(["upstream_policy"]);
-  expect(report.localModels.reasonMessages).toEqual([
-    "Upstream rejected this host",
+  expect(report.localModels.reasons).toEqual([
+    { code: "upstream_policy", message: "Upstream rejected this host" },
   ]);
   expect(report.recommendation).toBe("pi");
   expect(report.localModels.estimate.downloadBytes).toBeNull();
-  await expect(assertLocalModelsEligible({ localmodels })).rejects.toThrow(
-    "upstream_policy: Upstream rejected this host",
-  );
 });
 it("recommends the next runtime while the local plan waits for free memory (tool without stack.state)", async () => {
   const freeMemory = (installed: boolean) => {
@@ -136,14 +132,16 @@ it("recommends the next runtime while the local plan waits for free memory (tool
     eligible: false,
     state: "blocked-now",
     basis: "capacity",
-    reasons: ["free-memory-required"],
+    reasons: [
+      {
+        code: "free-memory-required",
+        message: "Close other programs before installing.",
+      },
+    ],
     estimate: { model: "upstream-model" },
   });
   expect(report.localModels).not.toHaveProperty("memory");
   expect(report.recommendation).toBe("pi");
-  await expect(
-    assertLocalModelsEligible({ localmodels: runner(freeMemory(true)) }),
-  ).rejects.toThrow("free-memory-required");
   const bare = await inspectSetup({ localmodels: runner(freeMemory(false)) });
   expect(bare.recommendation).toBe("codex");
   // The reason code alone holds the plan too.
@@ -235,6 +233,54 @@ it("reads the tool's blocked-now state, memory and recommendation", async () => 
     state: "unavailable",
     hardwareCapable: false,
   });
+});
+it("passes on the memory counts each reason carries", async () => {
+  const value = upstream();
+  const report = await inspectSetup({
+    localmodels: runner({
+      ...value,
+      stack: {
+        ...value.stack,
+        available: false,
+        state: "blocked-now",
+        basis: "capacity",
+        reasons: [
+          {
+            code: "gpu-memory-required",
+            message: "Other programs are using GPU 1's memory.",
+            gpuIndex: 1,
+            freeBytes: 3,
+            requiredBytes: 8,
+          },
+          {
+            code: "free-memory-required",
+            message: "Other programs are using memory they need.",
+            freeBytes: 5,
+            requiredBytes: 13,
+          },
+          // A count outside the contract is left out, not shown.
+          { code: "free-memory-required", message: "", freeBytes: -1 },
+        ],
+      },
+      recommendation: "codex",
+    }),
+  });
+  expect(report.localModels.reasons).toEqual([
+    {
+      code: "gpu-memory-required",
+      message: "Other programs are using GPU 1's memory.",
+      gpuIndex: 1,
+      freeBytes: 3,
+      requiredBytes: 8,
+    },
+    {
+      code: "free-memory-required",
+      message: "Other programs are using memory they need.",
+      freeBytes: 5,
+      requiredBytes: 13,
+    },
+    { code: "free-memory-required", message: "" },
+  ]);
 });
 it("fails explicitly and redacts tool output when upstream is unavailable or malformed", async () => {
   for (const response of [

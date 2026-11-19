@@ -1,17 +1,15 @@
 import { useEffect, useState } from "react";
 
-import { figureKey } from "@/features/rooms/members/agent-avatar";
 import { AgentAvatarPortrait } from "@/features/rooms/members/agent-avatar-portrait";
 
-/** What Another Me says first, one nudge at a time, across a working day. */
+/** What Linger says first, one nudge at a time, across a working day. */
 const NUDGES = [
   { time: "9:00 AM", text: "Demo is tomorrow. I drafted the brief." },
-  { time: "1:30 PM", text: "Codex reviewed the code. Two notes." },
+  { time: "1:30 PM", text: "I reviewed the code. Two notes." },
   { time: "5:00 PM", text: "Before you go: the deck is ready." },
 ] as const;
 
-// A white fox on the seam's apricot, so the figure stands out from its tile.
-const ANOTHER_ME = figureKey("arctic_fox", "#F2A15F");
+const LINGER_AVATAR = "figure:red_panda:79524A";
 // The first nudge waits for the headline and the timeline to settle.
 const FIRST_NUDGE_MS = 3_000;
 const NUDGE_EVERY_MS = 4_000;
@@ -22,7 +20,7 @@ const AWAKE_MS = 1_000;
 type MomentState = "later" | "now" | "past";
 
 /**
- * The login page's picture: Another Me's working day, a personal AI on your
+ * The login page's picture: Linger's working day, a personal AI on your
  * own computer reaching out before it is asked, one nudge lighting up at a
  * time. It is decorative; the login shell hides it from assistive technology.
  */
@@ -62,7 +60,7 @@ export function AuthIllustration() {
           <span>A step ahead.</span>
         </h2>
         <p className="auth-art-lede">
-          Another Me runs on your own computer, keeps track of your work, and
+          Linger runs on your own computer, keeps track of your work, and
           reaches out before anything slips.
         </p>
       </div>
@@ -70,7 +68,7 @@ export function AuthIllustration() {
       <div className="auth-art-day">
         <div className="auth-art-day-head">
           <span className="auth-art-avatar">
-            <AgentAvatarPortrait animate={awake} avatarKey={ANOTHER_ME} />
+            <AgentAvatarPortrait animate={awake} avatarKey={LINGER_AVATAR} />
             {/* Keyed by the landing so the badge pops again for each nudge. */}
             {current === null ? null : (
               <span className="auth-art-badge town-pill-pop" key={landed}>
@@ -78,7 +76,7 @@ export function AuthIllustration() {
               </span>
             )}
           </span>
-          <span className="auth-art-day-name">Another Me</span>
+          <span className="auth-art-day-name">Linger</span>
         </div>
         <ol className="auth-art-timeline">
           {NUDGES.map((nudge, index) => (

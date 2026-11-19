@@ -9,7 +9,7 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 
 import { externalConnectionsQueryKey } from "./connected-apps-queries";
-import { usableConnectUrl } from "./connection-state";
+import { startReauthorization, usableConnectUrl } from "./connection-state";
 import { openOAuthUrl } from "./oauth-popup";
 
 /** Composio refused the project API key, so a new key is needed to connect. */
@@ -43,13 +43,28 @@ export function useCreateExternalConnection({
     },
   });
 
+  const reauthorize = useMutation({
+    mutationFn: async (connection: TeamHubExternalConnection) => {
+      const connectUrl = await startReauthorization(client, connection);
+      if (!connectUrl)
+        throw new Error("Reconnecting could not be started. Try again.");
+      resume(connectUrl);
+    },
+    onSettled: () =>
+      queryClient.invalidateQueries({
+        queryKey: externalConnectionsQueryKey(),
+      }),
+  });
+
   function resume(connectUrl: string) {
     setBlockedConnectUrl("");
     if (!openOAuthUrl(connectUrl)) setBlockedConnectUrl(connectUrl);
   }
 
+  // Connect and reconnect share one error slot, so each clears the other's.
   function connect(appKey: TeamHubExternalAppKey) {
     setBlockedConnectUrl("");
+    reauthorize.reset();
     createConnection.mutate(appKey);
   }
 
@@ -57,6 +72,8 @@ export function useCreateExternalConnection({
     appKey: TeamHubExternalAppKey,
     pending?: TeamHubExternalConnection,
   ) {
+    createConnection.reset();
+    reauthorize.reset();
     if (pending) {
       try {
         const connectUrl = usableConnectUrl(
@@ -79,8 +96,14 @@ export function useCreateExternalConnection({
     blockedConnectUrl,
     connect,
     connectOrResume,
-    error: createConnection.error,
-    isPending: createConnection.isPending,
+    error: createConnection.error ?? reauthorize.error,
+    isPending: createConnection.isPending || reauthorize.isPending,
+    /** Reauthorizes an existing connection in place. */
+    reconnect(connection: TeamHubExternalConnection) {
+      setBlockedConnectUrl("");
+      createConnection.reset();
+      reauthorize.mutate(connection);
+    },
     resume,
     clearBlockedConnectUrl() {
       setBlockedConnectUrl("");

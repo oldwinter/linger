@@ -11,9 +11,11 @@ import type { TeamHubWorkItem } from "@/features/teamhub/teamhub-types";
 
 import {
   roomDocumentCommentThreadsQueryKey,
+  roomMembersQueryKey,
   roomMessagesQueryKey,
   roomTeamMdQueryKey,
   tenantActorsQueryKey,
+  tenantAgentAvailabilityQueryKey,
   tenantAgentsQueryKey,
 } from "../room-queries";
 import { createHttpTeamHubClient } from "@/features/teamhub/teamhub-client";
@@ -640,6 +642,49 @@ describe("Room projection", () => {
     expect(projection.getLastAppliedRoomSeq()).toBe(1);
   });
 
+  it("refreshes the Agent directory when an Agent joins so the @ picker can offer it", async () => {
+    const queryClient = new QueryClient();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+    const projection = createRoomProjection({
+      queryClient,
+      roomId: "room-1",
+      tenantId: "tenant-1",
+    });
+
+    await projection.applyEvent(memberAddedEvent("agent"));
+
+    expect(invalidateQueries.mock.calls.map(([filters]) => filters)).toEqual([
+      {
+        queryKey: roomMembersQueryKey("tenant-1", "room-1"),
+        refetchType: "none",
+      },
+      { queryKey: tenantAgentsQueryKey("tenant-1"), refetchType: "none" },
+      {
+        queryKey: tenantAgentAvailabilityQueryKey("tenant-1"),
+        refetchType: "none",
+      },
+    ]);
+  });
+
+  it("refreshes only the members when a human joins", async () => {
+    const queryClient = new QueryClient();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+    const projection = createRoomProjection({
+      queryClient,
+      roomId: "room-1",
+      tenantId: "tenant-1",
+    });
+
+    await projection.applyEvent(memberAddedEvent("human"));
+
+    expect(invalidateQueries.mock.calls.map(([filters]) => filters)).toEqual([
+      {
+        queryKey: roomMembersQueryKey("tenant-1", "room-1"),
+        refetchType: "none",
+      },
+    ]);
+  });
+
   it("leaves the active Room when it is deleted", async () => {
     const onRoomAccessInvalidated = vi.fn();
     const projection = createRoomProjection({
@@ -667,6 +712,38 @@ describe("Room projection", () => {
     expect(projection.getLastAppliedRoomSeq()).toBe(1);
   });
 });
+
+function memberAddedEvent(kind: "agent" | "human"): TeamHubRoomEvent {
+  return {
+    event_id: "event-member-added",
+    event_type: "room.member.added",
+    occurred_at: "2026-07-23T10:00:00Z",
+    payload: {
+      kind: "room.member.added",
+      member: {
+        actor: {
+          display_name: "New Member",
+          id: "actor-new",
+          kind,
+          tenant_id: "tenant-1",
+        },
+        added_by: {
+          display_name: "Owner",
+          id: "actor-owner",
+          kind: "human",
+          tenant_id: "tenant-1",
+        },
+        joined_at: "2026-07-23T10:00:00Z",
+        role: "member",
+        room_id: "room-1",
+        updated_at: "2026-07-23T10:00:00Z",
+      },
+    },
+    room_id: "room-1",
+    room_seq: 1,
+    tenant_id: "tenant-1",
+  };
+}
 
 function compactedEvent() {
   return {

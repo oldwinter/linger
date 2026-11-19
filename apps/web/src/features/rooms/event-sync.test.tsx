@@ -167,7 +167,7 @@ describe("TeamHub event signals", () => {
     mac.stop();
   });
 
-  it("refreshes the directory, the Room members and the Room list it shows", async () => {
+  it("refreshes the directory, the Room members, the Room list, and local models it shows", async () => {
     const queryClient = new QueryClient();
     const members = observe(
       queryClient,
@@ -178,8 +178,10 @@ describe("TeamHub event signals", () => {
       queryClient,
       tenantAgentAvailabilityQueryKey("tenant-a"),
     );
+    const models = observe(queryClient, localModelsQueryKey("tenant-a", "lab"));
     await vi.waitFor(() => expect(members.fetch).toHaveBeenCalledOnce());
     await vi.waitFor(() => expect(rooms.fetch).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(models.fetch).toHaveBeenCalledOnce());
 
     await applyTeamHubEventSignal(queryClient, {
       hint: { id: "tenant-a", resource: "directory", tenant_id: "tenant-a" },
@@ -189,9 +191,11 @@ describe("TeamHub event signals", () => {
     await vi.waitFor(() => expect(members.fetch).toHaveBeenCalledTimes(2));
     await vi.waitFor(() => expect(availability.fetch).toHaveBeenCalledTimes(2));
     await vi.waitFor(() => expect(rooms.fetch).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(models.fetch).toHaveBeenCalledTimes(2));
     members.stop();
     availability.stop();
     rooms.stop();
+    models.stop();
   });
 
   it("drops retained preview bytes only when Document access may change", async () => {

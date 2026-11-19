@@ -16,7 +16,12 @@ import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { teamHubErrorResponse } from "@/test/teamhub-test-server";
 
 import { RecordingEntry } from "./recording-entry";
-import { openRecordingWindow } from "./recording-window-store";
+import {
+  resetRecordingWindowForTest,
+  useRecordingWindow,
+  type RecordingWindowState,
+} from "./recording-window-store";
+import { resetVoicePipForTest } from "../chat/voice-mode/voice-pip";
 import { subscribeVoiceMediaPolicy } from "./use-voice-media-policy";
 import {
   VoiceCapabilitiesContext,
@@ -25,16 +30,21 @@ import {
 } from "./voice-control-context";
 import { VoiceKeyDialog } from "./voice-key-dialog";
 
-vi.mock("./recording-window-store", () => ({ openRecordingWindow: vi.fn() }));
-vi.mock("../chat/voice-mode/voice-pip", () => ({
-  closeVoicePip: vi.fn(),
-  openVoicePip: vi.fn(async () => undefined),
-}));
-
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  resetRecordingWindowForTest();
+  resetVoicePipForTest();
 });
+
+/** Records every Recording window state the page publishes. */
+function RecordingWindowProbe({ seen }: { seen: RecordingWindowState[] }) {
+  const state = useRecordingWindow();
+  useEffect(() => {
+    seen.push(state);
+  }, [seen, state]);
+  return null;
+}
 
 const missing = { source: "none" as const, can_save: true };
 const noKeys: TeamHubVoiceMediaPolicy = {
@@ -141,6 +151,7 @@ describe("Recording without a Soniox key", () => {
         return { source: "stored", can_save: true };
       });
     const selectTargetRoom = vi.fn(async () => undefined);
+    const recordingWindow: RecordingWindowState[] = [];
     renderWithRuntime(
       runtime,
       <VoiceWorkspace initial={noKeys} selectTargetRoom={selectTargetRoom}>
@@ -148,6 +159,7 @@ describe("Recording without a Soniox key", () => {
           anotherMeRoomId="another-me"
           tenantId="tenant-northstar"
         />
+        <RecordingWindowProbe seen={recordingWindow} />
       </VoiceWorkspace>,
     );
     const entry = screen.getByRole("button", { name: "Meetings" });
@@ -158,8 +170,18 @@ describe("Recording without a Soniox key", () => {
       target: { value: " soniox-key " },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "Save key" }));
-    await waitFor(() => expect(openRecordingWindow).toHaveBeenCalledOnce());
-    expect(openRecordingWindow).toHaveBeenCalledWith({ autoStart: true });
+    const closed = {
+      open: false,
+      minimized: false,
+      autoStart: false,
+      ending: false,
+    };
+    await waitFor(() =>
+      expect(recordingWindow).toEqual([
+        closed,
+        { ...closed, open: true, autoStart: true },
+      ]),
+    );
     expect(selectTargetRoom).toHaveBeenCalledWith("another-me");
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(saves).toBe(1);

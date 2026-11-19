@@ -25,7 +25,7 @@ func TestAgentCLIRechecksAuthorityAfterBusinessLock(t *testing.T) {
 			invocation := "agent-invocation-sha256:" + strings.Repeat("c", 64)
 			key := "agent:actor_acme_official|createRoutine:" + roomID + "|" + agentauth.IdempotencyKey("create_routine", invocation)
 			blocker, pid := lockAgentCLICommit(t, ctx, env, key)
-			encoded, err := json.Marshal(map[string]any{"invocation_id": invocation, "name": "Current authority", "instruction": "Write a note", "schedule": map[string]any{"kind": "every_n_hours", "interval_hours": 4}})
+			encoded, err := json.Marshal(map[string]any{"invocation_id": invocation, "name": "Current authority", "instruction": "Write a note", "schedule": map[string]any{"kind": "every_n_minutes", "interval_minutes": 240}})
 			if err != nil {
 				t.Fatal(err)
 			}

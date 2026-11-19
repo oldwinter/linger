@@ -16,6 +16,14 @@ interface CloseEvent {
   reason: string;
 }
 
+// The deadline tests wait for a held validation to time out; a short deadline
+// proves the same close without waiting for the production default. The
+// queue-full head's deadline starts before the test's window to queue 129
+// frames (which takes about 10 ms), so it keeps a margin over that window.
+const authorizationDeadlineMs = 1_000;
+const queueFullWindowMs = 1_000;
+const queueFullAuthorizationDeadlineMs = 1_500;
+
 describe("Document Runtime mutation queue", () => {
   it("keeps one rapidly editing client connected across a transient autosave lock", async () => {
     const fixture = await createDelayedValidationFixture(1_250);
@@ -111,7 +119,9 @@ describe("Document Runtime mutation queue", () => {
   });
 
   it("fails a queued mutation closed after its authorization deadline", async () => {
-    const fixture = await createBlockedValidationFixture();
+    const fixture = await createBlockedValidationFixture(
+      authorizationDeadlineMs,
+    );
     const clients: RealtimeClient[] = [];
     let activeClient: RealtimeClient | undefined;
     let queuedClient: RealtimeClient | undefined;
@@ -191,7 +201,9 @@ describe("Document Runtime mutation queue", () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
-    const fixture = await createBlockedValidationFixture();
+    const fixture = await createBlockedValidationFixture(
+      queueFullAuthorizationDeadlineMs,
+    );
     const clients: RealtimeClient[] = [];
     const closeEvents: Array<CloseEvent | undefined> = [];
     let resolveQueueFull!: (result: {
@@ -240,7 +252,7 @@ describe("Document Runtime mutation queue", () => {
 
       const rejected = await Promise.race([
         queueFull,
-        rejectAfter(2_000, "queue-full close"),
+        rejectAfter(queueFullWindowMs, "queue-full close"),
       ]);
       expect(rejected.event).toEqual({
         code: 1000,
@@ -271,7 +283,9 @@ describe("Document Runtime mutation queue", () => {
   }, 12_000);
 });
 
-async function createBlockedValidationFixture() {
+async function createBlockedValidationFixture(
+  mutationAuthorizationDeadlineMs?: number,
+) {
   const { bodies } = await memoryBodies();
   let observeFirstValidation!: () => void;
   const firstValidationObserved = new Promise<void>((resolve) => {
@@ -288,7 +302,9 @@ async function createBlockedValidationFixture() {
     await firstValidationRelease;
     return "available" as const;
   };
-  const realtime = await startRealtimeServer(bodies);
+  const realtime = await startRealtimeServer(bodies, {
+    mutationAuthorizationDeadlineMs,
+  });
   return {
     firstValidationObserved,
     validateRequests: bodies.referenceChecks,

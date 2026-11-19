@@ -57,11 +57,12 @@ const (
 	ModelInvokeFailed              = "failed"
 )
 
-// codexInvokeDisabledFeatures turns off every Codex 0.166 tool family a
-// one-shot call must not reach: shell and code execution, sub-agents, goals,
-// browsers, computer use, connected apps, plugins, hooks, image tools, tool
-// discovery, Skills and sleeping. An unknown name makes Codex refuse to start,
-// which is reported as runtime_incompatible.
+// codexInvokeDisabledFeatures turns off every Codex tool family a one-shot
+// call must not reach: shell and code execution, sub-agents, goals, browsers,
+// computer use, connected apps, plugins, hooks, image tools, tool discovery,
+// Skills and sleeping. Each name is passed as a features.<name>=false config
+// override rather than --disable so older Codex releases ignore features they
+// do not define instead of refusing to start.
 var codexInvokeDisabledFeatures = []string{
 	"shell_tool", "unified_exec", "code_mode_host", "multi_agent", "goals",
 	"browser_use", "browser_use_external", "browser_use_full_cdp_access",
@@ -148,7 +149,7 @@ type ModelInvokeResult struct {
 	Reason         string
 }
 
-// ModelInvoker runs one-shot model calls on the installed Codex or Claude CLI
+// ModelInvoker runs one-shot model calls on the installed Runtime
 // in a fresh temporary directory. It never injects the Linger CLI credential
 // and never loads the user's instructions, MCP servers, hooks or Skills.
 type ModelInvoker struct {
@@ -219,7 +220,7 @@ type modelInvocation struct {
 // Invoke runs one model call and always returns a result; failures are
 // classified into outcomes instead of returned as errors.
 func (m ModelInvoker) Invoke(ctx context.Context, request ModelInvokeRequest) ModelInvokeResult {
-	if request.RuntimeType != "codex" && request.RuntimeType != "claude" {
+	if !native.Supports(request.RuntimeType) {
 		return ModelInvokeResult{Outcome: ModelInvokeRuntimeUnavailable, Reason: "Runtime does not support model invocation"}
 	}
 	if m.Lookup == nil {
@@ -249,6 +250,9 @@ func (m ModelInvoker) invoke(ctx context.Context, request ModelInvokeRequest, in
 		if err := os.Mkdir(directory, 0o700); err != nil {
 			return ModelInvokeResult{Outcome: ModelInvokeFailed, Reason: "Prepare model invocation directory: " + err.Error()}
 		}
+	}
+	if request.RuntimeType == "pi" {
+		return invokePiModel(ctx, request, installed, work, scratch)
 	}
 	if request.Mode == ModelInvokeWorkspace {
 		if err := writeModelInvokeFiles(work, request.WorkspaceFiles); err != nil {
@@ -358,7 +362,7 @@ func (m ModelInvoker) sessionInvoke(ctx context.Context, request ModelInvokeRequ
 	environment["CODEX_HOME"] = home
 	args := append([]string{"--config", `web_search="disabled"`}, codexInvokeSandboxConfig(runtime.GOOS)...)
 	for _, feature := range codexInvokeDisabledFeatures {
-		args = append(args, "--disable", feature)
+		args = append(args, "--config", "features."+feature+"=false")
 	}
 	invokeCtx, cancel := context.WithTimeout(ctx, modelInvokeTimeout(request.Timeout))
 	defer cancel()
@@ -519,7 +523,7 @@ func codexModelInvokeArgs(mode, effort, work, schemaPath, lastPath string) []str
 		if mode == ModelInvokeWorkspace && codexWorkspaceKeptFeatures[feature] {
 			continue
 		}
-		args = append(args, "--disable", feature)
+		args = append(args, "-c", "features."+feature+"=false")
 	}
 	if schemaPath != "" {
 		args = append(args, "--output-schema", schemaPath)

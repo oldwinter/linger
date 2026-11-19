@@ -16,15 +16,7 @@ import {
   openLocalDocumentSession,
 } from "@/test/local-document-session";
 import { knowledgeHiddenBlockIds } from "./room-document-knowledge-presentation";
-
-vi.mock("../mermaid-preview-adapter", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../mermaid-preview-adapter")>()),
-  renderMermaidSvg: vi
-    .fn()
-    .mockResolvedValue(
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 120"><text>Outreach diagram</text></svg>',
-    ),
-}));
+import { serveMermaidRuntime } from "@/test/mermaid-runtime";
 
 const wikiMarkdown = `---
 okf_version: "0.2"
@@ -90,6 +82,12 @@ function parse(markdown: string) {
 }
 
 describe("Wiki knowledge reading projection", () => {
+  beforeEach(() =>
+    serveMermaidRuntime(
+      () =>
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 120"><text>Outreach diagram</text></svg>',
+    ),
+  );
   it.each(["Sources"])(
     "hides %s and its nested file blocks without changing the document",
     (heading) => {

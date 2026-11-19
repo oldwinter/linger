@@ -11,7 +11,11 @@ import { Suspense } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it } from "vitest";
 
-import { anotherMeQueryKey } from "@/features/rooms/room-queries";
+import {
+  anotherMeQueryKey,
+  teamHubIdentityQueryOptions,
+  teamHubTenantQueryOptions,
+} from "@/features/rooms/room-queries";
 import { RoomShell } from "@/features/rooms/room-shell";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubLocalComputerPage } from "@/features/teamhub/teamhub-types";
@@ -46,7 +50,7 @@ const newMac: LocalComputer = {
 
 describe("Local Computer gate", () => {
   it("covers the product until a Computer runs an AI app, then opens the Another Me Chat", async () => {
-    const fixture = renderShell(newMac);
+    const fixture = await renderShell(newMac);
 
     const gate = await screen.findByRole("dialog", {
       name: "Connect your computer",
@@ -81,7 +85,7 @@ describe("Local Computer gate", () => {
 
   it("lets a Computer with no ready app open Settings to load a local model", async () => {
     // Pi with no model yet: nothing can run Another Me until one is loaded.
-    const fixture = renderShell({
+    const fixture = await renderShell({
       ...newMac,
       runtimes: [
         {
@@ -97,12 +101,12 @@ describe("Local Computer gate", () => {
       name: "Connect your computer",
     });
     fireEvent.click(
-      await within(gate).findByRole("link", { name: "Local models" }),
+      await within(gate).findByRole("link", { name: "Settings › Models" }),
     );
 
     await waitFor(() =>
       expect(fixture.router.state.location.pathname).toBe(
-        "/t/tenant-northstar/settings/local-models",
+        "/t/tenant-northstar/settings/models",
       ),
     );
     expect(fixture.router.state.location.search).toBe(
@@ -124,12 +128,12 @@ describe("Local Computer gate", () => {
       }),
     );
     expect(fixture.router.state.location.pathname).toBe(
-      "/t/tenant-northstar/settings/local-models",
+      "/t/tenant-northstar/settings/models",
     );
   });
 
   it("keeps covering the rest of the product while Another Me is missing", async () => {
-    renderShell(newMac, "/t/tenant-northstar/rooms/room-1/chat");
+    await renderShell(newMac, "/t/tenant-northstar/rooms/room-1/chat");
     expect(
       await screen.findByRole("dialog", { name: "Connect your computer" }),
     ).toBeVisible();
@@ -137,7 +141,7 @@ describe("Local Computer gate", () => {
   });
 
   it("waits for the CLI login while no Computer is connected", async () => {
-    renderShell();
+    await renderShell();
 
     const gate = await screen.findByRole("dialog", {
       name: "Connect your computer",
@@ -152,7 +156,7 @@ describe("Local Computer gate", () => {
   });
 });
 
-function renderShell(
+async function renderShell(
   computer?: LocalComputer,
   path = "/t/tenant-northstar/rooms",
 ) {
@@ -182,6 +186,16 @@ function renderShell(
     .on("GET", "/v0/tenants/{tenantId}/local-computers", () => ({
       items: computer ? [computer] : [],
     }));
+  // Loading what RoomShell suspends on before rendering skips React's
+  // Suspense reveal throttle, which otherwise costs every test a fixed delay.
+  await Promise.all([
+    fixture.queryClient.ensureQueryData(
+      teamHubIdentityQueryOptions(runtime.client),
+    ),
+    fixture.queryClient.ensureQueryData(
+      teamHubTenantQueryOptions(runtime.client, "tenant-northstar"),
+    ),
+  ]);
   render(
     <QueryClientProvider client={fixture.queryClient}>
       <TeamHubRuntimeProvider runtime={runtime}>

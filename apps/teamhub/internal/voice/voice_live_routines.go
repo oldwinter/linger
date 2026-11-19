@@ -87,8 +87,14 @@ func (s *Service) createVoiceLiveRoutine(ctx context.Context, session voicelive.
 	if name == "" || instruction == "" {
 		return "", voicelive.ErrInvalid
 	}
-	cadence, ok := voicelive.RoutineCadence(args)
-	if !ok {
+	cadence, err := voicelive.RoutineCadence(args)
+	if err != nil {
+		if errors.Is(err, reminder.ErrIntervalInvalid) {
+			return voicelive.Output(map[string]string{
+				"error":  "invalid_schedule",
+				"detail": "interval_minutes must be a multiple of 10 between 10 and 10080 (7 days)",
+			}), nil
+		}
 		return voicelive.ErrorOutput("invalid_schedule"), nil
 	}
 	prompt := voicelive.NeedsConfirmation(voicelive.RoutineSummary(name, instruction, cadence, bool(args.AgentDoesIt)))

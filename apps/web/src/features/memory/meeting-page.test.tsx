@@ -351,7 +351,10 @@ describe("MeetingPage", () => {
     expect(
       screen.getByRole("button", { name: "Collapse Meetings" }),
     ).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("The meeting summary is ready.")).toBeVisible();
+    // The summary body renders from a lazy chunk after the article appears.
+    expect(
+      await screen.findByText("The meeting summary is ready."),
+    ).toBeVisible();
     expect(screen.queryByText("CRM Evidence Cache")).toBeNull();
     expect(screen.queryByText("Internal CRM evidence.")).toBeNull();
     expect(screen.queryByText("Client Candidates")).toBeNull();
@@ -423,7 +426,10 @@ describe("MeetingPage", () => {
       name: "Meeting summary",
     });
     const overview = screen.getByRole("region", { name: "Meeting overview" });
-    expect(summary).toHaveTextContent("Scoped the first release.");
+    // The summary body renders from a lazy chunk after the overview appears.
+    await waitFor(() =>
+      expect(summary).toHaveTextContent("Scoped the first release."),
+    );
     expect(overview).not.toHaveTextContent("Scoped the first release.");
     expect(overview).toHaveTextContent(
       "01Release plan00:01:00 – 00:05:00Open source by October.",
@@ -445,6 +451,8 @@ describe("MeetingPage", () => {
     const article = await screen.findByRole("article", {
       name: "Meeting summary",
     });
+    // The summary body renders from a lazy chunk after the article appears.
+    expect(await within(article).findByText("Raw session")).toBeVisible();
     for (const name of ["Raw session", "Session source"]) {
       expect(within(article).queryByRole("link", { name })).toBeNull();
       expect(within(article).getByText(name)).toBeVisible();

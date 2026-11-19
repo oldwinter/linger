@@ -40,12 +40,9 @@ export function useVoiceSessionLifecycle(
     refs.manuallyDisabledRef.current = true;
     if (refs.leavePromiseRef.current) return refs.leavePromiseRef.current;
     const session = refs.voiceSessionRef.current;
-    if (
-      !session &&
-      !refs.roomRef.current &&
-      !refs.enablePromiseRef.current &&
-      !refs.startPromiseRef.current
-    ) {
+    const starting = refs.startPromiseRef.current;
+    const enabling = refs.enablePromiseRef.current;
+    if (!session && !refs.roomRef.current && !enabling && !starting) {
       if (refs.mountedRef.current) setListenerStatus("disabled");
       return Promise.resolve();
     }
@@ -53,7 +50,10 @@ export function useVoiceSessionLifecycle(
     refs.startControllerRef.current?.abort();
     requests.cancel();
     refs.voiceSessionGenerationRef.current += 1;
-    refs.capturePollGenerationRef.current += 1;
+    // An existing save keeps the same Capture ID and its poll must survive
+    // the microphone cleanup for the next mode.
+    if (capture?.status !== "finalizing" && capture?.status !== "recovering")
+      refs.capturePollGenerationRef.current += 1;
     refs.voiceSessionRef.current = undefined;
     const mediaCleanup = cleanupMedia();
     refs.publisherLeaseRef.current?.();
@@ -73,7 +73,7 @@ export function useVoiceSessionLifecycle(
         setCapture(capture, { status: "finalizing", capture });
       }
     }
-    const operation = session
+    const released = session
       ? releaseVoiceSession(runtime.client, session, capture, (stopped) => {
           if (
             refs.mountedRef.current &&
@@ -83,6 +83,10 @@ export function useVoiceSessionLifecycle(
             setCapture(stopped);
         })
       : Promise.resolve();
+    const operation = Promise.all([
+      released,
+      Promise.allSettled([starting, enabling]),
+    ]).then(() => undefined);
     refs.leavePromiseRef.current = operation;
     const clear = () => {
       if (refs.leavePromiseRef.current === operation)

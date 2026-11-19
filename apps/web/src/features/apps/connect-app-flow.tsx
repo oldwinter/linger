@@ -71,6 +71,9 @@ export function useConnectAppFlow() {
       }
       void connection.connectOrResume(app.key, pending);
     },
+    reconnect(existing: TeamHubExternalConnection) {
+      connection.reconnect(existing);
+    },
   };
 }
 

@@ -5,19 +5,23 @@ info:
   description: >-
     Authenticated bidirectional Agent Runner desired state and Runtime operation
     protocol between Agent Service and a Local Computer Daemon. Every frame
-    carries protocol_version 2; the Computer and the Agent Service are built
-    from one commit, so the protocol has no feature negotiation. The only
-    capabilities a Computer declares are host features (browser_connection
-    and computer_permissions).
+    carries protocol_version 2. The only capabilities a Computer declares are
+    host features (browser_connection and computer_permissions). A desktop
+    upgrade can leave a newer Computer connected to an older Agent Service,
+    so a frame family added within protocol 2 is gated: runner.welcome's
+    service_features names each one the service accepts, and the Computer
+    sends nothing from a family the list leaves out. The service sends the
+    field only to a Computer release that decodes it, because an older
+    Computer rejects unknown welcome keys.
     The Daemon initiates the WebSocket connection; the service-issued
     connection epoch fences commands and responses after reconnect. The
     Daemon receives runner.reconciled only after the service has completed
     operation reconciliation; runner.welcome alone is not readiness.
     Messages come in coarse families distinguished by one field: prepare and
     prepared (target operation or provider), cancel (target operation or
-    provider), execute and executed (kind session_compact, model_invoke,
+    model_invoke), execute and executed (kind session_compact, model_invoke,
     computer_tool, skills_scan, browser_connect, computer_permission,
-    local_models, debug_history or
+    local_models, model_source, debug_history or
     cli_credential), agent_runner.state (state ready, removed or failed) and
     operation.input_result (outcome accepted, rejected or closed); the
     Operation family carries operation.start, operation.input, operation.ack,
@@ -37,11 +41,16 @@ info:
     shared_task_scope, and the Computer links the shared Task directory into
     the playground.
     execute with kind model_invoke is a one-shot model call on the Computer's
-    signed-in Codex or Claude CLI that has no Context, takes no execution slot
-    and is not in the Operation ledger. The Agent Service's model scheduler
+    Codex, Claude or Pi Runtime that has no Context, takes no execution slot
+    and is not in the Operation ledger. A Pi call runs on Pi's default model and
+    has no workspace tools. The service sends Pi calls only to a
+    Computer release that can decode them. The Agent Service's model scheduler
     decides when a call is sent; the Daemon runs every call it receives. Its
     optional session_key lets a Daemon answer the structured Codex calls of
     one session in one resident thread; the result is the same either way.
+    cancel with target model_invoke stops one running call so the scheduler
+    can swap it out; the call's executed model_invoke still follows. The
+    service sends it only to a Computer release that decodes it.
     execute with kind
     computer_tool runs native browser actions and retained Task output reads.
     TeamHub resolves the owner, Agent and Task scope; the Computer checks its
@@ -60,8 +69,9 @@ info:
     refresh). The Computer answers executed with outcome accepted or refused
     at once and supervises the long-running localmodels job itself; progress
     and outcomes reach the service only as runner.local_models snapshots,
-    which the Computer sends after runner.hello, after every library change,
-    and at most every 2 seconds while a download or load runs.
+    which the Computer sends after a runner.welcome whose service_features
+    names local_models, after every library change, and at most every 2
+    seconds while a download or load runs.
 x-frame-limits:
   maxBytes: 4194304
   maxDepth: 32

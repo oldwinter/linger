@@ -62,6 +62,8 @@ export type PersonalWikiSectionUpdate = "summary" | "items" | "generated";
  */
 export interface PersonalWikiSectionRule {
   update: PersonalWikiSectionUpdate;
+  /** Structured model input, rendered to the same persisted section text. */
+  authoring?: "profile" | "narrative" | "directions";
   limit?: number;
   entryLimit?: number;
   shown?: number;
@@ -172,9 +174,9 @@ const nodeTypes: readonly PersonalWikiNodeType[] = [
     ],
     fields: ["contact_name", "organization", "aliases", "sources"],
     sections: {
-      "Basic Info": summary,
-      "Relationship Context": summary,
-      "Collaboration Style": summary,
+      "Basic Info": { ...summary, authoring: "profile" },
+      "Relationship Context": { ...summary, authoring: "narrative" },
+      "Collaboration Style": { ...summary, authoring: "narrative" },
       "Needs And Interests": summary,
       Related: tracked,
       [ENTITY_SECTIONS.interactionHistory]: history,
@@ -192,8 +194,10 @@ const nodeTypes: readonly PersonalWikiNodeType[] = [
     fields: ["project_name", "project_slug", "aliases", "sources"],
     sections: {
       [ENTITY_SECTIONS.projectSummary]: summary,
-      // Its ##### Direction headings are the parts the registry reads.
-      [ENTITY_SECTIONS.projectDirections]: summary,
+      [ENTITY_SECTIONS.projectDirections]: {
+        ...summary,
+        authoring: "directions",
+      },
       Related: tracked,
       "Open Items": tracked,
       "Closed Items": tracked,
@@ -289,7 +293,7 @@ const SECTION_FORMAT_DESCRIPTIONS: Record<PersonalWikiSectionFormat, string> = {
 };
 
 /** Record types have no update rule. */
-function personalWikiSectionRule(
+export function personalWikiSectionRule(
   definition: PersonalWikiNodeType,
   heading: string,
 ): PersonalWikiSectionRule | undefined {
@@ -365,7 +369,7 @@ export function formatPersonalWikiNodeTypeInstruction(
     const entry = rule.entryLimit
       ? ` of at most ${rule.entryLimit} characters`
       : "";
-    return `${heading} (${rule.update}${rule.limit ? `, at most ${rule.limit} ${unit}${entry}` : ""})`;
+    return `${heading} (${rule.authoring ?? rule.update}${rule.limit ? `, at most ${rule.limit} ${unit}${entry}` : ""})`;
   });
   return `- /${definition.directory}/ (${definition.id})
   Required frontmatter fields: ${definition.fields.join(", ")}

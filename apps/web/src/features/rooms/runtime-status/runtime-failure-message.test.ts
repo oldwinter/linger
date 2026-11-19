@@ -49,6 +49,16 @@ describe("Runtime failure messages", () => {
     expect(message).toContain("TeamHub");
   });
 
+  it("says the Agent finished without sending its reply", () => {
+    const message = runtimeFailureMessage({
+      code: "reply_not_sent",
+      runtime_type: "pi",
+    });
+    expect(message).toContain("Pi:");
+    expect(message).toContain("finished without sending its reply");
+    expect(message).toContain("choose a stronger model");
+  });
+
   it("names a failure the Agent Service observed without a Runtime prefix", () => {
     expect(runtimeFailureMessage({ code: "interrupted" })).toMatch(
       /^The Run was interrupted before it finished/,

@@ -89,30 +89,26 @@ export async function bundleNodeServices(repo, output) {
     bundle(repo, output, entry, outputFile, {
       LINGER_PACKAGE_ROOT: JSON.stringify(packageRootFrom(outputFile)),
     });
-  for (const entry of NODE_SERVICES_ENTRIES)
-    record(
-      await nodeServices(
-        `apps/node-services/src/${entry}.ts`,
-        `dist/${entry}.js`,
-      ),
-    );
-  for (const entry of VOICE_ENTRIES)
-    record(
-      await bundle(
+  const metafiles = await Promise.all([
+    ...NODE_SERVICES_ENTRIES.map((entry) =>
+      nodeServices(`apps/node-services/src/${entry}.ts`, `dist/${entry}.js`),
+    ),
+    ...VOICE_ENTRIES.map((entry) =>
+      bundle(
         repo,
         output,
         `apps/voice-runtime/src/${entry}.ts`,
         `node_modules/@linger/voice-runtime/dist/${entry}.js`,
       ),
-    );
-  // Waits for TeamHub and restarts the service after a crash, as in
-  // development (scripts/dev-supervisor.ts --compiled).
-  record(
-    await nodeServices(
+    ),
+    // Waits for TeamHub and restarts the service after a crash, as in
+    // development (scripts/dev-supervisor.ts --compiled).
+    nodeServices(
       "apps/node-services/scripts/dev-supervisor.ts",
       "dist/supervisor.js",
     ),
-  );
+  ]);
+  for (const metafile of metafiles) record(metafile);
   const worker = "src/agent/observability/agent-log-file-worker.mjs";
   await mkdir(path.join(output, "dist/agent/observability"), {
     recursive: true,

@@ -1,6 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
 import { chmod, lstat, readdir } from "node:fs/promises";
-import net from "node:net";
 import { windowsPrivatePath } from "./windows-private.js";
 import {
   atomicPrivate,
@@ -8,6 +7,8 @@ import {
   readPrivate,
 } from "./private-files.js";
 import { LEGACY_PROJECT_PREFIX, lingerHome } from "./home.js";
+import { freePort, portFree } from "./ports.js";
+import { readLiveKitSettings } from "./native-livekit.js";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { parseEnv } from "node:util";
@@ -159,16 +160,6 @@ export function validSourceDescriptor(instance: Instance): boolean {
     source.ports.web === instance.port,
   );
 }
-async function available(port: number): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.once("error", reject);
-    server.listen(port, "127.0.0.1", () => {
-      const address = server.address() as net.AddressInfo;
-      server.close((error) => (error ? reject(error) : resolve(address.port)));
-    });
-  });
-}
 export async function initializeInstance(
   options: InstanceOptions,
 ): Promise<Instance> {
@@ -216,23 +207,18 @@ export async function initializeInstance(
             reserved.add(other.port);
             for (const port of Object.values(other.source?.ports ?? {}))
               reserved.add(port);
+            const livekit = await readLiveKitSettings(other.root).catch(
+              () => undefined,
+            );
+            if (livekit) reserved.add(livekit.httpPort).add(livekit.rtcPort);
           }
         }
         if (options.port !== undefined && reserved.has(options.port))
           throw new Error("Port is reserved by another instance");
-        let port: number;
-        try {
-          port = await available(
-            options.port ?? (reserved.has(3000) ? 0 : 3000),
-          );
-        } catch (error) {
-          if (options.port !== undefined)
-            throw new Error(`Port ${options.port} is occupied or unavailable`, {
-              cause: error,
-            });
-          port = await available(0);
-        }
-        while (reserved.has(port)) port = await available(0);
+        if (options.port !== undefined && !(await portFree(options.port)))
+          throw new Error(`Port ${options.port} is occupied or unavailable`);
+        const port =
+          options.port ?? (await freePort(reserved, { preferred: 3000 }));
         const releaseDir = options.releaseDir
           ? path.resolve(options.releaseDir)
           : "";

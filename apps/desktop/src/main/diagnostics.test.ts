@@ -313,7 +313,6 @@ describe("collectDiagnostics", () => {
           state: () => "ready",
           connection: () => "online",
           running: () => 2,
-          connectionError: () => undefined,
           failure: () => undefined,
         }),
         Object.assign(stubModule("Status"), {

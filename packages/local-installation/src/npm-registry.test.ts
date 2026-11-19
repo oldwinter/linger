@@ -1,9 +1,10 @@
+import { setTimeout as delay } from "node:timers/promises";
 import { afterEach, expect, it, vi } from "vitest";
 import {
   configuredNpmRegistry,
   npmRegistryEnvironment,
   npmTarballUrl,
-  rankNpmRegistries,
+  probeNpmRegistries,
 } from "./npm-registry.js";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -17,9 +18,35 @@ const slow = (bytes: number) =>
     }),
   );
 
+const timed = (totalBytes: number, durationMs: number, chunks = 4) =>
+  new Response(
+    new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const chunkSize = Math.ceil(totalBytes / chunks);
+        let sent = 0;
+        const stepMs = durationMs / chunks;
+        for (let i = 0; i < chunks && sent < totalBytes; i += 1) {
+          await delay(stepMs);
+          const size = Math.min(chunkSize, totalBytes - sent);
+          sent += size;
+          try {
+            controller.enqueue(new Uint8Array(size));
+          } catch {
+            return;
+          }
+        }
+        try {
+          controller.close();
+        } catch {
+          // Reader already cancelled when the round ended early.
+        }
+      },
+    }),
+  );
+
 it("puts the registry that delivers more of the probe first", async () => {
   const requested: string[] = [];
-  const order = await rankNpmRegistries(
+  const order = await probeNpmRegistries(
     new AbortController().signal,
     async (url, init) => {
       requested.push((url as URL | string).toString());
@@ -30,9 +57,9 @@ it("puts the registry that delivers more of the probe first", async () => {
     },
     50,
   );
-  expect(order).toEqual([
-    "https://registry.npmmirror.com/",
-    "https://registry.npmjs.org/",
+  expect(order).toMatchObject([
+    { registry: "https://registry.npmmirror.com/", bytes: 4096 },
+    { registry: "https://registry.npmjs.org/", bytes: 16 },
   ]);
   expect(requested.sort()).toEqual([
     "https://cdn.npmmirror.com/packages/pnpm/11.7.0/pnpm-11.7.0.tgz",
@@ -40,16 +67,67 @@ it("puts the registry that delivers more of the probe first", async () => {
   ]);
 });
 
-it("keeps the public registry first when nothing answers", async () => {
+it("prefers the faster registry when both finish the full tarball within the probe window", async () => {
+  const order = await probeNpmRegistries(
+    new AbortController().signal,
+    async (url) =>
+      (url as URL | string).toString().includes("npmmirror")
+        ? timed(32 * 1024, 15)
+        : timed(32 * 1024, 140),
+    400,
+  );
+  expect(order[0]?.registry).toBe("https://registry.npmmirror.com/");
+  expect(order[1]?.registry).toBe("https://registry.npmjs.org/");
+});
+
+it("stops a probe round early once one registry delivers the probe target", async () => {
+  const target = 1024 * 1024;
+  const startedAt = Date.now();
+  const order = await probeNpmRegistries(
+    new AbortController().signal,
+    async (url) => {
+      if ((url as URL | string).toString().includes("npmmirror"))
+        return new Response(new Uint8Array(target * 2));
+      return new Response(
+        new ReadableStream({ pull: () => new Promise(() => {}) }),
+      );
+    },
+    4_000,
+  );
+  expect(order[0]?.registry).toBe("https://registry.npmmirror.com/");
+  expect(Date.now() - startedAt).toBeLessThan(1_000);
+});
+
+it("recovers from a single-round hiccup through best-of-three confirmation", async () => {
+  let mirrorCalls = 0;
+  const order = await probeNpmRegistries(
+    new AbortController().signal,
+    async (url) => {
+      if ((url as URL | string).toString().includes("npmmirror")) {
+        mirrorCalls += 1;
+        return mirrorCalls === 1 ? timed(32 * 1024, 160) : timed(32 * 1024, 15);
+      }
+      return timed(32 * 1024, 90);
+    },
+    400,
+  );
+  expect(mirrorCalls).toBe(3);
+  expect(order[0]?.registry).toBe("https://registry.npmmirror.com/");
+});
+
+it("measures nothing when neither registry answers", async () => {
   expect(
-    await rankNpmRegistries(
+    await probeNpmRegistries(
       new AbortController().signal,
       async () => {
         throw new TypeError("fetch failed");
       },
       50,
     ),
-  ).toEqual(["https://registry.npmjs.org/", "https://registry.npmmirror.com/"]);
+  ).toMatchObject([
+    { registry: "https://registry.npmjs.org/", bytes: 0 },
+    { registry: "https://registry.npmmirror.com/", bytes: 0 },
+  ]);
 });
 
 it("respects a configured registry and points native downloads at the mirror", () => {

@@ -152,9 +152,17 @@ func TestConnectedAppsCatalogAndGenericConnection(t *testing.T) {
 		}
 	}
 
-	statusCode, _, body = env.request(alice, http.MethodPost, "/v0/external-connections", map[string]any{"app_key": "gmail"}, "connected-app-create")
+	desktopCallback := "http://127.0.0.1:43210/oauth/connector/" + strings.Repeat("a", 48)
+	statusCode, _, body = env.request(alice, http.MethodPost, "/v0/external-connections", map[string]any{"app_key": "gmail", "desktop_callback_url": "https://example.test/oauth"}, "invalid-desktop-callback")
+	if statusCode != http.StatusBadRequest || composioFake.callbackURL() != "" {
+		t.Fatalf("invalid desktop callback reached Composio: status=%d body=%s", statusCode, body)
+	}
+	statusCode, _, body = env.request(alice, http.MethodPost, "/v0/external-connections", map[string]any{"app_key": "gmail", "desktop_callback_url": desktopCallback}, "connected-app-create")
 	if statusCode != http.StatusCreated {
 		t.Fatalf("generic create status=%d body=%s", statusCode, body)
+	}
+	if got := composioFake.callbackURL(); got != desktopCallback {
+		t.Fatalf("desktop callback sent to Composio = %q, want %q", got, desktopCallback)
 	}
 	var connection struct {
 		ID         string `json:"id"`
@@ -184,7 +192,10 @@ func TestConnectedAppsCatalogAndGenericConnection(t *testing.T) {
 		t.Fatalf("unavailable app create status=%d body=%s", statusCode, body)
 	}
 
-	completeAuthorizations(t, env, alice)
+	statusCode, _, body = env.request(alice, http.MethodPost, "/v0/external-connection-completions", map[string]any{"connected_account_id": "ca_link_1"}, "")
+	if statusCode != http.StatusNoContent {
+		t.Fatalf("desktop completion status=%d body=%s", statusCode, body)
+	}
 	if !waitForExternalSource(func() bool {
 		statusCode, _, body = env.request(alice, http.MethodGet, "/v0/external-connections/"+connection.ID, nil, "")
 		if statusCode != http.StatusOK {

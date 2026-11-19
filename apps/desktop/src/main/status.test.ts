@@ -46,15 +46,15 @@ describe("summarizeStatus", () => {
     });
   });
 
-  it("never reports a Computer whose identity another Computer holds as healthy", () => {
-    expect(summarizeStatus({ ...base, identityConflict: true })).toEqual({
+  it("asks to reconnect on a Daemon Identity conflict", () => {
+    expect(
+      summarizeStatus({
+        ...base,
+        connection: "identity_conflict",
+      }),
+    ).toEqual({
       tone: "error",
-      label: "Identity Conflict · Set Up Again",
-    });
-    // An absent conflict leaves every other state as it was.
-    expect(summarizeStatus({ ...base, identityConflict: false })).toEqual({
-      tone: "online",
-      label: "Online · Idle",
+      label: "Computer Identity Conflict · Reconnect This Computer",
     });
   });
 });

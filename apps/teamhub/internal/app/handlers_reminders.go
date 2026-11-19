@@ -42,8 +42,12 @@ func (a *App) createRoomRoutine(c *gin.Context) {
 		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "Reminder input is invalid")
 		return
 	}
+	input, err := reminderCreateInput(request)
+	if a.writeReminderError(c, "create Reminder", err) {
+		return
+	}
 	caller := reminder.HumanCaller(currentPrincipal(c).Session.AccountID)
-	result, err := a.reminders.Create(c, caller, c.Param("roomId"), "", nil, reminderCreateInput(request))
+	result, err := a.reminders.Create(c, caller, c.Param("roomId"), "", nil, input)
 	if a.writeReminderError(c, "create Reminder", err) {
 		return
 	}
@@ -61,8 +65,12 @@ func (a *App) updateRoutine(c *gin.Context) {
 		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "Reminder input is invalid")
 		return
 	}
+	input, err := reminderUpdateInput(request, payload)
+	if a.writeReminderError(c, "update Reminder", err) {
+		return
+	}
 	caller := reminder.HumanCaller(currentPrincipal(c).Session.AccountID)
-	result, err := a.reminders.Update(c, caller, c.Param("routineId"), "", nil, reminderUpdateInput(request, payload))
+	result, err := a.reminders.Update(c, caller, c.Param("routineId"), "", nil, input)
 	if a.writeReminderError(c, "update Reminder", err) {
 		return
 	}
@@ -92,21 +100,25 @@ func (a *App) runRoutine(c *gin.Context) {
 	writeReminderResult(c, result)
 }
 
-func reminderCreateInput(request httpapi.RoutineCreateRequest) reminder.CreateInput {
+func reminderCreateInput(request httpapi.RoutineCreateRequest) (reminder.CreateInput, error) {
+	cadence, err := reminderCadence(request.Cadence)
+	if err != nil {
+		return reminder.CreateInput{}, err
+	}
 	input := reminder.CreateInput{
 		Name:        request.Name,
 		Instruction: request.Instruction,
-		Cadence:     reminderCadence(request.Cadence),
+		Cadence:     cadence,
 		Enabled:     request.Enabled,
 	}
 	if request.MentionActorId != nil {
 		mention := *request.MentionActorId
 		input.MentionActorID = &mention
 	}
-	return input
+	return input, nil
 }
 
-func reminderUpdateInput(request httpapi.RoutineUpdateRequest, payload []byte) reminder.UpdateInput {
+func reminderUpdateInput(request httpapi.RoutineUpdateRequest, payload []byte) (reminder.UpdateInput, error) {
 	input := reminder.UpdateInput{ExpectedRevision: request.ExpectedRevision}
 	if request.Name != nil {
 		input.Name = request.Name
@@ -115,7 +127,10 @@ func reminderUpdateInput(request httpapi.RoutineUpdateRequest, payload []byte) r
 		input.Instruction = request.Instruction
 	}
 	if request.Cadence != nil {
-		cadence := reminderCadence(*request.Cadence)
+		cadence, err := reminderCadence(*request.Cadence)
+		if err != nil {
+			return reminder.UpdateInput{}, err
+		}
 		input.Cadence = &cadence
 	}
 	if request.Enabled != nil {
@@ -124,7 +139,7 @@ func reminderUpdateInput(request httpapi.RoutineUpdateRequest, payload []byte) r
 	if mention, ok := mentionPatch(payload); ok {
 		input.MentionActorID = &mention
 	}
-	return input
+	return input, nil
 }
 
 func mentionPatch(payload []byte) (*string, bool) {
@@ -147,10 +162,10 @@ func mentionPatch(payload []byte) (*string, bool) {
 	return &mention, true
 }
 
-func reminderCadence(value httpapi.RoutineCadence) reminder.Cadence {
+func reminderCadence(value httpapi.RoutineCadence) (reminder.Cadence, error) {
 	cadence := reminder.Cadence{
 		Kind: string(value.Kind), Timezone: value.Timezone, Hour: value.Hour,
-		Minute: value.Minute, IntervalHours: value.IntervalHours, RunAt: value.RunAt,
+		Minute: value.Minute, RunAt: value.RunAt,
 	}
 	if value.Weekdays != nil {
 		cadence.Weekdays = make([]string, 0, len(*value.Weekdays))
@@ -158,7 +173,28 @@ func reminderCadence(value httpapi.RoutineCadence) reminder.Cadence {
 			cadence.Weekdays = append(cadence.Weekdays, string(day))
 		}
 	}
-	return cadence
+	switch value.Kind {
+	case httpapi.RoutineCadenceKindEveryNHours:
+		if value.IntervalMinutes != nil {
+			return reminder.Cadence{}, reminder.ErrInvalid
+		}
+		if value.IntervalHours == nil || *value.IntervalHours < 1 || *value.IntervalHours > 168 {
+			return reminder.Cadence{}, reminder.ErrIntervalInvalid
+		}
+		minutes := *value.IntervalHours * 60
+		cadence.Kind = "every_n_minutes"
+		cadence.IntervalMinutes = &minutes
+	case httpapi.RoutineCadenceKindEveryNMinutes:
+		if value.IntervalHours != nil {
+			return reminder.Cadence{}, reminder.ErrInvalid
+		}
+		cadence.IntervalMinutes = value.IntervalMinutes
+	default:
+		if value.IntervalHours != nil || value.IntervalMinutes != nil {
+			return reminder.Cadence{}, reminder.ErrInvalid
+		}
+	}
+	return cadence, nil
 }
 
 func reminderModel(value reminder.Reminder) httpapi.Routine {
@@ -186,7 +222,18 @@ func reminderModel(value reminder.Reminder) httpapi.Routine {
 func reminderCadenceModel(value reminder.Cadence) httpapi.RoutineCadence {
 	model := httpapi.RoutineCadence{
 		Kind: httpapi.RoutineCadenceKind(value.Kind), Timezone: value.Timezone,
-		Hour: value.Hour, Minute: value.Minute, IntervalHours: value.IntervalHours, RunAt: value.RunAt,
+		Hour: value.Hour, Minute: value.Minute, RunAt: value.RunAt,
+	}
+	if value.Kind == "every_n_minutes" && value.IntervalMinutes != nil {
+		if *value.IntervalMinutes%60 == 0 {
+			hours := *value.IntervalMinutes / 60
+			model.Kind = httpapi.RoutineCadenceKindEveryNHours
+			model.IntervalHours = &hours
+		} else {
+			minutes := *value.IntervalMinutes
+			model.Kind = httpapi.RoutineCadenceKindEveryNMinutes
+			model.IntervalMinutes = &minutes
+		}
 	}
 	if len(value.Weekdays) > 0 {
 		days := make([]httpapi.RoutineWeekday, 0, len(value.Weekdays))
@@ -209,6 +256,8 @@ func (a *App) writeReminderError(c *gin.Context, action string, err error) bool 
 		return false
 	}
 	switch {
+	case errors.Is(err, reminder.ErrIntervalInvalid):
+		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "Routine interval must be a multiple of 10 minutes between 10 and 10080 (7 days)")
 	case errors.Is(err, reminder.ErrInvalid):
 		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "Reminder input is invalid")
 	case errors.Is(err, reminder.ErrNotFound):

@@ -163,6 +163,37 @@ describe("model packages", () => {
     ).toBe(true);
   });
 
+  it("tries the registry of its download region first", async () => {
+    writeFileSync(
+      path.join(runtime.packageRoot, "models.json"),
+      JSON.stringify({
+        packages: {
+          "@livekit/local-inference-darwin-arm64": {
+            group: "voice",
+            version: "0.2.7",
+            integrity: integrity(turn),
+            tarballs: [
+              "https://registry.npmjs.org/turn-0.2.7.tgz",
+              "https://registry.npmmirror.com/turn-0.2.7.tgz",
+            ],
+          },
+        },
+      }),
+    );
+    const models = await load();
+    const fetch = vi.fn(
+      async (_url: string) => new Response(new Uint8Array(turn)),
+    );
+    await models.installModelPackages(
+      ["@livekit/local-inference-darwin-arm64"],
+      environment,
+      { fetch: fetch as typeof globalThis.fetch, region: "cn" },
+    );
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+      "https://registry.npmmirror.com/turn-0.2.7.tgz",
+    ]);
+  });
+
   it("shares one download between callers and waits a minute after a failure", async () => {
     const models = await load();
     let release!: () => void;
@@ -343,6 +374,51 @@ describe("features that need model packages", () => {
     expect(installModels).toHaveBeenCalledOnce();
     expect(spawnWorker).not.toHaveBeenCalled();
     await service.stop();
+  });
+
+  it("download the voice packages from the installer's region first", async () => {
+    writeFileSync(
+      path.join(runtime.packageRoot, "models.json"),
+      JSON.stringify({
+        packages: {
+          "@livekit/local-inference-linux-x64-gnu": {
+            group: "voice",
+            version: "0.2.7",
+            integrity: integrity(vad),
+            tarballs: [
+              "https://registry.npmjs.org/vad-0.2.7.tgz",
+              "https://registry.npmmirror.com/vad-0.2.7.tgz",
+            ],
+          },
+        },
+      }),
+    );
+    const { startVoiceService } = await import("../src/voice/service.js");
+    const download = vi.fn(
+      async (_url: string) => new Response(new Uint8Array(vad)),
+    );
+    vi.stubGlobal("fetch", download);
+    try {
+      const service = await startVoiceService({
+        logger: { log: vi.fn() } as unknown as JsonLogger,
+        http: { mount: () => () => {} } as unknown as HttpHost,
+        environment: {
+          ...environment,
+          SIMPLEX_REGION: "cn",
+          LINGER_SECRET_SEED: "model-packages-test-seed-0123456789abcdef",
+        },
+        fetch: async () => Response.json({}),
+        spawnWorker: vi.fn(),
+      });
+      await vi.waitFor(() =>
+        expect(download.mock.calls.map(([url]) => url)).toEqual([
+          "https://registry.npmmirror.com/vad-0.2.7.tgz",
+        ]),
+      );
+      await service.stop();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("log a failed background download and retry it when a key arrives", async () => {

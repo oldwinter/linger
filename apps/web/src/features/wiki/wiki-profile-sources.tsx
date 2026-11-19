@@ -8,6 +8,7 @@ import { AppLogo } from "@/features/apps/app-logo";
 import {
   activeExternalConnections,
   externalConnectionNeedsAttention,
+  accountIdentityText,
 } from "@/features/apps/connection-state";
 import {
   externalAppsQueryOptions,
@@ -66,27 +67,43 @@ export function WikiProfileSourcesRow({
         (connection) => connection.provider === app.key,
       );
       const active = activeExternalConnections(own);
-      if (active.length) {
-        return active.map((connection) => ({
-          app: app.display_name,
-          connection,
-          id: connection.id,
-          label: `${app.display_name} · ${connection.identity_label ?? "Connected account"} — connected`,
-          logoUrl: app.logo_url,
-          provider: app.key,
-          state: "connected",
-        }));
-      }
       const reconnect = own.some(externalConnectionNeedsAttention);
+      const reconnectSource: ProfileSource = {
+        app: app.display_name,
+        id: app.key,
+        label: `Reconnect ${app.display_name}`,
+        logoUrl: app.logo_url,
+        provider: app.key,
+        state: "reconnect",
+      };
+      if (active.length) {
+        // An account that needs reconnecting stays visible beside active ones.
+        return [
+          ...active.map(
+            (connection): ProfileSource => ({
+              app: app.display_name,
+              connection,
+              id: connection.id,
+              label: `${app.display_name} · ${accountIdentityText(app.key, connection.identity_label) ?? "Connected account"} — connected`,
+              logoUrl: app.logo_url,
+              provider: app.key,
+              state: "connected",
+            }),
+          ),
+          ...(reconnect ? [reconnectSource] : []),
+        ];
+      }
       return [
-        {
-          app: app.display_name,
-          id: app.key,
-          label: `${reconnect ? "Reconnect" : "Connect"} ${app.display_name}`,
-          logoUrl: app.logo_url,
-          provider: app.key,
-          state: reconnect ? "reconnect" : "connect",
-        },
+        reconnect
+          ? reconnectSource
+          : {
+              app: app.display_name,
+              id: app.key,
+              label: `Connect ${app.display_name}`,
+              logoUrl: app.logo_url,
+              provider: app.key,
+              state: "connect",
+            },
       ];
     })
     .sort(

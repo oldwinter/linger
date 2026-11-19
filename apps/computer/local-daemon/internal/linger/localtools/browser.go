@@ -26,6 +26,10 @@ func nativeDesktop() bool {
 // same everyday Chrome profile, below the MCP client's tool timeout.
 var profileWait = 40 * time.Second
 
+// profileRetry is how often a waiting task asks an idle Live call for the
+// profile again; a variable so tests can retry without a real second.
+var profileRetry = time.Second
+
 // liveProfileWait is shorter: the user is waiting on the line, and the voice
 // model answers that the browser is busy instead of falling silent.
 var liveProfileWait = 8 * time.Second
@@ -330,7 +334,7 @@ func (m *Manager) acquireChromeProfile(ctx context.Context, seat string) (func()
 	m.mu.Unlock()
 	waitCtx, cancel := context.WithTimeout(ctx, profileWait)
 	defer cancel()
-	retry := time.NewTicker(time.Second)
+	retry := time.NewTicker(profileRetry)
 	defer retry.Stop()
 	for {
 		select {

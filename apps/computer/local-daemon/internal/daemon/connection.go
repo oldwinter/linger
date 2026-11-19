@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	mathrand "math/rand/v2"
+	"slices"
 	"sort"
 	"time"
 
@@ -18,10 +19,6 @@ import (
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/protocol"
 	wire "github.com/simplexai-labs/linger/contracts-go/runnergateway"
 )
-
-// connectionErrorDaemonIdentityConflict is the Desktop status value for a
-// Gateway refusal caused by another Computer holding this Daemon Identity.
-const connectionErrorDaemonIdentityConflict = "daemon_identity_conflict"
 
 func (d *Daemon) runConnection(ctx context.Context, deviceIdentity transport.Identity) (err error) {
 	hello, err := d.connectionHello(ctx, deviceIdentity)
@@ -194,6 +191,13 @@ func (d *Daemon) handleConnectionCommand(ctx, connectionCtx context.Context, str
 		if err := d.handleModelInvoke(connectionCtx, stream, command); err != nil {
 			return err
 		}
+	case protocol.CommandModelInvokeCancel:
+		if !d.welcomeSeen || command.ConnectionEpoch != d.connectionEpoch {
+			return errors.New("Model invocation cancel uses a stale connection epoch")
+		}
+		if err := d.cancelModelInvoke(command); err != nil {
+			return err
+		}
 	case protocol.CommandOperationStart:
 		if !d.welcomeSeen {
 			return errors.New("operation uses a stale connection epoch")
@@ -283,6 +287,17 @@ func (d *Daemon) handleConnectionCommand(ctx, connectionCtx context.Context, str
 				slog.Warn("local_models.outcome_not_sent", "error", err)
 			}
 		}()
+	case protocol.CommandCapabilityModelSource:
+		if !d.welcomeSeen || command.ConnectionEpoch != d.connectionEpoch {
+			return errors.New("Model source command uses a stale connection epoch")
+		}
+		// Probing endpoints or mounting Bifrost can take seconds; Operation
+		// commands must not wait behind them.
+		go func() {
+			if err := d.handleModelSourceCommand(connectionCtx, stream, command); err != nil {
+				slog.Warn("model_source.outcome_not_sent", "error", err)
+			}
+		}()
 	case protocol.CommandOperationCancel:
 		if !dispatch.followOperation(command, func() error { return d.handleOperationCancel(command) }) {
 			if err := d.handleOperationCancel(command); err != nil {
@@ -320,12 +335,14 @@ func (d *Daemon) acceptRunnerWelcome(ctx, connectionCtx context.Context, stream 
 		d.prewarmOnce.Do(func() { go p.Prewarm(ctx) })
 	}
 	d.setGatewayState("connected")
-	d.setGatewayConnectionError("")
-	if err := d.activateStreamAndReplay(ctx, stream, command.ReconcileOperationIDs); err != nil {
+	localModels := slices.Contains(command.ServiceFeatures, serviceFeatureLocalModels)
+	if err := d.activateStreamAndReplay(ctx, stream, command.ReconcileOperationIDs, localModels); err != nil {
 		return err
 	}
 	go d.heartbeatLoop(connectionCtx, stream, command.HeartbeatIntervalMs)
-	d.refreshLocalModels(connectionCtx)
+	if localModels {
+		d.refreshLocalModels(connectionCtx)
+	}
 	return nil
 }
 
@@ -342,29 +359,6 @@ func (d *Daemon) setGatewayState(state string) {
 		d.reconciled = false
 	}
 	d.gatewayStateMu.Unlock()
-}
-
-// GatewayConnectionError names the last Gateway connection failure this release
-// can explain, or "" when the last attempt failed for another reason.
-func (d *Daemon) GatewayConnectionError() string {
-	d.gatewayStateMu.RLock()
-	defer d.gatewayStateMu.RUnlock()
-	return d.gatewayConnectionError
-}
-
-func (d *Daemon) setGatewayConnectionError(value string) {
-	d.gatewayStateMu.Lock()
-	d.gatewayConnectionError = value
-	d.gatewayStateMu.Unlock()
-}
-
-// connectionErrorFor names a Gateway refusal the Desktop app can explain, or ""
-// when the refusal has no status value of its own.
-func connectionErrorFor(err error) string {
-	if transport.IsDaemonIdentityConflict(err) {
-		return connectionErrorDaemonIdentityConflict
-	}
-	return ""
 }
 
 func (d *Daemon) recordWelcomedEpoch(epoch uint64) {
@@ -422,6 +416,9 @@ func (d *Daemon) clearDiagnosticsStream(stream transport.Stream) {
 	d.connectionMu.Lock()
 	if d.diagnosticsStream == stream {
 		d.diagnosticsStream = nil
+	}
+	if d.localModelsStream == stream {
+		d.localModelsStream = nil
 	}
 	d.connectionMu.Unlock()
 }
@@ -532,11 +529,17 @@ func (d *Daemon) replayRetainedEvents(ctx context.Context, stream transport.Stre
 	return nil
 }
 
-func (d *Daemon) activateStreamAndReplay(ctx context.Context, stream transport.Stream, operationIDs []string) error {
+// activateStreamAndReplay makes stream the live connection; localModels says
+// whether its Agent Service accepts runner.local_models.
+func (d *Daemon) activateStreamAndReplay(ctx context.Context, stream transport.Stream, operationIDs []string, localModels bool) error {
 	d.connectionMu.Lock()
 	defer d.connectionMu.Unlock()
 	d.diagnosticsStream = stream
 	d.operationStream = stream
+	d.localModelsStream = nil
+	if localModels {
+		d.localModelsStream = stream
+	}
 	return d.replayRetainedEvents(ctx, stream, operationIDs)
 }
 

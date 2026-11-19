@@ -127,6 +127,70 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/tenants/{tenantId}/owners/{ownerActorId}/local-computers/{computerId}/model-source": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ownerActorId: components["parameters"]["OwnerActorId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    /** Read the active model source and redacted BYOK configuration of an owned Local Computer */
+    get: operations["getLocalComputerModelSource"];
+    put?: never;
+    /** Switch the active model source on an owned Local Computer */
+    post: operations["applyLocalComputerModelSource"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/tenants/{tenantId}/owners/{ownerActorId}/local-computers/{computerId}/model-source/models": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ownerActorId: components["parameters"]["OwnerActorId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** List the models a BYOK endpoint serves, from an owned Local Computer without saving credentials */
+    post: operations["listLocalComputerByokModels"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/tenants/{tenantId}/owners/{ownerActorId}/local-computers/{computerId}/model-source/test": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ownerActorId: components["parameters"]["OwnerActorId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Verify a BYOK upstream endpoint from an owned Local Computer without saving credentials */
+    post: operations["testLocalComputerByok"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/tenants/{tenantId}/owners/{ownerActorId}/local-computers/{computerId}/browser-connection": {
     parameters: {
       query?: never;
@@ -676,7 +740,7 @@ export interface components {
      */
     ModelCallEffort: "low" | "medium" | "high";
     /**
-     * @description What the call is for. It sets the call's place in the queue of the Runtime it runs on, where an approval goes first and Runs come next; voice_ask and meeting_notes never queue. approval, voice_ask and meeting_notes have someone waiting, so they stop once the request is gone and never answer pending.
+     * @description An approval borrows its Run's place on the same endpoint or queues first. Recording questions and notes go before chat, can use the reserved place and swap out a running Run of lower priority. All three calls stop waiting when their caller leaves and never answer pending.
      * @enum {string}
      */
     ModelCallKind:
@@ -723,7 +787,7 @@ export interface components {
           [key: string]: unknown;
         };
       };
-      /** @description The budget of one Runtime attempt, each correction getting its own; omitted, the kind's default. */
+      /** @description The budget of one Runtime attempt from its start, each correction getting its own; waiting for a place does not count. Omitted, the kind's default. */
       timeoutMs?: number;
       /** @description Names the session a structured call belongs to. Codex answers one session's calls in one resident thread that keeps the instructions and earlier calls, so only the new input is uncached; a schema correction and a Claude call run on their own. */
       sessionKey?: string;
@@ -1388,6 +1452,11 @@ export interface components {
       /** @description Optional stable classification for this individual validation issue. */
       code?: string;
       reason: string;
+      /**
+       * Format: int64
+       * @description With code too_large, the largest size the field accepts, in bytes.
+       */
+      limit_bytes?: number;
     };
     Error: {
       /** @example ROOM_NOT_FOUND */
@@ -1511,6 +1580,97 @@ export interface components {
       outcome: "accepted" | "refused";
       /** @description Present only when refused. */
       refusal?: components["schemas"]["LocalModelActionRefusal"];
+    };
+    /**
+     * @description Active model source mode on a Local Computer.
+     * @enum {string}
+     */
+    ModelSourceMode: "local" | "subscription" | "byok";
+    /**
+     * @description Agent runtime harness driving turns on the Computer.
+     * @enum {string}
+     */
+    ModelSourceRuntime: "claude" | "codex" | "pi";
+    /** @enum {string} */
+    AgentReasoningEffort:
+      | "none"
+      | "low"
+      | "medium"
+      | "high"
+      | "xhigh"
+      | "max"
+      | "ultra";
+    /**
+     * @description Wire format the Computer found a BYOK upstream endpoint answers, trying the active Runtime's own format first.
+     * @enum {string}
+     */
+    ByokProtocol: "openai-chat" | "openai-responses" | "anthropic";
+    /** @description Redacted BYOK configuration metadata reported by the Computer. */
+    ByokSummary: {
+      configured: boolean;
+      protocol?: components["schemas"]["ByokProtocol"];
+      base_url?: string;
+      model_id?: string;
+      context_window?: number;
+      key_saved: boolean;
+    };
+    /** @description Active model source and redacted BYOK metadata on one Local Computer. */
+    ModelSourceStatus: {
+      mode: components["schemas"]["ModelSourceMode"];
+      runtime: components["schemas"]["ModelSourceRuntime"];
+      /** @description After a switch, the model the Computer's Agents run: the target model when the active Runtime offers it, else that Runtime's default. */
+      runtime_model: string;
+      reasoning_effort?: components["schemas"]["AgentReasoningEffort"];
+      gateway_url?: string;
+      byok: components["schemas"]["ByokSummary"];
+    };
+    /** @description Upstream endpoint configuration supplied by the Computer owner. The API key is never persisted in TeamHub or Agent Service; only the Local Computer stores it in a private 0600 file. */
+    ByokInput: {
+      base_url: string;
+      api_key?: string;
+      model_id: string;
+      context_window?: number;
+      reuse_saved_key?: boolean;
+    };
+    /** @description Internal command sent from TeamHub to Agent Service to switch a Computer's model source. */
+    ModelSourceApplyCommand: {
+      mode: components["schemas"]["ModelSourceMode"];
+      runtime?: components["schemas"]["ModelSourceRuntime"];
+      local_model_id?: components["schemas"]["LocalModelId"];
+      byok?: components["schemas"]["ByokInput"];
+    };
+    /** @description A BYOK endpoint address and key, enough to list its models. The API key is never persisted in TeamHub or Agent Service. */
+    ByokEndpointInput: {
+      base_url: string;
+      api_key?: string;
+      reuse_saved_key?: boolean;
+    };
+    /** @description A model a BYOK endpoint lists. */
+    ByokModel: {
+      id: string;
+      /** @description The endpoint's display name, when it differs from id. */
+      name?: string;
+      context_window?: number;
+    };
+    /** @description The models a BYOK endpoint lists, sorted by id. */
+    ByokModelList: {
+      /** @description The address that listed them. */
+      base_url: string;
+      models: components["schemas"]["ByokModel"][];
+    };
+    /** @description A BYOK endpoint to verify from the Computer for the Runtime that would serve it, which decides the order wire formats are tried. */
+    ByokTestRequest: {
+      runtime: components["schemas"]["ModelSourceRuntime"];
+      byok: components["schemas"]["ByokInput"];
+    };
+    /** @description Outcome of probing an upstream BYOK endpoint from the Local Computer. */
+    ByokTestResult: {
+      ok: boolean;
+      protocol: components["schemas"]["ByokProtocol"];
+      /** @description The address that answered, which can add or drop the /anthropic of a gateway that serves OpenAI under /v1 and Anthropic under /anthropic. */
+      base_url: string;
+      model_id: string;
+      context_window: number;
     };
     /** @description A Chrome profile directory name inside the user's Chrome data directory. */
     BrowserProfile: string;
@@ -1952,7 +2112,7 @@ export interface components {
         "application/json": components["schemas"]["WikiRefreshCandidateErrorResponse"];
       };
     };
-    /** @description Candidate generation encountered a retryable infrastructure or provider failure. The code WIKI_COMPUTER_OFFLINE means the Wiki owner's Computer is offline; TeamHub waits for it without spending a refresh attempt. The code WIKI_SERVICE_STOPPING means LLM Wiki stopped the generation because its process is restarting; TeamHub runs it again shortly, also without spending an attempt. */
+    /** @description Candidate generation encountered a retryable infrastructure or provider failure. The code WIKI_COMPUTER_OFFLINE means the Wiki owner's Computer is offline; TeamHub waits for it without spending a refresh attempt. The code WIKI_SERVICE_STOPPING means LLM Wiki stopped the generation because its process is restarting; TeamHub runs it again shortly, also without spending an attempt. The code WIKI_RUNTIME_UNAVAILABLE means the owner's Local Computer Runtime is not ready for model calls. */
     WikiOperationRetryable: {
       headers: {
         [name: string]: unknown;
@@ -2241,6 +2401,137 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["LocalModelActionAck"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  getLocalComputerModelSource: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ownerActorId: components["parameters"]["OwnerActorId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Current model source status without secret API keys. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ModelSourceStatus"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  applyLocalComputerModelSource: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ownerActorId: components["parameters"]["OwnerActorId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ModelSourceApplyCommand"];
+      };
+    };
+    responses: {
+      /** @description Updated model source status without secret API keys. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ModelSourceStatus"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  listLocalComputerByokModels: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ownerActorId: components["parameters"]["OwnerActorId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ByokEndpointInput"];
+      };
+    };
+    responses: {
+      /** @description The endpoint's models. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ByokModelList"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  testLocalComputerByok: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ownerActorId: components["parameters"]["OwnerActorId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ByokTestRequest"];
+      };
+    };
+    responses: {
+      /** @description BYOK verification result. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ByokTestResult"];
         };
       };
       400: components["responses"]["BadRequest"];
@@ -2966,7 +3257,7 @@ export interface operations {
         };
       };
       413: components["responses"]["WikiRefreshBadRequest"];
-      /** @description The generated candidate is invalid; do not retry the same refresh. */
+      /** @description The refresh cannot be completed without user action or new inputs; do not retry the same refresh. Codes WIKI_RUNTIME_INCOMPATIBLE and WIKI_RUNTIME_AUTH_REQUIRED indicate that the owner's Local Computer Runtime must be updated or signed in before a later refresh runs. */
       500: {
         headers: {
           [name: string]: unknown;

@@ -3,7 +3,7 @@ import {
   useQueryClient,
   useSuspenseQuery,
 } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
 import {
@@ -72,6 +72,9 @@ export function ComputersPage() {
   );
   const [removeComputerId, setRemoveComputerId] = useState<string | null>(null);
   const [showingDirectory, setShowingDirectory] = useState(false);
+  // Checked in the auto-open effect so a Back click before the passive effect
+  // flushes cannot have its directory navigation overwritten by a stale render.
+  const showingDirectoryRef = useRef(false);
   const desktop = useDesktopComputer();
   const { data: inventory } = useSuspenseQuery(
     localComputersQueryOptions(client, tenantId),
@@ -166,7 +169,7 @@ export function ComputersPage() {
   );
 
   useEffect(() => {
-    if (!openThisComputer) return;
+    if (!openThisComputer || showingDirectoryRef.current) return;
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current);
@@ -193,6 +196,7 @@ export function ComputersPage() {
   }
 
   function showDirectory() {
+    showingDirectoryRef.current = true;
     setShowingDirectory(true);
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
@@ -271,7 +275,7 @@ export function ComputersPage() {
               )}
               computer={selectedComputer}
               key={selectedComputer.computer_id}
-              localModelsHref={`/t/${tenantId}/settings/local-models?computer=${encodeURIComponent(selectedComputer.computer_id)}`}
+              localModelsHref={`/t/${tenantId}/settings/models?computer=${encodeURIComponent(selectedComputer.computer_id)}`}
               onConnect={openSetup}
               onOpenAgent={(actorId) => {
                 if (!openAgent.isPending) openAgent.mutate(actorId);

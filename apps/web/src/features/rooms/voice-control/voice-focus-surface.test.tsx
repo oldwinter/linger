@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import {
   VoiceControlContext,
@@ -829,7 +830,7 @@ describe("VoiceFocusSurface", () => {
 });
 
 function stubMicrophonePermission(result: Promise<PermissionStatus>) {
-  Object.defineProperty(navigator, "permissions", {
+  defineGlobalProperty(navigator, "permissions", {
     configurable: true,
     value: { query: vi.fn(() => result) },
   });

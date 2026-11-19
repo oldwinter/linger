@@ -1,17 +1,13 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { writeClipboardText } from "@/lib/clipboard";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import {
   fragmentDownloadFileName,
   htmlFragmentSizeMessageType,
 } from "./html-fragment-host";
 import { MessageHtmlFragment } from "./message-html-fragment";
-
-vi.mock("@/lib/clipboard", () => ({
-  writeClipboardText: vi.fn(async () => undefined),
-}));
 
 describe("MessageHtmlFragment", () => {
   it("inlines hosted HTML in a script-only sandbox iframe", () => {
@@ -57,6 +53,8 @@ describe("MessageHtmlFragment", () => {
 
   it("exposes copy and download actions without save-as-artifact", async () => {
     const html = '<svg xmlns="http://www.w3.org/2000/svg"></svg>';
+    const writeText = vi.fn(async (_text: string) => undefined);
+    defineGlobalProperty(navigator, "clipboard", { value: { writeText } });
     render(<MessageHtmlFragment html={html} title="Architecture diagram" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Widget actions" }));
@@ -74,7 +72,7 @@ describe("MessageHtmlFragment", () => {
       screen.getByRole("menuitem", { name: "Copy to clipboard" }),
     );
     await vi.waitFor(() => {
-      expect(writeClipboardText).toHaveBeenCalledWith(html);
+      expect(writeText).toHaveBeenCalledWith(html);
     });
   });
 

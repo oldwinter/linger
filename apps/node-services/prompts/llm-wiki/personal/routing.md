@@ -18,8 +18,9 @@ peer types:
   supplier or prospect they are engaging. A company, venue, place, product or
   brand that only comes up in conversation is not a Client, and neither is a
   product or service the Human merely uses or has an account with.
-- Contact: an external person the Human has an ongoing relationship with. A
-  public figure, author or artist who is only discussed is not a Contact.
+- Contact: a person the Human has an ongoing relationship with, including
+  internal colleagues and external contacts under the same evidence criteria.
+  A public figure, author or artist who is only discussed is not a Contact.
 - Project: a named or clearly bounded ongoing initiative, recurring
   workstream, product build, research effort, or operational program with
   goals, deliverables, ownership, open work, or repeated execution.

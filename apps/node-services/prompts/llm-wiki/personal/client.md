@@ -56,10 +56,12 @@ to the Human may be written without an organization when the evidence does
 not name it. Keep people and organizations without identity or relationship
 evidence out of durable files.
 
-An organization belongs in `clients/`; a person belongs in `contacts/`. In a
-bilateral commercial relationship, preserve the external party as the client
-and never create records for the represented human, Another Me, the provider's
-own organization, or internal colleagues. TeamHub transport labels and device
+An external client organization belongs in `clients/`; a person belongs in
+`contacts/`. Internal colleagues and external contacts qualify under the same
+identity and ongoing-relationship criteria. In a bilateral commercial
+relationship, preserve the external party as the client; do not create a
+Client page for the provider's own organization. Never create Client or Contact
+pages for the represented human or Another Me. TeamHub transport labels and device
 attribution do not establish those exclusions on their own.
 
 For each matched client or contact, compare the new session snapshot with the
@@ -123,14 +125,15 @@ existing durable record before writing. Maintain the record as a time series:
 ## Candidate Screening
 
 - The external party is the client in a bilateral commercial session;
-  do not label the provider's own organization, the represented human, Another
-  Me, or internal colleagues as clients or contacts.
+  do not label the provider's own organization as a client, or the represented
+  human or Another Me as clients or contacts. Internal colleagues are eligible
+  contacts; sharing the Human's organization is not a reason to exclude them.
 - Keep two discussed organizations separate. Preserve supported aliases rather
   than creating a second page. Never infer an organization from a person's
   name or a vague project. A formally attributed Room or source title is an
   identity signal only when it is paired with an explicit collaboration,
   quotation, pilot, delivery, or follow-up signal in that same session.
-- Create a contact only when a person's name and external relationship are
+- Create a contact only when a person's name and ongoing relationship are
   supported. A name alone, device/account attribution, or membership label is
   not enough, and neither is a single interaction the Human did not engage
   with. When the relationship is supported but the organization or formal
@@ -171,8 +174,8 @@ Preserve the distinction between relationship lifecycle and the Wiki page status
 
 ### Related
 
-List the client's people first: one entry per named external contact that the
-evidence supports (see Candidate Screening), linking that person's Contact
+List the client's people first, followed by internal collaborators: one entry
+per named contact that the evidence supports (see Candidate Screening), linking that person's Contact
 page as `[<name>](../contacts/<contact_slug>.md): <role and organization
 when supported>; <evidence-backed relationship context>
 [[source:<raw_ref>]]`. Create or update the linked Contact page in the same

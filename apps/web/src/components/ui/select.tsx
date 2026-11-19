@@ -99,7 +99,7 @@ export function Select({
         value={value}
       >
         <span
-          className={`min-w-0 flex-1 truncate ${selectedIndex >= 0 ? "" : "text-muted-foreground"}`}
+          className={`min-w-0 flex-1 truncate ${selectedIndex >= 0 ? "" : "text-app-placeholder"}`}
         >
           {options[selectedIndex]?.children ?? placeholder}
         </span>

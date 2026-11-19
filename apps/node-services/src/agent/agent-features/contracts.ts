@@ -86,6 +86,8 @@ export interface ContextInstructionFacts {
   readonly connectedApps: boolean;
   /** Keys of the apps with an account granted to this Agent, such as gmail. */
   readonly connectedAppKeys: readonly string[];
+  /** Keys of every catalog app the Human can connect, such as linear. */
+  readonly connectableAppKeys: readonly string[];
   /**
    * The placed Runtime model's context window is at most 128K tokens, so
    * every section uses its compact version.

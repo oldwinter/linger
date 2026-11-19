@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import {
   IPC,
   type ComputerStatus,
+  type DesktopUpdateState,
   type LingerDesktopApi,
 } from "../shared/api.js";
 
@@ -40,6 +41,28 @@ const api: LingerDesktopApi = {
   localAccount: {
     available: () => ipcRenderer.invoke(IPC.localAccountAvailable),
     signIn: () => ipcRenderer.invoke(IPC.localAccountSignIn),
+  },
+  update: {
+    getState: () => ipcRenderer.invoke(IPC.updateState),
+    onState: (callback) => {
+      const listener = (_event: unknown, state: DesktopUpdateState): void =>
+        callback(state);
+      ipcRenderer.on(IPC.updateStateEvent, listener);
+      return () => {
+        ipcRenderer.off(IPC.updateStateEvent, listener);
+      };
+    },
+    install: () => ipcRenderer.invoke(IPC.updateInstall),
+    check: () => ipcRenderer.invoke(IPC.updateCheck),
+  },
+  connectorOAuth: {
+    prepare: () => ipcRenderer.invoke(IPC.connectorOAuthPrepare),
+    onReturn: (callback) => {
+      const listener = (_event: unknown, account?: string): void =>
+        callback(account);
+      ipcRenderer.on(IPC.connectorOAuthReturn, listener);
+      return () => ipcRenderer.off(IPC.connectorOAuthReturn, listener);
+    },
   },
   ...(process.platform === "darwin"
     ? {

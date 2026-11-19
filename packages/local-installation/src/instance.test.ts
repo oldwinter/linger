@@ -4,6 +4,7 @@ import path from "node:path";
 import net from "node:net";
 import { parseEnv } from "node:util";
 import { afterEach, expect, it } from "vitest";
+import { prepareLiveKitSettings } from "./native-livekit.js";
 import {
   type Instance,
   initializeInstance,
@@ -177,6 +178,24 @@ it("does not assign another stopped instance explicit port", async () => {
     initializeInstance({ name: "second", home: root, port: first.port }),
   ).rejects.toThrow(/port/i);
 });
+it.each(["httpPort", "rtcPort"] as const)(
+  "keeps a stopped instance's LiveKit %s reserved when creating another instance",
+  async (key) => {
+    const root = await home();
+    const first = await initializeInstance({ name: "first", home: root });
+    const settings = await prepareLiveKitSettings(
+      first.root,
+      new Set([first.port]),
+    );
+    const settingsFile = path.join(first.root, "livekit.env");
+    const saved = await readFile(settingsFile, "utf8");
+    await expect(
+      initializeInstance({ name: "second", home: root, port: settings[key] }),
+    ).rejects.toThrow("Port is reserved by another instance");
+    expect(await loadInstance({ name: "second", home: root })).toBeUndefined();
+    expect(await readFile(settingsFile, "utf8")).toBe(saved);
+  },
+);
 it("isolates the Compose project when two homes use the same instance name", async () => {
   const firstHome = await mkdtemp(path.join(tmpdir(), "linger-first-"));
   const secondHome = await mkdtemp(path.join(tmpdir(), "linger-second-"));

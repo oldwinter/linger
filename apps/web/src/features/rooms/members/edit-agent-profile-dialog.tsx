@@ -149,7 +149,7 @@ export function EditAgentProfileDialog({
             <div className="mt-5 flex h-8 max-w-full items-center justify-center gap-0.5 rounded-md border border-transparent px-0.5 transition-[background-color,border-color,box-shadow] duration-150 hover:bg-muted/70 focus-within:border-foreground focus-within:bg-card focus-within:ring-2 focus-within:ring-ring">
               <input
                 aria-label="Agent name"
-                className="agent-profile-name-control h-7 w-auto max-w-[280px] shrink-0 border-0 bg-transparent px-1 text-center outline-none placeholder:text-muted-foreground focus-visible:ring-0"
+                className="agent-profile-name-control h-7 w-auto max-w-[280px] shrink-0 border-0 bg-transparent px-1 text-center outline-none placeholder:text-app-placeholder focus-visible:ring-0"
                 disabled={disabled}
                 maxLength={120}
                 onChange={(event) => setName(event.target.value)}

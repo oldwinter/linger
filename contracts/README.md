@@ -112,3 +112,35 @@ Progress and outcomes travel back only as snapshots:
    with runtime `pi` whose runtime model is the model's `pi_model`. localmodels
    reports `pi_model` for every model on the Computer, loaded or not, so an
    idle model still lists the Agents that will run on it.
+
+## Model source flow
+
+Which source a Computer's Agents use (local model, subscription or BYOK) is
+the `localmodels` tool's `<state>/model-source.json`. Schemas live in
+`openapi/components/model-source.yaml` and the `CapabilityModelSource*`
+definitions of `runner-gateway/envelope.schema.json`.
+
+Web → TeamHub → Agent Service → Computer → `localmodels source`:
+
+1. Web calls `getLocalComputerModelSource`, `switchLocalComputerModelSource`,
+   `testLocalComputerModelSource` or `listLocalComputerByokModels` under
+   `/v0/tenants/{tenantId}/local-computers/{computerId}/model-source`. Only the
+   Computer owner sees the source or acts on it.
+2. TeamHub calls Node Services `getLocalComputerModelSource`,
+   `applyLocalComputerModelSource`, `testLocalComputerByok` or
+   `listLocalComputerByokModels` under
+   `/v1/tenants/{tenantId}/owners/{ownerActorId}/local-computers/{computerId}/model-source`.
+3. Agent Service sends `execute` with kind `model_source` (`status`, `test`,
+   `models` or `apply`), only to Computer 0.54.0 or later; an older Computer,
+   or one whose installed `localmodels` tool lacks the `source` command, answers
+   `MODEL_SOURCE_UNSUPPORTED`. The Daemon runs
+   `localmodels source status|check|models|apply` and answers `executed`. A BYOK
+   API key travels in the request and the envelope only, reaches `localmodels`
+   on stdin, and is kept on the Computer in an owner-only file.
+
+A switch runs `apply` on the Computer first, then moves the owner's Agents on it
+to the Runtime and model it now serves, in one TeamHub transaction. An Agent
+with running work stays where it is unless the owner chose to end that work:
+work found before `apply` refuses the switch with `AGENT_HAS_ACTIVE_RUNS`, and
+work that started during it leaves only that Agent behind, answered with the
+same code after the others moved.

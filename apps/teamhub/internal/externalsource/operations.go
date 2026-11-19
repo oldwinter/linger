@@ -125,6 +125,9 @@ func (s *Service) CreateReauthorization(ctx context.Context, accountID, connecti
 	}
 	// A reauthorization whose Connect Link expired is replaced; one still in
 	// progress is reused, and its job is queued again in case it was lost.
+	// A reused link keeps the callback of the request that created it, so a
+	// desktop callback in this request is not applied; the job still settles
+	// the status.
 	if candidateExpired {
 		if _, err = s.endReauthorizationTx(ctx, tx, connectionID, candidate, "connect_link_expired", false); err != nil {
 			return Connection{}, err

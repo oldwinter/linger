@@ -322,6 +322,19 @@ async function assertPlaywrightPatched(root, packages) {
   }
 }
 
+// The daemon names this node_modules on Pi's module path, because a Pi
+// installed without its dependencies loads the extension through jiti only
+// from there.
+function assertPiExtensionLoader(packages) {
+  if (
+    !packages.some(
+      ({ name, path: relative }) =>
+        name === "jiti" && relative === "node_modules/jiti",
+    )
+  )
+    throw new Error("jiti was not staged at the top of node_modules");
+}
+
 export async function stageComputerTools(
   bundle,
   {
@@ -334,6 +347,7 @@ export async function stageComputerTools(
   await mkdir(root, { recursive: true });
   const packages = await stagePackages(root);
   await assertPlaywrightPatched(root, packages);
+  assertPiExtensionLoader(packages);
   await mkdir(path.join(root, "extensions"), { recursive: true });
   await cp(
     path.join(computerRoot, "tools/pi-mcp.mjs"),

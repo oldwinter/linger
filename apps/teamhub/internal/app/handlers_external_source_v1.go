@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/composio"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/externalsource"
 	httpapi "github.com/simplexai-labs/linger/contracts-go/teamhubpublic"
 )
@@ -77,7 +78,12 @@ func (a *App) createExternalConnection(c *gin.Context) {
 		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "External application connection request is invalid")
 		return
 	}
-	connection, err := a.externalSources.CreateConnection(c.Request.Context(), currentPrincipal(c).Session.AccountID, request.AppKey)
+	ctx, err := composio.WithDesktopOAuthCallback(c.Request.Context(), request.DesktopCallbackUrl)
+	if err != nil {
+		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "Desktop authorization callback is invalid")
+		return
+	}
+	connection, err := a.externalSources.CreateConnection(ctx, currentPrincipal(c).Session.AccountID, request.AppKey)
 	if errors.Is(err, externalsource.ErrManagedKeyForbidden) {
 		a.writeError(c, http.StatusForbidden, "COMPOSIO_CONNECTION_FORBIDDEN", "Composio denied this connection. Check the API key's permissions and confirm this app is available in your Composio project. If the key lacks Write All access, create a new key with Read All and Write All, then update it in Security.")
 		return
@@ -208,7 +214,12 @@ func (a *App) createExternalConnectionReauthorization(c *gin.Context) {
 		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "Reauthorization request is invalid")
 		return
 	}
-	connection, err := a.externalSources.CreateReauthorization(c.Request.Context(), currentPrincipal(c).Session.AccountID, c.Param("externalConnectionId"), request.ExpectedRevision)
+	ctx, err := composio.WithDesktopOAuthCallback(c.Request.Context(), request.DesktopCallbackUrl)
+	if err != nil {
+		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "Desktop authorization callback is invalid")
+		return
+	}
+	connection, err := a.externalSources.CreateReauthorization(ctx, currentPrincipal(c).Session.AccountID, c.Param("externalConnectionId"), request.ExpectedRevision)
 	if a.writeExternalSourceError(c, "create external connection reauthorization", err) {
 		return
 	}

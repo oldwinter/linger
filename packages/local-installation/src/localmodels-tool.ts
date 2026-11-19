@@ -3,7 +3,7 @@ import { createReadStream } from "node:fs";
 import { lstat, readdir, readFile, rename, rm, chmod } from "node:fs/promises";
 import path from "node:path";
 import { x as extract } from "tar";
-import { downloadVerified } from "./download.js";
+import { downloadInRegion, resolveRegion } from "./region.js";
 import {
   atomicPrivate,
   privateDirectory,
@@ -163,14 +163,18 @@ async function verify(
       stamps[name] = stamp;
     }
   };
+  // Recovery may move or remove this kit, so wait for all active reads even
+  // when one worker has already found a mismatched asset.
+  let failure: { reason: unknown } | undefined;
   await Promise.all(
     Array.from({ length: Math.min(CONCURRENCY, assets.length) }, () =>
       worker().catch((error: unknown) => {
         next = assets.length;
-        throw error;
+        failure ??= { reason: error };
       }),
     ),
   );
+  if (failure) throw failure.reason;
   return {
     python: await regular(directory, m.python),
     moduleDir: path.join(directory, m.moduleDir),
@@ -323,7 +327,8 @@ async function prepareLocalmodelsTool(
           ? "Repairing the model and Harness installation tool…"
           : "Preparing the model and Harness installation tool…",
       });
-      await downloadVerified(
+      await downloadInRegion(
+        home,
         {
           url: source.url,
           mirrors: source.mirrors,
@@ -427,6 +432,8 @@ export async function runLocalmodels(
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     ...options.env,
+    // localmodels downloads from the same region and does not probe again.
+    SIMPLEX_REGION: await resolveRegion(home, { signal: options.signal }),
     PYTHONPATH: tool.moduleDir,
     LOCALMODELS_STATE: state,
     PYTHONNOUSERSITE: "1",
@@ -517,49 +524,109 @@ export async function runLocalmodels(
   return result;
 }
 /**
- * For an uninstall, or an install over this release: stops the model
- * controller under <home>/runtime/model-services and the processes the stack
- * started, through the pinned kit. Nothing is downloaded: a home without that
- * kit has nothing it started. Both requests are made even when one fails; the
- * error names each that did not stop.
+ * Stops what the pinned kit runs for a home, through that kit: first every
+ * model the model library loaded (`library unload`), whose engines `stack
+ * down` leaves running, then, unless `keepController`, the model controller
+ * under <home>/runtime/model-services, and last the stack's processes and
+ * the gateway the tool started (`stack down`), the library's Bifrost
+ * included. An uninstall or an install over this release stops all of it; a
+ * quit keeps the controller, which belongs to the services that keep
+ * running. Nothing is downloaded: a home without that kit has nothing it
+ * started. Every step runs even when an earlier one fails; the error names
+ * each that did not stop.
  */
 export async function stopLocalmodels(
   home: string,
-  options: { signal: AbortSignal; log?: (message: string) => void },
+  options: {
+    signal: AbortSignal;
+    log?: (message: string) => void;
+    keepController?: boolean;
+  },
   dependencies: {
     run?: typeof runLocalmodels;
     installed?: (home: string) => Promise<boolean>;
   } = {},
 ): Promise<void> {
   if (!(await (dependencies.installed ?? hasPinnedTool)(home))) return;
-  const root = modelServicesRoot(home);
+  const run = dependencies.run ?? runLocalmodels;
+  const base = localmodelsBaseDirectory(home);
   const failed: string[] = [];
-  for (const args of [
-    ["foundations", "stop", "--root", root, "--json"],
-    ["stack", "down", "--json"],
-  ]) {
+  const step = async (args: string[], name = args.slice(0, 2).join(" ")) => {
     options.signal.throwIfAborted();
-    options.log?.(
-      `Stopping the local models (localmodels ${args[0]} ${args[1]}).`,
-    );
-    const result = await (dependencies.run ?? runLocalmodels)(home, args, {
+    options.log?.(`Stopping the local models (localmodels ${name}).`);
+    const result = await run(home, args, {
       signal: options.signal,
       timeoutMs: 30_000,
     }).catch((error: unknown) => {
       options.signal.throwIfAborted();
       return { code: 1, stdout: "", stderr: String(error) };
     });
-    if (result.code === 0) continue;
-    let reason = `exit ${result.code}`;
-    try {
-      const error = (JSON.parse(result.stdout) as { error?: unknown }).error;
-      if (typeof error === "string" && error) reason = error;
-    } catch {
-      // No report: the exit status is all there is.
-    }
-    failed.push(`localmodels ${args[0]} ${args[1]}: ${reason}`);
+    if (result.code !== 0)
+      failed.push(`localmodels ${name}: ${stopFailure(result)}`);
+    return result;
+  };
+  const status = await step([
+    "library",
+    "status",
+    "--base-dir",
+    base,
+    "--json",
+  ]);
+  if (status.code === 0) {
+    const loaded = loadedLibraryModels(status.stdout);
+    if (!loaded) failed.push("localmodels library status: no model list");
+    for (const model of loaded ?? [])
+      await step(
+        ["library", "unload", model, "--base-dir", base, "--json"],
+        `library unload ${model}`,
+      );
   }
+  if (!options.keepController)
+    await step([
+      "foundations",
+      "stop",
+      "--root",
+      modelServicesRoot(home),
+      "--json",
+    ]);
+  await step(["stack", "down", "--json"]);
   if (failed.length) throw new Error(failed.join("; "));
+}
+// The ids of the models `library status` reports loaded, or undefined when
+// its output is not a status report.
+function loadedLibraryModels(stdout: string): string[] | undefined {
+  try {
+    const models = (JSON.parse(stdout) as { models?: unknown }).models;
+    if (!Array.isArray(models)) return undefined;
+    return models.flatMap((model: { id?: unknown; state?: unknown }) =>
+      model?.state === "loaded" &&
+      typeof model.id === "string" &&
+      /^[a-z0-9][a-z0-9._-]*:[A-Za-z0-9._-]+$/.test(model.id)
+        ? [model.id]
+        : [],
+    );
+  } catch {
+    return undefined;
+  }
+}
+// A failed step's structured cause: the library's error code, the tool's
+// error, or its exit status.
+function stopFailure(result: { code: number; stdout: string }): string {
+  try {
+    const report = JSON.parse(result.stdout) as {
+      code?: unknown;
+      error?: unknown;
+    };
+    if (
+      typeof report.code === "string" &&
+      /^[A-Z][A-Z_]{0,63}$/.test(report.code)
+    )
+      return report.code;
+    if (typeof report.error === "string" && report.error) return report.error;
+  } catch {
+    // No report: the exit status is all there is.
+  }
+  return `exit ${result.code}`;
 }
 async function hasPinnedTool(home: string): Promise<boolean> {
   if (configuredDevTool()) return true;

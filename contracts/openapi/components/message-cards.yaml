@@ -416,7 +416,8 @@ components:
       additionalProperties: false
       description: >-
         The view of a connection_auth decision: the Connected App the Agent
-        needs. connection_id is the Connection the Human chose, once they
+        needs. account is the identity the Agent asked for, when it named
+        one. connection_id is the Connection the Human chose, once they
         approved.
       required: [app_key]
       properties:
@@ -424,6 +425,10 @@ components:
           type: string
           minLength: 1
           maxLength: 120
+        account:
+          type: string
+          minLength: 1
+          maxLength: 240
         connection_id:
           $ref: "./common.yaml#/components/schemas/Id"
     ProviderKeyDecisionView:

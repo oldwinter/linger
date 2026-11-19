@@ -21,6 +21,9 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
 
 - `internal/app`: routing, authentication, request decoding, response encoding,
   and error mapping. `app.go` and `feature*.go` build the domain services.
+- Connector authorization defaults to the public Web callback. For a desktop
+  request, pass only a validated one-time loopback address to Composio.
+  TeamHub verifies connection status independently under the signed-in Account.
 - `internal/<feature>`: business behavior, transactions and data access with
   package tests: `collaboration` (Human Rooms and Messages),
   `agentregistry` (Agents, templates, Skill bindings, Another Me),
@@ -36,13 +39,81 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
 
 ## Important Conventions
 
+- The Human's default Another Me Agent is named `Linger`. Changing the Human's
+  name updates the delegate description, never the Agent's display name.
+  A forward migration renames generated names; custom Agent names stay.
+  The instruction template describes the delegate's role without overriding
+  its display name. Template migrations preserve custom instructions and
+  advance only the profile configuration revision.
+- Gmail canvas drafts persist their source digest alongside the provider draft ID.
+  Preparing and executing a send confirmation both check the current authorized
+  canvas against that source; changed recipients, body, or attachments require a
+  refreshed draft and a new confirmation. Delivery status and link bookkeeping
+  do not change the source digest. Draft saves run one at a time per connection under a
+  `gmail_canvas_draft_leases` lease that holds no database connection during
+  the upload; a save whose lease expired leaves its draft unbound. A save
+  waits at most 30 seconds for the lease, then fails as retryable; a lease a
+  crashed process left blocks that connection's saves until it expires
+  (10 minutes).
+  Large MIME drafts use Gmail resumable uploads in bounded chunks through the
+  authenticated proxy, avoiding its request-body limit. Each chunk must be fully
+  acknowledged; transport failures do not replay a possibly completed write.
+- A Human sends a Gmail canvas from its chat card (`internal/mailcanvas`):
+  editing only saves the Document; `POST /v0/documents/{id}/mail` carries the
+  source digest of the email the card last showed and queues one River
+  delivery that uploads the draft and sends it, refusing a canvas that changed
+  since. Each canvas has one `mail_canvas_deliveries` row: a `failed` or
+  `unknown` delivery may be sent again or declined (an unknown one only after
+  the Human checked Gmail), while `declined` (Don't send) and `sent` are final.
+  A rejected or interrupted upload is `failed` (it sent nothing); only an
+  interrupted or unconfirmed send becomes `unknown`, which is never replayed
+  on its own. Sending an `unknown` delivery again whose earlier Gmail draft
+  is gone (404; Gmail deletes a draft once it is sent) fails with a
+  may-have-been-sent message and starts a new draft next time; other upload
+  errors keep the draft. A delivery that is in flight, `sent` or `unknown`
+  blocks Voice Live and Agent sends of that canvas, and an Agent's confirmed
+  send of a canvas-bound draft records a `sent` (or `unknown`) row, so the
+  card cannot send it again. `GET` reports `sent` whenever the header says so, and
+  `can_edit`; only editors may send or decline. While the latest content is
+  still rendering these routes answer 503 with `Retry-After`.
+- Live voice write tools that finish a send return a `next` asking the model
+  to say it was sent; a result without one can leave the voice silent.
+- Live voice writes need the user's yes from a turn after the question
+  (`voiceLiveConfirmed`), except `voicelive.DirectYesTools`: sending a Gmail
+  canvas, which is open beside the chat, runs when the user's own turn told
+  the model to send it and that turn neither asked about it nor wrote,
+  changed or attached to a canvas; otherwise the details are read back and
+  the yes comes in the user's next turn.
+
 - A Room permits 100 Routines: recurring ones count while they exist, and
   one-shot ones count until they fire. There is no separate one-shot limit.
+  Interval Routines store `interval_minutes` (10 to 10080 in 10-minute
+  increments), advance on a fixed `dueAt + k * interval` grid without drift or
+  catch-up, and skip overlapping scheduled fires while an undelivered quiet
+  wake or non-terminal trigger Message from the last 24 hours remains
+  unfinished. Agent API, CLI, and Live Voice standardize on `every_n_minutes` +
+  `interval_minutes` (and still accept `every_n_hours` + `interval_hours` on
+  input for compatibility with older CLI/Desktop builds); Web API keeps
+  `every_n_hours` + `interval_hours` for whole-hour intervals and uses
+  `every_n_minutes` + `interval_minutes` for non-whole-hour intervals.
 
 - Room input acceptance: Runtime State validates canonical
   conversation/targeted agent_runtime inputs atomically with Local Run and cursor.
   Document reads are live-latest and mutations retain CAS. CLI business
   operations use current Agent/resource authority, not Context/Run prerequisites.
+
+- An Agent writes only in its Context Room. To act in another Room, an
+  AnotherMe in its direct chat uses Room handoff (`internal/agentroomhandoff`,
+  `teamhub room handoff`): TeamHub posts a hidden `agent_runtime` message,
+  authored by the Human and mentioning the AnotherMe, in another live Room
+  where both are members, and it wakes the AnotherMe's Context there, which
+  then speaks for itself. Only a Run whose inputs carry a message the Human
+  wrote, or a card they decided, in the direct chat may hand off
+  (`X-TeamHub-Run-Id`); proactive wakes, Routines and Task callbacks may not,
+  because they often carry outside content. A refusal names its reason in an
+  error issue, which the CLI shows the Agent. The handoff body is hidden from the Web timeline but other
+  Agents in that Room can read it. Results come back through
+  `send_direct_message`.
 
 - Go generates only types for the contracts TeamHub serves. Mount each
   operation in the caller's route table in `internal/app/routes_*.go`;
@@ -154,6 +225,12 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   `notify_river_queue` so the job does not wait for the queue's poll. Such a
   loop is woken on commit and sleeps until its next due time, with a fallback
   of at least one minute; it never polls on a short fixed interval.
+- Voice recording timestamps come from a recorder clock distinct from PostgreSQL.
+  A recorder is bound to a persisted Capture epoch; normalize a reported start
+  earlier than the Capture's clock to that clock before confirming its timeline.
+  A missing start stays unconfirmed. Keep audio duration and transcript offsets
+  on the confirmed timeline, and enqueue an already-requested Stop when the
+  initial recorder becomes known, including after restart reconciliation.
 - Voice: `TEAMHUB_VOICE_MEDIA` (`on` by default) builds the voice media plane
   over LiveKit; `off`, a missing `LINGER_SECRET_SEED`, or missing ffmpeg keep
   voice off (the last two log `voice.media_unavailable`) without stopping
@@ -171,10 +248,23 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   `runtime_model` equals the model's `pi_model` exactly (loaded or not), limited to the
   Agents the reader sees in the Agent directory. Only the owner acts
   (`LOCAL_MODEL_ACTION_FORBIDDEN`), and only while the Computer is online by
-  the Computers page's 60-second rule (`LOCAL_COMPUTER_OFFLINE`). A connected
-  Computer that has not decided within the action's 10 seconds answers 504
+  the Computers page's 60-second rule (`LOCAL_COMPUTER_OFFLINE`). `POST .../local-models`
+  (`refreshLocalComputerModels`) forwards an empty-model `refresh` command through
+  the same owner/online gate, while `POST .../local-models/{modelId}/actions` acts on
+  one model (`refresh` stays invalid there). A connected Computer that has not
+  decided within the action's 10 seconds answers 504
   `LOCAL_MODEL_ACTION_UNCONFIRMED`: it may still act, and the snapshots show
   the outcome. The Computer's refusal codes map to `LocalModelsErrorCode` in
-  `internal/app/handlers_local_models.go`.
+  `internal/app/handlers_local_models.go` (and `LOAD_NO_ROOM` / `MEMORY_INSUFFICIENT`
+  on model-source switches map to `LOCAL_MODEL_NO_ROOM` in
+  `internal/app/handlers_model_source.go`).
+- A Computer's model source lives on the Computer
+  (`internal/app/handlers_model_source.go`); TeamHub never stores a BYOK key.
+  A switch checks for running work, runs `apply` on the Computer, then moves
+  the owner's Agents on it in one transaction
+  (`agentregistry.SwitchComputerRuntime`). Work found before `apply` refuses
+  the switch with `AGENT_HAS_ACTIVE_RUNS` unless the owner sent
+  `force_terminate`; work that starts during `apply` keeps only its Agent
+  behind, answered with the same code after the others moved.
 - Do not add write-only audit, event, or provenance tables. A new audit table
   needs a named product or compliance reader in the same pull request.

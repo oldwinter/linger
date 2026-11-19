@@ -78,14 +78,14 @@ export function MessageMeetingNotes({
   }
   return (
     <section
-      aria-label="Quick notes"
+      aria-label="Meeting summary"
       className="w-full max-w-[var(--chat-card-width)] overflow-hidden rounded-xl border border-app-border bg-app-surface shadow-[var(--chat-card-shadow)]"
     >
       {notes?.state === "ready" && notes.title && notes.sections ? (
         <div className="px-4 pt-3 pb-1">
           <p className="flex items-center gap-1 text-[11.5px] font-semibold uppercase tracking-wide text-app-muted">
             <Icon icon={SparklesIcon} size={12} />
-            Quick notes
+            Meeting summary
           </p>
           <h3 className="mt-1 text-[16px] font-semibold leading-6 text-app-ink [overflow-wrap:anywhere]">
             {notes.title}

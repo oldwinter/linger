@@ -17,6 +17,10 @@ import type {
   TeamHubVoiceLiveTurnMarker,
 } from "@/features/teamhub/teamhub-types";
 import { useOptionalVoiceControl } from "@/features/rooms/voice-control/voice-control-context";
+import {
+  closeRecordingWindow,
+  isRecordingWindowOpen,
+} from "@/features/rooms/voice-control/recording-window-store";
 import type { VoiceLiveLine } from "./live/voice-live-arbiter";
 import type { VoiceModeState } from "./voice-mode-controller";
 import type { VoiceModePresentation } from "./voice-mode-presentation";
@@ -86,7 +90,9 @@ interface VoiceModeSessionApi {
     target: VoiceModeSessionTarget,
     prefix: VoiceTurnPrefix,
     modes?: VoiceModeModes,
-  ) => void;
+    openWindow?: () => void | Promise<unknown>,
+  ) => Promise<void>;
+  startMeeting: (startRecording: () => Promise<void>) => Promise<void>;
 }
 
 interface VoiceModeLevelStore {
@@ -138,11 +144,28 @@ export function VoiceModeSessionProvider({
   const [session, setSession] = useState<VoiceModeSession>();
   const bindings = useRef(new Map<string, VoiceModeRoomBinding>());
   const engine = useRef<VoiceModeSessionEngine>(undefined);
+  const mounted = useRef(false);
   const [levelStore] = useState(createLevelStore);
-  useEffect(() => () => engine.current?.dispose(), []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      engine.current?.dispose();
+    };
+  }, []);
   const api = useMemo(() => {
     // One shared load, so quick repeated starts still create one engine.
     let loading: Promise<VoiceModeSessionEngine> | undefined;
+    let transition: Promise<void> | undefined;
+    const switchMode = (start: () => Promise<void>) => {
+      const operation = transition ? transition.then(start, start) : start();
+      transition = operation;
+      const clear = () => {
+        if (transition === operation) transition = undefined;
+      };
+      void operation.then(clear, clear);
+      return operation;
+    };
     const load = () =>
       (loading ??= import("./voice-mode-session-engine").then(
         ({ createVoiceModeSessionEngine }) =>
@@ -165,7 +188,9 @@ export function VoiceModeSessionProvider({
             bindings.current.delete(roomId);
         };
       },
-      exit: () => engine.current?.exit(),
+      exit: () => {
+        void engine.current?.exit();
+      },
       retry: () => engine.current?.retry(),
       setMuted: async (muted: boolean) => engine.current?.setMuted(muted),
       setSoundOff: (soundOff: boolean) => engine.current?.setSoundOff(soundOff),
@@ -177,8 +202,42 @@ export function VoiceModeSessionProvider({
         target: VoiceModeSessionTarget,
         prefix: VoiceTurnPrefix,
         modes?: VoiceModeModes,
+        openWindow?: () => void | Promise<unknown>,
       ) {
-        void load().then((loaded) => loaded.start(target, prefix, modes));
+        return switchMode(async () => {
+          const control = deps.current.hardware;
+          const status = control?.captureState.status;
+          if (
+            control &&
+            control.listenerStatus !== "standby" &&
+            (isRecordingWindowOpen() ||
+              status === "starting" ||
+              status === "recording" ||
+              status === "finalizing")
+          ) {
+            const stop = control.leavePage
+              ? control.leavePage()
+              : control.stopCapture();
+            closeRecordingWindow();
+            await stop;
+            if (!mounted.current) return;
+            const { closeVoicePip } = await import("./voice-pip");
+            if (!mounted.current) return;
+            closeVoicePip("recording");
+          }
+          if (!mounted.current) return;
+          const floated = openWindow?.();
+          const loaded = await load();
+          if (mounted.current) loaded.start(target, prefix, modes);
+          await floated;
+        });
+      },
+      startMeeting(startRecording: () => Promise<void>) {
+        return switchMode(async () => {
+          const stopped = engine.current?.exit({ switchingToMeeting: true });
+          if (stopped) await stopped;
+          if (mounted.current) await startRecording();
+        });
       },
       level: { get: levelStore.get, subscribe: levelStore.subscribe },
     };

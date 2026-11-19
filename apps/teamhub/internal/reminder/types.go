@@ -26,6 +26,9 @@ var (
 	ErrIdempotencyConflict = errors.New("reminder idempotency key reused")
 	ErrLimitReached        = errors.New("room reminder limit reached")
 	ErrMentionInvalid      = fmt.Errorf("%w: mention", ErrInvalid)
+	// ErrIntervalInvalid is a repeat interval outside 10 to 10080 minutes or not
+	// a multiple of 10 minutes.
+	ErrIntervalInvalid = fmt.Errorf("%w: interval", ErrInvalid)
 	// ErrTemplateAgentUnavailable is a template copy whose Agent is not active,
 	// so the copy cannot run or be enabled now.
 	ErrTemplateAgentUnavailable = fmt.Errorf("%w: template Agent unavailable", ErrConflict)
@@ -35,12 +38,14 @@ var (
 	ErrAppListener = errors.New("an app listener Routine can only be paused or resumed")
 )
 
+// Schedule is the Agent-facing Routine schedule shape.
 type Schedule struct {
-	Kind          string
-	Time          string
-	Timezone      string
-	Weekdays      []string
-	IntervalHours *int
+	Kind            string
+	Time            string
+	Timezone        string
+	Weekdays        []string
+	IntervalMinutes *int
+	IntervalHours   *int
 	// RunAt is the one moment a "once" Routine fires.
 	RunAt *time.Time
 }
@@ -52,14 +57,15 @@ type Authority struct {
 	Principal *agentcredential.Principal
 }
 
+// Cadence is the persisted Routine schedule shape.
 type Cadence struct {
-	Kind          string     `json:"kind"`
-	Timezone      string     `json:"timezone"`
-	Hour          *int       `json:"hour,omitempty"`
-	Minute        *int       `json:"minute,omitempty"`
-	Weekdays      []string   `json:"weekdays,omitempty"`
-	IntervalHours *int       `json:"interval_hours,omitempty"`
-	RunAt         *time.Time `json:"run_at,omitempty"`
+	Kind            string     `json:"kind"`
+	Timezone        string     `json:"timezone"`
+	Hour            *int       `json:"hour,omitempty"`
+	Minute          *int       `json:"minute,omitempty"`
+	Weekdays        []string   `json:"weekdays,omitempty"`
+	IntervalMinutes *int       `json:"interval_minutes,omitempty"`
+	RunAt           *time.Time `json:"run_at,omitempty"`
 }
 
 // Reminder is a Routine: it runs on Cadence, or, as an app listener, it has

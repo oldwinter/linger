@@ -1,12 +1,20 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi, type Mock } from "vitest";
+import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
+import {
+  createTestTeamHubRuntime,
+  type TestTeamHubRuntime,
+} from "@/test/teamhub-test-runtime";
 import { SharedRoomHistoryPage } from "./shared-room-history-page";
-const { read } = vi.hoisted(() => ({ read: vi.fn() }));
-vi.mock("@/features/teamhub/teamhub-runtime", () => ({
-  useTeamHubRuntime: () => ({ client: { roomHistory: { read } } }),
-}));
+let runtime: TestTeamHubRuntime;
+// The fixtures carry only the fields the page reads.
+let read: Mock<(...args: unknown[]) => Promise<unknown>>;
+beforeEach(() => {
+  runtime = createTestTeamHubRuntime();
+  read = vi.spyOn(runtime.client.roomHistory, "read") as unknown as typeof read;
+});
 const token = `room_share_${"a".repeat(43)}`;
 const message = {
   id: "message_1",
@@ -37,9 +45,11 @@ function open() {
         new QueryClient({ defaultOptions: { queries: { retry: false } } })
       }
     >
-      <MemoryRouter initialEntries={[`/shared-room-history#${token}`]}>
-        <SharedRoomHistoryPage />
-      </MemoryRouter>
+      <TeamHubRuntimeProvider runtime={runtime}>
+        <MemoryRouter initialEntries={[`/shared-room-history#${token}`]}>
+          <SharedRoomHistoryPage />
+        </MemoryRouter>
+      </TeamHubRuntimeProvider>
     </QueryClientProvider>,
   );
 }

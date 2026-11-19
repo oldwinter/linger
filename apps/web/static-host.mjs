@@ -21,7 +21,12 @@ export function createStaticHost({ root } = {}) {
   const staticRoot = root ?? fileURLToPath(new URL("./dist", import.meta.url));
   const serveFiles = sirv(staticRoot, {
     brotli: true,
-    etag: true,
+    // sirv's ETag is W/"size-mtime", and the packaged source unpacks every
+    // file at the epoch: two releases' index.html of one size share it, so
+    // revalidation kept answering 304 with the older page and its assets.
+    // Without one, every revalidation sends the current file; fingerprinted
+    // assets are immutable and never revalidate.
+    etag: false,
     extensions: [],
     gzip: true,
     setHeaders(response, pathname) {
@@ -242,17 +247,58 @@ if (isMainModule()) {
   // The production bundle calls TeamHub and the Document Runtime on the page
   // origin, so a host with these upstreams forwards them like the Vite proxy.
   const proxy = createServiceProxy(serviceProxyRoutes(process.env));
-  const server = createServer((request, response) => {
-    if (!proxy.request(request, response)) void staticHost(request, response);
-  });
-  server.on("upgrade", proxy.upgrade);
-
   // Native binds loopback only; the container image listens on every address.
-  server.listen(port, process.env.HOST || "0.0.0.0", () => {
-    process.stdout.write(
-      `Web static host listening on http://localhost:${port}\n`,
-    );
-  });
+  void listenOnHosts(
+    () => {
+      const server = createServer((request, response) => {
+        if (!proxy.request(request, response))
+          void staticHost(request, response);
+      });
+      server.on("upgrade", proxy.upgrade);
+      return server;
+    },
+    port,
+    process.env.HOST || "0.0.0.0",
+  ).then(
+    () =>
+      process.stdout.write(
+        `Web static host listening on http://localhost:${port}\n`,
+      ),
+    (error) => {
+      process.stderr.write(`Web static host cannot listen: ${error.message}\n`);
+      process.exit(1);
+    },
+  );
+}
+
+// `hosts` is a comma-separated address list. Native lists both loopback
+// addresses: `localhost` resolves to ::1 first on macOS, so a program on ::1
+// alone would otherwise answer for this origin. A computer without IPv6 has
+// no IPv6 address to take.
+export async function listenOnHosts(makeServer, port, hosts) {
+  const servers = [];
+  for (const host of hosts.split(",").map((value) => value.trim())) {
+    const server = makeServer();
+    try {
+      await new Promise((resolveListen, rejectListen) => {
+        server.once("error", rejectListen);
+        server.listen(port, host, () => {
+          server.off("error", rejectListen);
+          resolveListen();
+        });
+      });
+      servers.push(server);
+    } catch (error) {
+      if (
+        host.includes(":") &&
+        ["EADDRNOTAVAIL", "EAFNOSUPPORT"].includes(error.code)
+      )
+        continue;
+      for (const listening of servers) listening.close();
+      throw error;
+    }
+  }
+  return servers;
 }
 
 function isMainModule() {

@@ -30,6 +30,18 @@ const wikiComputerOfflineCode = "WIKI_COMPUTER_OFFLINE"
 // restarting process stopped.
 const wikiServiceStoppingCode = "WIKI_SERVICE_STOPPING"
 
+// wikiRuntimeIncompatibleCode is the LLM Wiki error code when the owner's
+// Local Computer Runtime rejects the model invocation as incompatible.
+const wikiRuntimeIncompatibleCode = "WIKI_RUNTIME_INCOMPATIBLE"
+
+// wikiRuntimeAuthRequiredCode is the LLM Wiki error code when the owner's
+// Local Computer Runtime needs sign-in before running model calls.
+const wikiRuntimeAuthRequiredCode = "WIKI_RUNTIME_AUTH_REQUIRED"
+
+// wikiRuntimeUnavailableCode is the LLM Wiki error code when the owner's
+// Local Computer Runtime is not ready to run model calls.
+const wikiRuntimeUnavailableCode = "WIKI_RUNTIME_UNAVAILABLE"
+
 var wikiCandidateIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 
 type HTTPWikiCandidateGenerator struct {
@@ -145,6 +157,15 @@ func (g *HTTPWikiCandidateGenerator) GenerateWikiCandidates(
 		}
 		if decodeErr == nil && failure.Error.Code == wikiServiceStoppingCode {
 			return WikiCandidateGenerationResult{}, fmt.Errorf("%w: Wiki candidate response status=%d", ErrWikiCandidateServiceStopping, response.StatusCode)
+		}
+		if decodeErr == nil && failure.Error.Code == wikiRuntimeIncompatibleCode {
+			return WikiCandidateGenerationResult{}, fmt.Errorf("%w: Wiki candidate response status=%d", ErrWikiCandidateRuntimeIncompatible, response.StatusCode)
+		}
+		if decodeErr == nil && failure.Error.Code == wikiRuntimeAuthRequiredCode {
+			return WikiCandidateGenerationResult{}, fmt.Errorf("%w: Wiki candidate response status=%d", ErrWikiCandidateRuntimeAuthRequired, response.StatusCode)
+		}
+		if decodeErr == nil && failure.Error.Code == wikiRuntimeUnavailableCode {
+			return WikiCandidateGenerationResult{}, fmt.Errorf("%w: Wiki candidate response status=%d", ErrWikiCandidateRuntimeUnavailable, response.StatusCode)
 		}
 		if decodeErr == nil && failure.Error.Disposition == nodeservicesinternal.Terminal {
 			// Do not include the remote message: it may contain provider/source data.

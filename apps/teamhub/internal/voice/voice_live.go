@@ -386,7 +386,7 @@ func (s *Service) sendVoiceLiveMessage(ctx context.Context, session voicelive.Se
 	case err != nil:
 		return "", err
 	}
-	return voicelive.Output(map[string]string{"status": "sent", "room": label}), nil
+	return voicelive.Output(map[string]string{"status": "sent", "room": label, "next": voicelive.SentNext}), nil
 }
 
 // appendVoiceLivePocketNote adds one line to the session Human's own Pocket
@@ -906,9 +906,10 @@ func (s *Service) voiceLiveDirectoryNames(ctx context.Context, session voicelive
 	return names
 }
 
-// voiceLiveConfirmed admits a write the model marks confirmed only when the
-// user heard exactly this prompt in an earlier turn of the call, minutes
-// ago, and uses that confirmation up. Otherwise the prompt is recorded as
+// voiceLiveConfirmed admits a write the model marks confirmed when the user
+// heard exactly this prompt in an earlier turn of the call, minutes ago, and
+// uses that confirmation up; a DirectYesTools write is also admitted from the
+// user's own turn when that turn asked nothing. Otherwise the prompt is recorded as
 // asked, so the user's yes in a later turn can confirm it.
 func (s *Service) voiceLiveConfirmed(ctx context.Context, session voicelive.Session, request teamhubinternal.VoiceLiveToolCall, confirmed bool, prompt string) (bool, error) {
 	digest := sha256.Sum256([]byte(prompt))
@@ -920,6 +921,29 @@ func (s *Service) voiceLiveConfirmed(ctx context.Context, session voicelive.Sess
 		})
 		if err != nil || used > 0 {
 			return used > 0, err
+		}
+		if voicelive.DirectYesTools[request.Name] {
+			// The user, in their own turn, told the model to do it: with no
+			// question of this turn still open, that is their yes.
+			asked, err := s.queries.CountVoiceLiveTurnConfirmations(ctx, store.CountVoiceLiveTurnConfirmationsParams{
+				VoiceSessionID: session.ID, TurnID: request.TurnId, Tool: request.Name,
+			})
+			if err != nil {
+				return false, err
+			}
+			// A canvas written or changed in this same turn has not been seen
+			// yet, so its details are read back for a yes first.
+			changed, err := s.queries.CountVoiceLiveTurnCanvasChanges(ctx, store.CountVoiceLiveTurnCanvasChangesParams{
+				VoiceSessionID: session.ID, TurnID: request.TurnId,
+			})
+			if err != nil {
+				return false, err
+			}
+			if asked == 0 && changed == 0 && request.TurnId != "" {
+				return true, s.queries.CreateUsedVoiceLiveConfirmation(ctx, store.CreateUsedVoiceLiveConfirmationParams{
+					ID: idgen.New("confirm"), VoiceSessionID: session.ID, TurnID: request.TurnId, Tool: request.Name, ArgumentsHash: hash,
+				})
+			}
 		}
 	}
 	return false, s.queries.CreateVoiceLiveConfirmation(ctx, store.CreateVoiceLiveConfirmationParams{

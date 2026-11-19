@@ -15,10 +15,11 @@ export const WEEKDAYS = [
 ] as const;
 
 export type CadenceKind = TeamHubRoutineCadence["kind"];
+export type EditableCadenceKind = Exclude<CadenceKind, "every_n_minutes">;
 
 export interface RoutineDraft {
   instruction: string;
-  kind: CadenceKind;
+  kind: EditableCadenceKind;
   time: string;
   weekdays: (typeof WEEKDAYS)[number][];
   timezone: string;
@@ -43,9 +44,16 @@ export function isScheduled(
   return routine.cadence !== undefined;
 }
 
+export function isEditableRoutine(routine: TeamHubScheduledRoutine): boolean {
+  return routine.cadence.kind !== "every_n_minutes";
+}
+
 export function draftFromRoutine(
   routine: TeamHubScheduledRoutine,
 ): RoutineDraft {
+  if (routine.cadence.kind === "every_n_minutes") {
+    throw new Error("Minute-interval routines can only be edited by an Agent.");
+  }
   const hour = String(routine.cadence.hour ?? 9).padStart(2, "0");
   const minute = String(routine.cadence.minute ?? 0).padStart(2, "0");
   return {
@@ -102,12 +110,16 @@ export function cadenceFromDraft(draft: RoutineDraft): TeamHubRoutineCadence {
 }
 
 export function cadenceLabel(cadence: TeamHubRoutineCadence) {
-  if (cadence.kind === "every_n_hours") return repeatLabel(cadence);
+  if (cadence.kind === "every_n_hours" || cadence.kind === "every_n_minutes")
+    return repeatLabel(cadence);
   return `${repeatLabel(cadence)} · ${cadenceClock(cadence)}`;
 }
 
 /** How often a Routine runs, without its time of day. */
 function repeatLabel(cadence: TeamHubRoutineCadence) {
+  if (cadence.kind === "every_n_minutes") {
+    return `Every ${cadence.interval_minutes ?? 10} min`;
+  }
   if (cadence.kind === "every_n_hours") {
     const hours = cadence.interval_hours ?? 1;
     return hours === 1 ? "Every hour" : `Every ${hours} hours`;
@@ -131,6 +143,8 @@ function repeatLabel(cadence: TeamHubRoutineCadence) {
 
 /** When in the day a Routine runs; a once Routine also names its date. */
 function cadenceClock(cadence: TeamHubRoutineCadence) {
+  if (cadence.kind === "every_n_minutes")
+    return `${cadence.interval_minutes ?? 10}m`;
   if (cadence.kind === "every_n_hours")
     return `${cadence.interval_hours ?? 1}h`;
   if (cadence.kind === "once") {

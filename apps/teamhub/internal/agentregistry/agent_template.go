@@ -174,11 +174,15 @@ func agentTemplateModel(row store.AgentTemplate) (httpapi.AgentTemplate, error) 
 			return httpapi.AgentTemplate{}, err
 		}
 	}
-	var routines []httpapi.AgentTemplateRoutine
+	var storedRoutines []reminder.TemplateRoutine
 	if len(row.Routines) > 0 {
-		if err := json.Unmarshal(row.Routines, &routines); err != nil {
+		if err := json.Unmarshal(row.Routines, &storedRoutines); err != nil {
 			return httpapi.AgentTemplate{}, err
 		}
+	}
+	routines := make([]httpapi.AgentTemplateRoutine, 0, len(storedRoutines))
+	for _, item := range storedRoutines {
+		routines = append(routines, agentTemplateRoutineModel(item))
 	}
 	model := httpapi.AgentTemplate{
 		TemplateId:        row.TemplateID,
@@ -197,6 +201,41 @@ func agentTemplateModel(row store.AgentTemplate) (httpapi.AgentTemplate, error) 
 		model.AvatarKey = &avatarKey
 	}
 	return model, nil
+}
+
+func agentTemplateRoutineModel(item reminder.TemplateRoutine) httpapi.AgentTemplateRoutine {
+	cadence := httpapi.RoutineCadence{
+		Kind: httpapi.RoutineCadenceKind(item.Cadence.Kind), Timezone: item.Cadence.Timezone,
+		Hour: item.Cadence.Hour, Minute: item.Cadence.Minute, RunAt: item.Cadence.RunAt,
+	}
+	if item.Cadence.Kind == "every_n_minutes" && item.Cadence.IntervalMinutes != nil {
+		if *item.Cadence.IntervalMinutes%60 == 0 {
+			hours := *item.Cadence.IntervalMinutes / 60
+			cadence.Kind = httpapi.RoutineCadenceKindEveryNHours
+			cadence.IntervalHours = &hours
+		} else {
+			minutes := *item.Cadence.IntervalMinutes
+			cadence.Kind = httpapi.RoutineCadenceKindEveryNMinutes
+			cadence.IntervalMinutes = &minutes
+		}
+	}
+	if len(item.Cadence.Weekdays) > 0 {
+		days := make([]httpapi.RoutineWeekday, 0, len(item.Cadence.Weekdays))
+		for _, day := range item.Cadence.Weekdays {
+			days = append(days, httpapi.RoutineWeekday(day))
+		}
+		cadence.Weekdays = &days
+	}
+	model := httpapi.AgentTemplateRoutine{
+		Key: item.Key, Name: item.Name, Instruction: item.Instruction,
+		Cadence: cadence, Enabled: item.Enabled,
+		CreatedByRole: httpapi.AgentTemplateRoutineCreatedByRole(item.CreatedByRole),
+	}
+	if item.MentionRole != nil {
+		role := httpapi.AgentTemplateRoutineMentionRole(*item.MentionRole)
+		model.MentionRole = &role
+	}
+	return model
 }
 
 func emptySlice[T any](values []T) []T {

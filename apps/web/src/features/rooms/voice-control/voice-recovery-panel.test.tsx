@@ -1,24 +1,33 @@
 import { fetchDouble } from "@/features/teamhub/teamhub-client-test-support";
 import {
   act,
-  cleanup,
   fireEvent,
-  render,
+  render as renderUi,
   screen,
 } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ReactElement } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createHttpTeamHubClient,
   type TeamHubClient,
 } from "@/features/teamhub/teamhub-client";
+import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubVoiceCapture } from "@/features/teamhub/teamhub-types";
+import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { VoiceRecoveryPanel } from "./voice-recovery-panel";
 
 let client: TeamHubClient;
 const transport = vi.fn<typeof fetch>();
-vi.mock("@/features/teamhub/teamhub-runtime", () => ({
-  useTeamHubRuntime: () => ({ client }),
-}));
+const render = (ui: ReactElement) => {
+  const runtime = { ...createTestTeamHubRuntime(), client };
+  return renderUi(ui, {
+    wrapper: ({ children }) => (
+      <TeamHubRuntimeProvider runtime={runtime}>
+        {children}
+      </TeamHubRuntimeProvider>
+    ),
+  });
+};
 const capture = (id = "capture-a"): TeamHubVoiceCapture => ({
   id,
   room_id: "room",
@@ -54,10 +63,8 @@ beforeEach(() => {
     fetchRequest: fetchDouble((url, init) => transport(url, init)),
   });
 });
-afterEach(() => {
-  cleanup();
-  vi.useRealTimers();
-});
+// src/test/setup.ts unmounts, runs the pending fake timers and frames, then
+// restores real timers; dropping them here would stall later files' frames.
 
 describe("transcript recovery request lifecycle", () => {
   it("unlocks a hung recovery request and lets the user retry", async () => {

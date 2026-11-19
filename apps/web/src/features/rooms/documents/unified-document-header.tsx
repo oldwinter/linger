@@ -7,6 +7,7 @@ import {
   TableOfContentsIcon,
   Tick02Icon,
   ViewIcon,
+  Mail01Icon,
 } from "@hugeicons/core-free-icons";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -49,6 +50,7 @@ import { DocumentActionsMenu } from "./room-document-actions-menu";
 import { RoomDocumentShareAction } from "./room-document-share-action";
 import type { UnifiedDocumentPageModel } from "./use-unified-document-page-model";
 import { useDocumentCommentsClose } from "./document-comment-draft-guard";
+import { MailCanvasStatus } from "./canvas/canvas-mail-status";
 
 interface UnifiedDocumentPageHeaderProps {
   documentContentRef: MutableRefObject<HTMLDivElement | null>;
@@ -102,6 +104,7 @@ export function UnifiedDocumentPageHeader({
       duplicatePending={duplicatePending}
       exportPending={exportPending}
       canvasSent={canvasSent}
+      mailCanvas={model.canvasTarget === "gmail"}
       isEditing={isEditing}
       onComments={() => {
         if (commentsOpen) requestCommentsClose(() => setCommentsOpen(false));
@@ -181,6 +184,7 @@ function UnifiedDocumentHeader({
   duplicatePending,
   exportPending,
   canvasSent,
+  mailCanvas,
   isEditing,
   onComments,
   onCopyLink,
@@ -208,6 +212,7 @@ function UnifiedDocumentHeader({
   duplicatePending: boolean;
   exportPending: boolean;
   canvasSent: boolean;
+  mailCanvas: boolean;
   isEditing: boolean;
   onComments: () => void;
   onCopyLink: () => void;
@@ -253,7 +258,10 @@ function UnifiedDocumentHeader({
       <RoomDocumentShareAction document={document} tenantId={tenantId} />
     ) : null;
   return (
-    <header className="room-document-header border-b border-app-border/60">
+    <header
+      className="room-document-header border-b border-app-border/60"
+      data-mail-canvas={mailCanvas || undefined}
+    >
       <div className="room-document-header-identity">
         {!sidebar ? (
           <>
@@ -271,7 +279,12 @@ function UnifiedDocumentHeader({
             </Button>
           </>
         ) : null}
-        {document ? (
+        {mailCanvas ? (
+          <span className="flex items-center gap-2 text-sm font-medium text-app-ink">
+            <Icon icon={Mail01Icon} size={16} />
+            Mail
+          </span>
+        ) : document ? (
           <div className="room-document-header-file">
             <span className="truncate text-sm font-semibold text-app-ink">
               {documentFileName(document)}
@@ -303,7 +316,17 @@ function UnifiedDocumentHeader({
         )}
       </div>
       <div className="room-document-header-actions">
-        {!isWikiPage ? presence : null}
+        {mailCanvas && session ? (
+          <span className="mr-2 text-xs text-app-muted">
+            <MailCanvasStatus
+              isEditing={isEditing}
+              sent={canvasSent}
+              session={session}
+            />
+          </span>
+        ) : !isWikiPage ? (
+          presence
+        ) : null}
         {document && !isWikiPage ? (
           <Button
             aria-label="Share"
@@ -332,7 +355,7 @@ function UnifiedDocumentHeader({
             <Icon icon={Comment01Icon} />
           </Button>
         ) : null}
-        {!sidebar ? (
+        {!sidebar && !mailCanvas ? (
           <Button
             aria-label="Table of contents"
             aria-pressed={tocOpen}
@@ -367,7 +390,8 @@ function UnifiedDocumentHeader({
         ) : null}
         {shareAction}
         {!sidebar ? actionsMenu : null}
-        {!isWikiPage &&
+        {!mailCanvas &&
+        !isWikiPage &&
         session &&
         document?.format === "blocknote" &&
         document.representation_format !== "html" ? (

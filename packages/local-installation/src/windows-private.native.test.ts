@@ -34,12 +34,12 @@ it.skipIf(process.platform !== "win32")(
     const junction = path.join(root, "link");
     await symlink(root, junction, "junction");
     await writeFile(path.join(root, "settings.json"), "{}");
-    await expect(windowsPrivatePath(junction, "directory")).rejects.toThrow(
-      /validation failed/,
-    );
+    await expect(
+      windowsPrivatePath(junction, "directory"),
+    ).rejects.toMatchObject({ reason: "UNSAFE_TYPE", path: junction });
     await expect(
       windowsPrivatePath(path.join(junction, "settings.json"), "file"),
-    ).rejects.toThrow(/validation failed/);
+    ).rejects.toMatchObject({ reason: "UNSAFE_PARENT_LINK" });
   },
 );
 it.skipIf(process.platform !== "win32")(
@@ -67,9 +67,10 @@ it.skipIf(process.platform !== "win32")(
       { input: file, timeoutMs: 30000 },
     );
     expect(changed.code).toBe(0);
-    await expect(windowsPrivatePath(file, "file")).rejects.toThrow(
-      /validation failed/,
-    );
+    await expect(windowsPrivatePath(file, "file")).rejects.toMatchObject({
+      reason: "SHARED_ACCESS",
+      path: file,
+    });
   },
 );
 it.skipIf(process.platform !== "win32")(
@@ -106,12 +107,12 @@ it.skipIf(process.platform !== "win32")(
     ).resolves.toBeUndefined();
     // A private target also owns future descendants, so broad inheritance on
     // the target remains forbidden even when it is inherit-only.
-    await expect(windowsPrivatePath(root, "directory")).rejects.toThrow(
-      /validation failed/,
-    );
+    await expect(windowsPrivatePath(root, "directory")).rejects.toMatchObject({
+      reason: "SHARED_ACCESS",
+    });
     await mutate("None");
-    await expect(windowsPrivatePath(child, "directory")).rejects.toThrow(
-      /validation failed/,
-    );
+    await expect(windowsPrivatePath(child, "directory")).rejects.toMatchObject({
+      reason: "UNSAFE_PARENT_ACCESS",
+    });
   },
 );

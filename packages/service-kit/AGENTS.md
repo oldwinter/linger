@@ -1,6 +1,7 @@
 # Service Kit: Shared TypeScript service helpers
 
-Small helpers shared by Web, Node services, and Voice Runtime.
+Small helpers shared by Web, Node services, Voice Runtime, and the local
+installation core.
 
 ## Common Commands
 
@@ -9,7 +10,9 @@ Small helpers shared by Web, Node services, and Voice Runtime.
 ## Structure
 
 - `src/index.ts`: isomorphic entry (`isRecord`, `isNodeError`, `asError`,
-  `displayText`, `sleep`, fetch test-double text helpers). It must not import
+  `displayText`, `sleep`, fetch test-double text helpers, and `sourceRegion`
+  / `orderByRegion`, which order mirrors of one download by the
+  `SIMPLEX_REGION` contract in `scripts/installs/README.md`). It must not import
   `node:` modules because the Web app bundles it.
 - `src/node.ts`: Node-only entry (`sha256Hex`, `createJsonLogger`,
   `serviceCredential`). `serviceCredential` takes the environment from its

@@ -32,13 +32,16 @@ take precedence.
 
 - Keep model/provider behavior behind the existing runtime interfaces. The only
   exception is `src/runtime-model-call.ts`: a stateless prompt on the owner's
-  Agent Runtime (Codex or Claude, the Runtime's default model) through the
+  Agent Runtime (Codex, Claude or Pi, using its default model) through the
   Daemon's one-shot `model.invoke`, for tool-less service work such as Agent
-  Memory, also used by Memory, by the LLM Wiki (workspace mode), and exposed
+  Memory, also used by Memory, by the LLM Wiki, and exposed
   to TeamHub as `POST /v1/model-calls`.
   It is not a Runtime turn and never creates a Context, Local Run, or
   Operation. Callers name an owner (or an Agent placement) and a reasoning
-  effort; never add a model name, gateway, or model environment variable.
+  effort; never add a model name, gateway, or model environment variable. Pi
+  stays on Pi, on whatever model Pi defaults to, and never falls back to
+  Codex or Claude. It serves structured and text calls without tools; workspace mode remains on
+  Codex and Claude.
 - TeamHub owns persisted Agent Runtime configuration, Execution Context,
   accepted input, Inbox cursor, Local Run, RuntimeSession, Runtime status,
   Local Computer and Agent placement state. Agent Runners and Operations live
@@ -66,6 +69,12 @@ take precedence.
   cancellation, and the only Runtime execution path. Do not add a second
   scheduler, execution store, or Runtime executor beside it, and do not
   restore TeamHub Run admission.
+- A Room Agent speaks only through TeamHub message writes, which the Computer
+  classifies as `message` activities (`reply-delivery.ts`). A Room Run whose
+  every write failed finishes failed with `reply_undelivered`. One that never
+  tried to write while a Human's Message that mentioned the Agent (a direct
+  chat always does) waits finishes failed with `reply_not_sent`. Its final
+  text is private scratch and is never posted for it.
 - Ordinary Room/Meta execution reads effective Agent configuration before a new
   Local Run. Skill saves do not activate idle Contexts. If versions changed,
   reuse graceful activation to resume the same native history; running/steered
@@ -87,6 +96,10 @@ take precedence.
   Agent Service stores no Skill bytes. TeamHub configuration still selects
   versions; cached bytes confer no authority. Do not reintroduce Run Tokens,
   Run grants, Run-scoped resource snapshots, staging, or checkpoint hooks.
+- Agent Memory files and the recall summary come from one published document
+  read at Context activation. The read-only files are inline Context View
+  content, retained with the View rather than backed by a shared directory.
+  Before-run synchronization neither rereads Agent Memory nor walks those files.
 - Local Runner Runtimes read collaboration resources through the
   standalone TeamHub CLI, authorized by current Agent identity on each request.
   Tenant workers, resource roots, file deltas, topology registration and
@@ -116,6 +129,13 @@ take precedence.
   `expires_at` (at most 30 seconds; the Daemon never answers after that
   deadline, so the outcome is unknown, not refused), or
   `LOCAL_COMPUTER_OFFLINE`.
+- A Computer's model source is the Daemon's too
+  (`runner-gateway/runner-local-capabilities.ts`, `modelSource`). Agent Service
+  sends `execute` `model_source` only to Computer 0.54.0 or later
+  (`FIRST_MODEL_SOURCE_COMPUTER_VERSION`), because an older one closes the
+  connection on a kind it cannot decode, and maps the Computer's refusals in
+  `executor/http/local-computer-http.ts`. A BYOK key stays inside the request
+  and the envelope; it is never logged, stored or returned.
 - Default unit, integration, and fixture smoke tests use deterministic adapters
   and do not call a live model provider. Explicitly named live suites such as
   `smoke:local-runner:live` may use an authenticated provider and must remain

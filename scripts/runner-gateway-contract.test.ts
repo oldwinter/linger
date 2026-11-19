@@ -1449,7 +1449,7 @@ describe("Runner Gateway contract", () => {
     }
   });
 
-  it("accepts one-shot model invocations on Codex or Claude only", () => {
+  it("accepts one-shot model invocations on Codex, Claude, and Pi", () => {
     expect(
       parseAgentToDaemonEnvelope({ ...modelInvoke, timeout_ms: 14_400_000 }),
     ).toMatchObject({ timeout_ms: 14_400_000 });
@@ -1468,8 +1468,18 @@ describe("Runner Gateway contract", () => {
       kind: "model_invoke",
       mode: "workspace",
     });
+    expect(
+      parseAgentToDaemonEnvelope({ ...modelInvoke, runtime_type: "pi" }),
+    ).toMatchObject({ runtime_type: "pi", mode: "structured" });
+    expect(
+      parseAgentToDaemonEnvelope({
+        ...withoutProperty(modelInvoke, "output_schema"),
+        runtime_type: "pi",
+        mode: "text",
+      }),
+    ).toMatchObject({ runtime_type: "pi", mode: "text" });
     for (const invalid of [
-      { ...modelInvoke, runtime_type: "pi" },
+      { ...modelInvoke, runtime_type: "unsupported" },
       { ...modelInvoke, protocol_version: "1.2" },
       { ...modelInvoke, mode: "agent" },
       { ...modelInvoke, reasoning_effort: "xhigh" },

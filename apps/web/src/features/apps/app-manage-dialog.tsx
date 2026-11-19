@@ -23,7 +23,12 @@ import {
   externalConnectionsQueryKey,
 } from "./connected-apps-queries";
 import { ConnectAppStatus, useConnectAppFlow } from "./connect-app-flow";
-import { establishedExternalConnections } from "./connection-state";
+import {
+  establishedExternalConnections,
+  externalConnectionNeedsAttention,
+  openPendingExternalConnection,
+  accountIdentityText,
+} from "./connection-state";
 
 export function AppManageDialog({
   app,
@@ -39,6 +44,11 @@ export function AppManageDialog({
   // Without a Composio key, Connect opens the key dialog on top of this one.
   const connectFlow = useConnectAppFlow();
   const listed = establishedExternalConnections(connections);
+  // Accounts that need reconnecting stay listed so the Human can repair them.
+  const rows = [
+    ...listed,
+    ...connections.filter(externalConnectionNeedsAttention),
+  ];
   const canConnect = connectFlow.canStart(app);
   const supportsAutoReminders = app.capabilities.includes(
     "proactive_reminders",
@@ -62,7 +72,12 @@ export function AppManageDialog({
                   : `Connect ${app.display_name}`
               }
               disabled={connectFlow.connection.isPending}
-              onClick={() => connectFlow.start(app)}
+              onClick={() =>
+                connectFlow.start(
+                  app,
+                  openPendingExternalConnection(connections, app.key),
+                )
+              }
               size="compact"
               tone="secondary"
             >
@@ -75,14 +90,24 @@ export function AppManageDialog({
             </Button>
           )}
           <ConnectAppStatus className="mt-3" flow={connectFlow} />
-          {listed.length ? (
+          {rows.length ? (
             <div className="mt-4 divide-y divide-border border-t border-border">
-              {listed.map((connection) => (
+              {rows.map((connection) => (
                 <ConnectionRow
+                  canReconnect={canConnect}
                   connection={connection}
                   key={connection.id}
                   supportsAutoReminders={supportsAutoReminders}
+                  reconnecting={connectFlow.connection.isPending}
                   onDisconnect={() => setDisconnecting(connection)}
+                  onReconnect={() =>
+                    app.supports_reauthorization === false
+                      ? connectFlow.start(
+                          app,
+                          openPendingExternalConnection(connections, app.key),
+                        )
+                      : connectFlow.reconnect(connection)
+                  }
                 />
               ))}
             </div>
@@ -100,16 +125,23 @@ export function AppManageDialog({
 }
 
 function ConnectionRow({
+  canReconnect,
   connection,
   supportsAutoReminders,
+  reconnecting,
+  onReconnect,
   onDisconnect,
 }: {
+  canReconnect: boolean;
   connection: TeamHubExternalConnection;
   supportsAutoReminders: boolean;
+  reconnecting: boolean;
+  onReconnect: () => void;
   onDisconnect: () => void;
 }) {
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
+  const needsReconnecting = externalConnectionNeedsAttention(connection);
   const statusCheck = useMutation({
     mutationFn: () =>
       client.createExternalConnectionStatusCheck(
@@ -130,10 +162,17 @@ function ConnectionRow({
     <div className="flex min-h-[58px] flex-wrap items-center gap-3 py-2.5">
       <div className="min-w-[180px] flex-1">
         <p className="truncate text-sm font-medium text-foreground">
-          {connection.identity_label ?? "Authorization in progress"}
+          {accountIdentityText(
+            connection.provider,
+            connection.identity_label,
+          ) ?? "Authorization in progress"}
         </p>
         <div className="mt-1 flex flex-wrap items-center gap-2">
-          <ConnectionStatus status={connection.status} />
+          {needsReconnecting ? (
+            <StatusPill tone="warning">Needs reconnecting</StatusPill>
+          ) : (
+            <ConnectionStatus status={connection.status} />
+          )}
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
@@ -153,6 +192,17 @@ function ConnectionRow({
               }
               size={14}
             />
+          </Button>
+        ) : null}
+        {needsReconnecting && canReconnect ? (
+          <Button
+            aria-label={`Reconnect ${connection.identity_label ?? connection.provider}`}
+            disabled={reconnecting}
+            onClick={onReconnect}
+            size="compact"
+            tone="secondary"
+          >
+            Reconnect
           </Button>
         ) : null}
         {!["disconnecting", "revoke_pending"].includes(connection.status) ? (
@@ -284,7 +334,10 @@ export function DisconnectConnectionDialog({
 
   return (
     <ModalDialog
-      description={connection.identity_label ?? connection.provider}
+      description={
+        accountIdentityText(connection.provider, connection.identity_label) ??
+        connection.provider
+      }
       onClose={onClose}
       size="md"
       title="Disconnect account?"

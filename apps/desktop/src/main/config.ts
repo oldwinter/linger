@@ -15,6 +15,13 @@ const workspaceGrant = z.object({
 });
 export type WorkspaceGrant = z.infer<typeof workspaceGrant>;
 
+const savedEnrollment = z.object({
+  computerId: z.string().min(1),
+  tenantId: z.string().min(1).optional(),
+  ownerActorId: z.string().min(1).optional(),
+});
+export type SavedEnrollment = z.infer<typeof savedEnrollment>;
+
 // Non-secret desktop settings. The Gateway credential is kept apart
 // (computer-credential.ts). Keys of older versions, such as sandboxMode,
 // are dropped on read.
@@ -24,13 +31,12 @@ const desktopConfig = z.object({
   computerId: z.string().optional(),
   tenantId: z.string().optional(),
   ownerActorId: z.string().optional(),
-  // The Computer a reset local server enrolls again: the next enrollment
-  // against that origin renews it instead of creating another. Never holds
-  // the credential.
-  renewalEnrollment: z
-    .object({ computerId: z.string().min(1), origin: z.string().url() })
-    .optional(),
-  identityConflict: z.boolean().optional(),
+  // The Daemon ID the active enrollment named; an enrollment that named none
+  // or another one is renewed once at start.
+  daemonId: z.string().optional(),
+  // Previous enrollments by server origin so re-enrolling after a local reset
+  // or server switch renews the same Computer ID for the same account.
+  savedEnrollments: z.record(z.string(), savedEnrollment).optional(),
   workspaceGrants: z.array(workspaceGrant).default([]),
   // Always-on mode: keep the system awake even when idle.
   preventSleep: z.boolean().default(false),

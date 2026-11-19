@@ -673,12 +673,23 @@ SELECT * FROM agent_local_runs
 WHERE context_key=sqlc.arg(context_key)::text AND status='running'
 LIMIT 1;
 
--- name: AgentRuntimeContextHasQueuedRun :one
-SELECT EXISTS(
-    SELECT 1 FROM agent_local_runs run
+-- name: NextAgentRunInputOrigins :many
+-- Match claim order without locking the Run or returning message bodies.
+WITH next_run AS (
+    SELECT run.run_id FROM agent_local_runs run
     WHERE run.context_key=sqlc.arg(context_key)::text AND run.status='queued'
       AND agent_document_run_claimable(run.run_id,run.context_key)
-)::boolean;
+    ORDER BY run.created_at, run.run_id LIMIT 1
+)
+SELECT DISTINCT (input.payload ? 'acceptedNotification')::boolean AS notification,
+       coalesce(input.payload->'acceptedNotification'->>'inboxId' LIKE 'taskmeta:%', false)::boolean AS task_inbox,
+       coalesce(msg.value->>'authorType', '')::text AS author_type,
+       coalesce(msg.value->>'messageKind', '')::text AS message_kind,
+       coalesce(msg.value->>'firedRoutine' = 'true', false)::boolean AS fired_routine
+FROM next_run
+JOIN agent_local_run_inputs relation ON relation.run_id=next_run.run_id AND relation.relation='initial'
+JOIN agent_runtime_inputs input ON input.context_key=relation.context_key AND input.input_id=relation.input_id
+LEFT JOIN LATERAL jsonb_array_elements(input.payload->'acceptedNotification'->'messages') AS msg(value) ON true;
 
 -- name: ClaimAgentLocalRun :one
 UPDATE agent_local_runs
@@ -1021,6 +1032,13 @@ WHERE computer_id=sqlc.arg(computer_id)::text
       )
   )
 RETURNING *;
+
+-- name: LockAgentRuntimeLocalComputerByDaemonID :one
+SELECT *
+FROM local_computers
+WHERE daemon_id=sqlc.arg(daemon_id)::text
+  AND status<>'removed'
+FOR UPDATE;
 
 -- name: DeletePendingAgentRuntimeLocalComputerEnrollments :exec
 DELETE FROM local_computer_enrollments

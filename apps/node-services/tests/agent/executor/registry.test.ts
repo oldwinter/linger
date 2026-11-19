@@ -3745,6 +3745,7 @@ describe("Execution Context AgentManager", () => {
         options?.renderDeveloperInstructions?.({
           connectedApps: false,
           connectedAppKeys: [],
+          connectableAppKeys: [],
           compactInstructions: false,
         }),
       ).not.toContain("Connected app writes");

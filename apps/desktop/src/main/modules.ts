@@ -18,8 +18,6 @@ export interface BusEvents {
   "computer.connection": [state: string];
   // Why the Computer service keeps exiting at start, or undefined once it ran.
   "computer.failed": [reason: string | undefined];
-  // The Gateway refused this computer's identity as another Computer's.
-  "computer.identity_conflict": [conflict: boolean];
   "computer.renamed": [];
   // The local server's installer reported new runtime or localmodels paths.
   "computer.runtime": [];
@@ -33,6 +31,8 @@ export interface BusEvents {
   "runtime.activity": [running: number];
   "runtime.state": [state: string];
   "server.changed": [serverUrl: string];
+  // The same server answers at another origin; enrollments follow it.
+  "server.moved": [from: string, to: string];
   "setup.open": [];
   "status.changed": [status: { tone: string; label: string }];
   "update.changed": [state: string];

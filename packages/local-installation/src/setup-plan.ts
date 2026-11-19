@@ -13,7 +13,7 @@ export type RuntimeChoice = Exclude<SetupChoice, "local-models">;
  * names one combination per runtime; "local-models" is the local source served
  * by Pi, the only runtime the local stack binds today.
  */
-export type ModelSource = "local" | "runtime";
+export type ModelSource = "local" | "runtime" | "byok";
 export interface SetupSelection {
   runtime: RuntimeChoice;
   modelSource: ModelSource;
@@ -26,7 +26,20 @@ export function setupSelection(
     ? { runtime: "pi", modelSource: "local" }
     : { runtime: choice, modelSource: "runtime" };
 }
-export type SetupReason = string;
+/**
+ * One upstream stack reason. Clients pick their copy by `code` and its counts;
+ * `message` is upstream diagnostic text for logs, never shown or matched on.
+ */
+export interface SetupReason {
+  code: string;
+  message: string;
+  /** On gpu-memory-required: the card other programs hold memory on. */
+  gpuIndex?: number;
+  /** Memory free now: that card's VRAM, or RAM on free-memory-required. */
+  freeBytes?: number;
+  /** The memory the install needs free, for the same resource. */
+  requiredBytes?: number;
+}
 /** Whether local models can install now, as the localmodels tool says. */
 export type LocalModelsState = "ready" | "blocked-now" | "unavailable";
 /** Memory free now against what the plan needs, from the localmodels tool. */
@@ -73,7 +86,6 @@ export interface SetupReport {
     /** Upstream `stack.memory`, when the tool reports it. */
     memory?: SetupMemory;
     reasons: SetupReason[];
-    reasonMessages?: string[];
     /**
      * "capacity": the plan fits this computer's hardware only once other
      * programs release memory (upstream basis "capacity" or reason
@@ -122,7 +134,7 @@ interface UpstreamReport {
     hardwareCapable?: boolean | null;
     basis?: "capacity" | null;
     memory?: SetupMemory | null;
-    reasons: { code: string; message: string }[];
+    reasons: SetupReason[];
     plan: {
       llm: { model: { id: string }; placement: { gpus: { index: number }[] } };
       budget: {
@@ -239,9 +251,9 @@ export async function inspectSetup(
           : value.stack.available
             ? "ready"
             : "unavailable";
+    const ok = (bytes: unknown): bytes is number =>
+      typeof bytes === "number" && Number.isFinite(bytes) && bytes >= 0;
     const counts = (memory: SetupMemory) => {
-      const ok = (bytes: unknown) =>
-        typeof bytes === "number" && Number.isFinite(bytes) && bytes >= 0;
       if (!ok(memory.ramAvailableBytes) || !ok(memory.ramRequiredBytes))
         return undefined;
       return {
@@ -293,8 +305,15 @@ export async function inspectSetup(
           ? { hardwareCapable: value.stack.hardwareCapable }
           : {}),
         ...(memory ? { memory } : {}),
-        reasons: value.stack.reasons.map((reason) => reason.code),
-        reasonMessages: value.stack.reasons.map((reason) => reason.message),
+        reasons: value.stack.reasons.map(
+          ({ code, message, gpuIndex, freeBytes, requiredBytes }) => ({
+            code,
+            message,
+            ...(ok(gpuIndex) ? { gpuIndex } : {}),
+            ...(ok(freeBytes) ? { freeBytes } : {}),
+            ...(ok(requiredBytes) ? { requiredBytes } : {}),
+          }),
+        ),
         ...(capacity ? { basis: "capacity" as const } : {}),
         selectedGpuIndex: plan?.llm.placement.gpus[0]?.index ?? null,
         estimate: {
@@ -337,14 +356,4 @@ export async function inspectSetup(
       { code: "LOCALMODELS_SETUP_UNAVAILABLE" },
     );
   }
-}
-export async function assertLocalModelsEligible(
-  options: SetupOptions = {},
-): Promise<SetupReport> {
-  const report = await inspectSetup(options);
-  if (!report.localModels.eligible)
-    throw new Error(
-      `Local models are unavailable: ${report.localModels.reasons.map((code, index) => (report.localModels.reasonMessages?.[index] ? `${code}: ${report.localModels.reasonMessages[index]}` : code)).join(", ")}`,
-    );
-  return report;
 }

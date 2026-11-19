@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import { ActionMenu, type MenuPlacement } from "./action-menu";
 
@@ -101,11 +102,11 @@ describe("ActionMenu", () => {
     ({ triggerLeft, expectedLeft }) => {
       const originalWidth = window.innerWidth;
       const originalHeight = window.innerHeight;
-      Object.defineProperty(window, "innerWidth", {
+      defineGlobalProperty(window, "innerWidth", {
         configurable: true,
         value: 1024,
       });
-      Object.defineProperty(window, "innerHeight", {
+      defineGlobalProperty(window, "innerHeight", {
         configurable: true,
         value: 768,
       });
@@ -139,11 +140,11 @@ describe("ActionMenu", () => {
         );
       } finally {
         bounds.mockRestore();
-        Object.defineProperty(window, "innerWidth", {
+        defineGlobalProperty(window, "innerWidth", {
           configurable: true,
           value: originalWidth,
         });
-        Object.defineProperty(window, "innerHeight", {
+        defineGlobalProperty(window, "innerHeight", {
           configurable: true,
           value: originalHeight,
         });

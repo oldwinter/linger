@@ -154,7 +154,7 @@ export function PocketNoteEditor({
           "min-h-full whitespace-pre-wrap [overflow-wrap:anywhere] outline-none [&>*]:m-0",
           "[&>:is(h1,h2,h3,h4,h5,h6)]:font-[580] [&>:is(h1,h2,h3,h4,h5,h6)]:leading-[1.4]",
           "[&>h1]:text-[24px] [&>h2]:text-[20px] [&>:is(h3,h4,h5,h6)]:text-[16px]",
-          "before:pointer-events-none before:float-left before:h-0 before:text-app-muted [&:has(>p:only-child>br:only-child)]:before:content-[attr(data-placeholder)]",
+          "before:pointer-events-none before:float-left before:h-0 before:text-app-placeholder [&:has(>p:only-child>br:only-child)]:before:content-[attr(data-placeholder)]",
         ),
       },
       clipboardTextParser: (text) => new Slice(parseNote(text).content, 0, 0),

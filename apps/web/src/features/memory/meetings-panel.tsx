@@ -388,7 +388,7 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
                   <Icon icon={Search01Icon} size={16} />
                   <input
                     aria-label="Search meetings"
-                    className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+                    className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-app-placeholder"
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder="Search by date or time"
                     type="search"

@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import type { TeamHubPersonalProfileGeneration } from "@/features/teamhub/teamhub-types";
@@ -29,7 +30,7 @@ const generation: TeamHubPersonalProfileGeneration = {
 
 beforeEach(() => {
   const values = new Map<string, string>();
-  Object.defineProperty(window, "localStorage", {
+  defineGlobalProperty(window, "localStorage", {
     configurable: true,
     value: {
       clear: () => values.clear(),
@@ -45,6 +46,40 @@ beforeEach(() => {
 });
 
 describe("Wiki Profile sources", () => {
+  it("shows a single Outlook account as its sign-in name", async () => {
+    const runtime = await testRuntime();
+    const gmail = (await runtime.client.listExternalConnections())
+      .connections[0]!;
+    const catalog = await runtime.client.listExternalApps();
+    const gmailApp = catalog.apps.find((app) => app.key === "gmail")!;
+    vi.spyOn(runtime.client, "listExternalApps").mockResolvedValue({
+      ...catalog,
+      apps: [{ ...gmailApp, display_name: "Outlook Mail", key: "outlook" }],
+    });
+    vi.spyOn(runtime.client, "listExternalConnections").mockResolvedValue({
+      connections: [
+        {
+          ...gmail,
+          id: "external-connection-outlook",
+          provider: "outlook",
+          identity_label: "login@example.net",
+        },
+      ],
+    });
+    renderProfile(runtime);
+
+    await openAddSource();
+    const dialog = await screen.findByRole("dialog", {
+      name: "Add profile sources",
+    });
+    const addOutlook = await within(dialog).findByRole("button", {
+      name: "Add Outlook Mail",
+    });
+    expect(addOutlook.parentElement).toHaveTextContent(
+      "Connected: Signed in as login@example.net",
+    );
+  });
+
   it("adds an already connected Gmail account to the profile", async () => {
     const runtime = await testRuntime();
     const generate = vi
@@ -70,7 +105,7 @@ describe("Wiki Profile sources", () => {
       name: "Add Gmail",
     });
     expect(addGmail.parentElement).toHaveTextContent(
-      "GmailConnected as jenny@linger.testAdd",
+      "GmailConnected: jenny@linger.testAdd",
     );
     fireEvent.click(addGmail);
     await waitFor(() => expect(generate).toHaveBeenCalledOnce());
@@ -441,6 +476,38 @@ describe("Wiki Profile sources", () => {
     await waitFor(() => expect(generate).toHaveBeenCalledOnce());
   });
 
+  it("keeps an account that needs reconnecting beside an active one", async () => {
+    const runtime = await testRuntime();
+    const existing = (await runtime.client.listExternalConnections())
+      .connections[0]!;
+    vi.spyOn(runtime.client, "listExternalConnections").mockResolvedValue({
+      connections: [
+        existing,
+        {
+          ...existing,
+          id: "gmail-expired",
+          identity_label: "old@linger.test",
+          status: "expired",
+        },
+      ],
+    });
+    renderProfile(runtime);
+
+    const sources = await screen.findByRole("list", {
+      name: "Profile sources",
+    });
+    await waitFor(() =>
+      expect(
+        within(sources).getByRole("button", { name: "Reconnect Gmail" }),
+      ).toBeVisible(),
+    );
+    expect(
+      within(sources).getByRole("button", {
+        name: "Gmail · jenny@linger.test — connected",
+      }),
+    ).toBeVisible();
+  });
+
   it("stacks connected sources first and grays out the ones to connect", async () => {
     const runtime = await testRuntime();
     const existing = (await runtime.client.listExternalConnections())
@@ -656,7 +723,7 @@ describe("Wiki Profile sources", () => {
       .spyOn(runtime.client, "createPersonalProfileGeneration")
       .mockResolvedValue(generation);
     const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(window.navigator, "clipboard", {
+    defineGlobalProperty(window.navigator, "clipboard", {
       configurable: true,
       value: { writeText },
     });

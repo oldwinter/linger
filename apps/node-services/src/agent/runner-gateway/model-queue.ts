@@ -1,4 +1,9 @@
-import { COMPACTION_PRIORITY } from "../../model-tasks.js";
+import {
+  admissionLimit,
+  runPriorities,
+  type ModelLease,
+  type ModelLeaseResult,
+} from "../../model-tasks.js";
 import { logAgentEvent } from "../observability/agent-log.js";
 import {
   AdaptiveLimit,
@@ -19,21 +24,10 @@ export interface ModelEndpoint {
 export interface ModelWork {
   /** Lowest first; see model-tasks. */
   readonly priority: number;
-  /** What the work is: a call kind, a Run kind or compaction. Only logged. */
+  /** A call kind, a Run kind or compaction. */
   readonly kind: string;
   /** Names the work in the log. */
   readonly key: string;
-}
-
-export interface ModelLeaseResult {
-  readonly outcome: string;
-  /** Token usage as the Runtime reported it; only logged. */
-  readonly usage?: unknown;
-}
-
-export interface ModelLease {
-  /** Frees the place; later calls do nothing. */
-  release(result: ModelLeaseResult): void;
 }
 
 /** A Runtime whose every model is on the signed-in account. */
@@ -57,14 +51,8 @@ export function endpointConcurrency(
     : API_CONCURRENCY;
 }
 
-/** Work after compaction; it never takes an endpoint's last place. */
-function isBackground(priority: number): boolean {
-  return priority > COMPACTION_PRIORITY;
-}
-
 interface Waiter {
   readonly priority: number;
-  readonly background: boolean;
   readonly seq: number;
   readonly signal: AbortSignal;
   readonly admit: () => void;
@@ -76,17 +64,15 @@ interface EndpointState {
   readonly key: string;
   readonly endpoint: ModelEndpoint;
   active: number;
-  /** Running background units, also counted in active. */
-  background: number;
   readonly waiting: Waiter[];
 }
 
 /**
- * Admits model work per endpoint. A Run's Operation, a one-shot call, a
- * chain and a compaction are each one unit. Units start lowest priority
- * first, in arrival order within one priority, while the endpoint runs fewer
- * than its limit; a running unit is never interrupted. Background work
- * leaves the last place to Runs and compaction once the limit is above one.
+ * Admits model work per endpoint. A Run Operation, a model attempt and a
+ * compaction each occupy one place. Smaller priority numbers start first,
+ * in arrival order within a priority. When the limit exceeds one, work up to
+ * chat priority may fill the last place. When it cannot start, it asks a
+ * lower-priority Run holding a place to yield.
  * The limit adapts to what finished requests report. Admission only; it
  * never picks, orders or retries a Run.
  */
@@ -99,6 +85,10 @@ export class ModelQueue {
   constructor(
     private readonly concurrency: (endpoint: ModelEndpoint) => ConcurrencyRange,
     private readonly now: () => number = Date.now,
+    private readonly onInteractiveWait?: (
+      endpoint: ModelEndpoint,
+      priority: number,
+    ) => void,
   ) {}
 
   /** A model request on endpoint finished, whoever holds its place. */
@@ -163,7 +153,6 @@ export class ModelQueue {
       };
       const waiter: Waiter = {
         priority: work.priority,
-        background: isBackground(work.priority),
         seq: this.#seq++,
         signal,
         admit: () => {
@@ -177,7 +166,22 @@ export class ModelQueue {
       signal.addEventListener("abort", onAbort, { once: true });
       this.#drain(state);
     });
-    return this.#lease(state, work, queuedAt, isBackground(work.priority));
+    return this.#lease(state, work, queuedAt);
+  }
+
+  /** Interactive work first in line and out of places asks for a yield, also
+   * when a Run on this endpoint has just become able to yield. */
+  recheckInteractiveWait(endpoint: ModelEndpoint): void {
+    const state = this.#endpoints.get(endpointKey(endpoint));
+    const next = state?.waiting[0];
+    if (
+      state &&
+      next &&
+      next.priority <= runPriorities.chat &&
+      state.active >=
+        admissionLimit(this.#limit(state.key, endpoint).value, next.priority)
+    )
+      this.onInteractiveWait?.(endpoint, next.priority);
   }
 
   /** The Computer is gone; work waiting for it fails with error. */
@@ -196,7 +200,7 @@ export class ModelQueue {
     const key = endpointKey(endpoint);
     let state = this.#endpoints.get(key);
     if (!state) {
-      state = { key, endpoint, active: 0, background: 0, waiting: [] };
+      state = { key, endpoint, active: 0, waiting: [] };
       this.#endpoints.set(key, state);
     }
     return state;
@@ -218,32 +222,44 @@ export class ModelQueue {
   }
 
   /** Admission already counted the unit as active. */
-  #lease(
-    state: EndpointState,
-    work: ModelWork,
-    queuedAt: number,
-    background: boolean,
-  ): ModelLease {
+  #lease(state: EndpointState, work: ModelWork, queuedAt: number): ModelLease {
     const startedAt = Date.now();
-    let released = false;
+    let result: ModelLeaseResult | undefined;
+    let borrowers = 0;
+    const finish = () => {
+      if (!result || borrowers > 0) return;
+      state.active -= 1;
+      logAgentEvent("info", "model_queue.finished", {
+        kind: work.kind,
+        key: work.key.slice(0, 200),
+        computer_id: state.endpoint.computerId,
+        runtime_type: state.endpoint.runtimeType,
+        outcome: result.outcome,
+        queued_ms: startedAt - queuedAt,
+        run_ms: Date.now() - startedAt,
+        limit: this.#limits.get(state.key)?.value,
+        ...(result.usage === undefined ? {} : { usage: result.usage }),
+      });
+      this.#drain(state);
+    };
     return {
-      release: (result) => {
-        if (released) return;
-        released = true;
-        state.active -= 1;
-        if (background) state.background -= 1;
-        logAgentEvent("info", "model_queue.finished", {
-          kind: work.kind,
-          key: work.key.slice(0, 200),
-          computer_id: state.endpoint.computerId,
-          runtime_type: state.endpoint.runtimeType,
-          outcome: result.outcome,
-          queued_ms: startedAt - queuedAt,
-          run_ms: Date.now() - startedAt,
-          limit: this.#limits.get(state.key)?.value,
-          ...(result.usage === undefined ? {} : { usage: result.usage }),
-        });
-        this.#drain(state);
+      borrow() {
+        if (result) throw new Error("The model lease was released");
+        borrowers++;
+        let held = true;
+        return {
+          release() {
+            if (!held) return;
+            held = false;
+            borrowers--;
+            finish();
+          },
+        };
+      },
+      release(outcome) {
+        if (result) return;
+        result = outcome;
+        finish();
       },
     };
   }
@@ -253,15 +269,12 @@ export class ModelQueue {
     const limit = this.#limit(state.key, state.endpoint).value;
     while (state.active < limit && state.waiting.length > 0) {
       const next = state.waiting[0]!;
-      // Sorted foreground first, so every waiter after this one is
-      // background too.
-      if (next.background && limit > 1 && state.background >= limit - 1) break;
-      // Counted now, so the next waiter sees the place taken.
+      if (state.active >= admissionLimit(limit, next.priority)) break;
       state.active += 1;
-      if (next.background) state.background += 1;
       state.waiting.shift();
       next.admit();
     }
+    this.recheckInteractiveWait(state.endpoint);
     this.#prune(state);
   }
 

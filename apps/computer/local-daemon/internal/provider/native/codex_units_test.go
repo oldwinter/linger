@@ -68,7 +68,7 @@ func TestCodexPermissionHookVersions(t *testing.T) {
 func TestCodexOverrideFiltering(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
 	got := NormalizeCodexLaunchArgs(
-		[]string{"-c=mcp_servers.a.command=\"x\"", "-cmcp_servers.b.url=\"y\"", "--listen", "ws://x", "--model", "kept"},
+		[]string{"-c=mcp_servers.a.command=\"x\"", "-cmcp_servers.b.url=\"y\"", "-c", "mcp_oauth_credentials_store=\"keyring\"", "--listen", "ws://x", "--model", "kept"},
 		[]string{"--config", `profiles."work".'mcp_servers'.c.command="z"`, "-c", "model=\"m\""},
 		logger)
 	if !slices.Equal(got, []string{"--model", "kept", "-c", `model="m"`}) {
@@ -98,7 +98,7 @@ func TestCodexOverrideFiltering(t *testing.T) {
 func TestCodexManagedProjection(t *testing.T) {
 	home := t.TempDir()
 	config := filepath.Join(home, "config.toml")
-	if err := os.WriteFile(config, []byte("model = \"keep\"\n[mcp_servers.old]\ncommand = \"old\"\n[profiles.work]\nmodel = \"p\"\n[profiles.work.mcp_servers.x]\ncommand = \"x\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(config, []byte("model = \"keep\"\nmcp_oauth_credentials_store = \"keyring\"\n[mcp_servers.old]\ncommand = \"old\"\n[profiles.work]\nmodel = \"p\"\n[profiles.work.mcp_servers.x]\ncommand = \"x\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	raw := json.RawMessage(`{"mcpServers":{"remote":{"type":"HTTP","url":"http://127.0.0.1:1/mcp","headers":{"Authorization":"Bearer t"},"tools":["a"]},"local":{"command":"bin","args":["-v"],"env":{"N":1.5}}}}`)
@@ -112,8 +112,8 @@ func TestCodexManagedProjection(t *testing.T) {
 	}
 	servers := parsed["mcp_servers"].(map[string]any)
 	remote := servers["remote"].(map[string]any)
-	if parsed["model"] != "keep" || servers["old"] != nil || remote["type"] != nil || remote["tools"] != nil || remote["headers"] != nil ||
-		remote["http_headers"].(map[string]any)["Authorization"] != "Bearer t" || remote["experimental_use_rmcp_client"] != true {
+	if parsed["model"] != "keep" || parsed[codexOAuthStoreKey] != "file" || servers["old"] != nil || remote["type"] != nil || remote["tools"] != nil || remote["headers"] != nil ||
+		remote["http_headers"].(map[string]any)["Authorization"] != "Bearer t" || len(remote) != 2 {
 		t.Fatalf("projected = %s", first)
 	}
 	if work := parsed["profiles"].(map[string]any)["work"].(map[string]any); work["mcp_servers"] != nil || work["model"] != "p" {

@@ -1,26 +1,35 @@
 import type {
+  ByokModelList,
+  ByokTestResult,
   CapabilityBrowserConnected,
   CapabilityBrowserFailed,
   CapabilityComputerPermissionFailed,
   CapabilityComputerPermissionSucceeded,
+  CapabilityModelSourceFailed,
+  CapabilityModelSourceSucceeded,
   CapabilitySkillsScanned,
   DaemonToAgentEnvelope,
+  ModelSourceStatus,
 } from "@linger/wire-contracts/runner-gateway/types";
 import {
   RUNNER_GATEWAY_PROTOCOL_VERSION,
   parseAgentToDaemonEnvelope,
 } from "@linger/wire-contracts/runner-gateway/validator";
 import {
+  FIRST_MODEL_SOURCE_COMPUTER_VERSION,
+  isComputerVersionAtLeast,
   LocalBrowserConnectionError,
   LocalComputerCapabilityError,
   LocalComputerNotFoundError,
   LocalComputerOfflineError,
   LocalComputerPermissionError,
+  LocalModelSourceError,
   LocalSkillOperationError,
   type LocalBrowserConnectionCommand,
   type LocalBrowserConnectionStatus,
   type LocalComputerPermissionCommand,
   type LocalComputerPermissionStatus,
+  type LocalModelSourceCommand,
   type LocalSkillScanCommand,
   type LocalSkillScanResult,
 } from "./local-computer-management.js";
@@ -68,6 +77,20 @@ export class RunnerLocalCapabilities {
         outcome:
           | CapabilityComputerPermissionSucceeded
           | CapabilityComputerPermissionFailed,
+      ) => void;
+      readonly reject: (error: unknown) => void;
+    }
+  >();
+
+  readonly #modelSourceWaiters = new Map<
+    string,
+    {
+      readonly connection: ConnectedRunner;
+      readonly tenantId: string;
+      readonly ownerActorId: string;
+      readonly action: LocalModelSourceCommand["action"];
+      readonly resolve: (
+        outcome: CapabilityModelSourceSucceeded | CapabilityModelSourceFailed,
       ) => void;
       readonly reject: (error: unknown) => void;
     }
@@ -279,7 +302,112 @@ export class RunnerLocalCapabilities {
     return result.status;
   }
 
-  /** Fails every browser and permission command still waiting on this connection. */
+  /**
+   * Sends one model-source status, test, models, or apply command to the Computer.
+   * API keys stay strictly inside the transient envelope and are never logged,
+   * stored, or echoed back.
+   */
+  async modelSource(command: LocalModelSourceCommand): Promise<{
+    readonly status?: ModelSourceStatus;
+    readonly testResult?: ByokTestResult;
+    readonly modelList?: ByokModelList;
+  }> {
+    command.signal?.throwIfAborted();
+    const connection = this.owners
+      .connections()
+      .getConnection(command.computerId);
+    if (!isServingConnection(connection)) {
+      throw new LocalComputerOfflineError();
+    }
+    if (
+      connection.tenantOwners.get(command.tenantId) !== command.ownerActorId
+    ) {
+      throw new LocalComputerNotFoundError();
+    }
+    if (
+      !isComputerVersionAtLeast(
+        connection.hello.daemon_version,
+        FIRST_MODEL_SOURCE_COMPUTER_VERSION,
+      )
+    ) {
+      throw new LocalComputerCapabilityError(
+        "Local Computer must be upgraded to switch model sources",
+      );
+    }
+    const timeoutMs =
+      command.action === "apply"
+        ? MODEL_SOURCE_APPLY_TIMEOUT_MS
+        : MODEL_SOURCE_STATUS_TIMEOUT_MS;
+    const commandId = this.context.createId();
+    const envelope = parseAgentToDaemonEnvelope({
+      type: "execute",
+      kind: "model_source",
+      protocol_version: RUNNER_GATEWAY_PROTOCOL_VERSION,
+      command_id: commandId,
+      runner_id: command.computerId,
+      tenant_id: command.tenantId,
+      owner_actor_id: command.ownerActorId,
+      connection_epoch: connection.connectionEpoch,
+      expires_at: new Date(Date.now() + timeoutMs).toISOString(),
+      action: command.action,
+      ...(command.mode ? { mode: command.mode } : {}),
+      ...(command.runtime ? { runtime: command.runtime } : {}),
+      ...(command.localModelId ? { local_model_id: command.localModelId } : {}),
+      ...(command.byok ? { byok: command.byok } : {}),
+    });
+    const signal = command.signal;
+    let onAbort: (() => void) | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const outcome = new Promise<
+      CapabilityModelSourceSucceeded | CapabilityModelSourceFailed
+    >((resolve, reject) => {
+      timer = setTimeout(() => {
+        reject(
+          new LocalModelSourceError(
+            "MODEL_SOURCE_TIMEOUT",
+            "Local Computer did not answer the model source command",
+            true,
+          ),
+        );
+      }, timeoutMs);
+      timer.unref();
+      onAbort = () => reject(signal?.reason);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      this.#modelSourceWaiters.set(commandId, {
+        connection,
+        tenantId: command.tenantId,
+        ownerActorId: command.ownerActorId,
+        action: command.action,
+        resolve,
+        reject,
+      });
+    });
+    let result: CapabilityModelSourceSucceeded | CapabilityModelSourceFailed;
+    try {
+      [, result] = await Promise.all([
+        this.owners.connections().sendToCurrentRunner(envelope),
+        outcome,
+      ]);
+    } finally {
+      clearTimeout(timer);
+      if (onAbort) signal?.removeEventListener("abort", onAbort);
+      this.#modelSourceWaiters.delete(commandId);
+    }
+    if (result.outcome === "failed") {
+      throw new LocalModelSourceError(
+        result.error.code,
+        result.error.message,
+        result.error.retryable,
+      );
+    }
+    return {
+      ...(result.status ? { status: result.status } : {}),
+      ...(result.test_result ? { testResult: result.test_result } : {}),
+      ...(result.model_list ? { modelList: result.model_list } : {}),
+    };
+  }
+
+  /** Fails every browser, permission, and model-source command waiting on this connection. */
   rejectConnectionWaiters(connection: ConnectedRunner): void {
     for (const [commandId, waiter] of this.#browserWaiters) {
       if (waiter.connection !== connection) continue;
@@ -289,6 +417,11 @@ export class RunnerLocalCapabilities {
     for (const [commandId, waiter] of this.#permissionWaiters) {
       if (waiter.connection !== connection) continue;
       this.#permissionWaiters.delete(commandId);
+      waiter.reject(new LocalComputerOfflineError());
+    }
+    for (const [commandId, waiter] of this.#modelSourceWaiters) {
+      if (waiter.connection !== connection) continue;
+      this.#modelSourceWaiters.delete(commandId);
       waiter.reject(new LocalComputerOfflineError());
     }
   }
@@ -496,6 +629,35 @@ export class RunnerLocalCapabilities {
     waiter.resolve(envelope);
   }
 
+  receiveModelSourceOutcome(
+    connection: ConnectedRunner,
+    envelope: CapabilityModelSourceSucceeded | CapabilityModelSourceFailed,
+  ): void {
+    if (
+      envelope.connection_epoch !== connection.connectionEpoch ||
+      connection.tenantOwners.get(envelope.tenant_id) !==
+        envelope.owner_actor_id
+    ) {
+      throw new RunnerGatewayProtocolError(
+        "Runner model source outcome identity mismatch",
+      );
+    }
+    const waiter = this.#modelSourceWaiters.get(envelope.command_id);
+    if (!waiter) return;
+    if (
+      waiter.connection !== connection ||
+      waiter.tenantId !== envelope.tenant_id ||
+      waiter.ownerActorId !== envelope.owner_actor_id ||
+      waiter.action !== envelope.action
+    ) {
+      throw new RunnerGatewayProtocolError(
+        "Runner model source command identity mismatch",
+      );
+    }
+    this.#modelSourceWaiters.delete(envelope.command_id);
+    waiter.resolve(envelope);
+  }
+
   rejectLocalSkillWaiters(runnerId: string): void {
     for (const [commandId, waiters] of this.#localSkillWaiters) {
       for (const waiter of [...waiters]) {
@@ -517,6 +679,8 @@ const BROWSER_CONNECTION_TIMEOUT_MS = 60_000;
 // A prompt can hold the Computer briefly while macOS shows its dialog; the
 // Computer itself gives Desktop 10 s per step.
 const COMPUTER_PERMISSION_TIMEOUT_MS = 30_000;
+const MODEL_SOURCE_STATUS_TIMEOUT_MS = 45_000;
+const MODEL_SOURCE_APPLY_TIMEOUT_MS = 180_000;
 
 const requireLocalSkillScan = (
   outcome: LocalSkillOutcome,

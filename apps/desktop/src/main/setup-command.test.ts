@@ -57,6 +57,42 @@ describe("parseSetupCommand", () => {
     expect(
       parseSetupCommand({ op: "local.signin.switch", runtime: "claude" }),
     ).toEqual({ op: "local.signin.switch", runtime: "claude" });
+    expect(
+      parseSetupCommand({
+        op: "local.byok.check",
+        byok: {
+          baseUrl: " https://api.example.com/v1 ",
+          apiKey: "sk-test",
+          modelId: " gpt-5.4 ",
+          runtime: "claude",
+        },
+      }),
+    ).toEqual({
+      op: "local.byok.check",
+      byok: {
+        baseUrl: "https://api.example.com/v1",
+        apiKey: "sk-test",
+        modelId: "gpt-5.4",
+        runtime: "claude",
+      },
+    });
+    expect(
+      parseSetupCommand({
+        op: "local.signin.byok",
+        byok: {
+          baseUrl: "https://api.anthropic.com",
+          modelId: "claude-sonnet-4-6",
+          runtime: "pi",
+        },
+      }),
+    ).toEqual({
+      op: "local.signin.byok",
+      byok: {
+        baseUrl: "https://api.anthropic.com",
+        modelId: "claude-sonnet-4-6",
+        runtime: "pi",
+      },
+    });
   });
 
   it("takes provider keys with local.start, trimmed, and nothing else", () => {

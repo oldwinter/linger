@@ -35,6 +35,27 @@ const gmail = {
 };
 
 describe("apps auto-reminders", () => {
+  it("marks an Outlook connection as the Microsoft sign-in name", async () => {
+    const f = fixture({
+      connections: [
+        {
+          ...gmail,
+          connection_id: "connection_outlook",
+          app_key: "outlook",
+          identity_label: "login@example.net",
+        },
+        gmail,
+      ],
+    });
+    expect(await runCli(["apps", "auto-reminders", "list"], f.deps)).toBe(0);
+    const text = f.output.join("");
+    expect(text).toContain(
+      "connection_outlook  outlook  login@example.net - Microsoft sign-in name, the mailbox address may differ  auto reminders on",
+    );
+    expect(text).toContain(
+      "connection_gmail  gmail  bob@example.com  auto reminders on",
+    );
+  });
   it("lists the Sponsor's switchable connections", async () => {
     const f = fixture({ connections: [gmail] });
     expect(await runCli(["apps", "auto-reminders", "list"], f.deps)).toBe(0);

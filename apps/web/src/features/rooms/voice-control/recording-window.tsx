@@ -10,7 +10,10 @@ import { createPortal } from "react-dom";
 import {
   closeVoicePip,
   onVoicePipClosedByHuman,
+  openVoicePip,
+  returnedToOpener,
   useVoicePip,
+  voicePipSupported,
 } from "../chat/voice-mode/voice-pip";
 import {
   RecordingAnswers,
@@ -31,9 +34,15 @@ import {
 } from "./voice-control-context";
 import { VoiceFocusSurface, type RecordingView } from "./voice-focus-surface";
 
-// Inner heights of the picture-in-picture window: the top row alone, or open.
-// Collapsed keeps the docked title bar (36px) and the header row (68px).
-const pipHeights = { collapsed: 104, expanded: 720 };
+// Inner height that keeps the docked title bar and recording controls visible.
+const collapsedPipHeight = 104;
+interface ExpandedPipSize {
+  window: Window;
+  width: number;
+  height: number;
+  collapsedWidth?: number;
+  collapsedHeight?: number;
+}
 // Where the window sits in the page: 16px from the right, 64px from the top.
 const pageInset = { right: 16, top: 64, width: 420 };
 
@@ -42,32 +51,48 @@ const pageInset = { right: 16, top: 64, width: 420 };
  * behind it. Where the browser supports it the window floats over other tabs
  * and apps; otherwise it floats over the page. Minimizing it leaves only its
  * top row and keeps recording; Stop, or closing the open floating window, ends
- * the recording.
+ * the recording. Back to tab keeps recording in the page window.
  */
 export default function RecordingWindow() {
   const windowState = useRecordingWindow();
   const livekit = useOptionalVoiceControl();
   const voice = livekit;
   const pip = useVoicePip("recording");
+  const expandedPipSize = useRef<ExpandedPipSize | undefined>(undefined);
   const status = voice?.captureState?.status;
   const [lastView, setLastView] = useState<RecordingView>("transcript");
   const view = windowState.minimized ? undefined : lastView;
 
-  // Once the window has floated over other apps, losing that window means the
-  // Human closed it. It never falls back into the page then: the page shows
-  // nothing while the recording stops, so no second window flashes up. Only
-  // a stop that failed brings the window back, minimized, into the page.
+  // Hide the surface while distinguishing native close from back to tab,
+  // matching Voice Mode. Only back to tab keeps recording in the page.
   const [floated, setFloated] = useState(false);
+  const [backInPage, setBackInPage] = useState(false);
   if (pip && !floated) setFloated(true);
-  const pipClosed = floated && !pip;
+  if (pip && backInPage) setBackInPage(false);
+  const pipClosed = floated && !pip && !backInPage;
+
+  // Moving one portal host preserves pause timing, Ask drafts and transcript
+  // scroll state; changing the portal target would remount the recording UI.
+  const [portalHost] = useState(() => document.createElement("div"));
+  const portalParent =
+    voice && !windowState.ending && !pipClosed
+      ? (pip?.document.body ?? document.body)
+      : undefined;
+  useLayoutEffect(() => {
+    if (!portalParent) return;
+    portalParent.append(portalHost);
+    return () => portalHost.remove();
+  }, [portalHost, portalParent]);
 
   // The desktop's close button on the floating window ends the recording the
   // way Stop does, whether the window was open or minimized to its top row.
   const voiceRef = useRef(voice);
+  const pipRef = useRef(pip);
   const endingRef = useRef(false);
   const closedByHumanRef = useRef(() => {});
   useLayoutEffect(() => {
     voiceRef.current = voice;
+    pipRef.current = pip;
     closedByHumanRef.current = () => {
       if (endingRef.current) return;
       endingRef.current = true;
@@ -87,19 +112,22 @@ export default function RecordingWindow() {
       });
     };
   });
-  useEffect(
-    () =>
-      onVoicePipClosedByHuman("recording", () => closedByHumanRef.current()),
-    [],
-  );
-  // The same close noticed from this side, should the window's own close
-  // event be missed.
   useEffect(() => {
-    if (pipClosed) closedByHumanRef.current();
-  }, [pipClosed]);
-  // The auto start is spent once a recording runs, so a remounted window
-  // (moving between its floating window and the page remounts it) cannot
-  // start a second recording when this one stops.
+    let mounted = true;
+    const unsubscribe = onVoicePipClosedByHuman("recording", () => {
+      void returnedToOpener().then((returned) => {
+        if (!mounted || pipRef.current) return;
+        if (returned) setBackInPage(true);
+        else closedByHumanRef.current();
+      });
+    });
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, []);
+  // Spend auto start once, so re-opening this window cannot start a second
+  // recording when this one stops.
   useEffect(() => {
     if (status === "recording" || status === "starting")
       consumeRecordingAutoStart();
@@ -107,23 +135,58 @@ export default function RecordingWindow() {
   // A recording that finished saving is reviewed in Another Me's chat.
   const previousStatus = useRef(status);
   useEffect(() => {
-    if (status === "completed" && previousStatus.current !== "completed") {
+    if (
+      status === "completed" &&
+      previousStatus.current !== "completed" &&
+      !windowState.autoStart
+    ) {
       closeVoicePip("recording");
       closeRecordingWindow();
     }
     previousStatus.current = status;
-  }, [status]);
+  }, [status, windowState.autoStart]);
 
   const changeView = (next: RecordingView | undefined) => {
     if (next) {
       setLastView(next);
       expandRecordingWindow();
     } else minimizeRecordingWindow();
-    // Runs inside the click, which is what lets the window resize itself.
+    // Keep native resize inside the click so it retains user activation.
     if (pip && Boolean(next) !== Boolean(view)) {
-      const height = next ? pipHeights.expanded : pipHeights.collapsed;
+      const chromeHeight = Math.max(0, pip.outerHeight - pip.innerHeight);
+      const collapsedHeight = collapsedPipHeight + chromeHeight;
+      let expanded = expandedPipSize.current;
+      if (expanded?.window !== pip) expanded = undefined;
+      // A rapid second click can precede the native expansion. Do not save
+      // the still-collapsed metrics as the user's expanded window size.
+      if (
+        !next &&
+        (!expanded ||
+          pip.outerWidth !== expanded.collapsedWidth ||
+          pip.outerHeight !== expanded.collapsedHeight)
+      ) {
+        expanded = {
+          window: pip,
+          width: pip.outerWidth,
+          height: pip.outerHeight,
+        };
+        expandedPipSize.current = expanded;
+      }
+      if (next && expanded) {
+        expanded.collapsedWidth = pip.outerWidth;
+        expanded.collapsedHeight = pip.outerHeight;
+      }
+      const width = next && expanded ? expanded.width : pip.outerWidth;
+      const height = next
+        ? (expanded?.height ?? pip.outerHeight)
+        : collapsedHeight;
       try {
-        pip.resizeBy(0, height - pip.innerHeight);
+        // Restore both outer dimensions: a browser-clamped width must not
+        // become the starting point for another relative shrink/expand cycle.
+        pip.resizeTo(
+          Math.min(width, pip.screen.availWidth || width),
+          Math.min(height, pip.screen.availHeight || height),
+        );
       } catch {
         // The Human can still drag the window to size.
       }
@@ -133,7 +196,7 @@ export default function RecordingWindow() {
   const pinched = usePinchZoom();
   const [moved, setMoved] = useState<{ left: number; top: number }>();
   const frameRef = useRef<HTMLDivElement>(null);
-  // Dragging the hover title bar moves the window, kept inside the viewport.
+  // Keep the window inside the viewport when dragging its title bar.
   const startMove = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || (event.target as Element).closest("button"))
       return;
@@ -160,9 +223,7 @@ export default function RecordingWindow() {
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", end);
   };
-  // Nothing renders in the page while a closed floating window's recording
-  // stops.
-  if (!voice || windowState.ending || pipClosed) return null;
+  if (!voice) return null;
   return createPortal(
     <div
       aria-label="Recording window"
@@ -186,12 +247,19 @@ export default function RecordingWindow() {
       <RecordingPanel
         autoStart={windowState.autoStart}
         floating={pip ? "pip" : "page"}
+        onFloat={
+          !pip && voicePipSupported()
+            ? () => {
+                void openVoicePip("recording");
+              }
+            : undefined
+        }
         onMoveStart={startMove}
         onViewChange={changeView}
         view={view}
       />
     </div>,
-    pip?.document.body ?? document.body,
+    portalHost,
   );
 }
 
@@ -259,12 +327,14 @@ export function pinchedPlacement(view: PinchZoom) {
 function RecordingPanel({
   autoStart,
   floating,
+  onFloat,
   onMoveStart,
   onViewChange,
   view,
 }: {
   autoStart: boolean;
   floating: "page" | "pip";
+  onFloat?: () => void;
   onMoveStart: (event: PointerEvent<HTMLDivElement>) => void;
   onViewChange: (view: RecordingView | undefined) => void;
   view?: RecordingView;
@@ -283,6 +353,7 @@ function RecordingPanel({
     <VoiceFocusSurface
       autoStart={autoStart}
       floating={floating}
+      onFloat={onFloat}
       onMoveStart={onMoveStart}
       onExit={() => {
         // Saving finishes in the background; the sidebar's Recording tool

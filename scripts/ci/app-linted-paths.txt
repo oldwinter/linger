@@ -1,0 +1,11 @@
+apps/web/src/
+apps/web/e2e/
+apps/desktop/src/
+apps/desktop/scripts/
+apps/teamhub-cli/
+apps/linger-installer/src/
+packages/document-files/
+packages/document-model/
+packages/knowledge-format/
+packages/service-kit/
+packages/local-installation/src/

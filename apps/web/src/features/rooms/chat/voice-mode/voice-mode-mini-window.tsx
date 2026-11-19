@@ -175,12 +175,22 @@ function MiniWindow({
     openRoomRef.current = () =>
       void navigate(`/t/${tenantId}/rooms/${roomId}/chat`);
   });
+  // Once the call has floated, losing that window shows nothing in the page
+  // while TeamHub tells a close from back to tab, so no window flashes up
+  // before Voice Mode ends. Back to tab brings the window into the page.
+  const [floated, setFloated] = useState(false);
+  const [backInPage, setBackInPage] = useState(false);
+  if (pip && !floated) setFloated(true);
+  if (pip && backInPage) setBackInPage(false);
+  const leavingPip = floated && !pip && !backInPage;
   useEffect(
     () =>
       onVoicePipClosedByHuman("voice-mode", () => {
-        void returnedToOpener().then((returned) =>
-          returned ? openRoomRef.current() : exitRef.current(),
-        );
+        void returnedToOpener().then((returned) => {
+          if (!returned) return exitRef.current();
+          setBackInPage(true);
+          openRoomRef.current();
+        });
       }),
     [],
   );
@@ -224,18 +234,31 @@ function MiniWindow({
     const next: WindowSize = size === "compact" ? "expanded" : "compact";
     setSize(next);
   };
+  if (leavingPip) return null;
   return createPortal(
     <section
       aria-label="Voice Mode window"
       className={
         pip
           ? "flex h-dvh w-full flex-col overflow-hidden bg-app-canvas"
-          : "app-floating-enter fixed z-[90] flex flex-col overflow-hidden rounded-xl bg-app-canvas shadow-xl transition-[width,max-height] duration-200 ease-out motion-reduce:transition-none"
+          : "voice-mode-window app-floating-enter fixed z-[90] flex flex-col overflow-hidden rounded-xl bg-app-canvas shadow-xl transition-[width,max-height] duration-200 ease-out motion-reduce:transition-none"
       }
       data-pip={pip ? true : undefined}
       data-size={size}
-      style={pip ? undefined : { ...position, maxHeight: height, width }}
+      style={
+        pip
+          ? undefined
+          : { ...position, maxHeight: `calc(${height} + 36px)`, width }
+      }
     >
+      {pip ? null : (
+        <div
+          className="voice-window-title flex h-9 shrink-0 cursor-grab touch-none select-none items-center px-3 active:cursor-grabbing"
+          {...dragHandlers}
+        >
+          Voice Mode
+        </div>
+      )}
       <header
         className={`flex shrink-0 select-none items-center gap-2 border-b border-app-border px-3 py-2 ${
           pip ? "" : "cursor-grab touch-none active:cursor-grabbing"

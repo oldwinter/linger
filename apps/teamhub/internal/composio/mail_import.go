@@ -171,9 +171,8 @@ func (c *Client) fetchGmailImportMessage(ctx context.Context, accountID, id stri
 }
 
 type outlookImportCursor struct {
-	Link          string `json:"link"`
-	Email         string `json:"email"`
-	Junk, Deleted string
+	Link                string `json:"link"`
+	Junk, Deleted, Sent string
 }
 
 func (c *Client) fetchOutlookImportPage(ctx context.Context, accountID string, options MailImportPageOptions) (MailImportPage, error) {
@@ -183,19 +182,14 @@ func (c *Client) fetchOutlookImportPage(ctx context.Context, accountID string, o
 			return MailImportPage{}, errors.New("invalid Outlook import cursor")
 		}
 	} else {
-		identity, err := c.IdentifyOutlook(ctx, accountID)
-		if err != nil {
-			return MailImportPage{}, err
-		}
-		cursor.Email = strings.ToLower(strings.TrimSpace(identity.Label))
 		for _, folder := range []struct {
 			name   string
 			target *string
-		}{{"junkemail", &cursor.Junk}, {"deleteditems", &cursor.Deleted}} {
+		}{{"junkemail", &cursor.Junk}, {"deleteditems", &cursor.Deleted}, {"sentitems", &cursor.Sent}} {
 			var response struct {
 				ID string `json:"id"`
 			}
-			if err = c.mailImportCall(ctx, options, proxyRequest{ConnectedAccountID: accountID, Endpoint: "/v1.0/me/mailFolders/" + folder.name, Method: http.MethodGet, Parameters: []proxyParameter{{Name: "$select", Value: "id", Type: "query"}}}, &response, "read Outlook excluded folder"); err != nil {
+			if err := c.mailImportCall(ctx, options, proxyRequest{ConnectedAccountID: accountID, Endpoint: "/v1.0/me/mailFolders/" + folder.name, Method: http.MethodGet, Parameters: []proxyParameter{{Name: "$select", Value: "id", Type: "query"}}}, &response, "read Outlook well-known folder"); err != nil {
 				return MailImportPage{}, err
 			}
 			if response.ID == "" {
@@ -204,7 +198,7 @@ func (c *Client) fetchOutlookImportPage(ctx context.Context, accountID string, o
 			*folder.target = response.ID
 		}
 	}
-	if cursor.Email == "" || cursor.Junk == "" || cursor.Deleted == "" {
+	if cursor.Junk == "" || cursor.Deleted == "" || cursor.Sent == "" {
 		return MailImportPage{}, errors.New("incomplete Outlook import cursor")
 	}
 	request, err := graphPollRequest(accountID, cursor.Link)
@@ -254,7 +248,10 @@ func (c *Client) fetchOutlookImportPage(ctx context.Context, accountID string, o
 			page.Skipped++
 			continue
 		}
-		owner := strings.EqualFold(item.From.EmailAddress.Address, cursor.Email)
+		// The mailbox's Sent Items folder, not an address, marks the owner's
+		// mail: the sign-in address may differ from the mailbox address. Sent
+		// mail the owner moved out of Sent Items counts as received.
+		owner := item.ParentFolderID == cursor.Sent
 		// Focused is filtered here rather than in $filter, which Graph may
 		// refuse beside the received-time order; the owner's mail always enters.
 		if item.IsDraft || item.ParentFolderID == cursor.Junk || item.ParentFolderID == cursor.Deleted || received.Before(options.Start) || !received.Before(options.End) ||
@@ -382,7 +379,11 @@ type OutlookIdentity struct {
 	ID, Label string
 }
 
-// IdentifyOutlook returns the signed-in mailbox, which also tells sent mail from received mail.
+// IdentifyOutlook returns the Microsoft account. The label is display only and
+// is what Microsoft names the account: its primary mail, or for a personal
+// account without one the sign-in name, which may be another provider's
+// address. A personal account owns several addresses, so none is inferred
+// from mail; mail direction comes from folders, never from this label.
 func (c *Client) IdentifyOutlook(ctx context.Context, accountID string) (OutlookIdentity, error) {
 	var wire struct {
 		ID        string `json:"id"`

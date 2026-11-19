@@ -138,6 +138,7 @@ export class SetupWindowModule implements Module {
       ctx.bus.on("grants.changed", push),
       ctx.bus.on("local-server.changed", onLocal),
       ctx.bus.on("server.changed", onCookie),
+      ctx.bus.on("server.moved", onCookie),
       ctx.bus.on("setup.open", () => this.show()),
     );
     if (this.#options.show) this.show();
@@ -229,13 +230,19 @@ export class SetupWindowModule implements Module {
       case "local.start": {
         const local = ctx.get<LocalServerModule>("LocalServer");
         const plan = {
-          runtime: command.runtime ?? "recommended",
+          runtime: command.byok
+            ? command.byok.runtime
+            : (command.runtime ?? "recommended"),
+          ...(command.byok ? { byok: command.byok } : {}),
           ...(command.keys ? { keys: command.keys } : {}),
         } as const;
         // The page follows progress through state; a failure shows there too.
         void local.begin(plan).catch(() => undefined);
         return;
       }
+      case "local.byok.check":
+        await ctx.get<LocalServerModule>("LocalServer").checkByok(command.byok);
+        return;
       case "local.recheck":
         ctx.get<LocalServerModule>("LocalServer").recheck();
         return;
@@ -269,6 +276,9 @@ export class SetupWindowModule implements Module {
         ctx
           .get<LocalServerModule>("LocalServer")
           .switchRuntime(command.runtime);
+        return;
+      case "local.signin.byok":
+        ctx.get<LocalServerModule>("LocalServer").switchToByok(command.byok);
         return;
       case "local.account.show":
         await this.#account?.show(command.on);

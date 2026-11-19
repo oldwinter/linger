@@ -15,6 +15,7 @@ import {
 import type { ComponentProps, ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import {
   roomMessageQueryKey,
@@ -505,7 +506,7 @@ describe("Agent cheer on Reactions", () => {
       cancel: vi.fn(),
       finished: new Promise(() => undefined),
     }));
-    Object.defineProperty(HTMLElement.prototype, "animate", {
+    defineGlobalProperty(HTMLElement.prototype, "animate", {
       configurable: true,
       value: animate,
     });
@@ -519,9 +520,6 @@ describe("Agent cheer on Reactions", () => {
     await react("Thumbs Up");
 
     expect(floating()).toEqual(["✨", "✨", "✨", "✨", "✨"]);
-    // @ts-expect-error -- remove the stub so other tests see jsdom's Element.
-    delete HTMLElement.prototype.animate;
-    vi.unstubAllGlobals();
   });
 
   it("stays still for other Reactions, removals, and people's Messages", async () => {

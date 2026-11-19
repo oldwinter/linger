@@ -217,8 +217,12 @@ func TestApplyDoesNotAdoptAWorkspaceThatDidNotMove(t *testing.T) {
 		}
 		next := testView("b")
 		next.Mappings = initial.Mappings
-		if _, err := fixture.store.applyTestView(context.Background(), next, fixture.server.URL); !errors.Is(err, ErrContextConflict) {
-			t.Fatalf("a workspace under another hash was adopted: %v", err)
+		record, err := fixture.store.applyTestView(context.Background(), next, fixture.server.URL)
+		if err != nil {
+			t.Fatalf("unexpected apply error: %v", err)
+		}
+		if orphaned := orphanedDirectories(t, record.WorkspacePath); len(orphaned) != 1 {
+			t.Fatalf("a workspace under another hash was adopted instead of setting aside orphaned projection: %v", orphaned)
 		}
 	})
 
@@ -248,8 +252,12 @@ func TestApplyDoesNotAdoptAWorkspaceThatDidNotMove(t *testing.T) {
 		}
 		next := testView("b")
 		next.Mappings = initial.Mappings
-		if _, err := fixture.store.applyTestView(context.Background(), next, fixture.server.URL); !errors.Is(err, ErrContextConflict) {
-			t.Fatalf("a workspace whose retained path still exists was adopted: %v", err)
+		record, err := fixture.store.applyTestView(context.Background(), next, fixture.server.URL)
+		if err != nil {
+			t.Fatalf("unexpected apply error: %v", err)
+		}
+		if orphaned := orphanedDirectories(t, record.WorkspacePath); len(orphaned) != 1 {
+			t.Fatalf("a workspace whose retained path still exists was adopted instead of setting aside orphaned projection: %v", orphaned)
 		}
 	})
 

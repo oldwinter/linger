@@ -1,3 +1,8 @@
+import {
+  isModelCallKind,
+  modelCallPolicies,
+  type ModelLease,
+} from "../../model-tasks.js";
 import type {
   ModelInvoke,
   ModelInvoked,
@@ -9,7 +14,7 @@ import {
 } from "@linger/wire-contracts/runner-gateway/validator";
 import { LocalComputerOfflineError } from "./local-computer-management.js";
 import type { ModelSignal } from "./adaptive-limit.js";
-import type { ModelLease, ModelWork } from "./model-queue.js";
+import type { ModelEndpoint, ModelWork } from "./model-queue.js";
 import type {
   RunnerGatewayContext,
   RunnerGatewayControllers,
@@ -43,9 +48,8 @@ export interface RunnerModelInvokeRequest {
   readonly sessionKey?: ModelInvoke["session_key"];
   readonly timeoutMs: number;
   readonly maxOutputChars?: ModelInvoke["max_output_chars"];
-  /** The call's place in its endpoint's queue; absent, it runs at once: a
-   * chain's call runs in its chain's place, and some kinds never queue. */
-  readonly queue?: ModelWork & {
+  readonly callLease?: ModelLease;
+  readonly queue: ModelWork & {
     /** The Run Operation an approval reviews. While that Operation holds its
      * place on the same endpoint, the approval runs in it: the Run waits for
      * the verdict, so queuing behind it would never end. */
@@ -71,11 +75,28 @@ export class RunnerModelInvokeUnavailableError extends RunnerGatewayError {
   }
 }
 
+/**
+ * A background call swapped out for interactive work. The Computer stopped it
+ * and freed its place; the same attempt runs again once admitted.
+ */
+export class RunnerModelInvokeYieldedError extends RunnerGatewayError {
+  constructor() {
+    super("The model invocation yielded its place to interactive work");
+    this.name = "RunnerModelInvokeYieldedError";
+  }
+}
+
 interface InFlightCall {
   readonly runnerId: string;
+  readonly connectionEpoch: number;
   readonly runtimeType: ModelInvoke["runtime_type"];
-  readonly lease?: ModelLease;
+  readonly priority: number;
+  /** Background work nobody waits on, which may be swapped out. */
+  readonly yieldable: boolean;
+  readonly lease: Pick<ModelLease, "release">;
   readonly timer: NodeJS.Timeout;
+  /** A cancel to swap it out was sent; its reply frees the place. */
+  yielding: boolean;
   waiter?: {
     readonly signal: AbortSignal;
     readonly onAbort: () => void;
@@ -115,13 +136,19 @@ export class RunnerModelInvocation {
     this.#assertAvailable(computerId, request.runtimeType);
     const endpoint = { computerId, runtimeType: request.runtimeType };
     const { queue } = request;
+    const borrowed =
+      request.callLease?.borrow() ??
+      (queue.kind === "approval"
+        ? this.owners
+            .operations()
+            .borrowModelPlace(queue.runOperationId, endpoint)
+        : undefined);
     const lease =
-      !queue ||
-      this.owners.operations().holdsModelPlace(queue.runOperationId, endpoint)
-        ? undefined
-        : await this.owners.queue().acquire(endpoint, queue, request.signal);
+      borrowed ??
+      (await this.owners.queue().acquire(endpoint, queue, request.signal));
     let sent = false;
     try {
+      request.signal.throwIfAborted();
       const connections = this.owners.connections();
       const connection = connections.getConnection(computerId);
       this.#assertAvailable(computerId, request.runtimeType);
@@ -142,7 +169,7 @@ export class RunnerModelInvocation {
       }
       return await outcome;
     } finally {
-      if (!sent) lease?.release({ outcome: "not_sent" });
+      if (!sent) lease.release({ outcome: "not_sent" });
     }
   }
 
@@ -159,6 +186,48 @@ export class RunnerModelInvocation {
       ...outcome
     } = envelope;
     this.#finish(envelope.invoke_id, { outcome });
+  }
+
+  /**
+   * Swaps out the lowest-priority background call below priority on endpoint:
+   * the Computer stops it, and its reply frees the place for the waiting work.
+   * One at a time. Returns whether a swap is under way.
+   */
+  yieldCall(endpoint: ModelEndpoint, priority: number): boolean {
+    const calls = [...this.#inFlight].filter(
+      ([, call]) =>
+        call.runnerId === endpoint.computerId &&
+        call.runtimeType === endpoint.runtimeType,
+    );
+    if (calls.some(([, call]) => call.yielding)) return true;
+    const connections = this.owners.connections();
+    const lowest = calls
+      .filter(
+        ([, call]) =>
+          call.yieldable &&
+          call.priority > priority &&
+          connections.supportsModelInvokeCancel(
+            call.runnerId,
+            call.connectionEpoch,
+          ),
+      )
+      .sort(([, a], [, b]) => b.priority - a.priority)[0];
+    if (!lowest) return false;
+    const [invokeId, call] = lowest;
+    call.yielding = true;
+    const command = parseAgentToDaemonEnvelope({
+      type: "cancel",
+      target: "model_invoke",
+      protocol_version: RUNNER_GATEWAY_PROTOCOL_VERSION,
+      command_id: this.context.createId(),
+      invoke_id: invokeId,
+      runner_id: call.runnerId,
+      connection_epoch: call.connectionEpoch,
+      reason: "scheduler_yield",
+    });
+    // A lost connection stops every call on it and rejects its waiters.
+    connections.sendToCurrentRunner(command).catch(() => undefined);
+    return true;
   }
 
   rejectWaitersForComputer(runnerId: string): void {
@@ -181,7 +250,9 @@ export class RunnerModelInvocation {
     }
     if (!connections.supportsModelInvoke(computerId, runtimeType)) {
       throw new RunnerModelInvokeUnavailableError(
-        `Local Computer Runtime ${runtimeType} is not ready`,
+        runtimeType === "pi"
+          ? "Pi is not ready for background model calls. Update the Local Computer and check that Pi is ready."
+          : `Local Computer Runtime ${runtimeType} is not ready`,
       );
     }
   }
@@ -233,7 +304,7 @@ export class RunnerModelInvocation {
   #wait(
     command: ModelInvoke,
     request: RunnerModelInvokeRequest,
-    lease: ModelLease | undefined,
+    lease: Pick<ModelLease, "release">,
   ): Promise<RunnerModelInvokeOutcome> {
     return new Promise<RunnerModelInvokeOutcome>((resolve, reject) => {
       const { signal } = request;
@@ -253,15 +324,26 @@ export class RunnerModelInvocation {
         call.waiter = undefined;
         reject(signal.reason ?? new Error("Model invocation was abandoned"));
       };
+      const { kind, priority } = request.queue;
       this.#inFlight.set(command.invoke_id, {
         runnerId: command.runner_id,
+        connectionEpoch: command.connection_epoch,
         runtimeType: command.runtime_type,
-        ...(lease ? { lease } : {}),
+        priority,
+        yieldable:
+          isModelCallKind(kind) && !modelCallPolicies[kind].interactive,
+        lease,
         timer,
+        yielding: false,
         waiter: { signal, onAbort, resolve, reject },
       });
       signal.addEventListener("abort", onAbort, { once: true });
       if (signal.aborted) onAbort();
+      // Interactive work may have queued while this call was being admitted.
+      this.owners.queue().recheckInteractiveWait({
+        computerId: command.runner_id,
+        runtimeType: command.runtime_type,
+      });
     });
   }
 
@@ -275,8 +357,7 @@ export class RunnerModelInvocation {
     if (!call) return;
     this.#inFlight.delete(invokeId);
     clearTimeout(call.timer);
-    // Chain steps and approvals hold no lease of their own but still tell
-    // how fast the endpoint answers.
+    // Each Runtime reply supplies a latency sample, including a borrowed approval.
     const signal =
       "outcome" in result ? modelSignal(result.outcome) : undefined;
     if (signal)
@@ -286,7 +367,7 @@ export class RunnerModelInvocation {
           { computerId: call.runnerId, runtimeType: call.runtimeType },
           signal,
         );
-    call.lease?.release(
+    call.lease.release(
       "outcome" in result
         ? {
             outcome: result.outcome.outcome,
@@ -297,7 +378,14 @@ export class RunnerModelInvocation {
     const waiter = call.waiter;
     if (!waiter) return;
     waiter.signal.removeEventListener("abort", waiter.onAbort);
-    if ("outcome" in result) waiter.resolve(result.outcome);
+    // A call that finished before its cancel arrived keeps its answer.
+    if (
+      call.yielding &&
+      "outcome" in result &&
+      result.outcome.outcome === "canceled"
+    )
+      waiter.reject(new RunnerModelInvokeYieldedError());
+    else if ("outcome" in result) waiter.resolve(result.outcome);
     else waiter.reject(result.error);
   }
 }

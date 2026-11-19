@@ -134,7 +134,7 @@ function WikiCollectionContent({ collection }: { collection: WikiCollection }) {
         />
         <input
           aria-label={`Search ${label}`}
-          className="h-9 w-full rounded-lg border border-border bg-card pr-3 pl-9 text-sm text-foreground transition-colors duration-150 placeholder:text-muted-foreground hover:border-border-hover focus-visible:border-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="h-9 w-full rounded-lg border border-border bg-card pr-3 pl-9 text-sm text-foreground transition-colors duration-150 placeholder:text-app-placeholder hover:border-border-hover focus-visible:border-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onChange={(event) => setQuery(event.target.value)}
           placeholder={`Search ${label.toLowerCase()}`}
           type="search"

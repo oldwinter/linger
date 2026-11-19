@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { validateInput } from "./validation.js";
+import { validateByok, validateInput } from "./validation.js";
 test("accepts separate local model approval and explicit replan inputs", () => {
   const localModelsApproval = "a".repeat(64);
   expect(
@@ -53,4 +53,47 @@ test.each([
   { shareGpu: true, preparation: "docker" },
 ])("rejects malformed selection or consent %#", (options) => {
   expect(() => validateInput({ instance: "default", ...options })).toThrow();
+});
+
+test("validates BYOK check and installation inputs", () => {
+  expect(
+    validateByok({
+      baseUrl: "https://api.openai.com/v1/",
+      apiKey: "sk-test",
+      modelId: "gpt-5.4",
+      runtime: "codex",
+    }),
+  ).toMatchObject({
+    baseUrl: "https://api.openai.com/v1",
+    modelId: "gpt-5.4",
+    runtime: "codex",
+  });
+  expect(
+    validateInput({
+      instance: "default",
+      setupChoice: "claude",
+      byok: {
+        baseUrl: "https://api.anthropic.com",
+        apiKey: "sk-ant-test",
+        modelId: "claude-sonnet-4-6",
+      },
+    }),
+  ).toMatchObject({
+    setupChoice: "claude",
+    byok: {
+      baseUrl: "https://api.anthropic.com",
+      modelId: "claude-sonnet-4-6",
+      runtime: "claude",
+    },
+  });
+  expect(() =>
+    validateInput({
+      instance: "default",
+      setupChoice: "local-models",
+      byok: {
+        baseUrl: "https://api.openai.com/v1",
+        modelId: "gpt-5.4",
+      },
+    }),
+  ).toThrow();
 });

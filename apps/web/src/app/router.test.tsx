@@ -144,6 +144,37 @@ describe("Web app route contract", () => {
   it("opens every unified Document through one stable identity route", () => {
     expect(routePaths()).toContain("documents/:documentId");
   });
+
+  it("redirects legacy settings/local-models URLs to settings/models with query params", async () => {
+    const routes = createAppRoutes(
+      new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+      createTestTeamHubRuntime(),
+    );
+    const matched = matchRoutes(routes, "/t/tenant-a/settings/local-models");
+    const route = matched?.at(-1)?.route;
+    expect(route?.path).toBe("local-models");
+    const loader = route?.loader as LoaderFunction;
+    let thrown: unknown;
+    try {
+      await loader({
+        context: new RouterContextProvider(),
+        params: { tenantId: "tenant-a" },
+        pattern: "/t/:tenantId/settings/local-models",
+        request: new Request(
+          "http://localhost/t/tenant-a/settings/local-models?computer=comp-1",
+        ),
+        url: new URL(
+          "http://localhost/t/tenant-a/settings/local-models?computer=comp-1",
+        ),
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Response);
+    expect((thrown as Response).headers.get("Location")).toBe(
+      "/t/tenant-a/settings/models?computer=comp-1",
+    );
+  });
 });
 
 function routePaths() {

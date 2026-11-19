@@ -6,6 +6,7 @@ import { atomicPrivate, readPrivate, type Instance } from "./instance.js";
 import { runProcess } from "./process.js";
 import path from "node:path";
 import { localModelsEnvironment } from "./local-models.js";
+import { readByokEnvironment } from "./byok-source.js";
 import {
   localModelsConfig,
   localModelsLoginArguments,
@@ -105,13 +106,13 @@ async function environment(instance: Instance): Promise<NodeJS.ProcessEnv> {
   ]);
   for (const key of Object.keys(inherited))
     if (explicit.has(key.toUpperCase())) delete inherited[key];
+  const home = path.resolve(instance.root, "../..");
+  const byok = await readByokEnvironment(home);
   return {
     ...inherited,
-    ...(await managedRuntimeEnvironment(
-      path.resolve(instance.root, "../.."),
-      instance.root,
-    )),
+    ...(await managedRuntimeEnvironment(home, instance.root)),
     ...(await localModelsEnvironment(instance)),
+    ...(byok?.mode === "byok" ? byok.environment : {}),
     PATH: await runtimePath(instance),
     LINGER_COMPUTER_INSECURE_DEVELOPMENT_ORIGIN: instance.origin,
   };
@@ -234,12 +235,15 @@ export async function inspectComputer(
   return inspectInstanceComputer(instance, options);
 }
 async function managedRuntimeState(instance: Instance) {
+  const home = path.resolve(instance.root, "../..");
   const descriptors = await inspectSelectedRuntimeDescriptors(
-    path.resolve(instance.root, "../.."),
+    home,
     instance.root,
   );
   const managed = runtimeEnvironmentFromDescriptors(descriptors);
   Object.assign(managed, await localModelsEnvironment(instance));
+  const byok = await readByokEnvironment(home);
+  if (byok?.mode === "byok") Object.assign(managed, byok.environment);
   managed.PATH = await runtimePath(instance);
   // Part of the fingerprint, so an install from before the Computer knew
   // its localmodels tool is rebound once on its next connect.

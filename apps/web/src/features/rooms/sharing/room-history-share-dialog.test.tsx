@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
@@ -38,8 +39,8 @@ function renderDialog(roomHistory: Partial<TeamHubClient["roomHistory"]>) {
 describe("Room history share dialog", () => {
   beforeEach(() => {
     vi.stubGlobal("open", vi.fn().mockReturnValue(null));
-    Object.assign(navigator, {
-      clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
+    defineGlobalProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
     });
   });
 

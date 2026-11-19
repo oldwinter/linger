@@ -3,8 +3,8 @@ package reminder
 import "testing"
 
 func TestValidateTemplateRoutineSnapshot(t *testing.T) {
-	hours := 2
-	valid := TemplateRoutine{Key: "entry", Name: "Check", Instruction: "Check the Room.", Cadence: Cadence{Kind: "every_n_hours", Timezone: "UTC", IntervalHours: &hours}, Enabled: true, CreatedByRole: "agent"}
+	minutes := 120
+	valid := TemplateRoutine{Key: "entry", Name: "Check", Instruction: "Check the Room.", Cadence: Cadence{Kind: "every_n_minutes", Timezone: "UTC", IntervalMinutes: &minutes}, Enabled: true, CreatedByRole: "agent"}
 	if err := ValidateTemplateRoutines([]TemplateRoutine{valid}); err != nil {
 		t.Fatal(err)
 	}

@@ -12,6 +12,7 @@ ORDER BY id;
 -- One Connection's sync position while it is still active at the revision
 -- its sync was queued for.
 SELECT account_id, mail_import_tenant_id::text AS tenant_id, provider, upstream_connection_id,
+       coalesce(remote_principal_key, '')::text AS mailbox,
        mail_synced_until::timestamptz AS synced_until
 FROM external_connections
 WHERE id = sqlc.arg(id)::text AND revision = sqlc.arg(revision)::bigint AND status = 'active'

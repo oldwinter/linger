@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { ensureLocalAccount } from "./account.js";
+import { ensureLocalAccount, localIdentityProof } from "./account.js";
 import type { Instance } from "./instance.js";
 
 const provisionOwner =
@@ -23,22 +23,47 @@ afterEach(async () => {
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-async function fixture() {
+const identityKey = Buffer.alloc(32, 9);
+async function fixture({ identity = true } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), "linger-account-"));
   roots.push(root);
   const instance = { root, origin: "http://localhost:3000" } as Instance;
+  if (identity)
+    await writeFile(
+      path.join(root, "local-identity.key"),
+      `${identityKey.toString("base64")}\n`,
+      { mode: 0o600 },
+    );
   return {
     instance,
     file: path.join(root, "local-account.json"),
     signal: new AbortController().signal,
   };
 }
+// This instance's server: it proves the origin before `handler` sees requests.
+function stubFetch(
+  handler: (url: string, init?: RequestInit) => Promise<Response>,
+) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (!url.endsWith("/v0/local/identity")) return handler(url, init);
+      const { nonce } = JSON.parse(init?.body as string) as { nonce: string };
+      return Response.json({
+        proof: localIdentityProof(
+          identityKey,
+          nonce,
+          "http://localhost:3000",
+        ).toString("base64url"),
+      });
+    }),
+  );
+}
 it("creates the owner through stdin, confirms login and logs out before reusing private credentials", async () => {
   const f = await fixture();
   const requests: string[] = [];
   let created = false;
-  vi.stubGlobal(
-    "fetch",
+  stubFetch(
     vi.fn(async (url: string) => {
       requests.push(new URL(url).pathname);
       return new Response(null, {
@@ -69,7 +94,13 @@ it("creates the owner through stdin, confirms login and logs out before reusing 
   vi.mocked(fetch).mockClear();
   provisionOwner.mockClear();
   await ensureLocalAccount(f.instance, f.signal, owner);
-  expect(fetch).not.toHaveBeenCalled();
+  expect(
+    vi
+      .mocked(fetch)
+      .mock.calls.map(
+        ([url]) => new URL(url instanceof Request ? url.url : url).pathname,
+      ),
+  ).toEqual(["/v0/local/identity", "/v0/auth/login", "/v0/auth/logout"]);
   expect(provisionOwner).not.toHaveBeenCalled();
   expect(
     JSON.parse(await readFile(f.file, "utf8")).password === saved.password,
@@ -87,8 +118,7 @@ it("recovers owner creation interrupted after commit using the saved password wi
     }),
     { mode: 0o600 },
   );
-  vi.stubGlobal(
-    "fetch",
+  stubFetch(
     vi.fn(
       async () =>
         new Response(null, {
@@ -104,10 +134,7 @@ it("recovers owner creation interrupted after commit using the saved password wi
 });
 it("does not mark an existing owner provisioned when its saved password cannot log in", async () => {
   const f = await fixture();
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => new Response(null, { status: 401 })),
-  );
+  stubFetch(vi.fn(async () => new Response(null, { status: 401 })));
   provisionOwner.mockResolvedValue(undefined);
   await expect(
     ensureLocalAccount(f.instance, f.signal, owner).then(() => "success"),
@@ -118,8 +145,7 @@ it("does not mark an existing owner provisioned when its saved password cannot l
 it("confirms a committed owner after a command failure without exposing command diagnostics", async () => {
   const f = await fixture();
   let attempts = 0;
-  vi.stubGlobal(
-    "fetch",
+  stubFetch(
     vi.fn(
       async () => new Response(null, { status: ++attempts === 1 ? 401 : 200 }),
     ),
@@ -131,10 +157,7 @@ it("confirms a committed owner after a command failure without exposing command 
 });
 it("keeps credentials private when command creation and login both fail", async () => {
   const f = await fixture();
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => new Response(null, { status: 401 })),
-  );
+  stubFetch(vi.fn(async () => new Response(null, { status: 401 })));
   provisionOwner.mockRejectedValue(new Error("private-server-secret"));
   const message = await ensureLocalAccount(f.instance, f.signal, owner).then(
     () => "success",
@@ -146,8 +169,7 @@ it("keeps credentials private when command creation and login both fail", async 
 });
 it("does not create an owner on an unexpected login error or leak server response secrets", async () => {
   const f = await fixture();
-  vi.stubGlobal(
-    "fetch",
+  stubFetch(
     vi.fn(async () => new Response("private-server-secret", { status: 503 })),
   );
   await expect(
@@ -183,10 +205,7 @@ it("does not expose credential text from malformed JSON or continue after cancel
 });
 it("accepts first-time custom credentials and reuses them without resetting", async () => {
   const f = await fixture();
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => new Response(null, { status: 200 })),
-  );
+  stubFetch(vi.fn(async () => new Response(null, { status: 200 })));
   const expected = {
     email: "custom@example.com",
     password: "custom-password-123",
@@ -241,8 +260,7 @@ it("rejects invalid custom credentials before writing or calling the account ser
 it("uses a source owner provisioner with saved credentials and confirms login", async () => {
   const f = await fixture();
   let attempts = 0;
-  vi.stubGlobal(
-    "fetch",
+  stubFetch(
     vi.fn(
       async () => new Response(null, { status: ++attempts === 1 ? 401 : 200 }),
     ),
@@ -262,7 +280,7 @@ it("uses a source owner provisioner with saved credentials and confirms login", 
 });
 it("reads the server identity from the private instance files", async () => {
   const { readLocalIdentity } = await import("./account.js");
-  const f = await fixture();
+  const f = await fixture({ identity: false });
   const key = Buffer.alloc(32, 7);
   await expect(readLocalIdentity(f.instance)).rejects.toThrow(
     "Linger on this computer has no server identity yet.",
@@ -285,4 +303,195 @@ it("reads the server identity from the private instance files", async () => {
   const { chmod } = await import("node:fs/promises");
   await chmod(keyFile, 0o644);
   await expect(readLocalIdentity(f.instance)).rejects.toThrow(/private/);
+});
+
+it("recreates a missing owner when the private file is already marked provisioned", async () => {
+  const f = await fixture();
+  const saved =
+    JSON.stringify(
+      {
+        email: "owner@linger.local",
+        password: "saved-private-password",
+        provisioned: true,
+      },
+      null,
+      2,
+    ) + "\n";
+  await writeFile(f.file, saved, { mode: 0o600 });
+  let created = false;
+  stubFetch(
+    vi.fn(
+      async (url: string) =>
+        new Response(null, {
+          status: url.endsWith("/logout") ? 204 : created ? 200 : 401,
+          headers: created ? { "set-cookie": "session=test; HttpOnly" } : {},
+        }),
+    ),
+  );
+  provisionOwner.mockImplementation(async (email, password) => {
+    expect(email).toBe("owner@linger.local");
+    expect(password).toBe("saved-private-password");
+    created = true;
+  });
+  const result = await ensureLocalAccount(f.instance, f.signal, owner);
+  expect(created).toBe(true);
+  expect(provisionOwner).toHaveBeenCalledOnce();
+  expect(result.email).toBe("owner@linger.local");
+  expect(await readFile(f.file, "utf8")).toBe(saved);
+  expect(
+    vi
+      .mocked(fetch)
+      .mock.calls.map(
+        ([url]) => new URL(url instanceof Request ? url.url : url).pathname,
+      ),
+  ).toEqual([
+    "/v0/local/identity",
+    "/v0/auth/login",
+    "/v0/auth/login",
+    "/v0/auth/logout",
+  ]);
+});
+it("keeps an existing provisioned owner ready after the user changes their password", async () => {
+  const f = await fixture();
+  const saved = JSON.stringify({
+    email: "owner@linger.local",
+    password: "saved-private-password",
+    provisioned: true,
+  });
+  await writeFile(f.file, saved, { mode: 0o600 });
+  stubFetch(
+    vi.fn(async () => new Response("server-private-secret", { status: 401 })),
+  );
+  provisionOwner.mockResolvedValue(undefined);
+  await expect(
+    ensureLocalAccount(f.instance, f.signal, owner),
+  ).resolves.toEqual({
+    email: "owner@linger.local",
+    password: "saved-private-password",
+    file: f.file,
+  });
+  expect(provisionOwner).toHaveBeenCalledOnce();
+  expect(fetch).toHaveBeenCalledTimes(3);
+  expect(await readFile(f.file, "utf8")).toBe(saved);
+});
+it("does not provision an already marked account when its login service fails", async () => {
+  const f = await fixture();
+  const saved = JSON.stringify({
+    email: "owner@linger.local",
+    password: "saved-private-password",
+    provisioned: true,
+  });
+  await writeFile(f.file, saved, { mode: 0o600 });
+  stubFetch(
+    vi.fn(async () => new Response("server-private-secret", { status: 503 })),
+  );
+  await expect(ensureLocalAccount(f.instance, f.signal, owner)).rejects.toThrow(
+    "Local account login check failed (HTTP 503)",
+  );
+  expect(provisionOwner).not.toHaveBeenCalled();
+  expect(await readFile(f.file, "utf8")).toBe(saved);
+});
+it("preserves a provisioned account and hides details on a network failure", async () => {
+  const f = await fixture();
+  const saved = JSON.stringify({
+    email: "owner@linger.local",
+    password: "saved-private-password",
+    provisioned: true,
+  });
+  await writeFile(f.file, saved, { mode: 0o600 });
+  stubFetch(
+    vi.fn(async () => {
+      throw new Error("server-private-secret");
+    }),
+  );
+  await expect(ensureLocalAccount(f.instance, f.signal, owner)).rejects.toThrow(
+    "The local account service is unavailable. Reopen Linger to retry; account credentials are preserved.",
+  );
+  expect(provisionOwner).not.toHaveBeenCalled();
+  expect(await readFile(f.file, "utf8")).toBe(saved);
+});
+
+it("does not trust a provisioned marker when owner confirmation and login both fail", async () => {
+  const f = await fixture();
+  const saved = JSON.stringify({
+    email: "owner@linger.local",
+    password: "saved-private-password",
+    provisioned: true,
+  });
+  await writeFile(f.file, saved, { mode: 0o600 });
+  stubFetch(
+    vi.fn(async () => new Response("server-private-secret", { status: 401 })),
+  );
+  provisionOwner.mockRejectedValue(new Error("private-owner-command-failure"));
+  await expect(ensureLocalAccount(f.instance, f.signal, owner)).rejects.toThrow(
+    "Local account sign-in failed after creation (HTTP 401). Credentials are preserved; existing accounts will not be reset.",
+  );
+  expect(await readFile(f.file, "utf8")).toBe(saved);
+});
+it.each([429, 503])(
+  "does not accept a provisioned owner when the confirmation login fails with %s",
+  async (status) => {
+    const f = await fixture();
+    const saved = JSON.stringify({
+      email: "owner@linger.local",
+      password: "saved-private-password",
+      provisioned: true,
+    });
+    await writeFile(f.file, saved, { mode: 0o600 });
+    let calls = 0;
+    stubFetch(
+      vi.fn(
+        async () =>
+          new Response(null, { status: ++calls === 1 ? 401 : status }),
+      ),
+    );
+    provisionOwner.mockResolvedValue(undefined);
+    await expect(
+      ensureLocalAccount(f.instance, f.signal, owner),
+    ).rejects.toThrow(
+      `Local account sign-in failed after creation (HTTP ${status}). Credentials are preserved; existing accounts will not be reset.`,
+    );
+    expect(await readFile(f.file, "utf8")).toBe(saved);
+  },
+);
+it("does not report an existing provisioned owner ready after cancellation", async () => {
+  const f = await fixture();
+  const controller = new AbortController();
+  const saved = JSON.stringify({
+    email: "owner@linger.local",
+    password: "saved-private-password",
+    provisioned: true,
+  });
+  await writeFile(f.file, saved, { mode: 0o600 });
+  stubFetch(vi.fn(async () => new Response(null, { status: 401 })));
+  provisionOwner.mockImplementation(async () => controller.abort());
+  await expect(
+    ensureLocalAccount(f.instance, controller.signal, owner),
+  ).rejects.toThrow();
+  expect(await readFile(f.file, "utf8")).toBe(saved);
+});
+
+it("sends no password to another program answering at the origin", async () => {
+  const f = await fixture();
+  const requests: string[] = [];
+  for (const answer of [
+    () => Response.json({ proof: "forged" }),
+    () => new Response("Not Found", { status: 404 }),
+  ]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        requests.push(new URL(url).pathname);
+        return answer();
+      }),
+    );
+    await expect(
+      ensureLocalAccount(f.instance, f.signal, owner),
+    ).rejects.toThrow(
+      "Another program is answering at http://localhost:3000, so Linger cannot use port 3000.",
+    );
+  }
+  expect(requests).toEqual(["/v0/local/identity", "/v0/local/identity"]);
+  expect(provisionOwner).not.toHaveBeenCalled();
+  expect(JSON.parse(await readFile(f.file, "utf8")).provisioned).toBe(false);
 });

@@ -1,4 +1,5 @@
 import {
+  OPERATION_OUTCOME_UNKNOWN,
   RunnerOperationInputError,
   type RunnerSessionCompactOptions,
   type RunnerSessionCompactOutcome,
@@ -1474,6 +1475,24 @@ describe("RemoteCodexProvider", () => {
       ).toHaveLength(1);
     },
   );
+
+  it("reports a start the Computer never confirmed as interrupted", async () => {
+    const dispatcher = new ScriptedDispatcher({
+      runStartError: new RunnerOperationError(
+        OPERATION_OUTCOME_UNKNOWN,
+        "The Computer never confirmed the Operation start; its outcome is unknown",
+        false,
+      ),
+    });
+    const provider = createProvider(dispatcher);
+    const session = await provider.createSession(sessionOptions());
+    await expect(
+      provider.startRun(session, { type: "text", text: "Run once" }, runSpec),
+    ).rejects.toBeInstanceOf(ProviderRunInterruptedError);
+    expect(
+      dispatcher.requests.filter(({ request }) => request.kind === "run.start"),
+    ).toHaveLength(1);
+  });
 
   it("never maps a post-start failure into a retryable Provider start", async () => {
     const dispatcher = new ScriptedDispatcher({

@@ -6,8 +6,6 @@ import {
   VoiceConnectionRetryContext,
 } from "./voice-control-context";
 
-vi.mock("./recording-window-store", () => ({ openRecordingWindow: vi.fn() }));
-
 afterEach(cleanup);
 
 function renderEntry(retryConnection?: () => void) {

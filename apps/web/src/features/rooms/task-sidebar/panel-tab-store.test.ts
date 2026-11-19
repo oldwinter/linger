@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import {
   closePanelTab,
@@ -19,7 +20,7 @@ const scope = {
 describe("panel tab store", () => {
   beforeEach(() => {
     const store = new Map<string, string>();
-    Object.defineProperty(globalThis, "localStorage", {
+    defineGlobalProperty(globalThis, "localStorage", {
       configurable: true,
       value: {
         get length() {

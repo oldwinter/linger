@@ -40,12 +40,12 @@ import type {
 import { type RunnerCredentialAuthenticator } from "../../../src/agent/runner-gateway/runner-credential-authority.js";
 import {
   attachRunnerGatewayWebSocket,
-  RUNNER_DAEMON_IDENTITY_CONFLICT_CLOSE_REASON,
+  RUNNER_DAEMON_IDENTITY_IN_USE_CLOSE_REASON,
   RUNNER_UPGRADE_REQUIRED_CLOSE_REASON,
   type AttachRunnerGatewayWebSocketOptions,
 } from "../../../src/agent/runner-gateway/runner-gateway-websocket.js";
-import { TeamHubRuntimeStateError } from "../../../src/agent/executor/teamhub-runtime-state-client.js";
 import {
+  RunnerDaemonIdentityInUseError,
   RunnerGatewayProtocolError,
   RunnerUpgradeRequiredError,
   type RunnerOperation,
@@ -182,6 +182,29 @@ describe("Runner Gateway WebSocket", () => {
         );
     },
   );
+
+  it("closes with policy violation and identity conflict reason on RunnerDaemonIdentityInUseError", async () => {
+    const onSessionError = vi.fn();
+    const fixture = await startFixture({ onSessionError });
+    const accept = vi
+      .spyOn(fixture.gateway, "acceptConnection")
+      .mockRejectedValueOnce(new RunnerDaemonIdentityInUseError());
+    const socket = new WebSocket(fixture.url, {
+      headers: { Authorization: "Bearer runner-secret" },
+    });
+    await opened(socket);
+    const closed = onceClosed(socket);
+    socket.send(JSON.stringify(hello()));
+    await expect(closed).resolves.toEqual({
+      code: 1008,
+      reason: RUNNER_DAEMON_IDENTITY_IN_USE_CLOSE_REASON,
+    });
+    expect(accept).toHaveBeenCalledOnce();
+    expect(onSessionError).toHaveBeenCalledWith(
+      expect.any(RunnerDaemonIdentityInUseError),
+      expect.objectContaining({ phase: "runner.hello" }),
+    );
+  });
 
   it.each(["close", "invalid frame"])(
     "cleans up pending admission after %s",
@@ -366,34 +389,6 @@ describe("Runner Gateway WebSocket", () => {
       "workspace_grants",
     );
   });
-  it("reports a Daemon Identity conflict as its own actionable close", async () => {
-    const onSessionError = vi.fn();
-    const fixture = await startFixture({ onSessionError });
-    const conflict = new TeamHubRuntimeStateError(
-      409,
-      "Daemon Identity is already bound to another Local Computer",
-      "AGENT_RUNTIME_DAEMON_IDENTITY_IN_USE",
-    );
-    vi.spyOn(fixture.gateway, "acceptConnection").mockRejectedValueOnce(
-      conflict,
-    );
-    const socket = new WebSocket(fixture.url, {
-      headers: { Authorization: "Bearer runner-secret" },
-    });
-    await opened(socket);
-    const closed = onceClosed(socket);
-    socket.send(JSON.stringify(hello()));
-    expect(await closed).toMatchObject({
-      code: 1011,
-      reason: RUNNER_DAEMON_IDENTITY_CONFLICT_CLOSE_REASON,
-    });
-    expect(onSessionError).toHaveBeenCalledWith(conflict, {
-      computerId: "runner-local",
-      phase: "runner.hello",
-      agentId: undefined,
-      code: "AGENT_RUNTIME_DAEMON_IDENTITY_IN_USE",
-    });
-  });
   it("keeps received heartbeats live while a registry write blocks the business queue", async () => {
     const fixture = await startFixture({ heartbeatTimeoutMs: 200 });
     const socket = new WebSocket(fixture.url, {
@@ -444,8 +439,11 @@ describe("Runner Gateway WebSocket", () => {
 
   it("drops frames that arrive after a heartbeat timeout while the close is pending", async () => {
     const onSessionError = vi.fn();
+    // The close stays pending from the 200 ms timeout until 600 ms, so the
+    // heartbeat sent at 300 ms lands while the gateway is CLOSING.
     const fixture = await startFixture({
       heartbeatTimeoutMs: 200,
+      closeTimeoutMs: 400,
       onSessionError,
     });
     const socket = new WebSocket(fixture.url, {
@@ -473,7 +471,7 @@ describe("Runner Gateway WebSocket", () => {
 
   it("drops frames from a replaced connection while its close is pending", async () => {
     const onSessionError = vi.fn();
-    const fixture = await startFixture({ onSessionError });
+    const fixture = await startFixture({ closeTimeoutMs: 300, onSessionError });
     const connect = async (): Promise<WebSocket> => {
       const socket = new WebSocket(fixture.url, {
         headers: { Authorization: "Bearer runner-secret" },
@@ -1573,6 +1571,7 @@ const startFixture = async (
     credentialAuthenticators?: readonly RunnerCredentialAuthenticator[];
     rejectUnmatchedUpgrades?: boolean;
     helloTimeoutMs?: number;
+    closeTimeoutMs?: number;
     heartbeatTimeoutMs?: number;
     computerDaemonIdentityVerifier?: ComputerDaemonIdentityVerifier;
     onSessionError?: AttachRunnerGatewayWebSocketOptions["onSessionError"];
@@ -1612,6 +1611,7 @@ const startFixture = async (
     ],
     rejectUnmatchedUpgrades: options.rejectUnmatchedUpgrades,
     helloTimeoutMs: options.helloTimeoutMs,
+    closeTimeoutMs: options.closeTimeoutMs,
     onSessionError: options.onSessionError,
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));

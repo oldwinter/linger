@@ -109,6 +109,9 @@ func (d *Daemon) startAcceptedOperation(ctx context.Context, command protocol.Co
 		if err == nil {
 			err = ctx.Err()
 		}
+		if err == nil && d.runtimeCleanupUnconfirmed(command.RuntimeType) {
+			err = errors.New(cleanupUnconfirmedMessage)
+		}
 		if err == nil {
 			spec.MCPConfig = proxies.Config()
 			spec.TrustedLocalMCPTools = proxies.LocalToolNames()
@@ -165,6 +168,10 @@ func (d *Daemon) operationOccupancy(identity OperationIdentity) (count int, cont
 	defer d.activeMu.Unlock()
 	d.preparationMu.Lock()
 	defer d.preparationMu.Unlock()
+	for _, pending := range d.uncleanOperations {
+		count++
+		contextBusy = contextBusy || operationContextKey(pending) == operationContextKey(identity)
+	}
 	for _, active := range d.activeOperations {
 		if !active.terminalCommitted {
 			count++

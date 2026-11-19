@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { prepareDependencies } from "./dependencies.js";
@@ -66,3 +66,40 @@ it("returns Runtime timeout category and stage through dependency preparation", 
     details: { code: "COMMAND_TIMEOUT", stage: "runtime" },
   });
 });
+it.each([
+  ["plan", "RUNTIME_ACTION_FAILED", "RUNTIME_PLAN_REFUSED"],
+  ["apply", "RUNTIME_ACTION_FAILED", "RUNTIME_ACTION_FAILED"],
+  ["apply", "RUNTIME_EXTENSIONS_FAILED", "RUNTIME_EXTENSIONS_FAILED"],
+])(
+  "returns the harness %s failure %s as %s through dependency preparation",
+  async (step, upstream, code) => {
+    const options = { ...(await fixture()), dependency: "pi" as const };
+    const localmodels = vi.fn(async (_home: string, args: string[]) => {
+      if (args[1] === "plan" && step !== "plan")
+        await writeFile(
+          args[args.indexOf("--out") + 1]!,
+          JSON.stringify({
+            schema: "localmodels.harness-plan/v1",
+            id: "a".repeat(64),
+            runtime: "pi",
+          }),
+        );
+      const failed = args[1] === step;
+      return {
+        code: failed ? 1 : 0,
+        stdout: failed
+          ? JSON.stringify({
+              schema: "localmodels.harness-error/v1",
+              code: upstream,
+              message: "Runtime action failed: upstream cause.",
+            })
+          : "",
+        stderr: "",
+      };
+    });
+    expect(await prepareDependencies(options, { localmodels })).toMatchObject({
+      state: "failed",
+      details: { code, stage: "runtime" },
+    });
+  },
+);

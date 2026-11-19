@@ -726,7 +726,7 @@ function InviteCollaboratorsField({
       <div className="flex items-center rounded-lg border border-input bg-card pr-1 transition-colors hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring">
         <input
           aria-label="Search collaborators"
-          className="h-9 min-w-0 flex-1 bg-transparent px-3 text-sm text-app-ink outline-none placeholder:text-muted-foreground"
+          className="h-9 min-w-0 flex-1 bg-transparent px-3 text-sm text-app-ink outline-none placeholder:text-app-placeholder"
           onChange={(event) => setQuery(event.target.value)}
           onFocus={() => setOpen(true)}
           placeholder="Search Agents"

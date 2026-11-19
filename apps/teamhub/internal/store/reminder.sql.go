@@ -18,7 +18,7 @@ SET next_run_at=$1::timestamptz,
 WHERE id=$2::text
   AND enabled
   AND next_run_at=$3::timestamptz
-RETURNING id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, interval_hours, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose
+RETURNING id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose, interval_minutes
 `
 
 type AdvanceRoomReminderScheduleParams struct {
@@ -41,7 +41,6 @@ func (q *Queries) AdvanceRoomReminderSchedule(ctx context.Context, arg AdvanceRo
 		&i.Timezone,
 		&i.Hour,
 		&i.Minute,
-		&i.IntervalHours,
 		&i.Enabled,
 		&i.NextRunAt,
 		&i.Revision,
@@ -55,6 +54,7 @@ func (q *Queries) AdvanceRoomReminderSchedule(ctx context.Context, arg AdvanceRo
 		&i.RunAt,
 		&i.TrackingItemID,
 		&i.TrackingPurpose,
+		&i.IntervalMinutes,
 	)
 	return i, err
 }
@@ -82,7 +82,7 @@ func (q *Queries) CountRoomReminders(ctx context.Context, arg CountRoomReminders
 const createRoomReminder = `-- name: CreateRoomReminder :one
 INSERT INTO room_reminders (
     id, tenant_id, room_id, created_by_actor_id, name, instruction, mention_actor_id,
-    cadence_kind, timezone, hour, minute, weekdays, interval_hours, run_at,
+    cadence_kind, timezone, hour, minute, weekdays, interval_minutes, run_at,
     enabled, next_run_at, template_agent_actor_id, template_routine_key, "trigger",
     tracking_item_id, tracking_purpose
 ) VALUES (
@@ -93,7 +93,7 @@ INSERT INTO room_reminders (
     $18, $19::jsonb,
     $20, $21
 )
-RETURNING id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, interval_hours, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose
+RETURNING id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose, interval_minutes
 `
 
 type CreateRoomReminderParams struct {
@@ -109,7 +109,7 @@ type CreateRoomReminderParams struct {
 	Hour                 pgtype.Int4        `json:"hour"`
 	Minute               pgtype.Int4        `json:"minute"`
 	Weekdays             []string           `json:"weekdays"`
-	IntervalHours        pgtype.Int4        `json:"interval_hours"`
+	IntervalMinutes      pgtype.Int4        `json:"interval_minutes"`
 	RunAt                pgtype.Timestamptz `json:"run_at"`
 	Enabled              bool               `json:"enabled"`
 	NextRunAt            pgtype.Timestamptz `json:"next_run_at"`
@@ -134,7 +134,7 @@ func (q *Queries) CreateRoomReminder(ctx context.Context, arg CreateRoomReminder
 		arg.Hour,
 		arg.Minute,
 		arg.Weekdays,
-		arg.IntervalHours,
+		arg.IntervalMinutes,
 		arg.RunAt,
 		arg.Enabled,
 		arg.NextRunAt,
@@ -156,7 +156,6 @@ func (q *Queries) CreateRoomReminder(ctx context.Context, arg CreateRoomReminder
 		&i.Timezone,
 		&i.Hour,
 		&i.Minute,
-		&i.IntervalHours,
 		&i.Enabled,
 		&i.NextRunAt,
 		&i.Revision,
@@ -170,6 +169,7 @@ func (q *Queries) CreateRoomReminder(ctx context.Context, arg CreateRoomReminder
 		&i.RunAt,
 		&i.TrackingItemID,
 		&i.TrackingPurpose,
+		&i.IntervalMinutes,
 	)
 	return i, err
 }
@@ -180,7 +180,7 @@ WHERE id=$1::text
   AND tenant_id=$2::text
   AND room_id=$3::text
   AND revision=$4::bigint
-RETURNING id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, interval_hours, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose
+RETURNING id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose, interval_minutes
 `
 
 type DeleteRoomReminderParams struct {
@@ -209,7 +209,6 @@ func (q *Queries) DeleteRoomReminder(ctx context.Context, arg DeleteRoomReminder
 		&i.Timezone,
 		&i.Hour,
 		&i.Minute,
-		&i.IntervalHours,
 		&i.Enabled,
 		&i.NextRunAt,
 		&i.Revision,
@@ -223,6 +222,7 @@ func (q *Queries) DeleteRoomReminder(ctx context.Context, arg DeleteRoomReminder
 		&i.RunAt,
 		&i.TrackingItemID,
 		&i.TrackingPurpose,
+		&i.IntervalMinutes,
 	)
 	return i, err
 }
@@ -230,7 +230,7 @@ func (q *Queries) DeleteRoomReminder(ctx context.Context, arg DeleteRoomReminder
 const deleteTemplateRoomReminders = `-- name: DeleteTemplateRoomReminders :many
 DELETE FROM room_reminders
 WHERE template_routine_key=$1::text
-RETURNING id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, interval_hours, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose
+RETURNING id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose, interval_minutes
 `
 
 func (q *Queries) DeleteTemplateRoomReminders(ctx context.Context, templateRoutineKey string) ([]RoomReminder, error) {
@@ -253,7 +253,6 @@ func (q *Queries) DeleteTemplateRoomReminders(ctx context.Context, templateRouti
 			&i.Timezone,
 			&i.Hour,
 			&i.Minute,
-			&i.IntervalHours,
 			&i.Enabled,
 			&i.NextRunAt,
 			&i.Revision,
@@ -267,6 +266,7 @@ func (q *Queries) DeleteTemplateRoomReminders(ctx context.Context, templateRouti
 			&i.RunAt,
 			&i.TrackingItemID,
 			&i.TrackingPurpose,
+			&i.IntervalMinutes,
 		); err != nil {
 			return nil, err
 		}
@@ -282,7 +282,7 @@ const deleteTrackingItemRoomReminders = `-- name: DeleteTrackingItemRoomReminder
 DELETE FROM room_reminders
 WHERE tenant_id=$1::text
   AND tracking_item_id=ANY($2::text[])
-RETURNING id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, interval_hours, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose
+RETURNING id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose, interval_minutes
 `
 
 type DeleteTrackingItemRoomRemindersParams struct {
@@ -312,7 +312,6 @@ func (q *Queries) DeleteTrackingItemRoomReminders(ctx context.Context, arg Delet
 			&i.Timezone,
 			&i.Hour,
 			&i.Minute,
-			&i.IntervalHours,
 			&i.Enabled,
 			&i.NextRunAt,
 			&i.Revision,
@@ -326,6 +325,7 @@ func (q *Queries) DeleteTrackingItemRoomReminders(ctx context.Context, arg Delet
 			&i.RunAt,
 			&i.TrackingItemID,
 			&i.TrackingPurpose,
+			&i.IntervalMinutes,
 		); err != nil {
 			return nil, err
 		}
@@ -346,7 +346,7 @@ SET enabled=false,
 WHERE id=$1::text
   AND enabled
   AND next_run_at=$2::timestamptz
-RETURNING id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, interval_hours, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose
+RETURNING id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose, interval_minutes
 `
 
 type FinishRoomReminderScheduleParams struct {
@@ -369,7 +369,6 @@ func (q *Queries) FinishRoomReminderSchedule(ctx context.Context, arg FinishRoom
 		&i.Timezone,
 		&i.Hour,
 		&i.Minute,
-		&i.IntervalHours,
 		&i.Enabled,
 		&i.NextRunAt,
 		&i.Revision,
@@ -383,6 +382,7 @@ func (q *Queries) FinishRoomReminderSchedule(ctx context.Context, arg FinishRoom
 		&i.RunAt,
 		&i.TrackingItemID,
 		&i.TrackingPurpose,
+		&i.IntervalMinutes,
 	)
 	return i, err
 }
@@ -458,7 +458,7 @@ func (q *Queries) GetLatestActiveHumanMessageAuthorID(ctx context.Context, arg G
 }
 
 const getRoomReminder = `-- name: GetRoomReminder :one
-SELECT id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, interval_hours, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose
+SELECT id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose, interval_minutes
 FROM room_reminders
 WHERE id=$1::text AND tenant_id=$2::text AND room_id=$3::text
 `
@@ -483,7 +483,6 @@ func (q *Queries) GetRoomReminder(ctx context.Context, arg GetRoomReminderParams
 		&i.Timezone,
 		&i.Hour,
 		&i.Minute,
-		&i.IntervalHours,
 		&i.Enabled,
 		&i.NextRunAt,
 		&i.Revision,
@@ -497,6 +496,7 @@ func (q *Queries) GetRoomReminder(ctx context.Context, arg GetRoomReminderParams
 		&i.RunAt,
 		&i.TrackingItemID,
 		&i.TrackingPurpose,
+		&i.IntervalMinutes,
 	)
 	return i, err
 }
@@ -513,6 +513,88 @@ func (q *Queries) GetRoomReminderRoomID(ctx context.Context, id string) (string,
 	var room_id string
 	err := row.Scan(&room_id)
 	return room_id, err
+}
+
+const getRoutineLatestOccurrenceState = `-- name: GetRoutineLatestOccurrenceState :one
+WITH latest_wake AS (
+    SELECT wake.created_at
+    FROM proactive_pending_wakes wake
+    WHERE wake.room_id=$1::text
+      AND wake.fired_routine_id=$2::text
+      AND wake.delivered_at IS NULL
+    ORDER BY wake.created_at DESC, wake.id DESC
+    LIMIT 1
+),
+latest_message AS (
+    SELECT m.id, m.created_at, m.mentioned_actor_ids
+    FROM messages m
+    WHERE m.room_id=$1::text
+      AND m.fired_routine_id=$2::text
+    ORDER BY m.created_at DESC, m.id DESC
+    LIMIT 1
+)
+SELECT
+    (SELECT created_at FROM latest_wake)::timestamptz AS latest_undelivered_wake_at,
+    (SELECT created_at FROM latest_message)::timestamptz AS latest_message_created_at,
+    coalesce((
+        SELECT (
+            EXISTS (
+                SELECT 1
+                FROM agent_runtime_inputs input
+                JOIN agent_local_run_inputs relation
+                  ON relation.context_key=input.context_key
+                 AND relation.input_id=input.input_id
+                JOIN agent_local_runs run
+                  ON run.context_key=relation.context_key
+                 AND run.run_id=relation.run_id
+                WHERE input.source_kind='inbox'
+                  AND input.source_message_id=lm.id
+                  AND run.status IN ('succeeded', 'failed', 'canceled')
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM agent_execution_contexts ctx
+                JOIN agent_runtime_inputs input
+                  ON input.context_key=ctx.context_key
+                JOIN agent_local_run_inputs relation
+                  ON relation.context_key=input.context_key
+                 AND relation.input_id=input.input_id
+                JOIN agent_local_runs run
+                  ON run.context_key=relation.context_key
+                 AND run.run_id=relation.run_id
+                WHERE ctx.context_kind='meta'
+                  AND ctx.room_id=$1::text
+                  AND ctx.agent_actor_id=ANY(lm.mentioned_actor_ids)
+                  AND input.source_kind='inbox'
+                  AND input.created_at>=lm.created_at
+                  AND jsonb_typeof(input.payload->'invocationMessageIds')='array'
+                  AND (input.payload->'invocationMessageIds') ? lm.id
+                  AND run.status IN ('succeeded', 'failed', 'canceled')
+            )
+        )
+        FROM latest_message lm
+    ), false)::boolean AS latest_message_terminal
+`
+
+type GetRoutineLatestOccurrenceStateParams struct {
+	RoomID    string `json:"room_id"`
+	RoutineID string `json:"routine_id"`
+}
+
+type GetRoutineLatestOccurrenceStateRow struct {
+	LatestUndeliveredWakeAt pgtype.Timestamptz `json:"latest_undelivered_wake_at"`
+	LatestMessageCreatedAt  pgtype.Timestamptz `json:"latest_message_created_at"`
+	LatestMessageTerminal   bool               `json:"latest_message_terminal"`
+}
+
+// Reports the Routine's newest undelivered quiet wake and newest trigger
+// Message (and whether that Message reached a terminal Run), so the scheduler
+// can skip overlapping fires without blocking forever after 24 hours.
+func (q *Queries) GetRoutineLatestOccurrenceState(ctx context.Context, arg GetRoutineLatestOccurrenceStateParams) (GetRoutineLatestOccurrenceStateRow, error) {
+	row := q.db.QueryRow(ctx, getRoutineLatestOccurrenceState, arg.RoomID, arg.RoutineID)
+	var i GetRoutineLatestOccurrenceStateRow
+	err := row.Scan(&i.LatestUndeliveredWakeAt, &i.LatestMessageCreatedAt, &i.LatestMessageTerminal)
+	return i, err
 }
 
 const isTrackingItemClosed = `-- name: IsTrackingItemClosed :one
@@ -602,7 +684,7 @@ func (q *Queries) ListOverdueRoomReminderOccurrences(ctx context.Context) ([]Lis
 }
 
 const listRoomReminders = `-- name: ListRoomReminders :many
-SELECT id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, interval_hours, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose
+SELECT id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose, interval_minutes
 FROM room_reminders
 WHERE room_id=$1::text
   AND tenant_id=$2::text
@@ -648,7 +730,6 @@ func (q *Queries) ListRoomReminders(ctx context.Context, arg ListRoomRemindersPa
 			&i.Timezone,
 			&i.Hour,
 			&i.Minute,
-			&i.IntervalHours,
 			&i.Enabled,
 			&i.NextRunAt,
 			&i.Revision,
@@ -662,6 +743,7 @@ func (q *Queries) ListRoomReminders(ctx context.Context, arg ListRoomRemindersPa
 			&i.RunAt,
 			&i.TrackingItemID,
 			&i.TrackingPurpose,
+			&i.IntervalMinutes,
 		); err != nil {
 			return nil, err
 		}
@@ -674,7 +756,7 @@ func (q *Queries) ListRoomReminders(ctx context.Context, arg ListRoomRemindersPa
 }
 
 const lockDueRoomReminderOccurrence = `-- name: LockDueRoomReminderOccurrence :one
-SELECT reminder.id, reminder.tenant_id, reminder.room_id, reminder.created_by_actor_id, reminder.instruction, reminder.mention_actor_id, reminder.cadence_kind, reminder.timezone, reminder.hour, reminder.minute, reminder.interval_hours, reminder.enabled, reminder.next_run_at, reminder.revision, reminder.created_at, reminder.updated_at, reminder.name, reminder.weekdays, reminder.template_agent_actor_id, reminder.template_routine_key, reminder.trigger, reminder.run_at, reminder.tracking_item_id, reminder.tracking_purpose
+SELECT reminder.id, reminder.tenant_id, reminder.room_id, reminder.created_by_actor_id, reminder.instruction, reminder.mention_actor_id, reminder.cadence_kind, reminder.timezone, reminder.hour, reminder.minute, reminder.enabled, reminder.next_run_at, reminder.revision, reminder.created_at, reminder.updated_at, reminder.name, reminder.weekdays, reminder.template_agent_actor_id, reminder.template_routine_key, reminder.trigger, reminder.run_at, reminder.tracking_item_id, reminder.tracking_purpose, reminder.interval_minutes
 FROM room_reminders reminder
 JOIN rooms room ON room.id=reminder.room_id AND room.tenant_id=reminder.tenant_id
 WHERE reminder.id=$1::text
@@ -705,7 +787,6 @@ func (q *Queries) LockDueRoomReminderOccurrence(ctx context.Context, arg LockDue
 		&i.Timezone,
 		&i.Hour,
 		&i.Minute,
-		&i.IntervalHours,
 		&i.Enabled,
 		&i.NextRunAt,
 		&i.Revision,
@@ -719,12 +800,13 @@ func (q *Queries) LockDueRoomReminderOccurrence(ctx context.Context, arg LockDue
 		&i.RunAt,
 		&i.TrackingItemID,
 		&i.TrackingPurpose,
+		&i.IntervalMinutes,
 	)
 	return i, err
 }
 
 const lockRoomReminder = `-- name: LockRoomReminder :one
-SELECT id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, interval_hours, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose
+SELECT id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose, interval_minutes
 FROM room_reminders
 WHERE id=$1::text AND tenant_id=$2::text AND room_id=$3::text
 FOR NO KEY UPDATE
@@ -752,7 +834,6 @@ func (q *Queries) LockRoomReminder(ctx context.Context, arg LockRoomReminderPara
 		&i.Timezone,
 		&i.Hour,
 		&i.Minute,
-		&i.IntervalHours,
 		&i.Enabled,
 		&i.NextRunAt,
 		&i.Revision,
@@ -766,6 +847,7 @@ func (q *Queries) LockRoomReminder(ctx context.Context, arg LockRoomReminderPara
 		&i.RunAt,
 		&i.TrackingItemID,
 		&i.TrackingPurpose,
+		&i.IntervalMinutes,
 	)
 	return i, err
 }
@@ -854,7 +936,7 @@ SET name=$1,
     hour=$6,
     minute=$7,
     weekdays=$8::text[],
-    interval_hours=$9,
+    interval_minutes=$9,
     run_at=$10,
     enabled=$11,
     next_run_at=$12,
@@ -868,7 +950,7 @@ WHERE id=$13::text
       SELECT 1 FROM agent_registrations registration
       WHERE registration.actor_id=room_reminders.template_agent_actor_id AND registration.status='active'
   ))
-RETURNING id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, interval_hours, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose
+RETURNING id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose, interval_minutes
 `
 
 type UpdateRoomReminderParams struct {
@@ -880,7 +962,7 @@ type UpdateRoomReminderParams struct {
 	Hour             pgtype.Int4        `json:"hour"`
 	Minute           pgtype.Int4        `json:"minute"`
 	Weekdays         []string           `json:"weekdays"`
-	IntervalHours    pgtype.Int4        `json:"interval_hours"`
+	IntervalMinutes  pgtype.Int4        `json:"interval_minutes"`
 	RunAt            pgtype.Timestamptz `json:"run_at"`
 	Enabled          bool               `json:"enabled"`
 	NextRunAt        pgtype.Timestamptz `json:"next_run_at"`
@@ -900,7 +982,7 @@ func (q *Queries) UpdateRoomReminder(ctx context.Context, arg UpdateRoomReminder
 		arg.Hour,
 		arg.Minute,
 		arg.Weekdays,
-		arg.IntervalHours,
+		arg.IntervalMinutes,
 		arg.RunAt,
 		arg.Enabled,
 		arg.NextRunAt,
@@ -921,7 +1003,6 @@ func (q *Queries) UpdateRoomReminder(ctx context.Context, arg UpdateRoomReminder
 		&i.Timezone,
 		&i.Hour,
 		&i.Minute,
-		&i.IntervalHours,
 		&i.Enabled,
 		&i.NextRunAt,
 		&i.Revision,
@@ -935,6 +1016,7 @@ func (q *Queries) UpdateRoomReminder(ctx context.Context, arg UpdateRoomReminder
 		&i.RunAt,
 		&i.TrackingItemID,
 		&i.TrackingPurpose,
+		&i.IntervalMinutes,
 	)
 	return i, err
 }

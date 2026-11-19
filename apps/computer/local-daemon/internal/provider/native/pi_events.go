@@ -154,7 +154,10 @@ func (t *piTurn) applyMessageEnd(message piWireMessage, observed time.Time) {
 	}
 	t.textID = ""
 	t.sawAssistant = true
-	t.output = piFilterMarkup(piMessageText(message.Content))
+	t.output = piMessageText(message.Content)
+	if !t.oneShot {
+		t.output = piFilterMarkup(t.output)
+	}
 	t.failure = ""
 	if message.StopReason == "error" || message.StopReason == "aborted" {
 		t.failure = message.ErrorMessage

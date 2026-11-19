@@ -971,6 +971,11 @@ components:
           type: boolean
         has_pending_work:
           type: boolean
+        next_run_origins:
+          type: array
+          description: Distinct scheduling metadata of the oldest claimable Run's initial inputs.
+          items:
+            $ref: "#/components/schemas/AgentRunInputOrigin"
         message_steers:
           type: array
           maxItems: 1024
@@ -981,6 +986,17 @@ components:
             or a native question's answer assigned to the Run that asked it.
           items:
             $ref: "#/components/schemas/StoredAgentRuntimeInput"
+    AgentRunInputOrigin:
+      type: object
+      additionalProperties: false
+      required:
+        [notification, task_inbox, author_type, message_kind, fired_routine]
+      properties:
+        notification: { type: boolean }
+        task_inbox: { type: boolean }
+        author_type: { type: string }
+        message_kind: { type: string }
+        fired_routine: { type: boolean }
     AgentRuntimeWaitingContexts:
       type: object
       additionalProperties: false
@@ -1060,6 +1076,9 @@ components:
         It remains a failed Run and must not be automatically replayed; verify its effects
         before starting another Run. reply_undelivered means a Room Run finished, but every
         message the Agent tried to post failed, so the Room received no reply from it.
+        reply_not_sent means a Room Run finished without trying to post anything while a
+        Human who mentioned the Agent waited for its reply; the Runtime ended the turn in
+        text nobody sees, which is not posted for it.
         interrupted means the Run stopped before it finished for a reason other than a user
         cancellation, such as a restart or a Runner stopped on its Computer; part of its work
         may have taken effect and it is not replayed.
@@ -1088,6 +1107,7 @@ components:
               execution_failed,
               execution_outcome_unknown,
               reply_undelivered,
+              reply_not_sent,
               interrupted,
               computer_unavailable,
               cleanup_unconfirmed,

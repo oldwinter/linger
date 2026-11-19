@@ -106,8 +106,8 @@ func TestOutlookMailImportReadsBodiesAndContinues(t *testing.T) {
 	listCalls := 0
 	client := mailImportClient(t, func(request proxyRequest) any {
 		switch request.Endpoint {
-		case "https://graph.microsoft.com/v1.0/me":
-			return map[string]string{"id": "alice", "mail": "alice@example.test"}
+		case "/v1.0/me/mailFolders/sentitems":
+			return map[string]string{"id": "sent"}
 		case "/v1.0/me/mailFolders/junkemail":
 			return map[string]string{"id": "junk"}
 		case "/v1.0/me/mailFolders/deleteditems":
@@ -310,8 +310,8 @@ func TestOutlookMailImportSkipsMalformedItems(t *testing.T) {
 	}
 	client := mailImportClient(t, func(request proxyRequest) any {
 		switch request.Endpoint {
-		case "https://graph.microsoft.com/v1.0/me":
-			return map[string]string{"id": "alice", "mail": "alice@example.test"}
+		case "/v1.0/me/mailFolders/sentitems":
+			return map[string]string{"id": "sent"}
 		case "/v1.0/me/mailFolders/junkemail":
 			return map[string]string{"id": "junk"}
 		case "/v1.0/me/mailFolders/deleteditems":
@@ -325,5 +325,108 @@ func TestOutlookMailImportSkipsMalformedItems(t *testing.T) {
 	}
 	if page.Read != 3 || page.Skipped != 2 || len(page.Documents) != 1 || page.Documents[0].RemoteID != "message:good" {
 		t.Fatalf("page=%+v", page)
+	}
+}
+
+func outlookFolderClient(t *testing.T, messages []any) *Client {
+	t.Helper()
+	return mailImportClient(t, func(request proxyRequest) any {
+		switch request.Endpoint {
+		case "/v1.0/me/mailFolders/sentitems":
+			return map[string]string{"id": "sent"}
+		case "/v1.0/me/mailFolders/junkemail":
+			return map[string]string{"id": "junk"}
+		case "/v1.0/me/mailFolders/deleteditems":
+			return map[string]string{"id": "trash"}
+		case "/v1.0/me/messages":
+			return map[string]any{"value": messages}
+		}
+		t.Errorf("unexpected endpoint %s", request.Endpoint)
+		return nil
+	})
+}
+
+func TestOutlookMailImportTellsSentMailByFolder(t *testing.T) {
+	end := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	item := func(id, folder, from, classification string) map[string]any {
+		return map[string]any{"id": id, "subject": "Hi", "receivedDateTime": end.Add(-time.Hour).Format(time.RFC3339), "parentFolderId": folder, "inferenceClassification": classification, "from": map[string]any{"emailAddress": map[string]string{"address": from}}, "body": map[string]string{"contentType": "text", "content": "Hello there, a real message."}}
+	}
+	// The sign-in address sends to the mailbox; the mailbox address sends
+	// from Sent Items. Only the folder decides direction.
+	client := outlookFolderClient(t, []any{
+		item("sent-other", "sent", "login@example.test", "other"),
+		item("received-focused", "inbox", "mailbox@example.test", "focused"),
+		item("received-other", "inbox", "login@example.test", "other"),
+		item("sent-noreply", "sent", "noreply@example.test", "other"),
+	})
+	page, err := client.FetchMailImportPage(context.Background(), "account", "outlook", MailImportPageOptions{Start: MailImportStart(end), End: end, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	directions := map[string]string{}
+	for _, document := range page.Documents {
+		body := string(document.Markdown)
+		switch {
+		case strings.Contains(body, "- Direction: outbound"):
+			directions[document.RemoteID] = "outbound"
+		case strings.Contains(body, "- Direction: inbound"):
+			directions[document.RemoteID] = "inbound"
+		default:
+			t.Fatalf("no direction in %s", body)
+		}
+	}
+	want := map[string]string{"message:sent-other": "outbound", "message:received-focused": "inbound", "message:sent-noreply": "outbound"}
+	if fmt.Sprint(directions) != fmt.Sprint(want) {
+		t.Fatalf("directions=%v, want %v", directions, want)
+	}
+	if page.Read != 4 || page.NextCursor != "" {
+		t.Fatalf("page=%+v", page)
+	}
+}
+
+func TestOutlookMailImportRejectsCursorWithoutSentFolder(t *testing.T) {
+	end := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	client := outlookFolderClient(t, nil)
+	_, err := client.FetchMailImportPage(context.Background(), "account", "outlook", MailImportPageOptions{Start: MailImportStart(end), End: end, Limit: 10,
+		Cursor: `{"link":"https://graph.microsoft.com/v1.0/me/messages?$skip=1","email":"login@example.test","Junk":"junk","Deleted":"trash"}`})
+	if err == nil || err.Error() != "incomplete Outlook import cursor" {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestIdentifyOutlookLabel(t *testing.T) {
+	for _, test := range []struct{ name, mail, want string }{
+		{"primary mail", "mailbox@example.test", "mailbox@example.test"},
+		{"sign-in name without mail", "", "login@example.test"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var request proxyRequest
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+					return
+				}
+				if request.Endpoint != "https://graph.microsoft.com/v1.0/me" {
+					t.Errorf("unexpected endpoint %s", request.Endpoint)
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"status": 200, "data": map[string]string{"id": "graph-id", "mail": test.mail, "userPrincipalName": "login@example.test"}})
+			}))
+			defer server.Close()
+			client, err := New(Config{APIKey: "test", EnvironmentKey: "test", BaseURL: server.URL, HTTPClient: server.Client()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			client.SetConnectionAuthority(func(context.Context, string) (ConnectionBinding, error) {
+				return ConnectionBinding{}, nil
+			})
+			identity, err := client.IdentifyOutlook(context.Background(), "account")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if identity.ID != "graph-id" || identity.Label != test.want {
+				t.Fatalf("identity=%+v, want label %s", identity, test.want)
+			}
+		})
 	}
 }

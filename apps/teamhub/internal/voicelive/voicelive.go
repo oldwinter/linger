@@ -6,6 +6,7 @@ package voicelive
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"regexp"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/messagecreation"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/voicemedia"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/voicequicknotes"
 )
 
 var (
@@ -208,9 +210,25 @@ func LoadHistory(ctx context.Context, queries *store.Queries, session Session) (
 		if row.AuthorKind == "human" {
 			role = "user"
 		}
-		newestFirst = append(newestFirst, HistoryMessage{Role: role, Text: "[message_id=" + row.ID + " author=" + row.Author + " at=" + row.CreatedAt.Time.Format(time.RFC3339) + " document_ids=" + strings.Join(row.DocumentIds, ",") + " truncated=" + strconv.FormatBool(row.Truncated) + "]\n" + row.Body})
+		newestFirst = append(newestFirst, HistoryMessage{Role: role, Text: "[message_id=" + row.ID + " author=" + row.Author + " at=" + row.CreatedAt.Time.Format(time.RFC3339) + " document_ids=" + strings.Join(row.DocumentIds, ",") + " truncated=" + strconv.FormatBool(row.Truncated) + "]\n" + row.Body + meetingSummaryText(row.MeetingSummary)})
 	}
 	return recentHistory(newestFirst), nil
+}
+
+// meetingSummaryText writes a ready meeting summary under its card, so the
+// live voice answers from it without a tool call. Anything unreadable adds
+// nothing: the card's label still says a summary exists.
+func meetingSummaryText(raw []byte) string {
+	var summary voicequicknotes.Notes
+	if len(raw) == 0 || json.Unmarshal(raw, &summary) != nil || summary.Title == "" {
+		return ""
+	}
+	var text strings.Builder
+	text.WriteString("\nMeeting summary: " + summary.Title)
+	for _, section := range summary.Sections {
+		text.WriteString("\n- " + section.Heading + ": " + strings.Join(section.Bullets, "; "))
+	}
+	return text.String()
 }
 
 // recentHistory preserves separate messages and unanswered questions. The

@@ -229,7 +229,12 @@ func TestWindowsInstalledToolsUseExtractedBundle(t *testing.T) {
 // The Desktop app runs the daemon from resources/computer/ and packages the
 // tools as resources/cli/computer-tools and resources/runtime.
 func TestInstalledToolsInTheDesktopLayout(t *testing.T) {
-	resources := t.TempDir()
+	// Installed resolves symlinks, and on macOS the temporary directory sits
+	// behind the /var symlink.
+	resources, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	executable := filepath.Join(resources, "computer", "linger-computer-daemon")
 	if got := ToolsDirectory(executable); got != filepath.Join(resources, "cli", "computer-tools") {
 		t.Fatalf("tools directory = %s", got)

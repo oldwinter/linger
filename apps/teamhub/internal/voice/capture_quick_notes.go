@@ -55,7 +55,7 @@ type captureQuickNotesWorker struct {
 }
 
 func (w *captureQuickNotesWorker) Timeout(*river.Job[CaptureQuickNotesArgs]) time.Duration {
-	return voicequicknotes.Timeout + 10*time.Second
+	return roomagent.ModelCallWait + 30*time.Second
 }
 
 func (w *captureQuickNotesWorker) Work(ctx context.Context, job *river.Job[CaptureQuickNotesArgs]) error {
@@ -98,8 +98,6 @@ func (s *Service) composeCaptureQuickNotes(ctx context.Context, session store.Ca
 	if err != nil {
 		return voicequicknotes.Notes{}, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, voicequicknotes.Timeout+5*time.Second)
-	defer cancel()
 	return s.quickNotes.Write(ctx, roomagent.ModelCallOwner{TenantID: session.TenantID, OwnerActorID: session.CreatedByActorID}, session.ID, transcript)
 }
 

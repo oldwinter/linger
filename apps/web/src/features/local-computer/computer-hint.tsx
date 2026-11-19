@@ -32,7 +32,7 @@ export function Hint({
       {children}
       <span
         className={cn(
-          "pointer-events-none invisible absolute left-1/2 z-30 w-max max-w-64 -translate-x-1/2 rounded-md bg-primary px-2 py-1 text-left text-xs font-normal text-primary-foreground opacity-0 transition-opacity delay-200 duration-150 group-focus-within/hint:visible group-focus-within/hint:opacity-100 group-hover/hint:visible group-hover/hint:opacity-100 motion-reduce:transition-none",
+          "pointer-events-none invisible absolute left-1/2 z-30 w-max max-w-64 -translate-x-1/2 rounded-md bg-primary px-2 py-1 text-left text-xs font-normal text-primary-foreground opacity-0 transition-opacity delay-200 duration-150 group-focus-visible/hint:visible group-focus-visible/hint:opacity-100 group-has-[:focus-visible]/hint:visible group-has-[:focus-visible]/hint:opacity-100 group-hover/hint:visible group-hover/hint:opacity-100 motion-reduce:transition-none",
           placement === "top" ? "bottom-full mb-1.5" : "top-full mt-1.5",
         )}
         id={tooltipId}

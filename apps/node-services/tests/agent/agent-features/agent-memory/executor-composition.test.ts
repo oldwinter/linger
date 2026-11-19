@@ -33,19 +33,16 @@ describe("Agent Memory executor composition", () => {
           throw new Error("stop before native execution");
         },
       );
-      const projection = createMemoryProjection(
-        {
-          read: async () => ({
-            revision: published ? 1 : 0,
-            summary: published ? "Orchard index" : "",
-            memory: published ? "Orchard decision" : "",
-            sessions: {},
-            cursors: {},
-          }),
-          commit: vi.fn(),
-        },
-        contextHost,
-      );
+      const projection = createMemoryProjection({
+        read: async () => ({
+          revision: published ? 1 : 0,
+          summary: published ? "Orchard index" : "",
+          memory: published ? "Orchard decision" : "",
+          sessions: {},
+          cursors: {},
+        }),
+        commit: vi.fn(),
+      });
       const silentLogger = {
         child() {
           return this;

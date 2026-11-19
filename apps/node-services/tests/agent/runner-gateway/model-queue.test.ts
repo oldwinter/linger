@@ -3,13 +3,13 @@ import {
   endpointConcurrency,
   ModelQueue,
   type ModelEndpoint,
-  type ModelLease,
 } from "../../../src/agent/runner-gateway/model-queue.js";
 import {
   COMPACTION_PRIORITY,
   modelCallPolicies,
-  RUN_PRIORITY,
+  runPriorities,
   type ModelCallKind,
+  type ModelLease,
 } from "../../../src/model-tasks.js";
 
 const codex: ModelEndpoint = {
@@ -27,7 +27,11 @@ const call = (kind: ModelCallKind, key: string = kind) => ({
   kind,
   key,
 });
-const run = (key = "run") => ({ priority: RUN_PRIORITY, kind: "chat", key });
+const run = (key = "run") => ({
+  priority: runPriorities.chat,
+  kind: "chat",
+  key,
+});
 const compaction = {
   priority: COMPACTION_PRIORITY,
   kind: "compaction",
@@ -168,6 +172,78 @@ describe("ModelQueue limit", () => {
     // With one place, background work still runs.
     const single = new ModelQueue(() => fixed(1));
     expect(await single.acquire(claude, call("wiki"), signal)).toBeDefined();
+  });
+
+  it("admits only interactive work above soft, including when chat occupies an ordinary place", async () => {
+    const queue = new ModelQueue(() => fixed(3));
+    const routine = await queue.acquire(
+      codex,
+      { kind: "routine", priority: runPriorities.routine, key: "r" },
+      signal,
+    );
+    const chat = await queue.acquire(codex, run(), signal);
+    const task = track(
+      queue.acquire(
+        codex,
+        { kind: "task", priority: runPriorities.task, key: "t" },
+        signal,
+      ),
+    );
+    const doc = track(
+      queue.acquire(
+        codex,
+        { kind: "document", priority: runPriorities.document, key: "d" },
+        signal,
+      ),
+    );
+    const ask = await queue.acquire(codex, call("voice_ask"), signal);
+    const next = track(queue.acquire(codex, run(), signal));
+    await flush();
+    expect([task.value, doc.value, next.value]).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    ask.release(done);
+    await flush();
+    expect(next.value).toBeDefined();
+    chat.release(done);
+    await flush();
+    expect(task.value).toBeUndefined();
+    routine.release(done);
+    await flush();
+    expect(task.value).toBeDefined();
+    expect(doc.value).toBeUndefined();
+  });
+
+  it("asks a lower Run to yield whenever interactive work first in line cannot start", async () => {
+    const asked = vi.fn();
+    const queue = new ModelQueue(() => fixed(2), Date.now, asked);
+    const task = await queue.acquire(
+      codex,
+      { kind: "task", priority: runPriorities.task, key: "t" },
+      signal,
+    );
+    const chat = await queue.acquire(codex, run(), signal);
+    const wiki = track(queue.acquire(codex, call("wiki"), signal));
+    await flush();
+    expect(asked).not.toHaveBeenCalled();
+    const notes = track(queue.acquire(codex, call("meeting_notes"), signal));
+    await flush();
+    expect(asked).toHaveBeenLastCalledWith(
+      codex,
+      modelCallPolicies.meeting_notes.priority,
+    );
+    task.release(done);
+    await flush();
+    expect(notes.value).toBeDefined();
+    expect(wiki.value).toBeUndefined();
+    asked.mockClear();
+    notes.value!.release(done);
+    chat.release(done);
+    await flush();
+    expect(wiki.value).toBeDefined();
+    expect(asked).not.toHaveBeenCalled();
   });
 
   it("tries one more unit while work waits and requests stay as fast", async () => {

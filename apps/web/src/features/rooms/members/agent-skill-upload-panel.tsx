@@ -365,7 +365,7 @@ function SkillLibraryDialog({
         <div className="border-b border-app-border px-4 py-3">
           <input
             aria-label="Search Skills"
-            className="h-9 w-full rounded-lg border border-border bg-card px-3 text-sm outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-muted-foreground hover:border-border-hover focus:border-foreground focus:ring-2 focus:ring-ring"
+            className="h-9 w-full rounded-lg border border-border bg-card px-3 text-sm outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-app-placeholder hover:border-border-hover focus:border-foreground focus:ring-2 focus:ring-ring"
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search"
             value={query}

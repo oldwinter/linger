@@ -17,6 +17,7 @@ import {
   it,
   vi,
 } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import {
   createTestTeamHubRuntime,
@@ -44,7 +45,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   const values = new Map<string, string>();
-  Object.defineProperty(window, "localStorage", {
+  defineGlobalProperty(window, "localStorage", {
     configurable: true,
     value: {
       clear: () => values.clear(),
@@ -208,7 +209,7 @@ describe("Settings surfaces", () => {
       "My Rules",
       "Shortcuts",
       "Computers",
-      "Local models",
+      "Models",
     ]);
     expect(
       screen.queryByRole("button", { name: "Log out" }),

@@ -8,6 +8,8 @@ import {
 } from "react";
 
 import { createTeamHubIdempotencyKey } from "@/features/teamhub/teamhub-client";
+import { TeamHubError } from "@/features/teamhub/teamhub-error";
+import { formatBytes } from "@/lib/format-bytes";
 import {
   type ComposerAttachment,
   composerAttachmentStore,
@@ -174,8 +176,7 @@ export function useComposerAttachments({
           candidate.clientId === attachment.clientId
             ? {
                 ...candidate,
-                error:
-                  error instanceof Error ? error.message : "Upload failed.",
+                error: uploadFailureCopy(error, attachment.file),
                 status: "failed",
               }
             : candidate,
@@ -258,6 +259,18 @@ export function filesFromClipboard(clipboardData: DataTransfer): File[] {
       type: file.type,
     });
   });
+}
+
+/** Why one upload failed; TeamHub's limit refusal names both sizes. */
+function uploadFailureCopy(error: unknown, file: File) {
+  if (error instanceof TeamHubError && error.code === "PAYLOAD_TOO_LARGE") {
+    const limit = error.details?.find(
+      (detail) => detail.code === "too_large",
+    )?.limit_bytes;
+    if (limit !== undefined)
+      return `Attachments can be up to ${formatBytes(limit)}, and this file is ${formatBytes(file.size)}.`;
+  }
+  return error instanceof Error ? error.message : "Upload failed.";
 }
 
 function validateMessageAttachments(files: File[]) {

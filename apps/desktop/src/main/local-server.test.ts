@@ -20,6 +20,8 @@ import { describe, expect, it, vi } from "vitest";
 import { NODE_RUNTIME_VERSION } from "../../../../scripts/local-computer-node-distributions.mjs";
 import { rename } from "node:fs/promises";
 
+import { CredentialStore } from "./computer-credential.js";
+import { EnrollmentModule } from "./enrollment.js";
 import {
   LOCAL_INSTANCE,
   LOCAL_STEPS,
@@ -27,13 +29,14 @@ import {
   MIN_MACOS,
   anotherMeMissing,
   checkLocation,
+  computerNotOnline,
   followHttps,
   hasNativePostgres,
+  InstallerApi,
   installLocation,
   legacyMigrationResult,
   parseSetCookie,
   LocalServerUnverifiedError,
-  localIdentityProof,
   proveLocalServer,
   SignInRejectedError,
   signInFailure,
@@ -41,7 +44,7 @@ import {
   type LocalServerIdentity,
   type LocalServerOptions,
 } from "./local-server.js";
-import { IDENTITY_CONFLICT_MESSAGE } from "./enrollment.js";
+import { localIdentityProof } from "@linger/local-installation/account";
 import type { DesktopConfig } from "./config.js";
 import { EventBus, type ModuleContext } from "./modules.js";
 import {
@@ -73,11 +76,25 @@ if (args.includes("--user-keys")) {
   process.stdout.write(JSON.stringify({ saved: names }) + "\n");
   process.exit(0);
 }
+if (args.includes("--stop-local-models")) {
+  // The quit's stop of the local models; its output goes to a log file.
+  fs.writeFileSync(path.join(home, "stop-local-models.json"), JSON.stringify({ args, runAsNode: process.env.ELECTRON_RUN_AS_NODE }));
+  process.stdout.write(JSON.stringify({ failed: [] }) + "\n");
+  process.exit(0);
+}
 if (args.includes("--migrate")) {
-  if (fs.existsSync(path.join(home, "migration-fails"))) {
-    process.stderr.write(fs.readFileSync(path.join(home, "migration-detail.txt"), "utf8"));
-    process.exit(1);
+  // Converts every legacy instance record, except a "desktop" that
+  // migrate-skips holds back.
+  const holds = fs.existsSync(path.join(home, "migrate-skips"));
+  const instances = path.join(home, "instances");
+  for (const name of fs.existsSync(instances) ? fs.readdirSync(instances) : []) {
+    if (holds && name === "desktop") continue;
+    const file = path.join(instances, name, "instance.json");
+    const record = JSON.parse(fs.readFileSync(file, "utf8"));
+    fs.writeFileSync(file, JSON.stringify({ ...record, project: record.project.replace(/^simplex-/, "linger-") }));
   }
+  const skipped = holds ? [{ instance: "desktop", reason: "Its Computer is running 1 task(s)." }] : [];
+  process.stdout.write(JSON.stringify({ skipped }) + "\n");
   process.exit(0);
 }
 fs.mkdirSync(path.join(home, "installer"), { recursive: true });
@@ -102,8 +119,11 @@ if (args.includes("--inspect")) {
   }
   process.stderr.write("Checked this computer in 1.5s.\n");
   const lowMemory = eligible && fs.existsSync(path.join(home, "low-memory"));
-  const reasons = eligible ? (lowMemory ? ["free-memory-required"] : []) : ["facts-unavailable"];
-  const reasonMessages = eligible ? (lowMemory ? ["Close other programs before installing."] : []) : ["nvidia-smi was not found"];
+  const reasons = eligible
+    ? lowMemory
+      ? [{ code: "free-memory-required", message: "Close other programs before installing.", freeBytes: 2899102924, requiredBytes: 13689304433 }]
+      : []
+    : [{ code: "facts-unavailable", message: "nvidia-smi was not found" }];
   // With the plan priced on capacity, the installer recommends a runtime.
   const recommendation = eligible && !lowMemory ? "local-models" : "codex";
   const local = {
@@ -111,14 +131,25 @@ if (args.includes("--inspect")) {
     state: lowMemory ? "blocked-now" : eligible ? "ready" : "unavailable",
     ...(lowMemory ? { basis: "capacity", memory: { ramAvailableBytes: 2899102924, ramRequiredBytes: 13689304433 } } : {}),
   };
-  process.stdout.write(JSON.stringify({ hardware, localModels: { ...local, reasons, reasonMessages, estimate }, recommendation }) + "\n");
+  process.stdout.write(JSON.stringify({ hardware, localModels: { ...local, reasons, estimate }, recommendation }) + "\n");
   process.exit(0);
 }
 if (args.includes("--resume")) {
   const code = fs.existsSync(path.join(home, "resume-fails")) ? 1 : 0;
   const runtimeFile = path.join(home, "resume-runtime.json");
   const runtime = fs.existsSync(runtimeFile) ? JSON.parse(fs.readFileSync(runtimeFile, "utf8")) : undefined;
-  process.stdout.write("noise\n" + JSON.stringify({ code, message: code ? "Native teamhub stopped" : "ok", ...(runtime ? { runtime } : {}) }) + "\n");
+  // The folder the services serve from: the one asked for, unless they
+  // were left running on another (resume-serving names it).
+  const repo = args[args.indexOf("--source-repo") + 1];
+  const servingFile = path.join(home, "resume-serving");
+  const source = fs.existsSync(servingFile) ? fs.readFileSync(servingFile, "utf8") : fs.existsSync(repo) ? fs.realpathSync(repo) : repo;
+  // resume-fails may hold the failed outcome's message and details.
+  const failure = code ? fs.readFileSync(path.join(home, "resume-fails"), "utf8").trim() : "";
+  // resume-origin names the origin the installer moved the services to.
+  const originFile = path.join(home, "resume-origin");
+  const origin = fs.existsSync(originFile) ? fs.readFileSync(originFile, "utf8") : "http://localhost:3000";
+  const outcome = failure ? JSON.parse(failure) : { message: code ? "Native teamhub stopped" : "ok", details: { source, origin } };
+  process.stdout.write("noise\n" + JSON.stringify({ code, ...outcome, ...(runtime ? { runtime } : {}) }) + "\n");
   process.exit(code);
 }
 const origin = "http://127.0.0.1:4321";
@@ -133,6 +164,10 @@ const sourceArchive = (root: string) => {
   const tree = path.join(root, "tree", "linger-1.0.0", "scripts");
   mkdirSync(tree, { recursive: true });
   writeFileSync(path.join(tree, "source-native.mjs"), "");
+  writeFileSync(
+    path.join(path.dirname(tree), "package.json"),
+    JSON.stringify({ name: "linger" }),
+  );
   const file = path.join(root, "linger.tar.gz");
   execFileSync("tar", [
     "-czf",
@@ -147,6 +182,28 @@ const sourceArchive = (root: string) => {
     sha256: createHash("sha256").update(bytes).digest("hex"),
   };
 };
+
+// A source package an earlier app unpacked into `directory`, named `name`.
+const unpackedSource = (directory: string, name = "linger") => {
+  mkdirSync(path.join(directory, "scripts"), { recursive: true });
+  writeFileSync(path.join(directory, "scripts/source-native.mjs"), "");
+  writeFileSync(path.join(directory, "package.json"), JSON.stringify({ name }));
+};
+
+// An instance record an earlier Simplex app wrote under `home`.
+const legacyInstance = (home: string, name = "desktop") => {
+  mkdirSync(path.join(home, "instances", name), { recursive: true });
+  writeFileSync(
+    path.join(home, "instances", name, "instance.json"),
+    JSON.stringify({ mode: "source-native", project: `simplex-${name}-1` }),
+  );
+};
+const instanceProject = (home: string, name = "desktop") =>
+  (
+    JSON.parse(
+      readFileSync(path.join(home, "instances", name, "instance.json"), "utf8"),
+    ) as { project: string }
+  ).project;
 
 const DONE = {
   state: "waiting_user",
@@ -273,6 +330,7 @@ const installerApi = (
 };
 
 const TEAMHUB = "http://127.0.0.1:4100";
+const APP_VERSION = "0.17.0";
 const KEY = Buffer.from(Array.from({ length: 32 }, (_, i) => i));
 const server = (origin: string): LocalServerIdentity => ({
   origin,
@@ -322,7 +380,6 @@ const fixture = (
   const loadServer = vi.fn();
   const enroll = vi.fn(async () => {});
   const unenroll = vi.fn(async () => {});
-  const resetLocalServer = vi.fn(async () => {});
   let context: ModuleContext | undefined;
   const signIn = vi.fn(async () => {});
   // The installed server proves itself unless a test says otherwise.
@@ -340,6 +397,7 @@ const fixture = (
   }) as typeof fetch;
   const module = new LocalServerModule({
     home,
+    version: APP_VERSION,
     installerDirectory,
     platform: "linux",
     arch: "x64",
@@ -369,7 +427,6 @@ const fixture = (
         ...stubModule("Enrollment"),
         enroll,
         unenroll,
-        resetLocalServer,
         start: async (ctx: ModuleContext) => {
           context = ctx;
         },
@@ -392,7 +449,6 @@ const fixture = (
     bus,
     enroll,
     unenroll,
-    resetLocalServer,
     config: () => context!.config.get(),
     signIn,
     proveServer,
@@ -617,7 +673,10 @@ describe("LocalServerModule", () => {
       "owner@linger.local",
       "pw",
     );
-    expect(f.setServer).toHaveBeenCalledWith("http://localhost:3000");
+    expect(f.setServer).toHaveBeenCalledWith(
+      "http://localhost:3000",
+      undefined,
+    );
     expect(f.enroll).toHaveBeenCalled();
     expect(f.module.status()).toMatchObject({
       phase: "ready",
@@ -633,6 +692,7 @@ describe("LocalServerModule", () => {
       home: f.home,
       repo,
       origin: "http://localhost:3000",
+      version: APP_VERSION,
     });
     await f.host.stop("quit");
   });
@@ -1059,7 +1119,7 @@ describe("LocalServerModule", () => {
     await f.host.stop("quit");
   });
 
-  it("stops waiting once the Gateway refuses this computer's identity", async () => {
+  it("stops waiting immediately when the Computer daemon reports an identity conflict", async () => {
     const polls = { anotherMe: 0 };
     const server = (async (input: string | URL | Request) => {
       const url = new URL(String(input));
@@ -1084,13 +1144,89 @@ describe("LocalServerModule", () => {
     await f.host.start();
     const setup = f.module.begin();
     await vi.waitFor(() => expect(polls.anotherMe).toBeGreaterThan(0));
-    f.host.ctx.bus.emit("computer.identity_conflict", true);
-    await expect(setup).rejects.toThrow(IDENTITY_CONFLICT_MESSAGE);
-    expect(IDENTITY_CONFLICT_MESSAGE).toContain(
-      "already registered to another Computer",
+    f.host.ctx.bus.emit("computer.connection", "identity_conflict");
+    await expect(setup).rejects.toThrow(
+      /already connected to another Computer registration/,
     );
     expect(f.module.status().phase).toBe("failed");
     await f.host.stop("quit");
+  });
+
+  it("waits for the enrolled Computer to report online before finishing setup", async () => {
+    let computerPolls = 0;
+    const server = (async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/v0/me")
+        return Response.json({ actors: [{ kind: "human", tenant_id: "t1" }] });
+      if (url.pathname === "/v0/tenants/t1/another-me")
+        return Response.json({ agent_actor_id: "actor_anotherme_1" });
+      if (url.pathname === "/v0/tenants/t1/rooms")
+        return Response.json({ items: [{ name: "Getting Started" }] });
+      if (url.pathname === "/v0/tenants/t1/local-computers") {
+        computerPolls += 1;
+        return Response.json({
+          items: [
+            {
+              computer_id: "cmp_1",
+              status: computerPolls < 3 ? "offline" : "online",
+            },
+          ],
+        });
+      }
+      return new Response(null, { status: 404 });
+    }) as typeof fetch;
+    const f = fixture(
+      (home) => ({
+        ...withCheckout(home),
+        fetch: server,
+        sessionCookie: async () => "session=s",
+        pollMs: 1,
+      }),
+      { computerId: "cmp_1" },
+      checkout,
+    );
+    await f.host.start();
+    const messages: string[] = [];
+    f.host.ctx.bus.on("local-server.changed", () => {
+      messages.push(f.module.status().message);
+    });
+    await f.module.begin();
+    expect(computerPolls).toBe(3);
+    expect(messages).toContain("Connecting this computer…");
+    expect(f.module.status().phase).toBe("ready");
+    await f.host.stop("quit");
+
+    // On timeout while offline, it reports the Computer is offline instead
+    // of claiming Another Me is missing.
+    const offlineServer = (async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/v0/me")
+        return Response.json({ actors: [{ kind: "human", tenant_id: "t1" }] });
+      if (url.pathname === "/v0/tenants/t1/another-me")
+        return Response.json({ agent_actor_id: "actor_anotherme_1" });
+      if (url.pathname === "/v0/tenants/t1/rooms")
+        return Response.json({ items: [{ name: "Getting Started" }] });
+      if (url.pathname === "/v0/tenants/t1/local-computers")
+        return Response.json({
+          items: [{ computer_id: "cmp_1", status: "offline" }],
+        });
+      return new Response(null, { status: 404 });
+    }) as typeof fetch;
+    const offline = fixture(
+      (home) => ({
+        ...withCheckout(home),
+        fetch: offlineServer,
+        sessionCookie: async () => "session=s",
+        agentsTimeoutMs: 0,
+      }),
+      { computerId: "cmp_1" },
+      checkout,
+    );
+    await offline.host.start();
+    await expect(offline.module.begin()).rejects.toThrow(
+      computerNotOnline({ status: "offline" }),
+    );
+    await offline.host.stop("quit");
   });
 
   it("rejects a source package with the wrong digest", async () => {
@@ -1124,6 +1260,7 @@ describe("LocalServerModule", () => {
     const bundled = (sha256: string) =>
       new LocalServerModule({
         home: f.home,
+        version: APP_VERSION,
         installerDirectory: path.join(f.root, "installer"),
         platform: "linux",
         arch: "x64",
@@ -1184,6 +1321,7 @@ describe("LocalServerModule", () => {
     const install = async () => {
       await new LocalServerModule({
         home: f.home,
+        version: APP_VERSION,
         installerDirectory: path.join(f.root, "installer"),
         platform: "linux",
         arch: "x64",
@@ -1258,6 +1396,7 @@ describe("LocalServerModule", () => {
     const install = async (glibcVersion = "2.35") => {
       await new LocalServerModule({
         home: f.home,
+        version: APP_VERSION,
         installerDirectory: path.join(f.root, "installer"),
         platform: "linux",
         arch: "x64",
@@ -1357,6 +1496,7 @@ describe("LocalServerModule", () => {
     );
     await new LocalServerModule({
       home: f.home,
+      version: APP_VERSION,
       installerDirectory: installer,
       platform: "darwin",
       arch: "arm64",
@@ -1490,14 +1630,13 @@ describe("LocalServerModule", () => {
       expect(f.module.status().localModels).toMatchObject({
         state: "checked",
         eligible: false,
-        reasons: [
-          { code: "facts-unavailable", message: "nvidia-smi was not found" },
-        ],
+        reasons: [{ code: "facts-unavailable" }],
         recommendation: "codex",
       }),
     );
     expect(f.module.status().localModels).not.toHaveProperty("model");
-    // The log says why, as the localmodels tool did.
+    // The page gets the code only; the tool's words go to the log.
+    expect(JSON.stringify(f.module.status())).not.toContain("nvidia-smi");
     expect(info).toHaveBeenCalledWith(
       "local_server.inspected",
       expect.objectContaining({
@@ -1529,7 +1668,8 @@ describe("LocalServerModule", () => {
         reasons: [
           {
             code: "free-memory-required",
-            message: "Close other programs before installing.",
+            freeBytes: 2899102924,
+            requiredBytes: 13689304433,
           },
         ],
         recommendation: "codex",
@@ -1946,6 +2086,30 @@ describe("LocalServerModule", () => {
     await f.host.stop("quit");
   });
 
+  it("follows an installation that moved to another origin as the same server", async () => {
+    const f = fixture(withCheckout, {}, (home) => {
+      checkout(home);
+      mkdirSync(path.join(home, "desktop"), { recursive: true });
+      writeFileSync(
+        path.join(home, "desktop", "local-server.json"),
+        JSON.stringify({
+          home,
+          repo: path.join(home, "src"),
+          origin: "http://localhost:2999",
+        }),
+      );
+    });
+    await f.host.start();
+    await f.module.begin();
+    expect(f.module.status().phase).toBe("ready");
+    expect(f.setServer).toHaveBeenCalledWith(
+      "http://localhost:3000",
+      "http://localhost:2999",
+    );
+    expect(f.unenroll).not.toHaveBeenCalled();
+    await f.host.stop("quit");
+  });
+
   it("saves provider keys in user.env before the installation runs again with them", async () => {
     const finishedJob = {
       id: "old",
@@ -2181,7 +2345,10 @@ describe("LocalServerModule after a restart", () => {
     const f = fixture({}, enrolled, record);
     await f.host.start();
     await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
-    expect(f.setServer).toHaveBeenCalledWith("http://localhost:3000");
+    expect(f.setServer).toHaveBeenCalledWith(
+      "http://localhost:3000",
+      "http://localhost:3000",
+    );
     // The services were down, so the window waited on the starting page.
     expect(f.showStarting).toHaveBeenCalledOnce();
     expect(f.showStartFailed).not.toHaveBeenCalled();
@@ -2194,6 +2361,65 @@ describe("LocalServerModule after a restart", () => {
     expect(args[args.indexOf("--instance") + 1]).toBe(LOCAL_INSTANCE);
     expect(f.signIn).not.toHaveBeenCalled();
     await f.host.stop("quit");
+  });
+
+  it("follows the origin the installer moved the services to", async () => {
+    const f = fixture({}, enrolled, (home) => {
+      record(home);
+      writeFileSync(path.join(home, "resume-origin"), "http://localhost:3001");
+    });
+    await f.host.start();
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
+    // The same server at a new origin: the window follows it as a move,
+    // which keeps this computer's enrollment.
+    expect(f.setServer).toHaveBeenCalledWith(
+      "http://localhost:3001",
+      "http://localhost:3000",
+    );
+    expect(f.unenroll).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(
+        readFileSync(path.join(f.home, "desktop", "local-server.json"), "utf8"),
+      ),
+    ).toMatchObject({ repo: "/source", origin: "http://localhost:3001" });
+    expect(f.module.status()).toMatchObject({
+      origin: "http://localhost:3001",
+    });
+    await f.host.stop("quit");
+  });
+
+  it("stops the local models when the person quits, without waiting for them", async () => {
+    const stopped = (home: string) => path.join(home, "stop-local-models.json");
+    const f = fixture({}, enrolled, record);
+    await f.host.start();
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
+    await f.host.stop("quit");
+    // It runs on after the app is gone; its outcome goes to the log.
+    await vi.waitFor(() =>
+      expect(
+        readFileSync(
+          path.join(f.home, "installer", "local-models-stop.log"),
+          "utf8",
+        ),
+      ).toBe('{"failed":[]}\n'),
+    );
+    expect(JSON.parse(readFileSync(stopped(f.home), "utf8"))).toEqual({
+      args: ["--home", f.home, "--stop-local-models"],
+      runAsNode: "1",
+    });
+  });
+
+  it("leaves the local models running for an update, and stops none without an installation", async () => {
+    const update = fixture({}, enrolled, record);
+    await update.host.start();
+    await vi.waitFor(() => expect(update.module.status().phase).toBe("ready"));
+    await update.host.stop("update");
+    const none = fixture();
+    await none.host.start();
+    await none.host.stop("quit");
+    await delay(300);
+    for (const home of [update.home, none.home])
+      expect(existsSync(path.join(home, "stop-local-models.json"))).toBe(false);
   });
 
   it("moves the keys of the unpacked source's .env into the instance's user.env once", async () => {
@@ -2316,7 +2542,170 @@ describe("LocalServerModule after a restart", () => {
     await f.host.stop("quit");
   });
 
-  it("moves the services to the source package of an updated app when asked", async () => {
+  // The services an app installed over this one unpacked: the record names
+  // their source folder and the app that unpacked it.
+  const installedBy = (archive: ReturnType<typeof sourceArchive>) =>
+    fixture(
+      {
+        sourceArchive: {
+          url: "https://cdn.example/linger.tar.gz",
+          sha256: archive.sha256,
+        },
+        // The services still answer, as when only the app was replaced.
+        fetch: (async () => new Response(archive.bytes)) as typeof fetch,
+      },
+      enrolled,
+      (home) => {
+        const sources = path.join(home, "desktop", "source");
+        unpackedSource(path.join(sources, "previous"));
+        writeFileSync(
+          path.join(home, "desktop", "local-server.json"),
+          JSON.stringify({
+            home,
+            repo: path.join(sources, "previous"),
+            origin: "http://localhost:3000",
+          }),
+        );
+      },
+    );
+
+  it("moves the services to the source package of an app installed over an older one", async () => {
+    const root = tempDirectory();
+    const archive = sourceArchive(root);
+    const f = installedBy(archive);
+    await f.host.start();
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
+    const sources = path.join(f.home, "desktop", "source");
+    const current = path.join(sources, archive.sha256.slice(0, 16));
+    const args = installerArgs(f.home);
+    expect(args).toContain("--resume");
+    expect(args[args.indexOf("--source-repo") + 1]).toBe(current);
+    // The window leaves the older interface while they restart.
+    expect(f.showUpdating).toHaveBeenCalledOnce();
+    expect(f.setServer).toHaveBeenCalledWith(
+      "http://localhost:3000",
+      "http://localhost:3000",
+    );
+    expect(
+      JSON.parse(
+        readFileSync(path.join(f.home, "desktop", "local-server.json"), "utf8"),
+      ),
+    ).toEqual({
+      home: f.home,
+      repo: current,
+      origin: "http://localhost:3000",
+      version: APP_VERSION,
+    });
+    expect(readdirSync(sources)).toEqual([path.basename(current)]);
+    await f.host.stop("quit");
+  });
+
+  it("shows the start failure when moving to the newer source package fails", async () => {
+    const root = tempDirectory();
+    const archive = sourceArchive(root);
+    const f = installedBy(archive);
+    writeFileSync(path.join(f.home, "resume-fails"), "");
+    await f.host.start();
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("failed"));
+    expect(f.showStartFailed).toHaveBeenCalledWith("Native teamhub stopped");
+    // Try Again moves them once more.
+    rmSync(path.join(f.home, "resume-fails"));
+    f.bus.emit("local-server.retry");
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
+    const args = installerArgs(f.home);
+    expect(args[args.indexOf("--source-repo") + 1]).toBe(
+      path.join(f.home, "desktop", "source", archive.sha256.slice(0, 16)),
+    );
+    await f.host.stop("quit");
+  });
+
+  it("keeps the older source until the services serve from the newer one", async () => {
+    const root = tempDirectory();
+    const archive = sourceArchive(root);
+    const f = installedBy(archive);
+    const sources = path.join(f.home, "desktop", "source");
+    const previous = path.join(sources, "previous");
+    const current = path.join(sources, archive.sha256.slice(0, 16));
+    // The move stopped before the restart (the local model was not ready).
+    writeFileSync(path.join(f.home, "resume-fails"), "");
+    await f.host.start();
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("failed"));
+    // Try Again: the installer answers but the services still run from the
+    // older folder.
+    rmSync(path.join(f.home, "resume-fails"));
+    writeFileSync(path.join(f.home, "resume-serving"), previous);
+    f.bus.emit("local-server.retry");
+    await vi.waitFor(() => expect(f.showStartFailed).toHaveBeenCalledTimes(2));
+    expect(f.module.status().phase).toBe("failed");
+    expect(f.setServer).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(
+        readFileSync(path.join(f.home, "desktop", "local-server.json"), "utf8"),
+      ),
+    ).toMatchObject({ repo: previous });
+    expect(readdirSync(sources).sort()).toEqual(
+      [path.basename(current), "previous"].sort(),
+    );
+    // Once they restart on the newer folder, it is recorded and the older
+    // one goes.
+    rmSync(path.join(f.home, "resume-serving"));
+    f.bus.emit("local-server.retry");
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
+    expect(
+      JSON.parse(
+        readFileSync(path.join(f.home, "desktop", "local-server.json"), "utf8"),
+      ),
+    ).toMatchObject({ repo: current });
+    expect(readdirSync(sources)).toEqual([path.basename(current)]);
+    await f.host.stop("quit");
+  });
+
+  it("starts the services on their own source package when it is this app's", async () => {
+    const root = tempDirectory();
+    const archive = sourceArchive(root);
+    const repo = (home: string) =>
+      path.join(home, "desktop", "source", archive.sha256.slice(0, 16));
+    const download = vi.fn(
+      async (_url: string | URL | Request) =>
+        new Response(null, { status: 503 }),
+    );
+    const f = fixture(
+      {
+        sourceArchive: {
+          url: "https://cdn.example/linger.tar.gz",
+          sha256: archive.sha256,
+        },
+        fetch: download as typeof fetch,
+      },
+      enrolled,
+      (home) => {
+        unpackedSource(repo(home));
+        writeFileSync(
+          path.join(home, "desktop", "local-server.json"),
+          JSON.stringify({
+            home,
+            repo: repo(home),
+            origin: "http://localhost:3000",
+            version: APP_VERSION,
+          }),
+        );
+      },
+    );
+    await f.host.start();
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
+    const args = installerArgs(f.home);
+    expect(args[args.indexOf("--source-repo") + 1]).toBe(repo(f.home));
+    expect(f.showUpdating).not.toHaveBeenCalled();
+    expect(
+      download.mock.calls.some(([url]) =>
+        String(url).startsWith("https://cdn.example/"),
+      ),
+    ).toBe(false);
+    await f.host.stop("quit");
+  });
+
+  it("leaves services a newer app unpacked on their source package", async () => {
+    const warn = vi.spyOn(silentLog, "warn");
     const root = tempDirectory();
     const archive = sourceArchive(root);
     const f = fixture(
@@ -2330,60 +2719,37 @@ describe("LocalServerModule after a restart", () => {
       enrolled,
       (home) => {
         const sources = path.join(home, "desktop", "source");
-        mkdirSync(path.join(sources, "previous"), { recursive: true });
+        unpackedSource(path.join(sources, "newer"));
         writeFileSync(
           path.join(home, "desktop", "local-server.json"),
           JSON.stringify({
             home,
-            repo: path.join(sources, "previous"),
+            repo: path.join(sources, "newer"),
             origin: "http://localhost:3000",
+            version: "0.18.0",
           }),
         );
       },
     );
     await f.host.start();
     await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
-    const sources = path.join(f.home, "desktop", "source");
-    const previous = path.join(sources, "previous");
-    const current = path.join(sources, archive.sha256.slice(0, 16));
-    const before = installerArgs(f.home);
-    expect(before[before.indexOf("--source-repo") + 1]).toBe(previous);
-    expect(f.module.sourceUpdateAvailable()).toBe(true);
-    await f.module.updateSource();
-    expect(f.showUpdating).toHaveBeenCalledOnce();
-    expect(f.loadServer).toHaveBeenCalledOnce();
-    expect(f.module.sourceUpdateAvailable()).toBe(false);
-    expect(f.module.status().phase).toBe("ready");
+    const newer = path.join(f.home, "desktop", "source", "newer");
     const args = installerArgs(f.home);
-    expect(args[args.indexOf("--source-repo") + 1]).toBe(current);
+    expect(args[args.indexOf("--source-repo") + 1]).toBe(newer);
+    expect(f.showUpdating).not.toHaveBeenCalled();
+    expect(readdirSync(path.join(f.home, "desktop", "source"))).toEqual([
+      "newer",
+    ]);
     expect(
       JSON.parse(
         readFileSync(path.join(f.home, "desktop", "local-server.json"), "utf8"),
       ),
-    ).toMatchObject({ repo: current });
-    expect(readdirSync(sources)).toEqual([path.basename(current)]);
-    await f.host.stop("quit");
-  });
-
-  it("keeps the whole migration failure for the start-failure page", async () => {
-    const detail = `Could not convert these instances to Linger names. ${"x".repeat(900)}\nEND OF DETAIL`;
-    const f = fixture({}, enrolled, (home) => {
-      record(home);
-      mkdirSync(path.join(home, "instances", "default"), { recursive: true });
-      writeFileSync(
-        path.join(home, "instances", "default", "instance.json"),
-        JSON.stringify({ project: "simplex-default-000000000000" }),
-      );
-      writeFileSync(path.join(home, "migration-fails"), "");
-      writeFileSync(path.join(home, "migration-detail.txt"), detail);
+    ).toMatchObject({ repo: newer, version: "0.18.0" });
+    expect(warn).toHaveBeenCalledWith("local_server.source_newer_than_app", {
+      installed: "0.18.0",
+      app: APP_VERSION,
     });
-
-    await f.host.start();
-
-    await vi.waitFor(() => expect(f.module.status().phase).toBe("failed"));
-    expect(detail.length).toBeGreaterThan(500);
-    expect(f.module.status().message).toBe(detail);
-    expect(f.showStartFailed).toHaveBeenCalledWith(detail);
+    warn.mockRestore();
     await f.host.stop("quit");
   });
 
@@ -2400,6 +2766,60 @@ describe("LocalServerModule after a restart", () => {
     await f.host.stop("quit");
   });
 
+  it.each([
+    [
+      "LOCAL_MODELS_RECOVERY_REQUIRED",
+      "Try Again to apply the approved local model plan again, or Set Up Again to review a new plan or choose another AI runtime.",
+    ],
+    [
+      "LOCAL_MODELS_APPROVAL_REQUIRED",
+      "Set Up Again to review the local model plan or choose another AI runtime.",
+    ],
+  ])(
+    "names the action that works when the local model stops a restart (%s)",
+    async (code, action) => {
+      const f = fixture({}, enrolled, (home) => {
+        record(home);
+        writeFileSync(
+          path.join(home, "resume-fails"),
+          JSON.stringify({
+            message: "The local model stack is not ready.",
+            details: { code },
+          }),
+        );
+      });
+      await f.host.start();
+      await vi.waitFor(() => expect(f.module.status().phase).toBe("failed"));
+      expect(f.showStartFailed).toHaveBeenCalledWith(
+        `The local model stack is not ready. ${action}`,
+      );
+      await f.host.stop("quit");
+    },
+  );
+
+  it("says why the local model stack is not ready, from its reason code", async () => {
+    const f = fixture({}, enrolled, (home) => {
+      record(home);
+      writeFileSync(
+        path.join(home, "resume-fails"),
+        JSON.stringify({
+          message:
+            "The upstream tool could not verify the local stack binding.",
+          details: {
+            code: "LOCAL_MODELS_RECOVERY_REQUIRED",
+            reasons: ["pi-extensions-unavailable", "gateway-unavailable"],
+          },
+        }),
+      );
+    });
+    await f.host.start();
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("failed"));
+    expect(f.showStartFailed).toHaveBeenCalledWith(
+      "The local model's Pi can't load extensions, which every Linger run needs. The upstream tool could not verify the local stack binding. Try Again to apply the approved local model plan again, or Set Up Again to review a new plan or choose another AI runtime.",
+    );
+    await f.host.stop("quit");
+  });
+
   it("starts the services again when the person tries again", async () => {
     const f = fixture({}, enrolled, (home) => {
       record(home);
@@ -2410,7 +2830,10 @@ describe("LocalServerModule after a restart", () => {
     rmSync(path.join(f.home, "resume-fails"));
     f.bus.emit("local-server.retry");
     await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
-    expect(f.setServer).toHaveBeenCalledWith("http://localhost:3000");
+    expect(f.setServer).toHaveBeenCalledWith(
+      "http://localhost:3000",
+      "http://localhost:3000",
+    );
     await f.host.stop("quit");
   });
 
@@ -2494,11 +2917,189 @@ describe("LocalServerModule after a restart", () => {
     expect(
       existsSync(path.join(repo(f.home), "scripts/source-native.mjs")),
     ).toBe(true);
-    expect(f.module.sourceUpdateAvailable()).toBe(false);
     await f.host.stop("quit");
   });
 
-  it("forgets the installation and keeps this Computer for renewal when the person sets up again", async () => {
+  it("unpacks the source package again when its folder is damaged", async () => {
+    const root = tempDirectory();
+    const archive = sourceArchive(root);
+    const repo = (home: string) =>
+      path.join(home, "desktop", "source", archive.sha256.slice(0, 16));
+    const f = fixture(
+      {
+        sourceArchive: {
+          url: "https://cdn.example/linger.tar.gz",
+          sha256: archive.sha256,
+        },
+        fetch: (async () => new Response(archive.bytes)) as typeof fetch,
+      },
+      enrolled,
+      (home) => {
+        // This app's own folder: the marker is there, package.json is gone.
+        mkdirSync(path.join(repo(home), "scripts"), { recursive: true });
+        writeFileSync(path.join(repo(home), "scripts/source-native.mjs"), "");
+        writeFileSync(
+          path.join(home, "desktop", "local-server.json"),
+          JSON.stringify({
+            home,
+            repo: repo(home),
+            origin: "http://localhost:3000",
+            version: APP_VERSION,
+          }),
+        );
+      },
+    );
+    await f.host.start();
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
+    const args = installerArgs(f.home);
+    expect(args[args.indexOf("--source-repo") + 1]).toBe(repo(f.home));
+    expect(
+      JSON.parse(readFileSync(path.join(repo(f.home), "package.json"), "utf8")),
+    ).toEqual({ name: "linger" });
+    await f.host.stop("quit");
+  });
+
+  it("moves to the source package when the earlier Simplex app unpacked the one in use", async () => {
+    const root = tempDirectory();
+    const archive = sourceArchive(root);
+    const legacy = (home: string) =>
+      path.join(home, "desktop", "source", "simplex");
+    const f = fixture(
+      {
+        sourceArchive: {
+          url: "https://cdn.example/linger.tar.gz",
+          sha256: archive.sha256,
+        },
+        fetch: (async () => new Response(archive.bytes)) as typeof fetch,
+      },
+      enrolled,
+      (home) => {
+        unpackedSource(legacy(home), "simplexai-coworkspace");
+        writeFileSync(
+          path.join(home, "desktop", "local-server.json"),
+          JSON.stringify({
+            home,
+            repo: legacy(home),
+            origin: "http://localhost:3000",
+          }),
+        );
+      },
+    );
+    await f.host.start();
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
+    const sources = path.join(f.home, "desktop", "source");
+    const current = path.join(sources, archive.sha256.slice(0, 16));
+    const args = installerArgs(f.home);
+    expect(args[args.indexOf("--source-repo") + 1]).toBe(current);
+    expect(
+      JSON.parse(
+        readFileSync(path.join(f.home, "desktop", "local-server.json"), "utf8"),
+      ),
+    ).toMatchObject({ repo: current });
+    expect(readdirSync(sources)).toEqual([path.basename(current)]);
+    await f.host.stop("quit");
+  });
+
+  it("converts and resumes an earlier Simplex installation in a location the person chose", async () => {
+    const root = tempDirectory();
+    const archive = sourceArchive(root);
+    const chosen = path.join(root, "chosen");
+    const legacy = path.join(chosen, "desktop", "source", "simplex");
+    const f = fixture(
+      {
+        sourceArchive: {
+          url: "https://cdn.example/linger.tar.gz",
+          sha256: archive.sha256,
+        },
+        fetch: (async () => new Response(archive.bytes)) as typeof fetch,
+      },
+      enrolled,
+      (home) => {
+        // The default home holds only the record and a setup that never
+        // finished.
+        legacyInstance(home);
+        legacyInstance(chosen);
+        unpackedSource(legacy, "simplexai-coworkspace");
+        mkdirSync(path.join(home, "desktop"), { recursive: true });
+        writeFileSync(
+          path.join(home, "desktop", "local-server.json"),
+          JSON.stringify({
+            home: chosen,
+            repo: legacy,
+            origin: "http://localhost:3000",
+          }),
+        );
+      },
+    );
+    await f.host.start();
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
+    expect(instanceProject(f.home)).toBe("linger-desktop-1");
+    expect(instanceProject(chosen)).toBe("linger-desktop-1");
+    const current = path.join(
+      chosen,
+      "desktop",
+      "source",
+      archive.sha256.slice(0, 16),
+    );
+    const args = installerArgs(chosen);
+    expect(args).toContain("--resume");
+    expect(args[args.indexOf("--home") + 1]).toBe(chosen);
+    expect(args[args.indexOf("--source-repo") + 1]).toBe(current);
+    expect(existsSync(path.join(f.home, "desktop", "source"))).toBe(false);
+    expect(
+      JSON.parse(
+        readFileSync(path.join(f.home, "desktop", "local-server.json"), "utf8"),
+      ),
+    ).toEqual({
+      home: chosen,
+      repo: current,
+      origin: "http://localhost:3000",
+      version: APP_VERSION,
+    });
+    expect(readdirSync(path.dirname(current))).toEqual([
+      path.basename(current),
+    ]);
+    await f.host.stop("quit");
+  });
+
+  it("holds the app back only for the instance in use when a conversion is skipped", async () => {
+    const chosen = path.join(tempDirectory(), "chosen");
+    const setup = (skips: string) => (home: string) => {
+      legacyInstance(home);
+      legacyInstance(chosen);
+      writeFileSync(
+        path.join(skips === "default" ? home : chosen, "migrate-skips"),
+        "",
+      );
+      mkdirSync(path.join(home, "desktop"), { recursive: true });
+      writeFileSync(
+        path.join(home, "desktop", "local-server.json"),
+        JSON.stringify({
+          home: chosen,
+          repo: "/source",
+          origin: "http://localhost:3000",
+        }),
+      );
+    };
+    const unused = fixture({}, enrolled, setup("default"));
+    await unused.host.start();
+    await vi.waitFor(() => expect(unused.module.status().phase).toBe("ready"));
+    expect(instanceProject(unused.home)).toBe("simplex-desktop-1");
+    await unused.host.stop("quit");
+
+    rmSync(chosen, { recursive: true });
+    const used = fixture({}, enrolled, setup("chosen"));
+    await used.host.start();
+    await vi.waitFor(() => expect(used.module.status().phase).toBe("failed"));
+    expect(used.module.status().message).toMatch(
+      /could not convert this computer's installation.*running 1 task/,
+    );
+    expect(used.showStartFailed).toHaveBeenCalledOnce();
+    expect(existsSync(path.join(chosen, "installer", "args.json"))).toBe(false);
+    await used.host.stop("quit");
+  });
+
+  it("forgets the installation and its enrollment when the person sets up again", async () => {
     const f = fixture({}, enrolled, (home) => {
       record(home);
       writeFileSync(path.join(home, "resume-fails"), "");
@@ -2513,8 +3114,7 @@ describe("LocalServerModule after a restart", () => {
     expect(existsSync(path.join(f.home, "desktop", "local-server.json"))).toBe(
       false,
     );
-    expect(f.resetLocalServer).toHaveBeenCalledOnce();
-    expect(f.unenroll).not.toHaveBeenCalled();
+    expect(f.unenroll).toHaveBeenCalledOnce();
     expect(f.config().serverUrl).toBeUndefined();
     expect(f.loadServer).toHaveBeenCalledOnce();
     // Try Again has nothing left to start.
@@ -2523,6 +3123,229 @@ describe("LocalServerModule after a restart", () => {
     await delay(50);
     expect(existsSync(path.join(f.home, "installer", "args.json"))).toBe(false);
     await f.host.stop("quit");
+  });
+
+  it("renews the same Computer ID across local-server reset and re-enrollment with retained daemon identity", async () => {
+    const root = tempDirectory();
+    const home = path.join(root, "home");
+    const installerDirectory = path.join(root, "installer");
+    mkdirSync(installerDirectory, { recursive: true });
+    writeFileSync(
+      path.join(installerDirectory, "installer.js"),
+      FAKE_INSTALLER,
+    );
+    writeFileSync(
+      path.join(installerDirectory, "package.json"),
+      '{"type":"commonjs"}',
+    );
+    writeFileSync(
+      path.join(installerDirectory, "distribution.json"),
+      JSON.stringify({
+        platform: "linux",
+        arch: "x64",
+        nativeSources: [{ target: "linux-x64" }],
+      }),
+    );
+    const node = path.join(home, "desktop", "node", `v${NODE_RUNTIME_VERSION}`);
+    mkdirSync(path.join(node, "bin"), { recursive: true });
+    symlinkSync(process.execPath, path.join(node, "bin", "node"));
+    checkout(home);
+
+    const daemonIdentityFile = path.join(root, "state", "daemon-identity.json");
+    mkdirSync(path.dirname(daemonIdentityFile), { recursive: true });
+    const pubkey = Buffer.alloc(32, 5);
+    writeFileSync(
+      daemonIdentityFile,
+      JSON.stringify({
+        public_key: pubkey.toString("base64").replace(/=+$/, ""),
+      }),
+    );
+    const expectedDaemonId = createHash("sha256")
+      .update(pubkey)
+      .digest("base64url");
+
+    const computers: {
+      readonly computer_id: string;
+      readonly daemon_id: string | undefined;
+      readonly owner_actor_id: string;
+    }[] = [];
+    const enrollmentBodies: Record<string, unknown>[] = [];
+    let resetOccurred = false;
+    let postResetPolls = 0;
+    const api = installerApi();
+    const teamhubToken = (computerId: string) =>
+      `sr1.${Buffer.from(
+        JSON.stringify({
+          runner_id: computerId,
+          tenant_owners: [{ tenant_id: "t1", owner_actor_id: "actor_ann" }],
+        }),
+      ).toString("base64url")}.${"s".repeat(43)}`;
+
+    const fetcher = (async (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.origin === "http://127.0.0.1:4321") return api.handle(url, init);
+      if (url.pathname === "/v0/me")
+        return Response.json({
+          actors: [{ id: "actor_ann", kind: "human", tenant_id: "t1" }],
+          server_capabilities: ["local_computer_enrollment_daemon_id"],
+        });
+      if (url.pathname === "/v0/tenants/t1/local-computer-enrollments") {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        enrollmentBodies.push(body);
+        const requestedId =
+          typeof body.computer_id === "string" ? body.computer_id : undefined;
+        const daemonId =
+          typeof body.daemon_id === "string" ? body.daemon_id : undefined;
+        const existing =
+          computers.find((c) => c.computer_id === requestedId) ??
+          (daemonId
+            ? computers.find(
+                (c) =>
+                  c.daemon_id === daemonId && c.owner_actor_id === "actor_ann",
+              )
+            : undefined);
+        const resolvedId =
+          existing?.computer_id ?? `cmp_${String(computers.length + 1)}`;
+        if (!existing) {
+          computers.push({
+            computer_id: resolvedId,
+            daemon_id: daemonId,
+            owner_actor_id: "actor_ann",
+          });
+        }
+        return Response.json({
+          enrollment_id: `enr_${resolvedId}`,
+          computer_id: resolvedId,
+          authorization_code: `code_${resolvedId}`,
+          expires_at: "2026-11-18T00:00:00Z",
+        });
+      }
+      if (url.pathname.startsWith("/v0/local-computer-enrollments/")) {
+        const id = url.pathname.split("/")[3]!.replace(/^enr_/, "");
+        return Response.json({
+          computer_id: id,
+          tenant_id: "t1",
+          gateway_url: "wss://localhost:4319/v1/runner",
+          gateway_token: teamhubToken(id),
+          credential_expires_at: "2026-12-18T00:00:00Z",
+        });
+      }
+      if (url.pathname === "/v0/tenants/t1/another-me")
+        return Response.json({ agent_actor_id: "actor_anotherme_1" });
+      if (url.pathname === "/v0/tenants/t1/rooms")
+        return Response.json({ items: [{ name: "Getting Started" }] });
+      if (url.pathname === "/v0/tenants/t1/local-computers") {
+        const online = !resetOccurred || ++postResetPolls >= 2;
+        return Response.json({
+          items: computers.map((c) => ({
+            computer_id: c.computer_id,
+            status: online ? "online" : "offline",
+          })),
+        });
+      }
+      return new Response(null, { status: 404 });
+    }) as typeof fetch;
+
+    const bus = new EventBus();
+    const initialGrant = {
+      grantId: "grant_1",
+      path: path.join(root, "workspace"),
+      label: "Workspace",
+      access: "read_write" as const,
+      createdAt: "2026-11-01T00:00:00Z",
+    };
+    const enrollment = new EnrollmentModule({
+      sessionCookie: async () => "session=s",
+      defaultDisplayName: "Studio Mac",
+      credentials: new CredentialStore(path.join(root, "credential.json")),
+      daemonIdentityFile,
+      fetch: fetcher,
+    });
+    const module = new LocalServerModule({
+      home,
+      version: APP_VERSION,
+      installerDirectory,
+      checkout: path.join(home, "src"),
+      platform: "linux",
+      arch: "x64",
+      pollMs: 1,
+      freeBytes: 1,
+      signIn: async () => {},
+      serverIdentity: async (_h, origin) => ({
+        origin,
+        teamhub: TEAMHUB,
+        key: KEY,
+      }),
+      proveServer: async () => {},
+      sessionCookie: async () => "session=s",
+      fetch: fetcher,
+    });
+    let hostContext: ModuleContext | undefined;
+    const host = testHost(
+      [
+        {
+          ...stubModule("Config"),
+          start: async (ctx: ModuleContext) => {
+            hostContext = ctx;
+          },
+        },
+        {
+          ...stubModule("WindowManager"),
+          setServer: (origin: string) => {
+            if (origin !== hostContext!.config.get().serverUrl) {
+              hostContext!.config.update({ serverUrl: origin });
+              bus.emit("server.changed", origin);
+            }
+            return true;
+          },
+          showUpdating: vi.fn(),
+          showStarting: vi.fn(),
+          showStartFailed: vi.fn(),
+          loadServer: vi.fn(),
+        } as never,
+        enrollment,
+        module,
+      ],
+      { workspaceGrants: [initialGrant] },
+      bus,
+    );
+
+    const opened = vi.fn();
+    bus.on("setup.open", opened);
+    await host.start();
+
+    await module.begin();
+    expect(module.status().phase).toBe("ready");
+    expect(host.ctx.config.get().computerId).toBe("cmp_1");
+    expect(enrollmentBodies[0]?.daemon_id).toBe(expectedDaemonId);
+
+    resetOccurred = true;
+    bus.emit("local-server.reset");
+    await vi.waitFor(() => expect(opened).toHaveBeenCalledOnce());
+    expect(host.ctx.config.get().computerId).toBeUndefined();
+    expect(host.ctx.config.get().serverUrl).toBeUndefined();
+    expect(host.ctx.config.get().savedEnrollments).toEqual({
+      "http://localhost:3000": {
+        computerId: "cmp_1",
+        tenantId: "t1",
+        ownerActorId: "actor_ann",
+      },
+    });
+    expect(host.ctx.config.get().workspaceGrants).toEqual([initialGrant]);
+
+    await module.begin();
+    expect(module.status().phase).toBe("ready");
+    expect(host.ctx.config.get().computerId).toBe("cmp_1");
+    expect(host.ctx.config.get().workspaceGrants).toEqual([initialGrant]);
+    expect(computers).toHaveLength(1);
+    expect(enrollmentBodies).toHaveLength(2);
+    expect(enrollmentBodies[1]?.computer_id).toBe("cmp_1");
+    expect(enrollmentBodies[1]?.daemon_id).toBe(expectedDaemonId);
+    expect(postResetPolls).toBe(2);
+    await host.stop("quit");
   });
 
   it("writes its record in one piece", async () => {
@@ -2916,7 +3739,10 @@ describe("LocalServerModule on Windows", () => {
     mkdirSync(path.join(source, hash), { recursive: true });
     writeFileSync(path.join(source, hash, "half"), "");
     await f.module.begin();
-    expect(readdirSync(path.join(source, hash)).sort()).toEqual(["scripts"]);
+    expect(readdirSync(path.join(source, hash)).sort()).toEqual([
+      "package.json",
+      "scripts",
+    ]);
     expect(f.module.status().phase).toBe("ready");
     await f.host.stop("quit");
   });
@@ -3187,11 +4013,126 @@ describe("legacyMigrationResult", () => {
       legacyMigrationResult({ code: 0, output: "", error: "" }, LOCAL_INSTANCE),
     ).toEqual({ skipped: [] });
   });
+});
 
-  it("preserves the full captured migration failure", () => {
-    const error = `The first instance failed.\n${"x".repeat(1900)}\nThe last instance failed.`;
-    expect(
-      legacyMigrationResult({ code: 1, output: "", error }, LOCAL_INSTANCE),
-    ).toEqual({ skipped: [], failure: error });
+describe("InstallerApi polling", () => {
+  const reset = () =>
+    new TypeError("fetch failed", {
+      cause: Object.assign(new Error("socket hang up"), {
+        code: "ECONNRESET",
+      }),
+    });
+  const job = (fields: Record<string, unknown>) =>
+    Response.json({
+      id: "job",
+      instance: LOCAL_INSTANCE,
+      createdAt: "2026-11-03T00:00:00Z",
+      stage: "images",
+      stages: [{ id: "images", state: "running" }],
+      ...fields,
+    });
+  // An installer whose job polls answer from `polls`, in order; a function
+  // entry throws, and the last entry repeats.
+  const installer = (polls: (Record<string, unknown> | (() => never))[]) => {
+    const created: unknown[] = [];
+    const posts: string[] = [];
+    let reads = 0;
+    const fetcher = (async (input: URL, init: RequestInit = {}) => {
+      if (init.method === "POST") posts.push(input.pathname);
+      if (input.pathname === "/api/session")
+        return new Response("{}", {
+          headers: { "set-cookie": "linger_installer_session=s1; Path=/api" },
+        });
+      if (input.pathname === "/api/jobs" && init.method === "POST") {
+        created.push(JSON.parse(String(init.body)));
+        return job({ state: "queued" });
+      }
+      if (input.pathname === "/api/jobs") return Response.json({ items: [] });
+      if (input.pathname === "/api/jobs/job") {
+        const next = polls[Math.min(reads++, polls.length - 1)]!;
+        return typeof next === "function" ? next() : job(next);
+      }
+      return Response.json({}, { status: 404 });
+    }) as unknown as typeof fetch;
+    return { fetcher, created, posts, reads: () => reads };
+  };
+  const warnings: Record<string, unknown>[] = [];
+  const log = {
+    info: () => {},
+    warn: (_: string, fields?: Record<string, unknown>) =>
+      warnings.push(fields!),
+    error: () => {},
+  };
+  const open = (fetcher: typeof fetch, windowMs = 60_000) =>
+    InstallerApi.open("http://127.0.0.1:9/#token=abc", fetcher, 1, log, {
+      windowMs,
+      maxBackoffMs: 5,
+    });
+  const plan = { runtime: "codex" } as Parameters<InstallerApi["run"]>[0];
+
+  it("reconnects after a dropped connection and follows the same job", async () => {
+    warnings.length = 0;
+    const fake = installer([
+      () => {
+        throw reset();
+      },
+      { state: "succeeded", origin: "http://localhost:3000" },
+    ]);
+    const messages: string[] = [];
+    const result = await (
+      await open(fake.fetcher)
+    ).run(plan, new AbortController().signal, (_s, _p, message) =>
+      messages.push(message),
+    );
+    expect(result.origin).toBe("http://localhost:3000");
+    expect(fake.created).toHaveLength(1);
+    expect(fake.posts).toEqual(["/api/session", "/api/jobs"]);
+    expect(messages).toContain("Reconnecting to the installer…");
+    expect(warnings).toEqual([
+      { stage: "poll_job", job_id: "job", code: "ECONNRESET", attempt: 1 },
+    ]);
+  });
+
+  it("gives up once the installer stays unreachable", async () => {
+    const fake = installer([
+      () => {
+        throw reset();
+      },
+    ]);
+    await expect(
+      (await open(fake.fetcher, 30)).run(
+        plan,
+        new AbortController().signal,
+        () => {},
+      ),
+    ).rejects.toThrow(
+      "Couldn't read the installation progress. Try again to reconnect to the running installation.",
+    );
+    expect(fake.created).toHaveLength(1);
+  });
+
+  it("reports a failed job as before", async () => {
+    const fake = installer([{ state: "failed", message: "Images broke" }]);
+    await expect(
+      (await open(fake.fetcher)).run(
+        plan,
+        new AbortController().signal,
+        () => {},
+      ),
+    ).rejects.toThrow("Images broke");
+  });
+
+  it("stops reconnecting when the caller aborts", async () => {
+    const controller = new AbortController();
+    const fake = installer([
+      () => {
+        controller.abort();
+        throw reset();
+      },
+    ]);
+    await expect(
+      (await open(fake.fetcher)).run(plan, controller.signal, () => {}),
+    ).rejects.toThrow();
+    expect(fake.reads()).toBe(1);
   });
 });

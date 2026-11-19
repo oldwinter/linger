@@ -1,3 +1,4 @@
+import type { ModelLease } from "../../model-tasks.js";
 import {
   RunnerComputerTools,
   type ComputerToolRequest,
@@ -15,6 +16,7 @@ import {
   type LocalBrowserConnectionStatus,
   type LocalComputerPermissionCommand,
   type LocalComputerPermissionStatus,
+  type LocalModelSourceCommand,
   type LocalPlacementRequirement,
   type LocalReasoningEffort,
   type LocalRuntimeModelDefinition,
@@ -77,7 +79,6 @@ import {
   endpointConcurrency,
   ModelQueue,
   type ModelEndpoint,
-  type ModelLease,
   type ModelWork,
 } from "./model-queue.js";
 import {
@@ -114,6 +115,7 @@ export type {
   RunnerModelInvokeRequest,
 } from "./runner-model-invocation.js";
 export {
+  RunnerDaemonIdentityInUseError,
   RunnerGatewayError,
   RunnerGatewayProtocolError,
   RunnerOperationError,
@@ -174,10 +176,17 @@ export class RunnerGateway
     this.#preparation = new RunnerOperationPreparation(context, owners);
     this.#compaction = new RunnerSessionCompaction(context, owners);
     this.#modelInvocation = new RunnerModelInvocation(context, owners);
-    this.#queue = new ModelQueue((endpoint) =>
-      endpointConcurrency(
-        this.runtimeModels(endpoint.computerId, endpoint.runtimeType),
-      ),
+    this.#queue = new ModelQueue(
+      (endpoint) =>
+        endpointConcurrency(
+          this.runtimeModels(endpoint.computerId, endpoint.runtimeType),
+        ),
+      Date.now,
+      // A background model call is below every Run, so it is swapped out first.
+      (endpoint, priority) => {
+        if (!this.#modelInvocation.yieldCall(endpoint, priority))
+          this.#operations.yieldFor(endpoint, priority);
+      },
     );
     this.#computerTools = new RunnerComputerTools(context, owners);
     this.#localModels = new RunnerLocalModels(context, owners);
@@ -331,6 +340,10 @@ export class RunnerGateway
     return this.#localModels.act(command);
   }
 
+  async modelSource(command: LocalModelSourceCommand) {
+    return this.#capabilities.modelSource(command);
+  }
+
   async runLocalComputerMutation<T>(
     computerId: string,
     operation: () => Promise<T>,
@@ -407,8 +420,8 @@ export class RunnerGateway
     return this.#modelInvocation.invokeModel(computerId, request);
   }
 
-  /** Admits a chain, which then holds its place on the endpoint until it ends. */
-  acquireModelChain(
+  /** Reserves a place for one model call on this endpoint. */
+  acquireModelCall(
     endpoint: ModelEndpoint,
     work: ModelWork,
     signal: AbortSignal,

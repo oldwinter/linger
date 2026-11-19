@@ -23,6 +23,8 @@ export interface AgentEffectiveResources {
   readonly connectedApps: boolean;
   /** Sorted keys of the apps with an account granted to this Agent. */
   readonly connectedAppKeys: readonly string[];
+  /** Sorted keys of every catalog app the Human can connect. */
+  readonly connectableAppKeys: readonly string[];
 }
 
 export interface AgentResourcesResolver {
@@ -69,7 +71,11 @@ export const parseAgentEffectiveResources = (
     !Array.isArray(value.skills) ||
     typeof value.connected_apps !== "boolean" ||
     !Array.isArray(value.connected_app_keys) ||
-    !value.connected_app_keys.every((key: unknown) => typeof key === "string")
+    !value.connected_app_keys.every(
+      (key: unknown) => typeof key === "string",
+    ) ||
+    !Array.isArray(value.connectable_app_keys) ||
+    !value.connectable_app_keys.every((key: unknown) => typeof key === "string")
   )
     throw new TypeError("Invalid Agent effective resources");
   const resources = parseExecutionResources({
@@ -95,6 +101,7 @@ export const parseAgentEffectiveResources = (
     skills: resources.skills,
     connectedApps: value.connected_apps,
     connectedAppKeys: Object.freeze([...value.connected_app_keys]),
+    connectableAppKeys: Object.freeze([...value.connectable_app_keys]),
   });
 };
 

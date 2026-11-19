@@ -9,6 +9,17 @@ import (
 	"path/filepath"
 )
 
+// ClaudeAuthEnvironmentNames are the variables that choose Claude's endpoint,
+// credentials and models.
+var ClaudeAuthEnvironmentNames = []string{
+	"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL",
+	"CLAUDE_CODE_OAUTH_TOKEN",
+	"ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME",
+	"ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME",
+	"ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME",
+	"ANTHROPIC_DEFAULT_FABLE_MODEL", "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME",
+}
+
 // ClaudeSourceEnvironment returns a copy of environment with the
 // authentication and model variables the user's Claude settings declare, as
 // a managed Claude process sees them; explicit values win.
@@ -57,14 +68,7 @@ func inheritClaudeAuthEnvironment(source string, environment map[string]string) 
 		return errors.New("Claude local settings env must be a JSON object")
 	}
 	inherited := make(map[string]string)
-	for _, name := range []string{
-		"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL",
-		"CLAUDE_CODE_OAUTH_TOKEN",
-		"ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME",
-		"ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME",
-		"ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME",
-		"ANTHROPIC_DEFAULT_FABLE_MODEL", "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME",
-	} {
+	for _, name := range ClaudeAuthEnvironmentNames {
 		encoded, present := values[name]
 		if !present {
 			continue

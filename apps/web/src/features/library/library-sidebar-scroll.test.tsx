@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
@@ -16,19 +17,19 @@ it.each([false, true])(
   "restores pending sidebar scroll unless the user takes control (interrupted=%s)",
   async (interrupted) => {
     const positions = new WeakMap<Element, number>();
-    vi.spyOn(Element.prototype, "scrollTop", "get").mockImplementation(
-      function (this: Element) {
+    // One descriptor for both accessors: separate get and set spies on the
+    // same property restore out of order and leave a stale getter behind.
+    defineGlobalProperty(Element.prototype, "scrollTop", {
+      get(this: Element) {
         return positions.get(this) ?? 0;
       },
-    );
-    vi.spyOn(Element.prototype, "scrollTop", "set").mockImplementation(
-      function (this: Element, value: number) {
+      set(this: Element, value: number) {
         positions.set(
           this,
           Math.min(value, this.querySelector("[data-loaded]") ? 500 : 0),
         );
       },
-    );
+    });
     const runtime = createTestTeamHubRuntime();
 
     const client = new QueryClient();

@@ -124,7 +124,7 @@ func InstallTemplateInTx(ctx context.Context, tx pgx.Tx, queries *store.Queries,
 			TemplateAgentActorID: optionalText(&agentID), TemplateRoutineKey: optionalText(&item.Key),
 			Name: item.Name, Instruction: item.Instruction, MentionActorID: optionalText(mention),
 			CadenceKind: optionalText(&cadence.Kind), Timezone: cadence.Timezone, Hour: optionalInt4(cadence.Hour), Minute: optionalInt4(cadence.Minute),
-			Weekdays: cadence.Weekdays, IntervalHours: optionalInt4(cadence.IntervalHours), Enabled: item.Enabled, NextRunAt: optionalTimestamptz(next),
+			Weekdays: cadence.Weekdays, IntervalMinutes: optionalInt4(cadence.IntervalMinutes), Enabled: item.Enabled, NextRunAt: optionalTimestamptz(next),
 		})
 		if err != nil {
 			return err

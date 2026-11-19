@@ -20,6 +20,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentcredential"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentruntimestate"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/app"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/jobs"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/reminder"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
@@ -208,10 +209,10 @@ func TestRoutineReplyLabelSkipsAgentSelfScheduledFollowUp(t *testing.T) {
 	allowParallelIntegrationTest(t)
 	env, alice := newWorkItemAgentEnv(t)
 	service := reminder.New(env.pool)
-	hours := 1
+	minutes := 60
 	runAt := time.Now().Add(time.Hour)
 	once := reminder.Cadence{Kind: "once", Timezone: "UTC", RunAt: &runAt}
-	recurring := reminder.Cadence{Kind: "every_n_hours", Timezone: "UTC", IntervalHours: &hours}
+	recurring := reminder.Cadence{Kind: "every_n_minutes", Timezone: "UTC", IntervalMinutes: &minutes}
 	agent := "actor_acme_official"
 	cases := []struct {
 		name    string
@@ -365,9 +366,9 @@ func insertDueAgentRoutine(t *testing.T, env *testEnv, roomID, createdBy, mentio
 	if _, err := env.pool.Exec(t.Context(), `
 INSERT INTO room_reminders (
   id, tenant_id, room_id, created_by_actor_id, name, instruction, mention_actor_id,
-  cadence_kind, timezone, interval_hours, enabled, next_run_at
+  cadence_kind, timezone, interval_minutes, enabled, next_run_at
 ) VALUES (
-  $1, $2, $3, $4, $5, $6, $7, 'every_n_hours', 'UTC', 1, true, now()-interval '3 minutes'
+  $1, $2, $3, $4, $5, $6, $7, 'every_n_minutes', 'UTC', 60, true, now()-interval '3 minutes'
 )`, id, acmeTenant, roomID, createdBy, name, name+" instruction", mentionArg); err != nil {
 		t.Fatal(err)
 	}
@@ -512,7 +513,14 @@ func replyToFiredRoutine(t *testing.T, env *testEnv, roomID, firedMessageID, suf
 	if err != nil {
 		t.Fatal(err)
 	}
-	return sendRoutineCLIReply(t, env, credential.AccessToken, roomID, runID)
+	replyID := sendRoutineCLIReply(t, env, credential.AccessToken, roomID, runID)
+	if _, err := runtime.FinishLocalRun(t.Context(), agentruntimestate.FinishLocalRunInput{
+		ContextKey: ensured.Context.ContextKey, Epoch: fence, RunID: runID,
+		Terminal: json.RawMessage(`{"type":"succeeded"}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return replyID
 }
 
 // Exercise the exact multipart HTTP endpoint used by teamhub message send.
@@ -833,4 +841,387 @@ WHEN (NEW.segments::text LIKE '%retry-marker%') EXECUTE FUNCTION reject_retry_ma
 	if got := countRows(t, env, occurrenceJobs+` AND state='scheduled'`, failing); got != 1 {
 		t.Fatalf("next occurrence jobs=%d want 1", got)
 	}
+}
+
+func TestRoutineIntervalGridAndSkipRule(t *testing.T) {
+	allowParallelIntegrationTest(t)
+	env, alice := newWorkItemAgentEnv(t)
+	suffix := strconv.FormatInt(time.Now().UnixNano(), 36)
+	roomID := env.createRoom(alice, acmeTenant, "Interval skip "+suffix, "interval-skip-"+suffix)
+	if status, body := putRoomMember(t, env, alice, roomID, "actor_acme_official", "member"); status != http.StatusOK {
+		t.Fatalf("add Agent: %d %s", status, body)
+	}
+	issued, err := agentcredential.New(env.pool).IssueManaged(t.Context(), acmeOfficialAgentManagementID, "routine interval test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("agent and web interval representations and validation", func(t *testing.T) {
+		for idx, badMinutes := range []int{0, 5, 9, 15, 10090} {
+			status, body := postAgentInRoom(t, env, issued.AccessToken, roomID, "/api/agent/v1/routines", map[string]any{
+				"invocation_id": routineInvocation("b" + strconv.Itoa(idx)),
+				"name":          "Bad " + strconv.Itoa(badMinutes),
+				"instruction":   "Check",
+				"schedule":      map[string]any{"kind": "every_n_minutes", "interval_minutes": badMinutes},
+			})
+			if status != http.StatusBadRequest || !strings.Contains(string(body), "invalid_interval") {
+				t.Fatalf("agent bad interval %d: %d %s", badMinutes, status, body)
+			}
+			code, _, raw := env.request(alice, http.MethodPost, "/v0/rooms/"+roomID+"/routines", map[string]any{
+				"name":        "Web bad " + strconv.Itoa(badMinutes),
+				"instruction": "Check",
+				"cadence":     map[string]any{"kind": "every_n_minutes", "timezone": "UTC", "interval_minutes": badMinutes},
+			}, "web-bad-"+strconv.Itoa(badMinutes)+"-"+suffix)
+			if code != http.StatusBadRequest || !strings.Contains(string(raw), "multiple of 10") {
+				t.Fatalf("web bad interval %d: %d %s", badMinutes, code, raw)
+			}
+		}
+
+		// Agent creates 10-min and 60-min routines: Agent reads both in minutes;
+		// Web reads 10-min as every_n_minutes and 60-min as every_n_hours (1h).
+		createAgent := func(tag string, minutes int) string {
+			status, body := postAgentInRoom(t, env, issued.AccessToken, roomID, "/api/agent/v1/routines", map[string]any{
+				"invocation_id":    routineInvocation(tag),
+				"name":             "Every " + strconv.Itoa(minutes),
+				"instruction":      "Check status",
+				"mention_actor_id": "self",
+				"schedule":         map[string]any{"kind": "every_n_minutes", "interval_minutes": minutes},
+			})
+			if status != http.StatusOK {
+				t.Fatalf("agent create %d: %d %s", minutes, status, body)
+			}
+			var resp struct {
+				Routine struct {
+					ID       string `json:"id"`
+					Schedule struct {
+						Kind            string `json:"kind"`
+						IntervalMinutes int    `json:"interval_minutes"`
+					} `json:"schedule"`
+				} `json:"routine"`
+			}
+			decode(t, body, &resp)
+			if resp.Routine.Schedule.Kind != "every_n_minutes" || resp.Routine.Schedule.IntervalMinutes != minutes {
+				t.Fatalf("agent schedule=%s", body)
+			}
+			return resp.Routine.ID
+		}
+		tenID := createAgent("a1", 10)
+		sixtyID := createAgent("a2", 60)
+
+		// Compatibility with older CLI/Desktop clients sending every_n_hours.
+		legacyStatus, legacyBody := postAgentInRoom(t, env, issued.AccessToken, roomID, "/api/agent/v1/routines", map[string]any{
+			"invocation_id":    routineInvocation("a3"),
+			"name":             "Legacy hourly",
+			"instruction":      "Check status",
+			"mention_actor_id": "self",
+			"schedule":         map[string]any{"kind": "every_n_hours", "interval_hours": 2},
+		})
+		if legacyStatus != http.StatusOK || !strings.Contains(string(legacyBody), `"kind":"every_n_minutes"`) || !strings.Contains(string(legacyBody), `"interval_minutes":120`) {
+			t.Fatalf("legacy every_n_hours create=%d %s", legacyStatus, legacyBody)
+		}
+		var legacyResp struct {
+			Routine struct {
+				ID string `json:"id"`
+			} `json:"routine"`
+		}
+		decode(t, legacyBody, &legacyResp)
+		legacyID := legacyResp.Routine.ID
+
+		status, body := postAgentInRoom(t, env, issued.AccessToken, roomID, "/api/agent/v1/routines/query", map[string]any{})
+		if status != http.StatusOK || !strings.Contains(string(body), `"interval_minutes":10`) || !strings.Contains(string(body), `"interval_minutes":60`) {
+			t.Fatalf("agent list=%d %s", status, body)
+		}
+
+		code, _, raw := env.request(alice, http.MethodGet, "/v0/rooms/"+roomID+"/routines", nil, "")
+		if code != http.StatusOK {
+			t.Fatalf("web list=%d %s", code, raw)
+		}
+		var page struct {
+			Items []struct {
+				ID       string `json:"id"`
+				Revision int64  `json:"revision"`
+				Cadence  struct {
+					Kind            string `json:"kind"`
+					IntervalHours   *int   `json:"interval_hours"`
+					IntervalMinutes *int   `json:"interval_minutes"`
+				} `json:"cadence"`
+			} `json:"items"`
+		}
+		decode(t, raw, &page)
+		var tenRev int64
+		for _, item := range page.Items {
+			switch item.ID {
+			case tenID:
+				tenRev = item.Revision
+				if item.Cadence.Kind != "every_n_minutes" || item.Cadence.IntervalMinutes == nil || *item.Cadence.IntervalMinutes != 10 || item.Cadence.IntervalHours != nil {
+					t.Fatalf("web 10m cadence=%+v", item.Cadence)
+				}
+			case sixtyID:
+				if item.Cadence.Kind != "every_n_hours" || item.Cadence.IntervalHours == nil || *item.Cadence.IntervalHours != 1 || item.Cadence.IntervalMinutes != nil {
+					t.Fatalf("web 60m cadence=%+v", item.Cadence)
+				}
+			}
+		}
+		// Pause and resume from Web preserves interval_minutes=10.
+		for _, enabled := range []bool{false, true} {
+			code, _, raw = env.request(alice, http.MethodPatch, "/v0/routines/"+tenID, map[string]any{
+				"expected_revision": tenRev, "enabled": enabled,
+			}, "toggle-10m-"+strconv.FormatBool(enabled)+"-"+suffix)
+			if code != http.StatusOK {
+				t.Fatalf("web toggle=%d %s", code, raw)
+			}
+			var patched struct {
+				Revision int64 `json:"revision"`
+				Cadence  struct {
+					Kind            string `json:"kind"`
+					IntervalMinutes *int   `json:"interval_minutes"`
+				} `json:"cadence"`
+			}
+			decode(t, raw, &patched)
+			tenRev = patched.Revision
+			if patched.Cadence.Kind != "every_n_minutes" || patched.Cadence.IntervalMinutes == nil || *patched.Cadence.IntervalMinutes != 10 {
+				t.Fatalf("web toggle altered cadence: %s", raw)
+			}
+		}
+		for _, id := range []string{tenID, sixtyID, legacyID} {
+			if _, err := env.pool.Exec(t.Context(), `DELETE FROM room_reminders WHERE id=$1`, id); err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+
+	t.Run("fixed grid advancement without drift or catch-up", func(t *testing.T) {
+		status, body := postAgentInRoom(t, env, issued.AccessToken, roomID, "/api/agent/v1/routines", map[string]any{
+			"invocation_id": routineInvocation("g1"),
+			"name":          "Grid check",
+			"instruction":   "Ping grid",
+			"schedule":      map[string]any{"kind": "every_n_minutes", "interval_minutes": 10},
+		})
+		if status != http.StatusOK {
+			t.Fatalf("create grid: %d %s", status, body)
+		}
+		var created struct {
+			Routine struct {
+				ID string `json:"id"`
+			} `json:"routine"`
+		}
+		decode(t, body, &created)
+		// Simulate 33m of downtime: dueAt is 33m ago; next must land on dueAt + 40m (7m from now), no catch-up.
+		dueAt := time.Now().UTC().Truncate(time.Second).Add(-33 * time.Minute)
+		if _, err := env.pool.Exec(t.Context(), `UPDATE room_reminders SET next_run_at=$2 WHERE id=$1`, created.Routine.ID, dueAt); err != nil {
+			t.Fatal(err)
+		}
+		var delivered []reminder.ScheduleResult
+		for _, res := range runReminderWorker(t, env) {
+			if res.ReminderID == created.Routine.ID {
+				delivered = append(delivered, res)
+			}
+		}
+		if len(delivered) != 1 {
+			t.Fatalf("grid delivered=%d want 1", len(delivered))
+		}
+		wantNext := dueAt.Add(40 * time.Minute)
+		if !delivered[0].NextRunAt.Equal(wantNext) {
+			t.Fatalf("next=%s want=%s (dueAt=%s)", delivered[0].NextRunAt, wantNext, dueAt)
+		}
+		if _, err := env.pool.Exec(t.Context(), `DELETE FROM room_reminders WHERE id=$1`, created.Routine.ID); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("skips overlapping occurrence while previous Run is unfinished and unblocks after terminal or 24h", func(t *testing.T) {
+		for _, tc := range []struct {
+			name    string
+			minutes int
+			tag     string
+		}{
+			{name: "10-minute routine", minutes: 10, tag: "s1"},
+			{name: "hourly routine", minutes: 60, tag: "s2"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				subRoom := env.createRoom(alice, acmeTenant, "Skip "+tc.tag+" "+suffix, "skip-"+tc.tag+"-"+suffix)
+				if status, body := putRoomMember(t, env, alice, subRoom, "actor_acme_official", "member"); status != http.StatusOK {
+					t.Fatalf("add Agent: %d %s", status, body)
+				}
+				status, body := postAgentInRoom(t, env, issued.AccessToken, subRoom, "/api/agent/v1/routines", map[string]any{
+					"invocation_id":    routineInvocation(tc.tag),
+					"name":             "Long job " + tc.tag,
+					"instruction":      "Run slow check",
+					"mention_actor_id": "self",
+					"schedule":         map[string]any{"kind": "every_n_minutes", "interval_minutes": tc.minutes},
+				})
+				if status != http.StatusOK {
+					t.Fatalf("create: %d %s", status, body)
+				}
+				var created struct {
+					Routine struct {
+						ID string `json:"id"`
+					} `json:"routine"`
+				}
+				decode(t, body, &created)
+				routineID := created.Routine.ID
+
+				// First fire delivers a trigger message and queues a Local Run.
+				first := fireReminderOccurrence(t, env, routineID)
+				if first.MessageID == "" {
+					t.Fatal("first fire produced no message")
+				}
+				runtime := agentruntimestate.New(env.pool)
+				ensured, err := runtime.EnsureContext(t.Context(), agentruntimestate.EnsureContextInput{
+					Ref:             agentruntimestate.ContextRef{Kind: "meta", AgentID: acmeOfficialAgentManagementID, RoomID: subRoom},
+					TargetResidency: "active",
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				startRuntimeEpoch(t, runtime, "skip-epoch-"+tc.tag)
+				requeueCommittedRoomMessage(t, env.pool, first.MessageID)
+				runID := queuedRuntimeInbox(t, env.pool, ensured.Context.ContextKey, first.MessageID).RunID
+
+				// While Run is queued, next due occurrence is skipped and next_run_at advances.
+				due2 := time.Now().UTC().Truncate(time.Second).Add(-3 * time.Minute)
+				if _, err := env.pool.Exec(t.Context(), `UPDATE room_reminders SET next_run_at=$2 WHERE id=$1`, routineID, due2); err != nil {
+					t.Fatal(err)
+				}
+				for _, res := range runReminderWorker(t, env) {
+					if res.ReminderID == routineID {
+						t.Fatalf("fired while queued: %+v", res)
+					}
+				}
+				var advanced time.Time
+				if err := env.pool.QueryRow(t.Context(), `SELECT next_run_at FROM room_reminders WHERE id=$1`, routineID).Scan(&advanced); err != nil {
+					t.Fatal(err)
+				}
+				if !advanced.Equal(due2.Add(time.Duration(tc.minutes) * time.Minute)) {
+					t.Fatalf("skipped queued occurrence did not advance on grid: got=%s want=%s", advanced, due2.Add(time.Duration(tc.minutes)*time.Minute))
+				}
+
+				// Claim Run (status=running): still skipped.
+				if _, err := runtime.ClaimLocalRun(t.Context(), agentruntimestate.ClaimLocalRunInput{
+					ClaimID: "claim-" + tc.tag, ContextKey: ensured.Context.ContextKey, Epoch: "skip-epoch-" + tc.tag,
+				}); err != nil {
+					t.Fatal(err)
+				}
+				markReminderOverdue(t, env, routineID)
+				for _, res := range runReminderWorker(t, env) {
+					if res.ReminderID == routineID {
+						t.Fatalf("fired while running: %+v", res)
+					}
+				}
+				if got := countRows(t, env, `SELECT count(*) FROM messages WHERE room_id=$1 AND fired_routine_id=$2`, subRoom, routineID); got != 1 {
+					t.Fatalf("trigger messages while unfinished=%d want 1", got)
+				}
+
+				// Complete Run (succeeded): next occurrence fires.
+				if _, err := runtime.FinishLocalRun(t.Context(), agentruntimestate.FinishLocalRunInput{
+					ContextKey: ensured.Context.ContextKey, Epoch: "skip-epoch-" + tc.tag, RunID: runID,
+					Terminal: json.RawMessage(`{"type":"succeeded"}`),
+				}); err != nil {
+					t.Fatal(err)
+				}
+				second := fireReminderOccurrence(t, env, routineID)
+				if second.MessageID == "" || second.MessageID == first.MessageID {
+					t.Fatalf("second fire=%+v", second)
+				}
+
+				// Second trigger message has no terminal Run; while within 24h it blocks,
+				// and once older than 24h it stops blocking.
+				markReminderOverdue(t, env, routineID)
+				for _, res := range runReminderWorker(t, env) {
+					if res.ReminderID == routineID {
+						t.Fatalf("fired with unpicked trigger within 24h: %+v", res)
+					}
+				}
+				if _, err := env.pool.Exec(t.Context(), `UPDATE messages SET created_at=now()-interval '25 hours' WHERE id=$1`, second.MessageID); err != nil {
+					t.Fatal(err)
+				}
+				third := fireReminderOccurrence(t, env, routineID)
+				if third.MessageID == "" || third.MessageID == second.MessageID {
+					t.Fatalf("third fire after 24h TTL=%+v", third)
+				}
+
+				// Coalesced inbox input (only payload.invocationMessageIds references third.MessageID):
+				// blocks while running and unblocks once terminal.
+				coalescedRunID := "coalesced-run-" + tc.tag + "-" + suffix
+				coalescedInputID := coalescedRunID + "-input"
+				coalescedPayload, _ := json.Marshal(map[string]any{"invocationMessageIds": []string{third.MessageID}})
+				if _, err := env.pool.Exec(t.Context(), `INSERT INTO agent_local_runs(run_id,context_key,status,status_room_id,started_at) VALUES($1,$2,'running',$3,now())`,
+					coalescedRunID, ensured.Context.ContextKey, subRoom); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := env.pool.Exec(t.Context(), `INSERT INTO agent_runtime_inputs(context_key,input_id,input_sequence,payload,payload_hash,source_kind,source_inbox_id,status,local_run_id)
+					VALUES($1,$2,9999,$3,decode(repeat('b',64),'hex'),'inbox',$4,'handled',$5)`,
+					ensured.Context.ContextKey, coalescedInputID, coalescedPayload, "room:"+subRoom, coalescedRunID); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := env.pool.Exec(t.Context(), `INSERT INTO agent_local_run_inputs(run_id,context_key,input_id,relation,ordinal)
+					VALUES($1,$2,$3,'initial',0)`, coalescedRunID, ensured.Context.ContextKey, coalescedInputID); err != nil {
+					t.Fatal(err)
+				}
+				markReminderOverdue(t, env, routineID)
+				for _, res := range runReminderWorker(t, env) {
+					if res.ReminderID == routineID {
+						t.Fatalf("fired while coalesced run still running: %+v", res)
+					}
+				}
+				if _, err := env.pool.Exec(t.Context(), `UPDATE agent_local_runs SET status='succeeded', terminal='{"type":"succeeded"}', finished_at=now() WHERE run_id=$1`, coalescedRunID); err != nil {
+					t.Fatal(err)
+				}
+				fourth := fireReminderOccurrence(t, env, routineID)
+				if fourth.MessageID == "" || fourth.MessageID == third.MessageID {
+					t.Fatalf("fourth fire after coalesced terminal run=%+v", fourth)
+				}
+			})
+		}
+	})
+
+	t.Run("another me quiet window accumulates at most one wake per routine", func(t *testing.T) {
+		anotherEnv, pool := newConnectedAnotherMeEnv(t, nil, skipping(app.JobQueue), skipping(app.SkillPackageProbe))
+		ctx := t.Context()
+		directRoom := anotherMeRoomID(t, pool, "actor_acme_alice")
+		var agentID string
+		if err := pool.QueryRow(ctx, `SELECT actor_id FROM agent_registrations
+			WHERE represented_human_actor_id='actor_acme_alice' AND agent_type='anotherme'`).Scan(&agentID); err != nil {
+			t.Fatal(err)
+		}
+		// Human is actively chatting, keeping the 3-minute quiet window open.
+		postConversation(t, pool, "actor_acme_alice", directRoom, "still chatting with you")
+		minutes := 10
+		svc := reminder.New(pool)
+		authority := reminder.Authority{TenantID: acmeTenant, RoomID: directRoom, ActorID: agentID}
+		created, err := svc.Create(ctx, reminder.AgentCaller(authority), directRoom, "quiet-10m-"+suffix, requestHash("quiet-10m-"+suffix), reminder.CreateInput{
+			Name: "Check updates", Instruction: "Check latest updates", MentionActorID: &agentID,
+			Cadence: reminder.Cadence{Kind: "every_n_minutes", Timezone: "UTC", IntervalMinutes: &minutes},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		routineID := created.Value.ID
+
+		// Fire #1 queues 1 pending wake (quiet window holds it).
+		fireReminderOccurrence(t, anotherEnv, routineID)
+		if got := countRows(t, anotherEnv, `SELECT count(*) FROM proactive_pending_wakes WHERE room_id=$1 AND fired_routine_id=$2 AND delivered_at IS NULL`, directRoom, routineID); got != 1 {
+			t.Fatalf("pending wakes after first fire=%d want 1", got)
+		}
+
+		// Fire #2 during the same chat is skipped; still only 1 pending wake.
+		markReminderOverdue(t, anotherEnv, routineID)
+		for _, res := range runReminderWorker(t, anotherEnv) {
+			if res.ReminderID == routineID {
+				t.Fatalf("second fire while quiet wake undelivered should skip: %+v", res)
+			}
+		}
+		if got := countRows(t, anotherEnv, `SELECT count(*) FROM proactive_pending_wakes WHERE room_id=$1 AND fired_routine_id=$2 AND delivered_at IS NULL`, directRoom, routineID); got != 1 {
+			t.Fatalf("pending wakes after skipped fire=%d want 1", got)
+		}
+
+		// After 3 minutes of quiet, Deliver sends exactly 1 hidden trigger message.
+		wakeID := pendingWakeID(t, pool, directRoom)
+		if wait, err := reminder.Deliver(ctx, pool, wakeID, time.Now().Add(reminder.Window+time.Minute), reminder.Window); err != nil || wait != 0 {
+			t.Fatalf("deliver quiet wake: wait=%v err=%v", wait, err)
+		}
+		if got := countRows(t, anotherEnv, `SELECT count(*) FROM messages WHERE room_id=$1 AND fired_routine_id=$2`, directRoom, routineID); got != 1 {
+			t.Fatalf("delivered routine messages after quiet window=%d want 1", got)
+		}
+	})
 }

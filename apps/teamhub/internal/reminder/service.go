@@ -24,10 +24,18 @@ import (
 
 type Service struct {
 	pool *pgxpool.Pool
+	now  func() time.Time
 }
 
 func New(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool}
+	return &Service{pool: pool, now: time.Now}
+}
+
+func (s *Service) currentTime() time.Time {
+	if s.now != nil {
+		return s.now().UTC()
+	}
+	return time.Now().UTC()
 }
 
 func (s *Service) HumanRoomAuthority(ctx context.Context, accountID, roomID string) (Authority, error) {
@@ -138,7 +146,7 @@ func (s *Service) Create(ctx context.Context, caller Caller, roomID, key string,
 			CreatedByActorID: authority.ActorID, Name: name, Instruction: instruction, MentionActorID: optionalText(input.MentionActorID),
 			CadenceKind: optionalText(&cadence.Kind), Timezone: routineTimezone(cadence), Hour: optionalInt4(cadence.Hour),
 			Minute: optionalInt4(cadence.Minute), Weekdays: cadence.Weekdays,
-			IntervalHours: optionalInt4(cadence.IntervalHours), RunAt: optionalTimestamptz(cadence.RunAt), Enabled: enabled,
+			IntervalMinutes: optionalInt4(cadence.IntervalMinutes), RunAt: optionalTimestamptz(cadence.RunAt), Enabled: enabled,
 			NextRunAt:      optionalTimestamptz(next),
 			TrackingItemID: trackingID, TrackingPurpose: trackingPurpose,
 		})
@@ -225,7 +233,7 @@ func (s *Service) Update(ctx context.Context, caller Caller, routineID, key stri
 			Name: value.Name, Instruction: value.Instruction, MentionActorID: optionalText(value.MentionActorID),
 			CadenceKind: optionalText(&value.Cadence.Kind), Timezone: value.Cadence.Timezone,
 			Hour: optionalInt4(value.Cadence.Hour), Minute: optionalInt4(value.Cadence.Minute),
-			Weekdays: value.Cadence.Weekdays, IntervalHours: optionalInt4(value.Cadence.IntervalHours), RunAt: optionalTimestamptz(value.Cadence.RunAt),
+			Weekdays: value.Cadence.Weekdays, IntervalMinutes: optionalInt4(value.Cadence.IntervalMinutes), RunAt: optionalTimestamptz(value.Cadence.RunAt),
 			Enabled: value.Enabled, NextRunAt: optionalTimestamptz(next),
 			ID: routineID, TenantID: authority.TenantID, RoomID: authority.RoomID,
 			ExpectedRevision: current.Revision,

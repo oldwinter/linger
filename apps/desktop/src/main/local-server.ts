@@ -1,12 +1,12 @@
 import { spawn } from "node:child_process";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
-  createHash,
-  createHmac,
-  randomBytes,
-  randomUUID,
-  timingSafeEqual,
-} from "node:crypto";
-import { createReadStream, existsSync, readFileSync } from "node:fs";
+  closeSync,
+  createReadStream,
+  existsSync,
+  openSync,
+  readFileSync,
+} from "node:fs";
 import {
   constants as fsConstants,
   cp,
@@ -28,12 +28,15 @@ import { setTimeout as delay } from "node:timers/promises";
 import { createZstdDecompress } from "node:zlib";
 
 import {
+  LocalIdentityError,
+  proveLocalIdentity,
   readLocalIdentity,
   readLocalLogin,
 } from "@linger/local-installation/account";
-import { downloadVerified } from "@linger/local-installation/download";
+import { downloadInRegion } from "@linger/local-installation/region";
 import { latestLegacyBackup } from "@linger/local-installation/legacy-database";
 import { legacyMigrationPending } from "@linger/local-installation/home";
+import { validateSourceRepository } from "@linger/local-installation/source-checkout";
 import type { LegacyInstanceSkipped } from "@linger/local-installation/legacy-migration";
 import {
   type SetupChoice,
@@ -61,19 +64,22 @@ import {
   NODE_RUNTIME_VERSION,
   nodeRuntimeDownloadUrls,
 } from "../../../../scripts/local-computer-node-distributions.mjs";
-import type { Module, ModuleContext } from "./modules.js";
-import { sameOrigin } from "./navigation.js";
-import {
-  humanTenant,
-  IDENTITY_CONFLICT_MESSAGE,
-  type EnrollmentModule,
-} from "./enrollment.js";
+import type { Logger } from "./log.js";
+import type { Module, ModuleContext, StopReason } from "./modules.js";
+import { parseServerUrl, sameOrigin } from "./navigation.js";
+import { humanTenant, type EnrollmentModule } from "./enrollment.js";
+import { compareVersions } from "./update-manifest.js";
 import type { WindowManagerModule } from "./window-manager.js";
 import {
   installerKeyChanges,
   savedProviderKeys,
   type ProviderKeyChanges,
 } from "./provider-keys.js";
+import type {
+  SetupByokCheck,
+  SetupByokConfig,
+  SetupReason,
+} from "../shared/setup.js";
 
 // The pinned linger source this build installs, written by the release build:
 // downloaded from `url` (or a mirror of it), or bundled in the app at `file`.
@@ -127,18 +133,13 @@ export type LocalModelsCheck =
       readonly gpu?: string;
       // Present when eligible or when it needs free memory.
       readonly model?: LocalModel;
-      // The localmodels tool's code and words for why not, or, when
-      // eligible, for what could still stop the install.
+      // The localmodels tool's code for why not, or, when eligible, for
+      // what could still stop the install, with the counts it carries.
       readonly reasons?: readonly SetupReason[];
       // The localmodels tool's pick for this computer, which Quick Install
       // installs; the page adds no rule of its own.
       readonly recommendation?: SetupChoice;
     };
-
-export interface SetupReason {
-  readonly code: string;
-  readonly message?: string;
-}
 
 // A download under way: its bytes so far and in all, and the rate when the
 // source reports one. partial: the counts cover only the file downloading
@@ -154,6 +155,8 @@ export interface Transfer {
 export interface LocalServerPlan {
   // "local" runs tasks on an inference model deployed on this computer.
   readonly runtime: "recommended" | "codex" | "claude" | "pi" | "local";
+  // Optional BYOK configuration mounted onto local Bifrost.
+  readonly byok?: SetupByokConfig;
   // Provider keys edited on the page, saved before the installer runs.
   readonly keys?: ProviderKeyChanges;
 }
@@ -279,6 +282,7 @@ export interface LocalServerStatus {
   readonly origin?: string;
   // While the "signin" step waits for the person.
   readonly signIn?: RuntimeSignIn;
+  readonly byokCheck?: SetupByokCheck;
   // Where this installation moved the data of the earlier Simplex app,
   // which it could not upgrade.
   readonly legacyBackup?: string;
@@ -289,6 +293,8 @@ export interface LocalServerOptions {
   // The desktop keeps its Node runtime and its record here wherever the
   // installation goes.
   readonly home: string;
+  // This app's version, recorded with the source package it unpacks.
+  readonly version: string;
   // The bundled installer (installer.js, web/, native-process-worker.mjs).
   readonly installerDirectory: string;
   readonly sourceArchive?: SourceArchive;
@@ -363,7 +369,8 @@ export function legacyMigrationResult(
   if (run.code !== 0)
     return {
       failure:
-        run.error.trim() || `The installer exited with code ${run.code}.`,
+        run.error.trim().slice(-1500) ||
+        `The installer exited with code ${run.code}.`,
       skipped: [],
     };
   let skipped: LegacyInstanceSkipped[] = [];
@@ -423,23 +430,22 @@ export class LocalServerModule implements Module {
   #locationError: string | undefined;
   #node: Promise<string> | undefined;
   #abort = new AbortController();
-  // The running installation when this app brings a newer source package;
-  // the services move to it once the person chooses to update.
-  #outdated: LocalRecord | undefined;
-  #updating: Promise<void> | undefined;
   #offRetry: (() => void) | undefined;
   #offReset: (() => void) | undefined;
   #offDaemon: (() => void) | undefined;
-  #offIdentityConflict: (() => void) | undefined;
+  #offDaemonConnection: (() => void) | undefined;
+  #offComputerChanged: (() => void) | undefined;
   #daemonFailure: string | undefined;
-  #identityConflict = false;
+  #daemonConnection: string | undefined;
   #signIn: RuntimeSignIn | undefined;
+  #byokCheck: SetupByokCheck | undefined;
   #legacyBackup: string | undefined;
   // The installer that runs the sign-in, and what the person asked for
   // while the step waits.
   #signInInstaller: InstallerApi | undefined;
   #signInWake: (() => void) | undefined;
   #switchTo: LocalRuntime | undefined;
+  #switchByok: SetupByokConfig | undefined;
   #opened: string | undefined;
   #serverCheck:
     | { readonly at: number; readonly ok: Promise<boolean> }
@@ -453,16 +459,23 @@ export class LocalServerModule implements Module {
 
   async start(ctx: ModuleContext): Promise<void> {
     this.#ctx = ctx;
-    const migrationFailure = await this.#migrateLegacyHome(ctx);
     // After a reboot the local services are gone; start them again while the
     // window still points at them. A record of a Quick Install that stopped
     // before this computer connected (the app quit or the computer went off
     // during its last steps) is not resumed: setup shows instead, and its
     // Install finishes that installation.
     let record = await this.#readRecord();
+    // The record stays in the default home, but the installation it names
+    // may be in a location the person chose; that home converts too, and
+    // only its own instance holds the app back.
+    const inUse = record?.home ?? this.#options.home;
+    let migrationFailure: string | undefined;
+    for (const home of new Set([this.#options.home, inUse])) {
+      const failure = await this.#migrateLegacyHome(ctx, home);
+      if (home === inUse) migrationFailure = failure;
+    }
     if (record) this.#home = record.home;
     const config = ctx.config.get();
-    this.#identityConflict = !!config.identityConflict;
     const resumes =
       !!record && config.serverUrl === record.origin && !!config.computerId;
     if (migrationFailure) {
@@ -477,12 +490,12 @@ export class LocalServerModule implements Module {
     this.#offDaemon = ctx.bus.on("computer.failed", (reason) => {
       this.#daemonFailure = reason;
     });
-    this.#offIdentityConflict = ctx.bus.on(
-      "computer.identity_conflict",
-      (conflict) => {
-        this.#identityConflict = conflict;
-      },
-    );
+    this.#offDaemonConnection = ctx.bus.on("computer.connection", (state) => {
+      this.#daemonConnection = state;
+    });
+    this.#offComputerChanged = ctx.bus.on("computer.changed", () => {
+      this.#daemonConnection = undefined;
+    });
     this.#offRetry = ctx.bus.on("local-server.retry", () => {
       if (this.#phase === "failed" && record) {
         void this.#resume(record, this.#abort.signal);
@@ -494,14 +507,74 @@ export class LocalServerModule implements Module {
     });
   }
 
-  async stop(): Promise<void> {
+  async stop(reason: StopReason): Promise<void> {
     this.#offRetry?.();
     this.#offReset?.();
     this.#offDaemon?.();
-    this.#offIdentityConflict?.();
+    this.#offDaemonConnection?.();
+    this.#offComputerChanged?.();
     // The installer manager keeps running a started installation; it exits
     // by itself once idle.
     this.#abort.abort();
+    if (reason === "quit") await this.#stopLocalModels();
+  }
+
+  // The Computer exits with the app, so after a quit nothing uses the local
+  // models: the bundled installer unloads the model library's models and
+  // stops the stack with the gateway the localmodels tool started, which
+  // would otherwise keep their memory and ports until the next reboot. The
+  // services and the model controller keep running, as after every quit;
+  // the next launch's resume brings the approved stack up again while the
+  // model source is still local. The stop runs on
+  // after the app is gone, its output in the installer's folder. An update
+  // or an uninstall stops the models with the services instead.
+  async #stopLocalModels(): Promise<void> {
+    if (!(await this.#readRecord()) || !existsSync(this.#installerScript()))
+      return;
+    const directory = path.join(this.#options.home, "installer");
+    let output: number;
+    try {
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+      output = openSync(
+        path.join(directory, "local-models-stop.log"),
+        "w",
+        0o600,
+      );
+    } catch (error) {
+      this.#ctx?.log.warn("local_server.local_models_stop_failed", {
+        error: String(error),
+      });
+      return;
+    }
+    try {
+      const child = spawn(
+        process.execPath,
+        [
+          this.#installerScript(),
+          "--home",
+          this.#options.home,
+          "--stop-local-models",
+        ],
+        {
+          detached: true,
+          // A detached Windows process otherwise opens its own console window.
+          windowsHide: true,
+          stdio: ["ignore", output, output],
+          env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+        },
+      );
+      child.once("error", (error) =>
+        this.#ctx?.log.warn("local_server.local_models_stop_failed", {
+          error: String(error),
+        }),
+      );
+      child.unref();
+      this.#ctx?.log.info("local_server.local_models_stopping", {
+        home: this.#options.home,
+      });
+    } finally {
+      closeSync(output);
+    }
   }
 
   status(): LocalServerStatus {
@@ -540,6 +613,7 @@ export class LocalServerModule implements Module {
       },
       ...(this.#origin ? { origin: this.#origin } : {}),
       ...(this.#signIn ? { signIn: this.#signIn } : {}),
+      ...(this.#byokCheck ? { byokCheck: this.#byokCheck } : {}),
       ...(this.#legacyBackup ? { legacyBackup: this.#legacyBackup } : {}),
     };
   }
@@ -590,7 +664,7 @@ export class LocalServerModule implements Module {
       this.#ctx?.bus.emit("local-server.changed");
     })
       .then(
-        (check) => {
+        ({ check, reasonLog }) => {
           this.#ctx?.log.info("local_server.inspected", {
             ms: Date.now() - started,
             eligible: check.state === "checked" && check.eligible,
@@ -600,13 +674,7 @@ export class LocalServerModule implements Module {
             ...(check.state === "checked" && check.recommendation
               ? { recommendation: check.recommendation }
               : {}),
-            ...(check.state === "checked" && check.reasons
-              ? {
-                  reasons: check.reasons.map(({ code, message }) =>
-                    message ? `${code}: ${message}` : code,
-                  ),
-                }
-              : {}),
+            ...(reasonLog.length ? { reasons: reasonLog } : {}),
           });
           this.#check = check;
         },
@@ -633,10 +701,86 @@ export class LocalServerModule implements Module {
     this.inspect();
   }
 
+  async checkByok(byok: SetupByokConfig): Promise<void> {
+    if (this.#byokCheck?.state === "checking") return;
+    this.#byokCheck = { state: "checking" };
+    this.#ctx?.bus.emit("local-server.changed");
+    const home = this.#location ?? this.#home;
+    try {
+      const output = await new Promise<string>((resolve, reject) => {
+        const child = spawn(
+          process.execPath,
+          [this.#installerScript(), "--home", home, "--check-byok"],
+          {
+            stdio: ["pipe", "pipe", "pipe"],
+            windowsHide: true,
+            env: {
+              ...process.env,
+              ELECTRON_RUN_AS_NODE: "1",
+              LINGER_HOME: home,
+            },
+            signal: AbortSignal.timeout(45_000),
+          },
+        );
+        let last = "";
+        createInterface({ input: child.stdout }).on("line", (line) => {
+          if (line.trim()) last = line;
+        });
+        child.once("error", reject);
+        child.once("close", () => resolve(last));
+        child.stdin.end(JSON.stringify(byok));
+      });
+      const parsed = JSON.parse(output) as {
+        ok?: unknown;
+        protocol?: unknown;
+        modelId?: unknown;
+        contextWindow?: unknown;
+        message?: unknown;
+      };
+      if (
+        parsed.ok === true &&
+        (parsed.protocol === "openai-chat" ||
+          parsed.protocol === "openai-responses" ||
+          parsed.protocol === "anthropic")
+      ) {
+        this.#byokCheck = {
+          state: "ready",
+          protocol: parsed.protocol,
+          modelId: String(parsed.modelId ?? byok.modelId),
+          contextWindow:
+            typeof parsed.contextWindow === "number"
+              ? parsed.contextWindow
+              : 131_072,
+        };
+      } else {
+        this.#byokCheck = {
+          state: "failed",
+          message:
+            typeof parsed.message === "string" && parsed.message
+              ? parsed.message
+              : "Could not verify BYOK endpoint.",
+        };
+      }
+    } catch (error) {
+      this.#byokCheck = {
+        state: "failed",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Could not verify BYOK endpoint.",
+      };
+    }
+    this.#ctx?.bus.emit("local-server.changed");
+  }
+
   async #inspect(
     signal: AbortSignal,
     onDownload: (download: Transfer) => void,
-  ): Promise<LocalModelsCheck> {
+  ): Promise<{
+    check: LocalModelsCheck;
+    // The tool's codes with its words, for the log only.
+    reasonLog: string[];
+  }> {
     // The app's own Node runs the check, so it needs no download of its own;
     // installing still uses the pinned Node runtime.
     const output = await new Promise<string>((resolve, reject) => {
@@ -694,7 +838,6 @@ export class LocalServerModule implements Module {
         state?: unknown;
         memory?: Record<string, unknown>;
         reasons?: unknown;
-        reasonMessages?: unknown;
         estimate?: {
           model?: unknown;
           downloadBytes?: unknown;
@@ -743,12 +886,26 @@ export class LocalServerModule implements Module {
               : {}),
           }
         : undefined;
-    const strings = (value: unknown) =>
-      Array.isArray(value) ? value.map(String) : [];
-    const messages = strings(report.localModels.reasonMessages);
-    const reasons = strings(report.localModels.reasons).map(
-      (code, index): SetupReason =>
-        messages[index] ? { code, message: messages[index] } : { code },
+    const listed = Array.isArray(report.localModels.reasons)
+      ? (report.localModels.reasons as Record<string, unknown>[]).filter(
+          (reason) => typeof reason?.code === "string",
+        )
+      : [];
+    // The page words each reason by its code and counts, never the tool's.
+    const reasons = listed.map((reason): SetupReason => {
+      const counted = (key: "gpuIndex" | "freeBytes" | "requiredBytes") =>
+        bytes(reason[key]) !== null ? { [key]: reason[key] as number } : {};
+      return {
+        code: reason.code as string,
+        ...counted("gpuIndex"),
+        ...counted("freeBytes"),
+        ...counted("requiredBytes"),
+      };
+    });
+    const reasonLog = listed.map(({ code, message }) =>
+      typeof message === "string" && message
+        ? `${code}: ${message}`
+        : `${code}`,
     );
     const pick = report.recommendation;
     // The local model is recommended only with a model the page can show.
@@ -758,7 +915,7 @@ export class LocalServerModule implements Module {
       (pick !== "local-models" || eligible)
         ? (pick as SetupChoice)
         : undefined;
-    return {
+    const check: LocalModelsCheck = {
       state: "checked",
       eligible,
       memoryBytes: hardware.totalMemoryBytes,
@@ -782,6 +939,7 @@ export class LocalServerModule implements Module {
       ...(reasons.length ? { reasons } : {}),
       ...(recommendation ? { recommendation } : {}),
     };
+    return { check, reasonLog };
   }
 
   // Logs how long one part of setup took, so a slow setup says which part.
@@ -861,18 +1019,34 @@ export class LocalServerModule implements Module {
         );
       // Changed keys reach the services only when the installation runs
       // again, even after one that finished.
-      let job = await runInstaller(plan, keysChanged);
+      let job = await runInstaller(plan, keysChanged || Boolean(plan.byok));
       // The runtime is installed but has no sign-in here: the server would
       // never create the Another Me, so ask for it now. Another runtime
       // reruns the installation for it.
       for (;;) {
-        const switchTo = job.signInRequired
+        const nextChoice = job.signInRequired
           ? await this.#awaitSignIn(installer, signal)
           : undefined;
-        if (!switchTo) break;
+        if (!nextChoice) break;
         this.#endSignIn();
         this.#step = "services";
-        job = await runInstaller({ ...plan, runtime: switchTo }, true);
+        job =
+          typeof nextChoice === "string"
+            ? await runInstaller(
+                {
+                  runtime: nextChoice,
+                  ...(plan.keys ? { keys: plan.keys } : {}),
+                },
+                true,
+              )
+            : await runInstaller(
+                {
+                  runtime: nextChoice.byok.runtime,
+                  byok: nextChoice.byok,
+                  ...(plan.keys ? { keys: plan.keys } : {}),
+                },
+                true,
+              );
       }
       // The desktop's Computer runs the runtime this installer set up, with
       // its profile, rather than whatever its PATH finds.
@@ -900,21 +1074,29 @@ export class LocalServerModule implements Module {
           backup: legacyBackup,
         });
         await this.#ctx?.get<EnrollmentModule>("Enrollment").unenroll();
-        this.#ctx?.config.update({ legacyBackup });
+        this.#ctx?.config.update({ legacyBackup, savedEnrollments: undefined });
         this.#legacyBackup = legacyBackup;
       }
       this.#advance("connect", 0, "Connecting this computer…");
       const login = await installer.login();
       await this.#signInAs(home, job.origin, login.email, login.password);
+      // The installation this window used in the same location is the same
+      // server, at another origin when the installer moved its web port.
+      const previous = await this.#readRecord();
       await this.#writeRecord({
         home,
         repo,
         origin: job.origin,
+        version: this.#options.version,
       });
       await this.#pruneSources(home, [repo]);
       this.#home = home;
       this.#location = undefined;
-      this.#ready(job.origin);
+      this.#ready(
+        job.origin,
+        previous?.home === home ? previous.origin : undefined,
+      );
+      this.#daemonConnection = undefined;
       await this.#ctx!.get<EnrollmentModule>("Enrollment").enroll();
       this.#advance("agents", 0, "Preparing your agents…");
       await this.#awaitAgents(job.origin, signal);
@@ -962,14 +1144,16 @@ export class LocalServerModule implements Module {
   async #awaitSignIn(
     installer: InstallerApi,
     signal: AbortSignal,
-  ): Promise<LocalRuntime | undefined> {
+  ): Promise<LocalRuntime | { readonly byok: SetupByokConfig } | undefined> {
     const runtime =
       setupRuntime((await installer.runtime()).setupChoice) ?? "pi";
     this.#signInInstaller = installer;
     this.#switchTo = undefined;
+    this.#switchByok = undefined;
     try {
       for (;;) {
         signal.throwIfAborted();
+        if (this.#switchByok) return { byok: this.#switchByok };
         if (this.#switchTo) return this.#switchTo;
         const login = await installer.runtimeLogin();
         if (login.state === "ready") {
@@ -1202,6 +1386,12 @@ export class LocalServerModule implements Module {
     this.#signInWake?.();
   }
 
+  switchToByok(byok: SetupByokConfig): void {
+    if (!this.#signInInstaller) return;
+    this.#switchByok = byok;
+    this.#signInWake?.();
+  }
+
   async openSignInPage(): Promise<void> {
     const url = this.#signIn?.url;
     if (url && new URL(url).protocol === "https:")
@@ -1253,26 +1443,30 @@ export class LocalServerModule implements Module {
   }
 
   // An install from before the rename keeps legacy names in its instance
-  // records; the bundled installer converts them once, before a record is
-  // read. Returns why this computer's instance stayed unconverted, for the
-  // person to see; other instances it left behind are only logged.
-  async #migrateLegacyHome(ctx: ModuleContext): Promise<string | undefined> {
+  // records; the bundled installer converts them once, before the services
+  // start. Returns why this computer's instance in `home` stayed
+  // unconverted, for the person to see; other instances it left behind are
+  // only logged.
+  async #migrateLegacyHome(
+    ctx: ModuleContext,
+    home: string,
+  ): Promise<string | undefined> {
     if (
-      !(await legacyMigrationPending(this.#options.home)) ||
+      !(await legacyMigrationPending(home)) ||
       !existsSync(this.#installerScript())
     )
       return undefined;
     const outcome = await new Promise<LegacyMigrationRun>((resolve) => {
       const child = spawn(
         process.execPath,
-        [this.#installerScript(), "--home", this.#options.home, "--migrate"],
+        [this.#installerScript(), "--home", home, "--migrate"],
         {
           stdio: ["ignore", "pipe", "pipe"],
           windowsHide: true,
           env: {
             ...process.env,
             ELECTRON_RUN_AS_NODE: "1",
-            LINGER_HOME: this.#options.home,
+            LINGER_HOME: home,
           },
         },
       );
@@ -1292,14 +1486,18 @@ export class LocalServerModule implements Module {
     const { failure, skipped } = legacyMigrationResult(outcome, LOCAL_INSTANCE);
     for (const entry of skipped)
       ctx.log.warn("local_server.legacy_instance_skipped", {
+        home,
         instance: entry.instance,
         reason: entry.reason,
       });
     if (failure) {
-      ctx.log.warn("local_server.home_migration_failed", { error: failure });
+      ctx.log.warn("local_server.home_migration_failed", {
+        home,
+        error: failure,
+      });
       return failure;
     }
-    ctx.log.info("local_server.home_migrated", {});
+    ctx.log.info("local_server.home_migrated", { home });
     return undefined;
   }
 
@@ -1410,13 +1608,27 @@ export class LocalServerModule implements Module {
       archive.sha256.slice(0, 16),
     );
     if (await isFile(path.join(directory, SOURCE_MARKER))) {
-      await this.#timed("teamhub_binaries", () =>
-        this.#ensureTeamhubBinaries(directory, archive.sha256, signal),
-      );
-      await this.#timed("native_runtime", () =>
-        this.#ensureNativeRuntime(directory, archive.sha256, signal),
-      );
-      return directory;
+      if (
+        await validateSourceRepository(directory).then(
+          () => true,
+          () => false,
+        )
+      ) {
+        await this.#timed("teamhub_binaries", () =>
+          this.#ensureTeamhubBinaries(directory, archive.sha256, signal),
+        );
+        await this.#timed("native_runtime", () =>
+          this.#ensureNativeRuntime(directory, archive.sha256, signal),
+        );
+        return directory;
+      }
+      // This package's own folder, damaged since it was unpacked (files
+      // removed by hand or by a cleanup): the installer would refuse it, so
+      // it is unpacked again in its place.
+      this.#ctx?.log.warn("local_server.source_damaged", {
+        source: path.basename(directory),
+      });
+      await removeRetrying(directory);
     }
     if ("file" in archive)
       await this.#extract(archive, directory, SOURCE_MARKER, signal);
@@ -1695,7 +1907,9 @@ export class LocalServerModule implements Module {
 
   // Downloads a verified archive and unpacks its single top-level folder
   // into `directory`, which appears only once complete; `marker` is a file
-  // every complete one has.
+  // every complete one has. Sources in the installation's download region
+  // come first (nodejs.org or its China mirror for Node.js), and the
+  // installer it starts reads the region resolved here.
   async #unpack(
     archive: {
       url: string;
@@ -1716,7 +1930,8 @@ export class LocalServerModule implements Module {
     );
     const unpacked = `${directory}.partial`;
     try {
-      await downloadVerified(
+      await downloadInRegion(
+        this.#location ?? this.#home,
         {
           url: archive.url,
           ...(archive.mirrors && { mirrors: archive.mirrors }),
@@ -1950,12 +2165,16 @@ export class LocalServerModule implements Module {
       target,
       this.#options.fetch ?? fetch,
       this.#options.pollMs ?? 1000,
+      this.#ctx?.log,
     );
   }
 
-  #ready(origin: string): void {
+  // `previous` is the origin this installation answered at before.
+  #ready(origin: string, previous?: string): void {
     this.#origin = origin;
-    this.#ctx?.get<WindowManagerModule>("WindowManager").setServer(origin);
+    this.#ctx
+      ?.get<WindowManagerModule>("WindowManager")
+      ?.setServer(origin, previous);
   }
 
   // The server sets up the Another Me once this computer offers a signed-in
@@ -1993,11 +2212,23 @@ export class LocalServerModule implements Module {
         });
         throw new Error(computerServiceFailed(this.#daemonFailure));
       }
-      // The Gateway knows this identity as another Computer's, so waiting
-      // for this one to connect cannot help.
-      if (this.#identityConflict) {
-        this.#ctx?.log.warn("local_server.identity_conflict", {});
-        throw new Error(IDENTITY_CONFLICT_MESSAGE);
+      if (this.#daemonConnection === "identity_conflict") {
+        this.#ctx?.log.warn("local_server.computer_identity_conflict");
+        throw new Error(
+          "This computer's local identity is already connected to another Computer registration. Choose Reconnect This Computer in the Linger menu, or remove the duplicate Computer and try again.",
+        );
+      }
+      if (this.#daemonConnection === "auth_failed") {
+        this.#ctx?.log.warn("local_server.computer_auth_failed");
+        throw new Error(
+          "This computer's sign-in expired before it could connect. Choose Reconnect This Computer in the Linger menu, then try again.",
+        );
+      }
+      if (this.#daemonConnection === "upgrade_required") {
+        this.#ctx?.log.warn("local_server.computer_upgrade_required");
+        throw new Error(
+          "This computer's Linger app is too old for the server. Update Linger, then try again.",
+        );
       }
       // The Another Me has an Agent once the server created it; there is no
       // status to wait for.
@@ -2009,10 +2240,32 @@ export class LocalServerModule implements Module {
         const rooms = (await get(`${base}/rooms`)) as
           | { items?: { name?: string }[] }
           | undefined;
-        if (rooms?.items?.some((room) => room.name === STARTER_ROOM)) return;
-        // An owner who removed the starter Room is not kept waiting.
-        if (Date.now() >= deadline) return;
-        this.#advance("agents", 0.6, "Adding your starter agents…");
+        const starterReady = rooms?.items?.some(
+          (room) => room.name === STARTER_ROOM,
+        );
+        if (starterReady || Date.now() >= deadline) {
+          const computerId = this.#ctx?.config.get().computerId;
+          if (!computerId) return;
+          const computers = (await get(`${base}/local-computers`).catch(
+            () => undefined,
+          )) as { items?: ReportedComputer[] } | undefined;
+          if (!computers) return;
+          const computer = computers.items?.find(
+            (item) => item.computer_id === computerId,
+          );
+          if (computer?.status === "online" && !computer.upgrade_required)
+            return;
+          if (Date.now() >= deadline) {
+            this.#ctx?.log.warn("local_server.computer_offline_after_agents", {
+              computer_id: computerId,
+              computer_status: computer?.status,
+            });
+            throw new Error(computerNotOnline(computer));
+          }
+          this.#advance("agents", 0.8, "Connecting this computer…");
+        } else {
+          this.#advance("agents", 0.6, "Adding your starter agents…");
+        }
       } else {
         if (Date.now() >= deadline) {
           // Say what the server is missing, as this computer last reported it.
@@ -2042,29 +2295,68 @@ export class LocalServerModule implements Module {
   }
 
   // Runs the installer headless against the saved instance; it starts only
-  // the services that are not running and asks for nothing. A newer source
-  // package in an updated app waits for the person (updateSource) while the
-  // installed one is still there.
+  // the services that are not running and asks for nothing. When this app
+  // brings a newer source package (it was installed over an older one), the
+  // services move to it first: the window and the Computer already are this
+  // version, and the older services would serve the older interface.
   async #resume(record: LocalRecord, signal: AbortSignal): Promise<void> {
     this.#origin = record.origin;
     const windows = this.#ctx?.get<WindowManagerModule>("WindowManager");
     try {
-      this.#set("preparing", "Starting Linger on this computer…");
-      // The window would show the server as unreachable until it is back.
-      if (!(await this.#reachable(record.origin))) windows?.showStarting();
-      const newer = this.#newerSource(record);
-      // A source folder removed since (by hand, or a cleanup that an uninstall
-      // left half done) is unpacked again from this app's package.
+      const update = this.#sourceUpdate(record);
+      if (update) {
+        // The services restart even if they still answer.
+        this.#set("preparing", "Updating Linger on this computer…");
+        windows?.showUpdating();
+      } else {
+        this.#set("preparing", "Starting Linger on this computer…");
+        // The window would show the server as unreachable until it is back.
+        if (!(await this.#reachable(record.origin))) windows?.showStarting();
+      }
+      // A source folder the installer no longer runs is unpacked again from
+      // this app's package: one removed since (by hand, or a cleanup that an
+      // uninstall left half done), or one the earlier Simplex app unpacked.
       const repo =
         this.#options.sourceArchive &&
         !this.#options.checkout &&
-        !existsSync(record.repo)
+        (update ||
+          !(await validateSourceRepository(record.repo).then(
+            () => true,
+            () => false,
+          )))
           ? await this.#ensureSource(record.home, signal)
           : record.repo;
-      await this.#runResume(record, repo, signal);
-      if (repo !== record.repo) await this.#moved(record, repo);
-      this.#outdated = newer && repo === record.repo ? record : undefined;
-      this.#ready(record.origin);
+      const serving = await this.#runResume(record, repo, signal);
+      // The installer moves the web port off one another program took. The
+      // record and the window follow the origin together (a launch resumes
+      // only while they agree), and so does this computer's enrollment: it
+      // is the same server.
+      const origin = serving.origin ?? record.origin;
+      if (repo !== record.repo) {
+        // The record moves, and the older folder goes, only once the
+        // services run from the new one and answer; until then the older
+        // services keep running from their folder, and Retry moves them.
+        if (
+          serving.source !== (await realpath(repo).catch(() => repo)) ||
+          !(await this.#reachable(origin))
+        )
+          throw new Error(
+            "Linger could not restart on this version. The earlier version is still installed; try again.",
+          );
+        await this.#moved({ ...record, origin }, repo);
+      } else if (origin !== record.origin)
+        await this.#writeRecord({ ...record, origin });
+      if (origin !== record.origin)
+        this.#ctx?.log.info("local_server.origin_moved", {
+          from: record.origin,
+          to: origin,
+        });
+      if (update)
+        this.#ctx?.log.info("local_server.source_updated", {
+          source: path.basename(repo),
+          from: record.version,
+        });
+      this.#ready(origin, record.origin);
       this.#set("ready", "Linger is running on this computer.");
     } catch (error) {
       if (signal.aborted) return;
@@ -2077,20 +2369,17 @@ export class LocalServerModule implements Module {
 
   // The person gave up on the installation the window used, whose services
   // do not start (it may have been removed or left broken by an uninstall):
-  // forget it and show setup. The enrollment is released for renewal, so the
-  // new installation enrolls this same Computer. Its Install sets this
-  // computer up again in the same location, keeping what is left of that
-  // instance.
+  // forget it and this computer's enrollment with it, and show setup. Its
+  // Install sets this computer up again in the same location, keeping what
+  // is left of that instance.
   async #reset(): Promise<void> {
     const ctx = this.#ctx!;
     try {
       await rm(this.#recordFile(), { force: true });
       this.#origin = undefined;
-      this.#outdated = undefined;
       this.#set("idle", "");
       ctx.log.info("local_server.reset");
-      await ctx.get<EnrollmentModule>("Enrollment").resetLocalServer();
-      this.#identityConflict = false;
+      await ctx.get<EnrollmentModule>("Enrollment").unenroll();
       ctx.config.update({ serverUrl: undefined });
       ctx.get<WindowManagerModule>("WindowManager").loadServer();
     } catch (error) {
@@ -2104,77 +2393,50 @@ export class LocalServerModule implements Module {
     return answers(this.#options.fetch ?? fetch, origin);
   }
 
-  // Whether this app brings a source package the running services do not
-  // use yet.
-  sourceUpdateAvailable(): boolean {
-    return this.#outdated !== undefined;
-  }
-
-  // Moves the services to this app's source package. The window shows that
-  // Linger is updating while they restart, then the server again.
-  updateSource(): Promise<void> {
-    const record = this.#outdated;
-    if (!record) return Promise.resolve();
-    this.#updating ??= this.#updateSource(record).finally(() => {
-      this.#updating = undefined;
-    });
-    return this.#updating;
-  }
-
-  async #updateSource(record: LocalRecord): Promise<void> {
-    const signal = this.#abort.signal;
-    const windows = this.#ctx?.get<WindowManagerModule>("WindowManager");
-    windows?.showUpdating();
-    try {
-      this.#set("preparing", "Updating Linger on this computer…");
-      const repo = await this.#ensureSource(record.home, signal);
-      await this.#runResume(record, repo, signal);
-      await this.#moved(record, repo);
-      this.#outdated = undefined;
-      this.#set("ready", "Linger is running on this computer.");
-      this.#ctx?.log.info("local_server.source_updated", {
-        source: path.basename(repo),
-      });
-    } catch (error) {
-      if (signal.aborted) return;
-      this.#ctx?.log.warn("local_server.update_failed", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      this.#set(
-        "failed",
-        error instanceof Error ? error.message : String(error),
-      );
-    } finally {
-      if (!signal.aborted) windows?.loadServer();
-    }
-  }
-
-  #newerSource(record: LocalRecord): boolean {
+  // Whether the services run another source package than this app brings,
+  // one that an older app unpacked. An older app installed over a newer one
+  // leaves its services as they are: the newer services may have changed
+  // the data in ways the older ones do not know.
+  #sourceUpdate(record: LocalRecord): boolean {
     const archive = this.#options.sourceArchive;
-    return (
-      !this.#options.checkout &&
-      !!archive &&
-      path.basename(record.repo) !== archive.sha256.slice(0, 16)
-    );
+    if (
+      this.#options.checkout ||
+      !archive ||
+      path.basename(record.repo) === archive.sha256.slice(0, 16)
+    )
+      return false;
+    if (
+      record.version &&
+      compareVersions(record.version, this.#options.version) > 0
+    ) {
+      this.#ctx?.log.warn("local_server.source_newer_than_app", {
+        installed: record.version,
+        app: this.#options.version,
+      });
+      return false;
+    }
+    return true;
   }
 
   async #moved(record: LocalRecord, repo: string): Promise<void> {
-    await this.#writeRecord({ ...record, repo });
+    await this.#writeRecord({
+      ...record,
+      repo,
+      version: this.#options.version,
+    });
     await this.#pruneSources(record.home, [repo]);
   }
 
+  // Resolves with the source folder the installer reports the services
+  // serving from, and the origin they serve at.
   async #runResume(
     record: LocalRecord,
     repo: string,
     signal: AbortSignal,
-  ): Promise<void> {
+  ): Promise<{ source?: string; origin?: string }> {
     await this.#adoptSourceKeys(record.home);
     const node = await this.#ensureNode(signal);
-    const outcome = await new Promise<{
-      code: number;
-      message: string;
-      runtime?: InstanceRuntime;
-    }>((resolve, reject) => {
+    const outcome = await new Promise<ResumeOutcome>((resolve, reject) => {
       const child = spawn(
         node,
         [
@@ -2205,21 +2467,43 @@ export class LocalServerModule implements Module {
       child.once("close", (code) => {
         try {
           const last = output.trim().split("\n").at(-1) ?? "";
-          resolve(
-            JSON.parse(last) as {
-              code: number;
-              message: string;
-              runtime?: InstanceRuntime;
-            },
-          );
+          resolve(JSON.parse(last) as ResumeOutcome);
         } catch {
           reject(new Error(`The installer exited with code ${code}`));
         }
       });
     });
-    if (outcome.code !== 0)
-      throw new Error(outcome.message || "The installation stopped");
+    if (outcome.code !== 0) {
+      const { code, reasons } = outcome.details ?? {};
+      const action =
+        typeof code === "string" && Object.hasOwn(RESUME_ACTIONS, code)
+          ? RESUME_ACTIONS[code]
+          : undefined;
+      const reason = Array.isArray(reasons)
+        ? reasons.find(
+            (item): item is string =>
+              typeof item === "string" &&
+              Object.hasOwn(LOCAL_MODEL_NOT_READY, item),
+          )
+        : undefined;
+      throw new Error(
+        [
+          reason && LOCAL_MODEL_NOT_READY[reason],
+          outcome.message || "The installation stopped",
+          action,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
+    }
     this.#adoptRuntime(outcome.runtime);
+    const { source, origin } = outcome.details ?? {};
+    return {
+      ...(typeof source === "string" ? { source } : {}),
+      ...(typeof origin === "string" && parseServerUrl(origin) === origin
+        ? { origin }
+        : {}),
+    };
   }
 
   // Every resume reports the runtime and localmodels tool paths, so an
@@ -2271,6 +2555,9 @@ export class LocalServerModule implements Module {
                 : this.#options.home,
             repo: value.repo,
             origin: value.origin,
+            ...(typeof value.version === "string"
+              ? { version: value.version }
+              : {}),
           }
         : undefined;
     } catch {
@@ -2324,11 +2611,27 @@ const atLeast = (version: string, minimum: string): boolean => {
   return major !== wantMajor ? major > wantMajor : minor >= wantMinor;
 };
 
+// The single JSON line `installer.js --resume` prints.
+interface ResumeOutcome {
+  code: number;
+  message: string;
+  details?: {
+    source?: unknown;
+    origin?: unknown;
+    code?: unknown;
+    reasons?: unknown;
+  };
+  runtime?: InstanceRuntime;
+}
+
 interface LocalRecord {
   // The installer home.
   readonly home: string;
   readonly repo: string;
   readonly origin: string;
+  // The version of the app that unpacked `repo`; a record without one was
+  // written by an app older than any that reads it.
+  readonly version?: string;
 }
 
 // This computer as the server's Local Computers list reports it.
@@ -2366,6 +2669,18 @@ const RUNTIME_STATES: Record<string, string> = {
 // be read.
 export const computerServiceFailed = (reason: string): string =>
   `The Computer service on this computer cannot start: ${reason.replace(/[.\s]+$/, "")}. computer-daemon.log in the logs has details.`;
+
+export function computerNotOnline(
+  computer: ReportedComputer | undefined,
+): string {
+  if (!computer)
+    return "This computer did not come online on Linger: the server does not list this computer. Choose Reconnect This Computer in the Linger tray menu, then try again.";
+  if (computer.status !== "online")
+    return "This computer did not come online on Linger: its Computer service is not connected. computer-daemon.log in the logs says why.";
+  if (computer.upgrade_required)
+    return "This computer's Computer service is too old for the server. Update Linger, then try again.";
+  return "This computer did not come online on Linger.";
+}
 
 export const anotherMeMissing = (
   computer: ReportedComputer | undefined | null,
@@ -2492,18 +2807,84 @@ const LOCAL_MODEL_FAILURES = new Set([
   "GPU_SHARING_REVOCATION_FAILED",
 ]);
 
+// What works from the start-failure page when the local model stops a
+// restart: a restart applies the approved plan again, but only setup can
+// approve a new one or switch the runtime.
+const RESUME_ACTIONS: Record<string, string> = {
+  LOCAL_MODELS_RECOVERY_REQUIRED:
+    "Try Again to apply the approved local model plan again, or Set Up Again to review a new plan or choose another AI runtime.",
+  LOCAL_MODELS_APPROVAL_REQUIRED:
+    "Set Up Again to review the local model plan or choose another AI runtime.",
+};
+
+// Why the local model stack was not ready, by the reason code localmodels'
+// setup binding gives.
+const LOCAL_MODEL_NOT_READY: Record<string, string> = {
+  "pi-extensions-unavailable":
+    "The local model's Pi can't load extensions, which every Linger run needs.",
+  "deployment-unavailable": "The local model service isn't running.",
+  "acceptance-unavailable": "The local model stack hasn't passed its checks.",
+  "gateway-ownership": "The local model gateway isn't running.",
+  "gateway-unavailable": "The local model gateway isn't running.",
+  "pi-model-unavailable": "Pi can't reach the local model.",
+  "pi-config-changed": "Pi's settings changed while they were checked.",
+  "plan-invalid": "The approved local model plan can't be read.",
+  "binding-unavailable": "The local model stack couldn't be checked.",
+};
+
+export interface Reconnect {
+  readonly windowMs: number;
+  readonly maxBackoffMs: number;
+}
+
+const RECONNECT: Reconnect = { windowMs: 60_000, maxBackoffMs: 5_000 };
+
+const TRANSIENT_CODES = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "EPIPE",
+  "ETIMEDOUT",
+  "UND_ERR_SOCKET",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_CLOSED",
+]);
+
+// The code of a transport failure worth retrying, found on the error or its
+// causes; undefined for anything else, HTTP and JSON errors included.
+const transientCode = (error: unknown): string | undefined => {
+  for (let at = error, depth = 0; at && depth < 5; depth++) {
+    if (!(at instanceof Error)) return undefined;
+    // The per-request timeout; the caller's own abort is ruled out before.
+    if (at.name === "TimeoutError" || at.name === "AbortError") return at.name;
+    const code = (at as { code?: unknown }).code;
+    if (typeof code === "string" && TRANSIENT_CODES.has(code)) return code;
+    at = at.cause;
+  }
+  return undefined;
+};
+
 // The desktop is the installer's only client here: it starts the job and
 // follows it, and nothing of the installer UI is shown.
 export class InstallerApi {
   readonly #origin: string;
   readonly #fetch: typeof fetch;
   readonly #pollMs: number;
+  readonly #log: Logger | undefined;
+  readonly #reconnect: Reconnect;
   #cookie = "";
 
-  private constructor(origin: string, fetcher: typeof fetch, pollMs: number) {
+  private constructor(
+    origin: string,
+    fetcher: typeof fetch,
+    pollMs: number,
+    log: Logger | undefined,
+    reconnect: Reconnect,
+  ) {
     this.#origin = origin;
     this.#fetch = fetcher;
     this.#pollMs = pollMs;
+    this.#log = log;
+    this.#reconnect = reconnect;
   }
 
   // Exchanges the one-time token in the launcher URL for a session.
@@ -2511,11 +2892,19 @@ export class InstallerApi {
     url: string,
     fetcher: typeof fetch,
     pollMs: number,
+    log?: Logger,
+    reconnect: Reconnect = RECONNECT,
   ): Promise<InstallerApi> {
     const target = new URL(url);
     const token = new URLSearchParams(target.hash.slice(1)).get("token");
     if (!token) throw new Error("The installer did not provide a sign-in link");
-    const api = new InstallerApi(target.origin, fetcher, pollMs);
+    const api = new InstallerApi(
+      target.origin,
+      fetcher,
+      pollMs,
+      log,
+      reconnect,
+    );
     const response = await api.#call("/api/session", { token });
     if (!response.ok)
       throw new Error(`The installer refused the session (${response.status})`);
@@ -2569,8 +2958,9 @@ export class InstallerApi {
           `/api/jobs/${encodeURIComponent(latest.id)}/cancel`,
           {},
         );
-      const setupChoice =
-        plan.runtime === "local"
+      const setupChoice = plan.byok
+        ? plan.byok.runtime
+        : plan.runtime === "local"
           ? "local-models"
           : plan.runtime === "recommended"
             ? await this.#json<{ recommendation?: string }>("/api/setup").then(
@@ -2583,6 +2973,7 @@ export class InstallerApi {
       job = await this.#json<Job>("/api/jobs", {
         instance: LOCAL_INSTANCE,
         ...(setupChoice ? { setupChoice } : {}),
+        ...(plan.byok ? { byok: plan.byok } : {}),
       });
     }
     // The person chose the local model after seeing what it needs, so its
@@ -2591,6 +2982,8 @@ export class InstallerApi {
     // first; that is asked for once too.
     let approved: string | undefined;
     let replanned = false;
+    // Where the bar last stood, kept while the installer cannot be reached.
+    let shown: [LocalServerStep, number] | undefined;
     for (;;) {
       const at = job.stage ? STAGES[job.stage] : undefined;
       if (at) {
@@ -2614,9 +3007,10 @@ export class InstallerApi {
           counter.total
             ? counter
             : undefined;
+        shown = [at[0], at[1] + (at[2] - at[1]) * part];
         onStep(
-          at[0],
-          at[1] + (at[2] - at[1]) * part,
+          shown[0],
+          shown[1],
           job.message ?? "",
           bytes && {
             completed: bytes.completed,
@@ -2671,7 +3065,44 @@ export class InstallerApi {
               : job.message || "The installation stopped",
         );
       await delay(this.#pollMs, undefined, { signal });
-      job = await this.#json<Job>(`/api/jobs/${encodeURIComponent(job.id)}`);
+      job = await this.#poll(job.id, signal, () => {
+        if (shown) onStep(shown[0], shown[1], "Reconnecting to the installer…");
+      });
+    }
+  }
+
+  // Reads the job again. The read is idempotent, so a dropped connection is
+  // retried for a while: the job keeps running in the installer either way.
+  async #poll(
+    id: string,
+    signal: AbortSignal,
+    onReconnect: () => void,
+  ): Promise<Job> {
+    let since: number | undefined;
+    let wait = this.#pollMs;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.#json<Job>(`/api/jobs/${encodeURIComponent(id)}`);
+      } catch (error) {
+        if (signal.aborted) throw error;
+        const code = transientCode(error);
+        if (!code) throw error;
+        this.#log?.warn("local_server.installer_unreachable", {
+          stage: "poll_job",
+          job_id: id,
+          code,
+          attempt,
+        });
+        since ??= Date.now();
+        if (Date.now() - since >= this.#reconnect.windowMs)
+          throw new Error(
+            "Couldn't read the installation progress. Try again to reconnect to the running installation.",
+            { cause: error },
+          );
+        onReconnect();
+        await delay(wait, undefined, { signal });
+        wait = Math.min(wait * 2, this.#reconnect.maxBackoffMs);
+      }
     }
   }
 
@@ -2903,65 +3334,30 @@ const unverifiedReason = (error: unknown): string =>
 
 export const LOCAL_IDENTITY_TIMEOUT_MS = 5_000;
 
-// What TeamHub answers a challenge with (internal/localidentity).
-export const localIdentityProof = (
-  key: Uint8Array,
-  nonce: string,
-  origin: string,
-): Buffer =>
-  createHmac("sha256", key)
-    .update(`linger-local-identity\n${nonce}\n${origin}`)
-    .digest();
-
-// Asks TeamHub to prove it holds this installation's identity key, with a
-// fresh nonce each time, so an earlier answer proves nothing. The challenge
-// goes to TeamHub's own port: a program on the web port could pass it on to
-// a TeamHub still running, but whatever answers on TeamHub's port and holds
-// the key is TeamHub.
+// Asks TeamHub to prove it holds this installation's identity key. The
+// challenge goes to TeamHub's own port: a program on the web port could
+// pass it on to a TeamHub still running, but whatever answers on TeamHub's
+// port and holds the key is TeamHub.
 export const proveLocalServer = async (
   server: LocalServerIdentity,
   fetcher: typeof fetch = fetch,
   timeoutMs = LOCAL_IDENTITY_TIMEOUT_MS,
 ): Promise<void> => {
-  const nonce = randomBytes(32).toString("base64url");
-  let proof: unknown;
   try {
-    const response = await fetcher(
-      new URL("/v0/local/identity", server.teamhub),
-      {
-        method: "POST",
-        headers: {
-          accept: "application/json",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ nonce }),
-        redirect: "error",
-        signal: AbortSignal.timeout(timeoutMs),
-      },
-    );
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw new LocalServerUnverifiedError(`status ${response.status}`);
-    }
-    proof = ((await response.json()) as { proof?: unknown } | null)?.proof;
+    await proveLocalIdentity({
+      url: new URL("/v0/local/identity", server.teamhub),
+      origin: server.origin,
+      key: server.key,
+      signal: AbortSignal.timeout(timeoutMs),
+      fetch: fetcher,
+    });
   } catch (error) {
-    if (error instanceof LocalServerUnverifiedError) throw error;
-    throw new LocalServerUnverifiedError(
-      error instanceof SyntaxError ? "invalid answer" : "no answer",
-      { cause: error },
-    );
+    if (error instanceof LocalIdentityError)
+      throw new LocalServerUnverifiedError(error.reason, {
+        cause: error.cause,
+      });
+    throw error;
   }
-  const expected = localIdentityProof(server.key, nonce, server.origin);
-  const actual =
-    typeof proof === "string" && /^[A-Za-z0-9_-]{43}$/.test(proof)
-      ? Buffer.from(proof, "base64url")
-      : undefined;
-  if (
-    !actual ||
-    actual.length !== expected.length ||
-    !timingSafeEqual(actual, expected)
-  )
-    throw new LocalServerUnverifiedError("wrong proof");
 };
 
 // Signs in to the local server with its owner and hands the session cookies

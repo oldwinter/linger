@@ -1,0 +1,305 @@
+package integration_test
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentruntimestate"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/config"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/roomagent"
+	"github.com/simplexai-labs/linger/contracts-go/nodeservicesinternal"
+)
+
+const modelSourceTestAPIKey = "sk-model-source-never-stored"
+
+type modelSourceComputers struct {
+	recordingLocalComputers
+	mu      sync.Mutex
+	applied []nodeservicesinternal.ModelSourceApplyCommand
+	tested  []nodeservicesinternal.ByokTestRequest
+	status  nodeservicesinternal.ModelSourceStatus
+	// duringApply runs while the Computer switches, before TeamHub moves
+	// the Agents.
+	duringApply func()
+}
+
+func (c *modelSourceComputers) LocalComputerModelSource(_ context.Context, _ roomagent.ModelSourceTarget) (nodeservicesinternal.ModelSourceStatus, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.status, nil
+}
+
+func (c *modelSourceComputers) ApplyLocalComputerModelSource(_ context.Context, _ roomagent.ModelSourceTarget, command nodeservicesinternal.ModelSourceApplyCommand) (nodeservicesinternal.ModelSourceStatus, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.applied = append(c.applied, command)
+	if c.duringApply != nil {
+		c.duringApply()
+	}
+	return c.status, nil
+}
+
+func (c *modelSourceComputers) TestLocalComputerByok(_ context.Context, _ roomagent.ModelSourceTarget, request nodeservicesinternal.ByokTestRequest) (nodeservicesinternal.ByokTestResult, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.tested = append(c.tested, request)
+	input := request.Byok
+	if input.ApiKey == nil || *input.ApiKey != modelSourceTestAPIKey {
+		return nodeservicesinternal.ByokTestResult{}, &roomagent.ModelSourceError{Code: "BYOK_AUTH_FAILED"}
+	}
+	return nodeservicesinternal.ByokTestResult{Ok: true, Protocol: "anthropic", BaseUrl: input.BaseUrl, ModelId: input.ModelId, ContextWindow: 200000}, nil
+}
+
+func (c *modelSourceComputers) ListLocalComputerByokModels(_ context.Context, _ roomagent.ModelSourceTarget, endpoint nodeservicesinternal.ByokEndpointInput) (nodeservicesinternal.ByokModelList, error) {
+	if endpoint.ApiKey == nil || *endpoint.ApiKey != modelSourceTestAPIKey {
+		return nodeservicesinternal.ByokModelList{}, &roomagent.ModelSourceError{Code: "BYOK_AUTH_FAILED"}
+	}
+	window := 131072
+	return nodeservicesinternal.ByokModelList{BaseUrl: endpoint.BaseUrl, Models: []nodeservicesinternal.ByokModel{{Id: "vendor/model", ContextWindow: &window}}}, nil
+}
+
+func (c *modelSourceComputers) appliedSnapshot() []nodeservicesinternal.ModelSourceApplyCommand {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]nodeservicesinternal.ModelSourceApplyCommand(nil), c.applied...)
+}
+
+type runStoppingAgentManagement struct {
+	*recordingAgentManagement
+	mu      sync.Mutex
+	stopped []roomagent.RunCancelCommand
+}
+
+func (m *runStoppingAgentManagement) CancelRun(_ context.Context, command roomagent.RunCancelCommand) (roomagent.RunCancelResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.stopped = append(m.stopped, command)
+	return roomagent.RunCancelResult{RunID: command.RunID, Status: "already_terminal"}, nil
+}
+
+func newModelSourceEnv(t *testing.T, management roomagent.AgentManagement, computers *modelSourceComputers) (*testEnv, *http.Client) {
+	t.Helper()
+	databaseURL := newIntegrationDatabase(t)
+	pool, err := pgxpool.New(context.Background(), databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	seedReadyFixtureComputers(t, pool)
+	artifactRoot := integrationArtifactRoot(t)
+	application, err := newIntegrationApp(context.Background(), config.ForTest(func(c *config.Config) {
+		c.DatabaseURL = databaseURL
+		c.SessionTTL = time.Hour
+		c.CookieName = "teamhub_session"
+		c.TeamHubInternalToken = teamHubInternalToken
+		c.NodeServicesInternalToken = nodeServicesInternalToken
+		c.AgentRunTokenSecret = agentRunTokenSecret
+		c.RoomDocument.RuntimeURL = "http://document-runtime.test"
+		c.ArtifactStorageRoot = artifactRoot
+	}), withAgentManagement(management), withLocalComputers(computers))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(application.Close)
+	server := httptest.NewServer(application.Handler())
+	registerIntegrationServerCleanup(t, server)
+	env := &testEnv{t: t, databaseURL: databaseURL, pool: pool, server: server, artifactRoot: artifactRoot}
+	return env, env.login("alice", alicePassword)
+}
+
+// TestLocalComputerModelSourceSwitchMovesAgentsAndEndsChosenWork covers what
+// needs PostgreSQL: the owner-only view, the refusal while an Agent works, and
+// the forced switch that ends the work and moves every Agent on the Computer
+// in one transaction, without TeamHub keeping the API key.
+func TestLocalComputerModelSourceSwitchMovesAgentsAndEndsChosenWork(t *testing.T) {
+	allowParallelIntegrationTest(t)
+	management := &runStoppingAgentManagement{recordingAgentManagement: &recordingAgentManagement{}}
+	effort := nodeservicesinternal.AgentReasoningEffort("high")
+	computers := &modelSourceComputers{status: nodeservicesinternal.ModelSourceStatus{
+		Mode: "byok", Runtime: "claude", RuntimeModel: "localmodels-byok", ReasoningEffort: &effort,
+		Byok: nodeservicesinternal.ByokSummary{Configured: true, KeySaved: true},
+	}}
+	env, alice := newModelSourceEnv(t, management, computers)
+	bob := seedPeerHuman(t, env)
+	base := "/v0/tenants/" + acmeTenant + "/local-computers/" + fixtureComputerID + "/model-source"
+
+	agents := map[string]tenantAgentUpdateView{}
+	for _, name := range []string{"Worker", "Idler"} {
+		status, _, body := env.request(alice, http.MethodPost, "/v0/tenants/"+acmeTenant+"/agents", map[string]any{"name": name, "instructions": "Keep work", "runtime": fixtureRuntime("codex-default")}, "model-source-create-"+name)
+		if status != http.StatusCreated {
+			t.Fatalf("create %s: %d %s", name, status, body)
+		}
+		var created tenantAgentUpdateView
+		decode(t, body, &created)
+		agents[name] = created
+	}
+
+	status, _, body := env.request(alice, http.MethodGet, base, nil, "")
+	if status != http.StatusOK || !containsJSONText(body, `"viewer_is_owner":true`) || !containsJSONText(body, `"mode":"byok"`) {
+		t.Fatalf("owner view: %d %s", status, body)
+	}
+	status, _, body = env.request(bob, http.MethodGet, base, nil, "")
+	if status != http.StatusOK || !containsJSONText(body, `"viewer_is_owner":false`) || containsJSONText(body, `"status"`) {
+		t.Fatalf("member view: %d %s", status, body)
+	}
+	byokSwitch := map[string]any{"mode": "byok", "runtime": "claude", "byok": map[string]any{
+		"base_url": "https://api.example.com", "api_key": modelSourceTestAPIKey, "model_id": "vendor/model",
+	}}
+	status, _, body = env.request(bob, http.MethodPost, base, byokSwitch, "")
+	if status != http.StatusForbidden || !containsJSONText(body, "MODEL_SOURCE_FORBIDDEN") {
+		t.Fatalf("member switch: %d %s", status, body)
+	}
+	status, _, body = env.request(alice, http.MethodPost, base, map[string]any{"mode": "subscription", "runtime": "pi"}, "")
+	if status != http.StatusBadRequest {
+		t.Fatalf("subscription on pi: %d %s", status, body)
+	}
+
+	status, _, body = env.request(alice, http.MethodPost, base+"/test", map[string]any{"runtime": "claude", "byok": byokSwitch["byok"]}, "")
+	if status != http.StatusOK || !containsJSONText(body, `"context_window":200000`) || containsJSONText(body, modelSourceTestAPIKey) {
+		t.Fatalf("BYOK test: %d %s", status, body)
+	}
+	status, _, body = env.request(alice, http.MethodPost, base+"/test", byokSwitch["byok"], "")
+	if status != http.StatusBadRequest {
+		t.Fatalf("BYOK test without a Runtime: %d %s", status, body)
+	}
+	status, _, body = env.request(alice, http.MethodPost, base+"/test", map[string]any{"runtime": "claude", "byok": map[string]any{"base_url": "https://api.example.com", "api_key": "wrong", "model_id": "vendor/model"}}, "")
+	if status != http.StatusConflict || !containsJSONText(body, "BYOK_AUTH_FAILED") {
+		t.Fatalf("BYOK test with a wrong key: %d %s", status, body)
+	}
+	status, _, body = env.request(alice, http.MethodPost, base+"/models", map[string]any{"base_url": "https://api.example.com/v1", "api_key": modelSourceTestAPIKey}, "")
+	if status != http.StatusOK || !containsJSONText(body, `"context_window":131072`) || containsJSONText(body, modelSourceTestAPIKey) {
+		t.Fatalf("BYOK models: %d %s", status, body)
+	}
+	status, _, body = env.request(bob, http.MethodPost, base+"/models", map[string]any{"base_url": "https://api.example.com/v1", "api_key": modelSourceTestAPIKey}, "")
+	if status != http.StatusForbidden {
+		t.Fatalf("member BYOK models: %d %s", status, body)
+	}
+
+	const roomID = "room_model_source_worker"
+	worker := agents["Worker"]
+	insertRuntimeRoomMembershipForAgent(t, env.pool, roomID, worker.Actor.ID)
+	ensured, err := agentruntimestate.New(env.pool).EnsureContext(t.Context(), agentruntimestate.EnsureContextInput{
+		Ref: agentruntimestate.ContextRef{Kind: "meta", AgentID: worker.AgentManagementID, RoomID: roomID}, TargetResidency: "active",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.pool.Exec(t.Context(), `INSERT INTO agent_local_runs(run_id,context_key,status,started_at) VALUES('model-source-run',$1,'running',clock_timestamp())`, ensured.Context.ContextKey); err != nil {
+		t.Fatal(err)
+	}
+
+	// Running work refuses the switch before the Computer changes.
+	status, _, body = env.request(alice, http.MethodPost, base, byokSwitch, "")
+	if status != http.StatusConflict || !containsJSONText(body, "AGENT_HAS_ACTIVE_RUNS") || !containsJSONText(body, `"reason":"Worker"`) ||
+		containsJSONText(body, "Idler") || len(computers.appliedSnapshot()) != 0 {
+		t.Fatalf("busy switch: %d %s applied=%d", status, body, len(computers.appliedSnapshot()))
+	}
+
+	forced := map[string]any{"mode": "byok", "runtime": "claude", "byok": byokSwitch["byok"], "force_terminate": true}
+	status, _, body = env.request(alice, http.MethodPost, base, forced, "")
+	if status != http.StatusOK || !containsJSONText(body, `"terminated_run_count":1`) || containsJSONText(body, modelSourceTestAPIKey) {
+		t.Fatalf("forced switch: %d %s", status, body)
+	}
+	applied := computers.appliedSnapshot()
+	if len(applied) != 1 || applied[0].Byok == nil || applied[0].Byok.ApiKey == nil || *applied[0].Byok.ApiKey != modelSourceTestAPIKey {
+		t.Fatalf("command sent to the Computer: %+v", applied)
+	}
+	var runStatus, runReason string
+	if err := env.pool.QueryRow(t.Context(), `SELECT status,terminal->>'reason' FROM agent_local_runs WHERE run_id='model-source-run'`).Scan(&runStatus, &runReason); err != nil {
+		t.Fatal(err)
+	}
+	if runStatus != "canceled" || runReason != "model_source_switched" {
+		t.Fatalf("ended run: %s/%s", runStatus, runReason)
+	}
+	for name, agent := range agents {
+		if countRows(t, env, `SELECT count(*) FROM agent_registrations WHERE actor_id=$1 AND computer_id=$2 AND local_runtime_type='claude'
+			AND runtime_model='localmodels-byok' AND runtime_reasoning_effort='high' AND configuration_revision=2`, agent.Actor.ID, fixtureComputerID) != 1 {
+			t.Fatalf("%s was not moved to the Computer's new Runtime", name)
+		}
+	}
+	notified := strings.Join(management.notifiedSnapshot(), ",")
+	if !strings.Contains(notified, worker.AgentManagementID) || !strings.Contains(notified, agents["Idler"].AgentManagementID) {
+		t.Fatalf("Agent Service notifications: %s", notified)
+	}
+	management.mu.Lock()
+	stopped := append([]roomagent.RunCancelCommand(nil), management.stopped...)
+	management.mu.Unlock()
+	if len(stopped) != 1 || stopped[0].RunID != "model-source-run" || stopped[0].AgentID != worker.AgentManagementID || stopped[0].RoomID != roomID {
+		t.Fatalf("live process stops: %+v", stopped)
+	}
+	if countRows(t, env, `SELECT count(*) FROM agent_registrations WHERE description LIKE '%'||$1||'%' OR instructions LIKE '%'||$1||'%'`, modelSourceTestAPIKey) != 0 {
+		t.Fatal("TeamHub stored the API key")
+	}
+
+	// A repeated switch to the same target leaves the Agents alone.
+	status, _, body = env.request(alice, http.MethodPost, base, byokSwitch, "")
+	if status != http.StatusOK || !containsJSONText(body, `"updated_agent_count":0`) {
+		t.Fatalf("repeated switch: %d %s", status, body)
+	}
+}
+
+// TestLocalComputerModelSourceWorkStartedDuringSwitchKeepsOnlyItsAgent covers
+// work that starts after the busy check while the Computer switches: the
+// Computer has changed, so the idle Agent moves and only the working one waits
+// for the owner, whose forced retry moves it too.
+func TestLocalComputerModelSourceWorkStartedDuringSwitchKeepsOnlyItsAgent(t *testing.T) {
+	allowParallelIntegrationTest(t)
+	management := &runStoppingAgentManagement{recordingAgentManagement: &recordingAgentManagement{}}
+	computers := &modelSourceComputers{status: nodeservicesinternal.ModelSourceStatus{
+		Mode: "subscription", Runtime: "claude", RuntimeModel: "claude-default",
+	}}
+	env, alice := newModelSourceEnv(t, management, computers)
+	base := "/v0/tenants/" + acmeTenant + "/local-computers/" + fixtureComputerID + "/model-source"
+
+	agents := map[string]tenantAgentUpdateView{}
+	for _, name := range []string{"Worker", "Idler"} {
+		status, _, body := env.request(alice, http.MethodPost, "/v0/tenants/"+acmeTenant+"/agents", map[string]any{"name": name, "instructions": "Keep work", "runtime": fixtureRuntime("codex-default")}, "late-work-create-"+name)
+		if status != http.StatusCreated {
+			t.Fatalf("create %s: %d %s", name, status, body)
+		}
+		var created tenantAgentUpdateView
+		decode(t, body, &created)
+		agents[name] = created
+	}
+	const roomID = "room_model_source_late_worker"
+	worker := agents["Worker"]
+	insertRuntimeRoomMembershipForAgent(t, env.pool, roomID, worker.Actor.ID)
+	ensured, err := agentruntimestate.New(env.pool).EnsureContext(t.Context(), agentruntimestate.EnsureContextInput{
+		Ref: agentruntimestate.ContextRef{Kind: "meta", AgentID: worker.AgentManagementID, RoomID: roomID}, TargetResidency: "active",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	computers.duringApply = func() {
+		computers.duringApply = nil
+		if _, err := env.pool.Exec(context.Background(), `INSERT INTO agent_local_runs(run_id,context_key,status,started_at) VALUES('model-source-late-run',$1,'running',clock_timestamp())`, ensured.Context.ContextKey); err != nil {
+			t.Error(err)
+		}
+	}
+	moved := func(agent tenantAgentUpdateView) bool {
+		return countRows(t, env, `SELECT count(*) FROM agent_registrations WHERE actor_id=$1 AND local_runtime_type='claude' AND runtime_model='claude-default'`, agent.Actor.ID) == 1
+	}
+
+	subscription := map[string]any{"mode": "subscription", "runtime": "claude"}
+	status, _, body := env.request(alice, http.MethodPost, base, subscription, "")
+	if status != http.StatusConflict || !containsJSONText(body, "AGENT_HAS_ACTIVE_RUNS") || !containsJSONText(body, `"reason":"Worker"`) || containsJSONText(body, "Idler") {
+		t.Fatalf("switch with late work: %d %s", status, body)
+	}
+	if !moved(agents["Idler"]) || moved(worker) {
+		t.Fatalf("after late work: Idler moved=%v, Worker moved=%v", moved(agents["Idler"]), moved(worker))
+	}
+
+	status, _, body = env.request(alice, http.MethodPost, base, map[string]any{"mode": "subscription", "runtime": "claude", "force_terminate": true}, "")
+	if status != http.StatusOK || !containsJSONText(body, `"terminated_run_count":1`) || !containsJSONText(body, `"updated_agent_count":1`) {
+		t.Fatalf("forced retry: %d %s", status, body)
+	}
+	if !moved(worker) {
+		t.Fatal("the forced retry did not move Worker")
+	}
+}

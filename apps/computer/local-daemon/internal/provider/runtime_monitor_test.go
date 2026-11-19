@@ -16,6 +16,30 @@ func TestRuntimeMonitorBoundsTransientAuthenticationProbeFailures(t *testing.T) 
 	if runtime.GOOS == "windows" {
 		t.Skip("fixture uses a POSIX script")
 	}
+	// Every scenario runs one shared executable: macOS scans each new
+	// executable on its first launch.
+	fixtures := t.TempDir()
+	codex := filepath.Join(fixtures, "codex")
+	script := `#!/bin/sh
+attempt=0
+if [ -f "$ATTEMPT_FILE" ]; then read attempt < "$ATTEMPT_FILE"; fi
+attempt=$((attempt + 1))
+echo "$attempt" > "$ATTEMPT_FILE"
+if [ "$attempt" -le "$FAILURES" ] && [ "$PROBE_EXIT" != "1" ]; then echo "$PROBE_OUTPUT"; exit "$PROBE_EXIT"; fi
+read initialize
+echo '{"id":1,"result":{"userAgent":"test"}}'
+read initialized
+read account
+if [ "$attempt" -le "$FAILURES" ]; then
+  echo '{"id":2,"result":{"account":null,"requiresOpenaiAuth":true}}'
+else
+  echo '{"id":2,"result":{"account":{"type":"chatgpt"},"requiresOpenaiAuth":true}}'
+fi
+`
+	if err := os.WriteFile(codex, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	primeTestExecutable(t, codex, "ATTEMPT_FILE="+filepath.Join(fixtures, "prime-attempt"))
 	for _, scenario := range []struct {
 		name     string
 		failures string
@@ -32,27 +56,6 @@ func TestRuntimeMonitorBoundsTransientAuthenticationProbeFailures(t *testing.T) 
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			root := t.TempDir()
-			codex := filepath.Join(root, "codex")
-			script := `#!/bin/sh
-attempt=0
-if [ -f "$ATTEMPT_FILE" ]; then read attempt < "$ATTEMPT_FILE"; fi
-attempt=$((attempt + 1))
-echo "$attempt" > "$ATTEMPT_FILE"
-if [ "$attempt" -le "$FAILURES" ] && [ "$PROBE_EXIT" != "1" ]; then echo "$PROBE_OUTPUT"; exit "$PROBE_EXIT"; fi
-read initialize
-echo '{"id":1,"result":{"userAgent":"test"}}'
-read initialized
-read account
-if [ "$attempt" -le "$FAILURES" ]; then
-  echo '{"id":2,"result":{"account":null,"requiresOpenaiAuth":true}}'
-else
-  echo '{"id":2,"result":{"account":{"type":"chatgpt"},"requiresOpenaiAuth":true}}'
-fi
-`
-			if err := os.WriteFile(codex, []byte(script), 0o700); err != nil {
-				t.Fatal(err)
-			}
-			primeTestExecutable(t, codex, "ATTEMPT_FILE="+filepath.Join(root, "prime-attempt"))
 			initial := DiscoveryResult{Diagnostics: []RuntimeDiagnostic{{
 				Type: "codex", Status: "ready", Protocol: "app-server", ExecutablePath: codex,
 			}}}

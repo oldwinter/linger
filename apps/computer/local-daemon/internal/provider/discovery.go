@@ -105,6 +105,17 @@ func ValidateRuntimeSelection(types []string) error {
 	return nil
 }
 
+// discoveryStageBudget is each discovery stage's default budget; tests lower it
+// while no discovery runs.
+var discoveryStageBudget = defaultDiscoveryStageBudget(runtime.GOOS)
+
+func defaultDiscoveryStageBudget(goos string) time.Duration {
+	if goos == "windows" || goos == "linux" {
+		return 30 * time.Second
+	}
+	return 15 * time.Second
+}
+
 func Discover(ctx context.Context, options DiscoveryOptions) (DiscoveryResult, error) {
 	options.Environment = terminalEnvironment(ctx, platformEnvironment(options.Environment))
 	return discoverResolved(ctx, options), nil
@@ -113,10 +124,7 @@ func Discover(ctx context.Context, options DiscoveryOptions) (DiscoveryResult, e
 func discoverResolved(ctx context.Context, options DiscoveryOptions) DiscoveryResult {
 	budget := options.Timeout
 	if budget <= 0 {
-		budget = 15 * time.Second
-		if runtime.GOOS == "windows" || runtime.GOOS == "linux" {
-			budget = 30 * time.Second
-		}
+		budget = discoveryStageBudget
 	}
 	definitions := runtimeDefinitions
 	if len(options.Runtimes) > 0 {

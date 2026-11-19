@@ -77,6 +77,10 @@ test("duplicate starts return current job and task survives subscriber disconnec
     return { state: "ready", code: 0, message: "Complete" };
   });
   const first = await jobs.start(input);
+  cleanup.push(async () => {
+    release?.();
+    await jobs.wait(first.id);
+  });
   const second = await jobs.start(input);
   expect(second.id).toBe(first.id);
   await new Promise((resolve) => setTimeout(resolve, 20));
@@ -254,6 +258,26 @@ test.each([
     await jobs.wait(job.id);
     expect(jobs.get(job.id)?.state).toBe("failed");
     expect(jobs.get(job.id)?.errorCode).toBe("INSTALL_RESULT_INVALID");
+  },
+);
+
+test.each([
+  ["RUNTIME_PLAN_REFUSED", "RUNTIME_PLAN_REFUSED"],
+  ["RUNTIME_ACTION_FAILED", "RUNTIME_ACTION_FAILED"],
+  ["RUNTIME_EXTENSIONS_FAILED", "RUNTIME_EXTENSIONS_FAILED"],
+  ["NATIVE_SOURCE_INSTALLATION_FAILED", "INSTALL_FAILED"],
+])(
+  "a failed installation with runtime cause %s reports it as %s",
+  async (code, errorCode) => {
+    const { jobs } = await setup(async () => ({
+      code: 5,
+      state: "failed",
+      message: "The runtime could not be installed.",
+      details: { code, stage: "runtime" },
+    }));
+    const job = await jobs.start({ instance: "default" });
+    await jobs.wait(job.id);
+    expect(jobs.get(job.id)).toMatchObject({ state: "failed", errorCode });
   },
 );
 

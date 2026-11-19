@@ -1,6 +1,7 @@
 import path from "node:path";
 import { loadInstance } from "@linger/local-installation/instance";
 import { localModelsEnvironment } from "@linger/local-installation/local-models";
+import { readByokEnvironment } from "@linger/local-installation/byok-source";
 import {
   LOCALMODELS_TOOL_ENVIRONMENT,
   localmodelsComputerTool,
@@ -33,9 +34,11 @@ export async function instanceRuntime(
   const value = await loadInstance({ name, home });
   if (!value) return undefined;
   const setupChoice = await readSetupChoice({ name, home });
+  const byok = await readByokEnvironment(home);
   const found: Record<string, string | undefined> = {
     ...(await managedRuntimeEnvironment(home, value.root)),
     ...(await localModelsEnvironment(value)),
+    ...(byok?.mode === "byok" ? byok.environment : {}),
     ...localmodelsToolEnvironment(
       await localmodelsComputerTool(home, pinnedToolSource()),
     ),

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import {
   closeVoicePip,
@@ -7,6 +8,7 @@ import {
   openVoicePip,
   resetVoicePipForTest,
   returnedToOpener,
+  voicePipSupported,
 } from "./voice-pip";
 
 /** A stand-in for the browser's picture-in-picture window. */
@@ -24,7 +26,7 @@ function installFakeVoicePip() {
     close: vi.fn(() => listeners.splice(0).forEach((listener) => listener())),
   };
   const requestWindow = vi.fn(async () => pipWindow as unknown as Window);
-  Object.defineProperty(window, "documentPictureInPicture", {
+  defineGlobalProperty(window, "documentPictureInPicture", {
     configurable: true,
     value: { requestWindow },
   });
@@ -48,6 +50,19 @@ afterEach(() => {
 describe("Voice Mode picture-in-picture window", () => {
   it("is unavailable where the browser lacks it", async () => {
     await expect(openVoicePip("voice-mode")).resolves.toBeUndefined();
+  });
+
+  it("stays in the page inside the desktop app", async () => {
+    const fake = installFakeVoicePip();
+    const desktop = window as { lingerDesktop?: unknown };
+    desktop.lingerDesktop = {};
+    try {
+      expect(voicePipSupported()).toBe(false);
+      await expect(openVoicePip("voice-mode")).resolves.toBeUndefined();
+      expect(fake.requestWindow).not.toHaveBeenCalled();
+    } finally {
+      delete desktop.lingerDesktop;
+    }
   });
 
   it("carries the page's styles and theme, including later ones", async () => {

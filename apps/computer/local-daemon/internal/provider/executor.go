@@ -31,6 +31,8 @@ const operationMCPPrepareKind = "internal.mcp.prepare"
 const operationProviderPrepareKind = "internal.provider.prepare"
 
 type OperationSpec struct {
+	// A continuation prompt requires the exact native history of the interrupted Task.
+	ResumeAfterYield  bool
 	HumanInteractions bool
 	// PermissionReview sends the Runtime's own permission prompts to the
 	// Runtime permission review (Agent Service declares it per Run).
@@ -591,7 +593,7 @@ func (e Executor) Start(ctx context.Context, spec OperationSpec, emit EmitFunc) 
 			}
 		}
 		emittedResponseText := false
-		projection := eventProjection{operationID: spec.TaskID}
+		projection := eventProjection{operationID: spec.TaskID, canYield: spec.OperationKind == "run.start"}
 		for {
 			emittedEvent := false
 			for message := range session.Events {
@@ -844,6 +846,6 @@ func (spec OperationSpec) ReviewsPermissions() bool {
 // startsFreshSession reports whether a Run whose retained native session the
 // Runtime refused may continue in a new session instead of failing.
 func startsFreshSession(spec OperationSpec, result native.Outcome) bool {
-	return spec.OperationKind == "run.start" && spec.ResumeSessionID != "" &&
+	return !spec.ResumeAfterYield && spec.OperationKind == "run.start" && spec.ResumeSessionID != "" &&
 		result.Status != "completed" && result.FailureCode == "session_not_found"
 }

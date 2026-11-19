@@ -214,23 +214,32 @@ func TestExecutionResolverUsesSessionMarkerState(t *testing.T) {
 				WorkspaceGrantID: "grant-local", RuntimeType: runtimeType,
 				ExecutionContextKey: "context-1", ContextViewRef: json.RawMessage(`{"receipt_ref":"receipt-1"}`),
 			}
-			request := func(materialized bool) json.RawMessage {
+			request := func(materialized, resumeAfterYield bool) json.RawMessage {
 				return json.RawMessage(fmt.Sprintf(`{
 			"kind":"run.start","runtime":{"type":%q},
 			"session_options":{"thread_name":"Claude"},
 			"session":{"provider":%q,"sessionId":"123e4567-e89b-12d3-a456-426614174000","lingerMaterialized":%t},
+			"run_context":{"resume_after_yield":%t},
 			"input":{"type":"text","text":"Run"},"run_resources":{"mcp_servers":[]}
-		}`, runtimeType, runtimeType, materialized))
+		}`, runtimeType, runtimeType, materialized, resumeAfterYield))
 			}
-			first, err := resolver.Resolve(context.Background(), command, request(false))
+			first, err := resolver.Resolve(context.Background(), command, request(false, false))
 			if err != nil || first.CreateProviderSessionID == "" || first.ResumeSessionID != "" {
 				t.Fatalf("unmaterialized Runtime spec=%+v err=%v", first, err)
 			}
-			resumed, err := resolver.Resolve(context.Background(), command, request(true))
+			resumed, err := resolver.Resolve(context.Background(), command, request(true, false))
 			if err != nil || resumed.CreateProviderSessionID != "" || resumed.ResumeSessionID != "123e4567-e89b-12d3-a456-426614174000" {
 				t.Fatalf("materialized Runtime spec=%+v err=%v", resumed, err)
 			}
 
+			yielded, err := resolver.Resolve(t.Context(), command, request(false, true))
+			if err != nil || !yielded.ResumeAfterYield || yielded.CreateProviderSessionID != "" || yielded.ResumeSessionID != resumed.ResumeSessionID {
+				t.Fatalf("yielded first turn must resume its assigned identity: %+v, %v", yielded, err)
+			}
+			_, err = resolver.Resolve(t.Context(), command, json.RawMessage(fmt.Sprintf(`{"kind":"run.start","runtime":{"type":%q},"run_context":{"resume_after_yield":true}}`, runtimeType)))
+			if err == nil {
+				t.Fatal("scheduler continuation accepted an empty session")
+			}
 		})
 	}
 }

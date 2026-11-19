@@ -859,6 +859,45 @@ describe("quick Local Agent creation", () => {
     expect(screen.getByRole("combobox", { name: "Runtime" })).toHaveTextContent(
       "Pi",
     );
+    const manageLink = screen.getByRole("link", { name: "Settings › Models" });
+    expect(manageLink).toHaveAttribute(
+      "href",
+      `/t/tenant-northstar/settings/models?computer=${encodeURIComponent(computer.computer_id)}`,
+    );
+  });
+
+  it("links to Settings › Models when Pi has no loaded local models", async () => {
+    const runtime = await testRuntime();
+    const inventory =
+      await runtime.client.listTenantLocalComputers("tenant-northstar");
+    const computer = inventory.items[0]!;
+    vi.spyOn(runtime.client, "listTenantLocalComputers").mockResolvedValue({
+      items: [
+        {
+          ...computer,
+          runtimes: [
+            ...computer.runtimes,
+            { models: [], status: "ready", type: "pi" },
+          ],
+        },
+      ],
+    });
+    renderCreation(runtime, "local");
+    fireEvent.click(
+      await screen.findByRole("combobox", { name: "Local Computer" }),
+    );
+    fireEvent.click(await screen.findByRole("option", { name: "Jenny's Mac" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Runtime" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Pi" }));
+
+    const link = await screen.findByRole("link", { name: "Settings › Models" });
+    expect(link).toHaveAttribute(
+      "href",
+      `/t/tenant-northstar/settings/models?computer=${encodeURIComponent(computer.computer_id)}`,
+    );
+    expect(link.closest("p")).toHaveTextContent(
+      "Download and load a local model in Settings › Models to run Agents with Pi on this computer.",
+    );
   });
 
   describe("in the desktop app", () => {
@@ -910,6 +949,10 @@ describe("quick Local Agent creation", () => {
 
     it.each([
       [{ bridge: "auth_failed", runtime: "stopped" }, /sign-in expired/],
+      [
+        { bridge: "identity_conflict", runtime: "ready" },
+        /already registered under another Computer/,
+      ],
       [{ bridge: "online", runtime: "crashed" }, /local runtime stopped/],
     ])(
       "says why it cannot find runtimes instead of searching forever (%o)",

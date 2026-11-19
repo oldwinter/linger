@@ -24,6 +24,9 @@ import {
   LocalComputerPlacementError,
   LocalRuntimeAdmissionUnavailableError,
   MINIMUM_CURRENT_COMPUTER_VERSION,
+  FIRST_MODEL_INVOKE_CANCEL_COMPUTER_VERSION,
+  FIRST_PI_MODEL_INVOKE_COMPUTER_VERSION,
+  FIRST_SERVICE_FEATURES_COMPUTER_VERSION,
   type LocalPlacementRequirement,
   type LocalReasoningEffort,
   type LocalRuntimeModelDefinition,
@@ -449,6 +452,12 @@ export class RunnerConnections {
             ),
           }
         : {}),
+      ...(isComputerVersionAtLeast(
+        connection.hello.daemon_version,
+        FIRST_SERVICE_FEATURES_COMPUTER_VERSION,
+      )
+        ? { service_features: ["local_models"] }
+        : {}),
     };
   }
 
@@ -666,6 +675,12 @@ export class RunnerConnections {
       this.owners.capabilities().receivePermissionOutcome(connection, envelope);
       return;
     }
+    if (envelope.type === "executed" && envelope.kind === "model_source") {
+      this.owners
+        .capabilities()
+        .receiveModelSourceOutcome(connection, envelope);
+      return;
+    }
     if (envelope.type === "executed" && envelope.kind === "computer_tool") {
       this.owners.computerTools().receive(connection, envelope);
       return;
@@ -794,6 +809,22 @@ export class RunnerConnections {
     );
   }
 
+  /** Whether the Computer on this connection can stop one model invocation. */
+  supportsModelInvokeCancel(
+    runnerId: string,
+    connectionEpoch: number,
+  ): boolean {
+    const connection = this.#connections.get(runnerId);
+    return (
+      isServingConnection(connection) &&
+      connection.connectionEpoch === connectionEpoch &&
+      isComputerVersionAtLeast(
+        connection.hello.daemon_version,
+        FIRST_MODEL_INVOKE_CANCEL_COMPUTER_VERSION,
+      )
+    );
+  }
+
   /** Whether the Computer can run a model invocation on this Runtime now. */
   supportsModelInvoke(
     runnerId: string,
@@ -802,7 +833,11 @@ export class RunnerConnections {
     const connection = this.#connections.get(runnerId);
     return (
       isServingConnection(connection) &&
-      (runtimeType === "codex" || runtimeType === "claude") &&
+      (runtimeType !== "pi" ||
+        isComputerVersionAtLeast(
+          connection.hello.daemon_version,
+          FIRST_PI_MODEL_INVOKE_COMPUTER_VERSION,
+        )) &&
       connection.hello.runtime_diagnostics.some(
         ({ type, status }) => type === runtimeType && status === "ready",
       )

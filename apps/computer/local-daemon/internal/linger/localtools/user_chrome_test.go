@@ -471,9 +471,10 @@ func liveSessionOnProfile(t *testing.T, m *Manager, key, profile string) *operat
 func TestTaskTakesTheChromeOfALiveCallBetweenItsTurns(t *testing.T) {
 	m := newConnectionManager(t)
 	live := liveSessionOnProfile(t, m, "tenant\x00owner\x00agent\x00voice-1", "Default")
-	previous := profileWait
-	profileWait = 1500 * time.Millisecond
-	defer func() { profileWait = previous }()
+	previous, previousRetry := profileWait, profileRetry
+	// The wait spans several retries, so a retry also refuses the running call.
+	profileWait, profileRetry = 150*time.Millisecond, 40*time.Millisecond
+	defer func() { profileWait, profileRetry = previous, previousRetry }()
 	// A Live call in progress keeps the profile.
 	m.tryLockLive()
 	if _, err := m.acquireChromeProfile(t.Context(), "Default"); err == nil || !strings.Contains(err.Error(), "BROWSER_BUSY") {

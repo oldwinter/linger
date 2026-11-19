@@ -55,8 +55,8 @@ export function SettingsLayout() {
           />
           <SettingsLink
             icon={<Icon icon={AiChipIcon} size={14} />}
-            label="Local models"
-            to="local-models"
+            label="Models"
+            to="models"
           />
         </nav>
       </aside>

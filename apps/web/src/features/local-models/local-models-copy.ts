@@ -1,6 +1,6 @@
 import type { components } from "@linger/wire-contracts/teamhub-public/types";
 
-import { formatGigabytes } from "./local-models-rules";
+import { formatGigabytes, type MemoryGuidance } from "./local-models-rules";
 
 type Schemas = components["schemas"];
 
@@ -28,7 +28,7 @@ const actionRefusals: Record<Schemas["LocalModelsErrorCode"], string> = {
   LOCAL_MODEL_MEMORY_INSUFFICIENT:
     "The computer doesn't have enough memory for this model.",
   LOCAL_MODEL_NO_ROOM:
-    "There isn't enough free memory to load it. Unload another model first.",
+    "There isn't enough free memory to load it. Close memory-heavy apps or unload another model, then recheck memory.",
   LOCAL_MODEL_PLATFORM_UNSUPPORTED: "This model doesn't run on this computer.",
   LOCAL_MODEL_UNKNOWN: "The computer doesn't have this model anymore.",
   LOCAL_MODELS_SERVICE_UNAVAILABLE:
@@ -39,6 +39,9 @@ const actionRefusals: Record<Schemas["LocalModelsErrorCode"], string> = {
 
 /** Why an action or a read failed: a TeamHub error code, or anything else. */
 export function actionErrorCopy(code: string | undefined) {
+  if (code === "LOCAL_COMPUTER_NOT_FOUND") {
+    return "This computer wasn't found. It may have been removed.";
+  }
   return code && Object.hasOwn(actionRefusals, code)
     ? actionRefusals[code as keyof typeof actionRefusals]
     : "Something went wrong. Try again.";
@@ -66,9 +69,53 @@ const modelErrors: Record<Schemas["LocalModelErrorCode"], string> = {
   PLATFORM_UNSUPPORTED: "This model doesn't run on this computer.",
 };
 
-/** Why the last load of a model failed. */
-export function modelErrorCopy(code: Schemas["LocalModelErrorCode"]) {
-  return modelErrors[code];
+const modelErrorCauses: Record<
+  NonNullable<Schemas["LocalModelError"]["cause"]>,
+  (path: string | undefined) => string
+> = {
+  GATEWAY_HOME_NOT_PRIVATE: (path) =>
+    path
+      ? `It loaded, but Agents couldn't be given access to it: the folder ${path} belongs to another account. Quit Linger, rename that folder, then open Linger and load the model again.`
+      : "It loaded, but Agents couldn't be given access to it: a Linger folder on the computer belongs to another account.",
+};
+
+const modelErrorsShort: Record<
+  Schemas["LocalModelErrorCode"],
+  string | undefined
+> = {
+  CANCELLED: "loading stopped",
+  CHECKSUM_MISMATCH: "files damaged",
+  DISK_INSUFFICIENT: "not enough disk",
+  DOWNLOAD_FAILED: undefined,
+  ENGINE_START_FAILED: "engine didn't start",
+  GATEWAY_REGISTRATION_FAILED: "Agents couldn't reach it",
+  HEALTH_CHECK_FAILED: "model didn't answer",
+  INVALID_STATE: "busy with another step",
+  JOB_RUNNING: "busy with another step",
+  LOAD_NO_ROOM: "not enough free memory",
+  MEMORY_INSUFFICIENT: "not enough memory",
+  MODEL_FILES_MISSING: "files missing",
+  MODEL_UNKNOWN: "no longer on computer",
+  NETWORK_UNAVAILABLE: "network unavailable",
+  OUT_OF_MEMORY: "ran out of memory",
+  PLATFORM_UNSUPPORTED: "not for this computer",
+};
+
+/** Short failure summary for a collapsed model row; undefined when the status label suffices. */
+export function modelErrorShortCopy(
+  error: Schemas["LocalModelError"] | undefined,
+) {
+  return error ? modelErrorsShort[error.code] : undefined;
+}
+
+/**
+ * Why the last load or download of a model failed. A cause names the fix;
+ * its path reaches only the Computer's owner.
+ */
+export function modelErrorCopy(error: Schemas["LocalModelError"]) {
+  return error.cause
+    ? modelErrorCauses[error.cause](error.path)
+    : modelErrors[error.code];
 }
 
 const notes: Record<
@@ -105,7 +152,10 @@ export function unavailableShortCopy(reason: AvailabilityReason | undefined) {
 }
 
 /** The full reason a model can't be downloaded, shown in its details. */
-export function unavailableCopy(reason: AvailabilityReason | undefined) {
+export function unavailableCopy(
+  reason: AvailabilityReason | undefined,
+  reclaimable = false,
+) {
   const need =
     reason?.need_bytes === undefined
       ? undefined
@@ -115,10 +165,15 @@ export function unavailableCopy(reason: AvailabilityReason | undefined) {
       ? undefined
       : formatGigabytes(reason.have_bytes);
   switch (reason?.code) {
-    case "MEMORY_INSUFFICIENT":
-      return need && have
-        ? `Needs ${need} of memory; this computer has ${have} for models.`
-        : "This computer doesn't have enough memory for it.";
+    case "MEMORY_INSUFFICIENT": {
+      const base =
+        need && have
+          ? `Needs ${need} of memory; this computer has ${have} for models.`
+          : "This computer doesn't have enough memory for it.";
+      return reclaimable
+        ? `${base} Close memory-heavy apps and recheck memory.`
+        : base;
+    }
     case "DISK_INSUFFICIENT":
       return need && have
         ? `Needs ${need} of disk; ${have} is free.`
@@ -178,4 +233,86 @@ export function architectureCopy(
   architecture: Schemas["LocalModelArchitecture"],
 ) {
   return architectureLabels[architecture];
+}
+
+const modelSourceRefusals: Record<Schemas["ModelSourceErrorCode"], string> = {
+  AGENT_HAS_ACTIVE_RUNS: "Agents on this computer are working on tasks.",
+  BYOK_AUTH_FAILED: "The endpoint rejected the API key.",
+  BYOK_INVALID_CONFIG:
+    "The computer can't use this endpoint. An HTTPS endpoint needs an API key; plain HTTP works only on this computer or your local network.",
+  BYOK_MODEL_NOT_FOUND: "The endpoint doesn't serve this model ID.",
+  BYOK_UNREACHABLE: "The computer couldn't reach the endpoint.",
+  BYOK_UPSTREAM_REJECTED: "The endpoint rejected the test request.",
+  LOCAL_COMPUTER_OFFLINE:
+    "The computer is offline. Reconnect it in Computers, then try again.",
+  LOCAL_MODEL_NO_ROOM:
+    "There isn't enough free memory on the computer to load that model. Close memory-heavy apps or unload another model, recheck memory, and try again.",
+  LOCAL_MODEL_UNKNOWN: "The computer doesn't have this model anymore.",
+  MODEL_SOURCE_FAILED: "The computer couldn't switch. Try again.",
+  MODEL_SOURCE_FORBIDDEN:
+    "Only the person who connected this computer can change its models.",
+  MODEL_SOURCE_SERVICE_UNAVAILABLE:
+    "Linger couldn't reach the computer right now. Try again.",
+  MODEL_SOURCE_UNAVAILABLE:
+    "This computer can't switch models. Update Linger on it, then try again.",
+  MODEL_SOURCE_UNCONFIRMED:
+    "The computer didn't answer in time. It may still be switching; check again in a minute.",
+  RUNTIME_NOT_ENABLED: "This AI runtime isn't set up on the computer.",
+};
+
+/** Why a model-source switch or endpoint test failed. */
+export function modelSourceErrorCopy(code: string | undefined) {
+  return code && Object.hasOwn(modelSourceRefusals, code)
+    ? modelSourceRefusals[code as keyof typeof modelSourceRefusals]
+    : "Something went wrong. Try again.";
+}
+
+/** Why reading a Computer's model source failed. */
+export function modelSourceReadErrorCopy(code: string | undefined) {
+  if (code === "MODEL_SOURCE_SERVICE_UNAVAILABLE") {
+    return modelSourceRefusals.MODEL_SOURCE_SERVICE_UNAVAILABLE;
+  }
+  if (code === "MODEL_SOURCE_UNCONFIRMED") {
+    return "The computer didn't answer in time. Try again.";
+  }
+  return "Couldn't read how Agents on this computer get their model. Try again.";
+}
+
+export const modelSourceModeLabels: Record<Schemas["ModelSourceMode"], string> =
+  { byok: "BYOK", local: "Local model", subscription: "Subscription" };
+
+export const modelSourceRuntimeLabels: Record<
+  Schemas["ModelSourceRuntime"],
+  string
+> = { claude: "Claude Code", codex: "Codex", pi: "Pi" };
+
+export const byokProtocolLabels: Record<Schemas["ByokProtocol"], string> = {
+  anthropic: "Anthropic Messages",
+  "openai-chat": "OpenAI Chat Completions",
+  "openai-responses": "OpenAI Responses",
+};
+
+/** Guidance telling the owner how freeing external memory unlocks larger models. */
+export function memoryGuidanceCopy(guidance: MemoryGuidance) {
+  const memoryKind = guidance.gpu ? "GPU memory" : "memory";
+  const other = formatGigabytes(guidance.otherBytes);
+  const free = formatGigabytes(guidance.freeBytes);
+  const total = formatGigabytes(guidance.totalBytes);
+  switch (guidance.kind) {
+    case "blocked_load":
+      return {
+        body: `Other apps are holding ${other} of ${memoryKind} (${free} of ${total} free). Forcing a model into tight memory can freeze the computer. Close video players, games, browsers, or other memory-heavy apps, then click Recheck memory to load it.`,
+        title: `Free ${memoryKind} before loading`,
+      };
+    case "blocked_download":
+      return {
+        body: `Other apps are holding ${other} of ${memoryKind} (${free} of ${total} free), so larger models look unavailable right now. Close unnecessary apps (such as video players, games, or browsers) and click Recheck memory to detect all free memory before installing.`,
+        title: `Free ${memoryKind} to install a larger model`,
+      };
+    case "constrained_pool":
+      return {
+        body: `Other apps are using ${other} of ${memoryKind} (${free} of ${total} free). To avoid loading failures or system freezes, close unnecessary apps and click Recheck memory so you can load a better model.`,
+        title: `Other apps are using ${memoryKind}`,
+      };
+  }
 }

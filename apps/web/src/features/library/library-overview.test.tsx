@@ -14,6 +14,7 @@ import {
 import { Suspense } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import {
   createDocumentTestRuntime,
@@ -36,7 +37,7 @@ import {
 
 describe("Library Home", () => {
   beforeEach(() => {
-    Object.defineProperty(window, "localStorage", {
+    defineGlobalProperty(window, "localStorage", {
       configurable: true,
       value: createTestStorage(),
     });

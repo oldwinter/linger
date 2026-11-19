@@ -237,7 +237,7 @@ export function RoomCreateMembers({
         >
           <input
             aria-label="Search members"
-            className="min-h-9 w-full shrink-0 rounded-md bg-transparent px-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="min-h-9 w-full shrink-0 rounded-md bg-transparent px-2 text-sm outline-none placeholder:text-app-placeholder focus-visible:ring-2 focus-visible:ring-ring"
             onChange={(event) => setSearch(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") event.preventDefault();

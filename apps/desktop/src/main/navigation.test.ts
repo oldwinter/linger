@@ -5,9 +5,49 @@ import {
   navigationDecision,
   parseServerUrl,
   permissionAllowed,
+  serverSwitch,
 } from "./navigation.js";
 
 const server = "https://linger.example.com";
+
+describe("serverSwitch", () => {
+  const local = "http://localhost:3000";
+  const moved = "http://localhost:3001";
+
+  it("follows the same server to its new origin without changing servers", () => {
+    expect(serverSwitch(local, moved, local)).toEqual({
+      moved: true,
+      changed: false,
+    });
+  });
+
+  it("changes servers when the app pointed at another one", () => {
+    expect(serverSwitch(server, moved, local)).toEqual({
+      moved: true,
+      changed: true,
+    });
+    expect(serverSwitch(local, server)).toEqual({
+      moved: false,
+      changed: true,
+    });
+  });
+
+  it("changes no server when the origin stays", () => {
+    expect(serverSwitch(local, local)).toEqual({
+      moved: false,
+      changed: false,
+    });
+    expect(serverSwitch(local, local, local)).toEqual({
+      moved: false,
+      changed: false,
+    });
+    // A retry after the move already followed it.
+    expect(serverSwitch(moved, moved, local)).toEqual({
+      moved: true,
+      changed: false,
+    });
+  });
+});
 
 describe("window policy", () => {
   it("keeps navigation on the server origin", () => {

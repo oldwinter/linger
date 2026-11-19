@@ -13,6 +13,7 @@ import {
 import { RoomAddMembersDialog } from "./members/room-add-members-dialog";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import { createAppQueryClient } from "@/app/query-client";
 import {
@@ -33,7 +34,7 @@ import { RoomCreateDialog } from "./room-create-dialog";
 
 describe("Room creation", () => {
   beforeEach(() => {
-    Object.defineProperty(HTMLElement.prototype, "showPopover", {
+    defineGlobalProperty(HTMLElement.prototype, "showPopover", {
       configurable: true,
       value: function (this: HTMLElement) {
         this.style.display = "flex";
@@ -50,7 +51,6 @@ describe("Room creation", () => {
   afterEach(() => {
     onlineManager.setOnline(true);
     vi.unstubAllGlobals();
-    Reflect.deleteProperty(HTMLElement.prototype, "showPopover");
   });
 
   it("uses the authored compact form without a secondary cancel action", async () => {

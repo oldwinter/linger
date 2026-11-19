@@ -42,9 +42,9 @@ func cadenceFromRecord(record store.RoomReminder) Cadence {
 		minute := int(record.Minute.Int32)
 		cadence.Minute = &minute
 	}
-	if record.IntervalHours.Valid {
-		hours := int(record.IntervalHours.Int32)
-		cadence.IntervalHours = &hours
+	if record.IntervalMinutes.Valid {
+		minutes := int(record.IntervalMinutes.Int32)
+		cadence.IntervalMinutes = &minutes
 	}
 	if record.RunAt.Valid {
 		runAt := record.RunAt.Time.UTC()

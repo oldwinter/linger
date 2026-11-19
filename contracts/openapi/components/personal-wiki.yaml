@@ -28,6 +28,16 @@ components:
           description: >-
             The business date the refresh is for. It scopes the request's idempotency, not the
             sources; omit it for the current date.
+    PersonalWikiFailureReason:
+      type: string
+      description: >-
+        Actionable cause of the latest failed refresh when known: computer_offline,
+        runtime_incompatible, runtime_auth_required, or runtime_unavailable.
+      enum:
+        - computer_offline
+        - runtime_incompatible
+        - runtime_auth_required
+        - runtime_unavailable
     PersonalWiki:
       type: object
       additionalProperties: false
@@ -47,6 +57,9 @@ components:
           description: Advances by one with each published Revision.
         state:
           $ref: "#/components/schemas/PersonalWikiState"
+        failure_reason:
+          description: Present when state is failed and the refresh failed for an actionable Computer or Runtime cause.
+          $ref: "#/components/schemas/PersonalWikiFailureReason"
         preview_revision:
           type: integer
           format: int64

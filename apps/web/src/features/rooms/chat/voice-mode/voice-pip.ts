@@ -1,8 +1,14 @@
 import { useSyncExternalStore } from "react";
 
+import { isDesktopShell } from "@/app/desktop-shell";
+
 /** Chrome and Edge 116+ only; TypeScript's DOM library does not declare it yet. */
 interface DocumentPictureInPicture {
-  requestWindow(options?: { height?: number; width?: number }): Promise<Window>;
+  requestWindow(options?: {
+    height?: number;
+    width?: number;
+    preferInitialWindowPlacement?: boolean;
+  }): Promise<Window>;
 }
 
 /** Voice Mode and Recording never run together; each asks for its own window. */
@@ -27,6 +33,9 @@ function noteShown() {
 }
 
 function api(): DocumentPictureInPicture | undefined {
+  // Electron exposes the API but cannot open its window, so voice windows in
+  // the desktop app stay in the page and offer no float button.
+  if (isDesktopShell()) return undefined;
   return (
     window as Window & { documentPictureInPicture?: DocumentPictureInPicture }
   ).documentPictureInPicture;
@@ -50,6 +59,9 @@ function publish(next: typeof pip) {
  */
 export async function openVoicePip(
   owner: VoicePipOwner,
+  {
+    preferInitialWindowPlacement = false,
+  }: { preferInitialWindowPlacement?: boolean } = {},
 ): Promise<Window | undefined> {
   const pictureInPicture = api();
   if (!pictureInPicture) return undefined;
@@ -61,7 +73,10 @@ export async function openVoicePip(
     watchingVisibility = true;
   }
   try {
-    const opened = await pictureInPicture.requestWindow(pipSizes[owner]);
+    const opened = await pictureInPicture.requestWindow({
+      ...pipSizes[owner],
+      preferInitialWindowPlacement,
+    });
     const stopMirroring = mirrorStyles(opened.document);
     opened.addEventListener("pagehide", () => {
       stopMirroring();

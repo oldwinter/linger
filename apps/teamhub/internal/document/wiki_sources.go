@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Upload runs its native import inline, so a pending import normally
@@ -120,17 +121,35 @@ func (s *Service) bindWikiSources(ctx context.Context, input RequestWikiRefreshI
 			"importing_count", len(importing), "importing_document_ids", importing,
 			"textless_count", len(textless), "textless_document_ids", textless)
 	}
+	var unbound []string
 	for _, value := range sources {
-		if value.bound {
-			continue
-		}
-		if _, err := s.BindToPersonalWiki(ctx, BindDocumentToPersonalWikiInput{
-			AccountID: input.AccountID, TenantID: input.TenantID, DocumentID: value.id,
-		}); err != nil {
-			return false, err
+		if !value.bound {
+			unbound = append(unbound, value.id)
 		}
 	}
-	return true, nil
+	if len(unbound) == 0 {
+		return true, nil
+	}
+	// Memory refreshes every Human's Wiki at once. Binding runs SERIALIZABLE,
+	// and bindings of different Humans share index pages, so concurrent ones
+	// abort each other although they touch different rows. One lock for the
+	// whole database, taken before each binding transaction starts, keeps
+	// them from overlapping; a binding takes milliseconds and only new pages
+	// need one. The bindings run on the locked session, so a request needs one
+	// pooled connection however many wait for the lock.
+	return true, s.withAdvisorySessionLock(ctx, "wiki-source-binding", func(connection *pgxpool.Conn) error {
+		for _, documentID := range unbound {
+			if err := retryWikiTransaction(ctx, func() error {
+				_, err := s.bindToPersonalWiki(ctx, connection, BindDocumentToPersonalWikiInput{
+					AccountID: input.AccountID, TenantID: input.TenantID, DocumentID: documentID,
+				})
+				return err
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // lockWikiSourceHeads holds the bound source Documents and their texts while

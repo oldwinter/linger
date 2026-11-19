@@ -392,7 +392,7 @@ export function MessageReactionPicker({
         aria-controls={listId}
         aria-expanded="true"
         aria-label="Search emoji"
-        className="h-8 w-full rounded-md border border-input bg-card px-2 text-sm text-foreground outline-none placeholder:text-muted-foreground hover:border-border-hover focus-visible:border-foreground/40"
+        className="h-8 w-full rounded-md border border-input bg-card px-2 text-sm text-foreground outline-none placeholder:text-app-placeholder hover:border-border-hover focus-visible:border-foreground/40"
         onChange={(event) => {
           setQuery(event.target.value);
           setActiveIndex(0);

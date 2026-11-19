@@ -17,6 +17,8 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import os from "node:os";
 import { withInstanceLock, type Instance } from "./instance.js";
+import { REGION_SCHEMA, regionFile } from "./region.js";
+import { requestUrlText } from "@linger/service-kit";
 import { afterEach, expect, test, vi } from "vitest";
 import {
   ensureLocalmodelsTool,
@@ -46,6 +48,17 @@ const hash = (b: string | Buffer) =>
 async function fixture() {
   const home = await mkdtemp(path.join(os.tmpdir(), "linger-model-tool-"));
   roots.push(home);
+  // A region resolved earlier, so no test probes the registries.
+  await mkdir(path.dirname(regionFile(home)), { recursive: true });
+  await writeFile(
+    regionFile(home),
+    JSON.stringify({
+      schema: REGION_SCHEMA,
+      region: "global",
+      resolved_at: new Date().toISOString(),
+      method: "probe",
+    }),
+  );
   const manifest = {
     schemaVersion: 1,
     platform: process.platform,
@@ -279,6 +292,44 @@ test.skipIf(process.platform === "win32")(
     );
   },
 );
+test.skipIf(process.platform === "win32")(
+  "downloads the kit from the npm China mirror first in the cn region",
+  async () => {
+    const f = await fixture();
+    const bytes = await packed(f);
+    const npm = "https://registry.npmjs.org/@simplexai/kit/-/kit-1.tgz";
+    const mirror =
+      "https://cdn.npmmirror.com/packages/@simplexai/kit/1/kit-1.tgz";
+    const source = {
+      ...f.source,
+      mirrors: [npm, mirror],
+      sha256: hash(bytes),
+      bytes: bytes.length,
+    };
+    await writeFile(
+      regionFile(f.home),
+      JSON.stringify({
+        schema: REGION_SCHEMA,
+        region: "cn",
+        resolved_at: new Date().toISOString(),
+        method: "probe",
+      }),
+    );
+    const requested: string[] = [];
+    await ensureLocalmodelsTool(
+      f.home,
+      {},
+      {
+        source,
+        fetcher: async (url) => {
+          requested.push(requestUrlText(url));
+          return new Response(bytes);
+        },
+      },
+    );
+    expect(requested).toEqual([mirror]);
+  },
+);
 // A refused member must reject the install, not leave the extraction pending.
 for (const [label, add] of [
   [
@@ -354,16 +405,71 @@ test("invokes the verified upstream module with isolated module and state paths"
     "sourceCommit",
   );
 });
-test("stops the controller and the stack through the installed pinned kit", async () => {
+test("passes the resolved download region to every localmodels child", async () => {
   const f = await fixture();
   vi.stubEnv("LINGER_LOCALMODELS_TOOL_JSON", JSON.stringify(f.source));
-  const run = vi.fn<typeof runLocalmodels>(async () => ({
-    code: 0,
-    stdout: "{}",
-    stderr: "",
-  }));
+  // The home's saved region decides: an inherited auto is replaced, so the
+  // child never probes again.
+  vi.stubEnv("SIMPLEX_REGION", "auto");
+  await writeFile(
+    regionFile(f.home),
+    JSON.stringify({
+      schema: REGION_SCHEMA,
+      region: "cn",
+      resolved_at: new Date().toISOString(),
+      method: "fallback",
+    }),
+  );
+  const run = vi.fn(async () => ({ code: 0, stdout: "{}", stderr: "" }));
+  for (const args of [
+    ["stack", "apply", "--json"],
+    ["foundations", "start", "--json"],
+    ["harness", "apply", "plan", "--jsonl"],
+  ])
+    await runLocalmodels(
+      f.home,
+      args,
+      { env: { SIMPLEX_REGION: "global" } },
+      { run },
+    );
+  expect(run).toHaveBeenCalledTimes(3);
+  for (const call of run.mock.calls as unknown as [
+    string,
+    string[],
+    { env: NodeJS.ProcessEnv },
+  ][])
+    expect(call[2].env.SIMPLEX_REGION).toBe("cn");
+});
+// What `library status` prints, cut to the fields the stop reads.
+const libraryStatus = (models: { id: string; state: string }[]) => ({
+  code: 0,
+  stdout: JSON.stringify({ schema: "localmodels.library-status/v1", models }),
+  stderr: "",
+});
+test("unloads the library's models, then stops the controller and the stack through the installed pinned kit", async () => {
+  const f = await fixture();
+  vi.stubEnv("LINGER_LOCALMODELS_TOOL_JSON", JSON.stringify(f.source));
+  const base = path.join(f.home, "runtime/localmodels/models");
+  const run = vi.fn<typeof runLocalmodels>(async (_home, args) =>
+    args[1] === "status"
+      ? libraryStatus([
+          { id: "qwen3-8b:Q4_K_M", state: "loaded" },
+          { id: "spark-x2.6-4b:Q4_K_M", state: "idle" },
+          { id: "gemma4-4b:Q4_K_M", state: "loaded" },
+        ])
+      : { code: 0, stdout: "{}", stderr: "" },
+  );
   await stopLocalmodels(f.home, { signal: AbortSignal.timeout(5000) }, { run });
   expect(run.mock.calls.map(([home, args]) => [home, args])).toEqual([
+    [f.home, ["library", "status", "--base-dir", base, "--json"]],
+    [
+      f.home,
+      ["library", "unload", "qwen3-8b:Q4_K_M", "--base-dir", base, "--json"],
+    ],
+    [
+      f.home,
+      ["library", "unload", "gemma4-4b:Q4_K_M", "--base-dir", base, "--json"],
+    ],
     [
       f.home,
       [
@@ -375,6 +481,70 @@ test("stops the controller and the stack through the installed pinned kit", asyn
       ],
     ],
     [f.home, ["stack", "down", "--json"]],
+  ]);
+});
+test("a quit keeps the controller and stops only the library's models and the stack", async () => {
+  const run = vi.fn<typeof runLocalmodels>(async (_home, args) =>
+    args[1] === "status"
+      ? libraryStatus([{ id: "qwen3-8b:Q4_K_M", state: "loaded" }])
+      : { code: 0, stdout: "{}", stderr: "" },
+  );
+  await stopLocalmodels(
+    "/home",
+    { signal: AbortSignal.timeout(5000), keepController: true },
+    { run, installed: async () => true },
+  );
+  expect(run.mock.calls.map(([, args]) => args.slice(0, 2))).toEqual([
+    ["library", "status"],
+    ["library", "unload"],
+    ["stack", "down"],
+  ]);
+});
+test("stops the stack even when the library could not be read or a model did not unload, and names each failure", async () => {
+  const unloadFailed = vi.fn<typeof runLocalmodels>(async (_home, args) =>
+    args[1] === "status"
+      ? libraryStatus([{ id: "qwen3-8b:Q4_K_M", state: "loaded" }])
+      : args[1] === "unload"
+        ? {
+            code: 1,
+            stdout: JSON.stringify({
+              schema: "localmodels.library-event/v1",
+              event: "error",
+              ok: false,
+              code: "JOB_RUNNING",
+              detail: "a download is running",
+            }),
+            stderr: "",
+          }
+        : { code: 0, stdout: "{}", stderr: "" },
+  );
+  await expect(
+    stopLocalmodels(
+      "/home",
+      { signal: AbortSignal.timeout(5000), keepController: true },
+      { run: unloadFailed, installed: async () => true },
+    ),
+  ).rejects.toThrow("localmodels library unload qwen3-8b:Q4_K_M: JOB_RUNNING");
+  expect(unloadFailed.mock.calls.at(-1)?.[1]).toEqual([
+    "stack",
+    "down",
+    "--json",
+  ]);
+  const statusFailed = vi.fn<typeof runLocalmodels>(async (_home, args) =>
+    args[1] === "status"
+      ? { code: 1, stdout: "", stderr: "error: library status failed" }
+      : { code: 0, stdout: "{}", stderr: "" },
+  );
+  await expect(
+    stopLocalmodels(
+      "/home",
+      { signal: AbortSignal.timeout(5000), keepController: true },
+      { run: statusFailed, installed: async () => true },
+    ),
+  ).rejects.toThrow("localmodels library status: exit 1");
+  expect(statusFailed.mock.calls.map(([, args]) => args[1])).toEqual([
+    "status",
+    "down",
   ]);
 });
 test("a home without the pinned kit has nothing to stop and downloads nothing", async () => {
@@ -413,6 +583,7 @@ test("stops the stack even when the controller did not stop, and names the failu
     ),
   ).rejects.toThrow("localmodels foundations stop: controller still running");
   expect(run.mock.calls.map(([, args]) => args[0])).toEqual([
+    "library",
     "foundations",
     "stack",
   ]);

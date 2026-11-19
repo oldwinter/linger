@@ -3,7 +3,11 @@
 This directory holds only the entry scripts of the local model stack, plus this
 README. Its release pipeline generates the scripts with pinned versions; source,
 tests and release tools stay in their own repository, and the pipeline rewrites
-only its scripts and its marked section below.
+only its scripts and its marked section below. After updating `stack.sh` and
+`stack.ps1`, run `node scripts/sync-install-stack-pin.mjs --write` so
+`scripts/install/install.sh` and `scripts/install/install.ps1` keep matching
+release pins for standalone use outside a repository checkout (Desktop GitHub
+Releases do not attach those scripts).
 
 ## Your own API keys: `user.env`
 
@@ -86,15 +90,15 @@ Run the pinned script without cloning the repository:
 
 ```sh
 # global
-curl -fsSL https://cdn.jsdelivr.net/npm/@simplexai/localmodels@0.1.0-dev.31/stack.sh | sh -s -- --region global --help
+curl -fsSL https://cdn.jsdelivr.net/npm/@simplexai/localmodels@0.1.0-dev.43/stack.sh | sh -s -- --region global --help
 # cn
-curl -fsSL https://registry.npmmirror.com/@simplexai/localmodels/0.1.0-dev.31/files/stack.sh | sh -s -- --region cn --help
+curl -fsSL https://registry.npmmirror.com/@simplexai/localmodels/0.1.0-dev.43/files/stack.sh | sh -s -- --region cn --help
 ```
 
 ```powershell
-irm https://cdn.jsdelivr.net/npm/@simplexai/localmodels@0.1.0-dev.31/stack.ps1 -OutFile stack.ps1
+irm https://cdn.jsdelivr.net/npm/@simplexai/localmodels@0.1.0-dev.43/stack.ps1 -OutFile stack.ps1
 powershell -ExecutionPolicy Bypass -File .\stack.ps1 -Region global --help
-# cn script URL: https://registry.npmmirror.com/@simplexai/localmodels/0.1.0-dev.31/files/stack.ps1
+# cn script URL: https://registry.npmmirror.com/@simplexai/localmodels/0.1.0-dev.43/files/stack.ps1
 ```
 
 The localmodels release process publishes each version's platform kits, its patched Bifrost packages and the
@@ -103,3 +107,52 @@ and this section carry that release's pin; do not edit them by hand. The version
 runs; it does not state which platforms or GPUs are supported.
 
 <!-- <<< llm-inference-lab: stack -->
+
+## Download region: `SIMPLEX_REGION` and `region.json`
+
+Linger and localmodels share one download region, so a computer in mainland
+China gets the China mirrors without first waiting for a foreign host to time
+out. The region only orders the sources of a download: no source is ever
+dropped, and the pinned SHA256, SHA512 or lockfile integrity still decides
+which bytes are used.
+
+The installer resolves the region once per process, in this order:
+
+1. `SIMPLEX_REGION`: `cn` or `global` forces that region; `auto` or unset
+   does not. Any other value is an error.
+2. `<LINGER_HOME>/runtime/region.json` when it was resolved within the last
+   24 hours.
+3. A probe: up to three rounds racing the first 1 MiB of the pinned pnpm
+   tarball from `registry.npmjs.org` and `cdn.npmmirror.com` (4 seconds per
+   round), stopping once one registry wins two rounds or leads clearly over a
+   full window; `cn` when the China mirror wins. A probe that reaches neither
+   uses `global` and is not saved.
+
+```json
+{
+  "schema": "simplex.region/v1",
+  "region": "cn",
+  "resolved_at": "2026-11-18T08:00:00.000Z",
+  "method": "probe"
+}
+```
+
+`method` is `env`, `probe` or `fallback`. When the preferred region fails or
+downloads slowly with substantial work left and a source in the other region
+proves faster and finishes the download, the file is rewritten with that
+region and `fallback`, and later downloads start there (unless
+`SIMPLEX_REGION` forces a region).
+
+| Download                             | global first         | cn first                                 |
+| ------------------------------------ | -------------------- | ---------------------------------------- |
+| Node.js runtime (desktop app)        | `nodejs.org`         | `cdn.npmmirror.com`                      |
+| pnpm, npm and package installs       | `registry.npmjs.org` | `registry.npmmirror.com`                 |
+| Go toolchain                         | `dl.google.com`      | `mirrors.aliyun.com`                     |
+| Go modules (`GOPROXY`, unless set)   | `proxy.golang.org`   | `goproxy.cn`                             |
+| localmodels kit                      | CloudFront, then npm | `cdn.npmmirror.com` where it has the kit |
+| Voice model packages (node-services) | `registry.npmjs.org` | `registry.npmmirror.com`                 |
+
+A registry or `GOPROXY` the person configured still wins. The installer
+passes the resolved region as `SIMPLEX_REGION` to every `localmodels` child
+(stack, foundations, Harness) and to every native service, so none of them
+probes again.

@@ -31,6 +31,14 @@ import {
 import type { SearchRoomScope } from "@/features/search/room-search-scope";
 
 import { RoomChat } from "./chat/room-chat";
+import {
+  roomDocumentsQueryOptions,
+  roomMembersQueryOptions,
+  roomMessagesInfiniteQueryOptions,
+  roomQueryOptions,
+  teamHubIdentityQueryOptions,
+  tenantActorsQueryOptions,
+} from "./room-queries";
 import { RoomSurface } from "./room-surface";
 import {
   openPanelTab,
@@ -1445,12 +1453,36 @@ async function renderRoomSurface(
     { initialEntries: [`/t/tenant-northstar/rooms/${roomId}/chat${search}`] },
   );
 
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  // Loading what RoomSurface suspends on before rendering skips React's
+  // Suspense reveal throttle, which otherwise costs every test a fixed delay.
+  // A failed load stays in the cache so RoomSurface surfaces it as before.
+  const tenantId = "tenant-northstar";
+  await Promise.all([
+    queryClient.ensureQueryData(
+      roomQueryOptions(runtime.client, tenantId, roomId),
+    ),
+    queryClient.ensureQueryData(
+      roomMembersQueryOptions(runtime.client, tenantId, roomId),
+    ),
+    queryClient.ensureInfiniteQueryData(
+      roomMessagesInfiniteQueryOptions(runtime.client, tenantId, roomId),
+    ),
+    queryClient.ensureQueryData(teamHubIdentityQueryOptions(runtime.client)),
+  ]).catch(() => undefined);
+  // The panel sidebar also suspends on these. They are not awaited so a test
+  // that holds one back still sees the sidebar's loading state.
+  void queryClient.prefetchQuery(
+    tenantActorsQueryOptions(runtime.client, tenantId),
+  );
+  void queryClient.prefetchQuery(
+    roomDocumentsQueryOptions(runtime.client, tenantId, roomId),
+  );
+
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
+    <QueryClientProvider client={queryClient}>
       <TeamHubRuntimeProvider runtime={runtime}>
         <RouterProvider router={router} />
       </TeamHubRuntimeProvider>

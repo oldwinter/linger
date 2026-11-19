@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -7,7 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
@@ -16,6 +17,14 @@ import { RoomNavigation } from "./room-navigation";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 
 describe("Room navigation", () => {
+  // The Room list is a lazy chunk and most tests query it synchronously, so
+  // load it once before any test regardless of the order they run in.
+  beforeAll(async () => {
+    renderNavigation(await navigationFixture(), new QueryClient());
+    await screen.findByRole("navigation", { name: "Room navigation" });
+    cleanup();
+  });
+
   it("opens the mobile navigation in one dialog with one close action", async () => {
     const matchMedia = window.matchMedia.bind(window);
     const viewport = vi

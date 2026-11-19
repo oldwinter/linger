@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -97,6 +98,29 @@ func TestLocalModelsViewMatchesAgentsToModelsOnTheComputer(t *testing.T) {
 	}
 }
 
+// The folder a gateway cause names is a path on the owner's machine: only
+// the owner, who can rename it, reads it.
+func TestLocalModelsViewShowsTheCausePathOnlyToTheOwner(t *testing.T) {
+	snapshot := strings.Replace(storedLocalModelsSnapshotJSON, `"state":"idle"`,
+		`"state":"failed","error":{"code":"GATEWAY_REGISTRATION_FAILED","cause":"GATEWAY_HOME_NOT_PRIVATE","path":"/home/ana/.local/share/localmodels/tools/gateway-home"}`, 1)
+	record := agentruntimestate.LocalModelsRecord{
+		ComputerID: "computer_1", DisplayName: "Studio", Status: "offline",
+		Owner:    agentruntimestate.LocalComputerOwner{TenantID: "tenant_1", OwnerActorID: "actor_owner"},
+		Snapshot: json.RawMessage(snapshot),
+	}
+	for viewer, wantPath := range map[string]bool{"actor_owner": true, "actor_member": false} {
+		view, err := localModelsView(record, viewer, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		failed := view.Models[2].Model.Error
+		if failed == nil || failed.Cause == nil || *failed.Cause != httpapi.LocalModelErrorCauseGatewayHomeNotPrivate ||
+			(failed.Path != nil) != wantPath {
+			t.Fatalf("%s: error=%+v", viewer, failed)
+		}
+	}
+}
+
 func TestLocalModelsViewWithoutSnapshotIsNotReported(t *testing.T) {
 	view, err := localModelsView(agentruntimestate.LocalModelsRecord{ComputerID: "computer_1", DisplayName: "Studio", Status: "offline"}, "actor_owner", time.Now())
 	if err != nil || view.Available || view.Reason == nil || view.Reason.Code != httpapi.LocalModelsViewNotReported ||
@@ -178,6 +202,11 @@ func TestValidLocalModelsSnapshot(t *testing.T) {
 		"non-https source_url": func(s *teamhubinternal.LocalModelsSnapshot) {
 			u := "http://huggingface.co/Qwen/Qwen3-4B"
 			s.Models[0].SourceUrl = &u
+		},
+		"unknown error cause": func(s *teamhubinternal.LocalModelsSnapshot) {
+			c := teamhubinternal.LocalModelErrorCause("DISK_LOCKED")
+			s.Models[0].State = teamhubinternal.LocalModelStateFailed
+			s.Models[0].Error = &teamhubinternal.LocalModelError{Code: "GATEWAY_REGISTRATION_FAILED", Cause: &c}
 		},
 		"negative prompt_tokens_per_second": func(s *teamhubinternal.LocalModelsSnapshot) {
 			p := float32(-1)

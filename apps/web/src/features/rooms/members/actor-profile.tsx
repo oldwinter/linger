@@ -64,6 +64,8 @@ import type {
   AgentRuntimeField,
   AgentRuntimeUpdateInput,
 } from "./edit-agent-runtime-dialog";
+import { tenantLocalModelsQueryKey } from "@/features/local-models/local-models-queries";
+import { useResolvedAgentModelLabel } from "./use-agent-model-selection";
 const EditAgentRuntimeDialog = lazy(async () => ({
   default: (await import("./edit-agent-runtime-dialog")).EditAgentRuntimeDialog,
 }));
@@ -291,6 +293,9 @@ export function AgentProfileContent({
           queryKey: tenantAgentsQueryKey(tenantId),
         }),
         queryClient.invalidateQueries({
+          queryKey: tenantLocalModelsQueryKey(tenantId),
+        }),
+        queryClient.invalidateQueries({
           queryKey: tenantRoomsQueryKey(tenantId),
         }),
         queryClient.invalidateQueries({
@@ -319,6 +324,11 @@ export function AgentProfileContent({
     updateAgent.reset();
     setProfileDialogOpen("instructions");
   };
+  const resolvedModelLabel = useResolvedAgentModelLabel(
+    client,
+    tenantId,
+    agentRegistration?.runtime,
+  );
 
   return (
     <AgentInfoContent
@@ -343,7 +353,7 @@ export function AgentProfileContent({
         <PanelAgentRuntimeDetails
           localRuntime={agentSnapshot?.local_runtime_status}
           placement={agentRegistration?.runtime.placement}
-          modelLabel={agentRegistration?.runtime.model}
+          modelLabel={resolvedModelLabel}
           reasoning={agentRegistration?.runtime.reasoning_effort}
           canEdit={canEditRuntime}
           busy={agentBusy}

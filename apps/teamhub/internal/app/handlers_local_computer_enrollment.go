@@ -49,8 +49,8 @@ func (a *App) createLocalComputerEnrollment(c *gin.Context) {
 	enrollmentID, authorizationCode := ids.New("enrollment"), newLocalComputerAuthorizationCode()
 	codeHash := sha256.Sum256([]byte(authorizationCode))
 	expiresAt := time.Now().UTC().Add(localComputerEnrollmentLifetime)
-	err := a.agentRuntimeState.CreateLocalComputerEnrollment(c.Request.Context(), agentruntimestate.CreateLocalComputerEnrollmentInput{
-		EnrollmentID: enrollmentID, ComputerID: computerID, DisplayName: request.DisplayName,
+	resolvedComputerID, err := a.agentRuntimeState.CreateLocalComputerEnrollment(c.Request.Context(), agentruntimestate.CreateLocalComputerEnrollmentInput{
+		EnrollmentID: enrollmentID, ComputerID: computerID, DaemonID: optionalStringValue(request.DaemonId), DisplayName: request.DisplayName,
 		Owner:       agentruntimestate.LocalComputerOwner{TenantID: tenantID, OwnerActorID: ownerID},
 		RedirectURI: request.RedirectUri, CodeChallenge: request.CodeChallenge,
 		AuthorizationCodeHash: codeHash[:], ExpiresAt: expiresAt, RenewsExistingComputer: renews,
@@ -59,6 +59,12 @@ func (a *App) createLocalComputerEnrollment(c *gin.Context) {
 	case err == nil:
 	case errors.Is(err, agentruntimestate.ErrRemoved):
 		a.writeError(c, http.StatusGone, "LOCAL_COMPUTER_REMOVED", "Local Computer was removed")
+		return
+	case errors.Is(err, agentruntimestate.ErrDaemonIdentityInUse):
+		a.writeError(c, http.StatusConflict, "DAEMON_IDENTITY_IN_USE", "Daemon Identity is already bound to another Local Computer")
+		return
+	case errors.Is(err, agentruntimestate.ErrComputerDaemonMismatch):
+		a.writeError(c, http.StatusConflict, "LOCAL_COMPUTER_IDENTITY_MISMATCH", "Local Computer is already bound to another Daemon Identity")
 		return
 	case errors.Is(err, agentruntimestate.ErrNotFound), errors.Is(err, agentruntimestate.ErrConflict):
 		a.writeError(c, http.StatusNotFound, "INVALID_ENROLLMENT", "Local Computer enrollment is invalid or expired")
@@ -71,7 +77,7 @@ func (a *App) createLocalComputerEnrollment(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, httpapi.LocalComputerEnrollmentAuthorization{
-		EnrollmentId: enrollmentID, ComputerId: computerID,
+		EnrollmentId: enrollmentID, ComputerId: resolvedComputerID,
 		AuthorizationCode: &authorizationCode, ExpiresAt: expiresAt,
 	})
 }
@@ -175,6 +181,7 @@ func (a *App) exchangeLocalComputerEnrollment(c *gin.Context) {
 func validLocalComputerEnrollmentCreate(request httpapi.LocalComputerEnrollmentCreateRequest) bool {
 	return strings.TrimSpace(request.DisplayName) != "" && len(request.DisplayName) <= 120 &&
 		(request.ComputerId == nil || localComputerIDPattern.MatchString(*request.ComputerId)) &&
+		(request.DaemonId == nil || localComputerPKCEPattern.MatchString(*request.DaemonId)) &&
 		localComputerPKCEPattern.MatchString(request.CodeChallenge) && validLocalComputerRedirect(request.RedirectUri)
 }
 

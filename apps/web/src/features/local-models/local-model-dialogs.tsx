@@ -6,30 +6,36 @@ import { ModalDialog } from "@/components/ui/modal-dialog";
 import { sourceCheckClassName } from "@/features/settings/provider-selection-picker";
 import { cn } from "@/lib/cn";
 
+import {
+  type AssignableLocalModelAgent,
+  isAgentUsingModel,
+  usedByAgentNames,
+} from "./local-model-agents";
 import type { LocalModelsView } from "./local-models-queries";
 import {
-  agentNames,
   formatGigabytes,
   makeRoomSelection,
   makesRoom,
+  placeName,
   poolLabel,
   poolOf,
+  poolOtherBytes,
   type LoadCheck,
   type ModelEntry,
 } from "./local-models-rules";
 
 /** The amber notice naming the Agents that stop answering. */
 function AffectedAgents({
-  entry,
+  names,
   until,
 }: {
-  entry: ModelEntry;
+  names: readonly string[];
   until: string;
 }) {
-  const count = entry.used_by.length;
+  const count = names.length;
   return count ? (
     <FormFeedback tone="warning">
-      {agentNames(entry)} {count === 1 ? "uses" : "use"} this model and
+      {names.join(", ")} {count === 1 ? "uses" : "use"} this model and
       can&apos;t answer until {until}.
     </FormFeedback>
   ) : (
@@ -37,42 +43,107 @@ function AffectedAgents({
   );
 }
 
-/** Loading would overfill the pool: offer to unload loaded models first. */
+/** Loading would overfill the pool: offer to unload loaded models or recheck memory. */
 export function MakeRoomDialog({
+  assignableAgents = [],
   check,
   disabled,
   entry,
   onClose,
   onConfirm,
+  onRecheck,
+  rechecking = false,
   view,
 }: {
+  assignableAgents?: readonly AssignableLocalModelAgent[];
   check: LoadCheck;
   /** The model can no longer be loaded, or its Computer took no actions. */
   disabled: boolean;
   entry: ModelEntry;
   onClose: () => void;
-  onConfirm: (unloadIds: string[]) => void;
+  onConfirm: (unloadIds: string[], switchAgentIds: string[]) => void;
+  onRecheck?: () => void;
+  rechecking?: boolean;
   view: LocalModelsView;
 }) {
   const [selected, setSelected] = useState(() => makeRoomSelection(check));
-  const chosen = new Set(selected);
-  const enough = makesRoom(check, chosen);
-  const affected = check.loaded.flatMap((item) =>
-    chosen.has(item.model.id) ? item.used_by.map((user) => user.name) : [],
+  const [switchAgents, setSwitchAgents] = useState(true);
+  const roomFreeNow = check.freeBytes >= check.needBytes;
+  const loadedIds = new Set(check.loaded.map((item) => item.model.id));
+  const effectiveSelected = roomFreeNow
+    ? []
+    : selected.filter((id) => loadedIds.has(id));
+  const chosen = new Set(effectiveSelected);
+  const enough = roomFreeNow || makesRoom(check, chosen);
+  const pool = poolLabel(view, check.pool);
+  const otherBytes = poolOtherBytes(check.pool);
+  const unifiedFitsHardware =
+    check.pool.kind === "unified" &&
+    (view.computer.host?.ram_total_bytes ?? 0) >= check.needBytes;
+  // Whether unloading every model offered here frees enough; when not, what
+  // else holds the memory is the thing to show.
+  const reachable =
+    roomFreeNow ||
+    makesRoom(check, new Set(check.loaded.map((item) => item.model.id)));
+  // Free memory never exceeds the pool's total, whatever else closes.
+  const tooBig = check.needBytes > check.pool.total_bytes;
+  const inUse = [
+    ...(otherBytes ? [{ bytes: otherBytes, id: "", name: "Other apps" }] : []),
+    ...check.kept,
+  ];
+  const computerId = view.computer.computer_id;
+  const chosenLoaded = check.loaded.filter((item) => chosen.has(item.model.id));
+  const selectedFreedBytes = chosenLoaded.reduce(
+    (sum, item) => sum + item.model.memory_bytes,
+    0,
   );
+  const remainingShortfallBytes = Math.max(
+    0,
+    check.needBytes - (check.freeBytes + selectedFreedBytes),
+  );
+  const affected = [
+    ...new Set(
+      chosenLoaded.flatMap((item) =>
+        usedByAgentNames(item, assignableAgents, computerId),
+      ),
+    ),
+  ];
+  const affectedAssignable = assignableAgents.filter(
+    (agent) =>
+      !agent.busy &&
+      chosenLoaded.some((item) => isAgentUsingModel(item, agent, computerId)),
+  );
+  const canSwitchOnLoad =
+    Boolean(entry.model.pi_model) && affectedAssignable.length > 0;
 
   return (
     <ModalDialog
-      description={`${entry.model.name} needs ${formatGigabytes(check.needBytes)} on ${poolLabel(view, check.pool)}; ${formatGigabytes(check.freeBytes)} is free.`}
+      description={`${entry.model.name} needs ${formatGigabytes(check.needBytes)} on ${pool}; ${formatGigabytes(check.freeBytes)} is free.`}
       footer={
         <>
+          {onRecheck ? (
+            <Button
+              disabled={disabled}
+              loading={rechecking}
+              onClick={onRecheck}
+            >
+              Recheck memory
+            </Button>
+          ) : null}
           <Button onClick={onClose}>Cancel</Button>
           <Button
             disabled={disabled || !enough}
-            onClick={() => onConfirm(selected)}
+            onClick={() =>
+              onConfirm(
+                effectiveSelected,
+                canSwitchOnLoad && switchAgents
+                  ? affectedAssignable.map((agent) => agent.actorId)
+                  : [],
+              )
+            }
             tone="primary"
           >
-            {selected.length ? "Unload and load" : "Load"}
+            {effectiveSelected.length ? "Unload and load" : "Load"}
           </Button>
         </>
       }
@@ -81,7 +152,12 @@ export function MakeRoomDialog({
       title="Make room to load"
     >
       <div className="grid gap-3 px-5 py-4">
-        {check.loaded.length ? (
+        {roomFreeNow ? (
+          <FormFeedback tone="success">
+            Enough memory is free now ({formatGigabytes(check.freeBytes)}{" "}
+            available). Click Load to start.
+          </FormFeedback>
+        ) : check.loaded.length ? (
           <fieldset className="grid gap-0.5">
             <legend className="mb-1.5 text-sm text-muted-foreground">
               Unload these to free memory:
@@ -112,9 +188,16 @@ export function MakeRoomDialog({
                   {item.model.name}
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {item.used_by.length
-                    ? `Used by ${agentNames(item)}`
-                    : "Not used"}
+                  {(() => {
+                    const names = usedByAgentNames(
+                      item,
+                      assignableAgents,
+                      computerId,
+                    );
+                    return names.length
+                      ? `Used by ${names.join(", ")}`
+                      : "Not used";
+                  })()}
                 </span>
                 <span className="w-16 text-right text-xs tabular-nums text-muted-foreground">
                   {formatGigabytes(item.model.memory_bytes)}
@@ -122,17 +205,70 @@ export function MakeRoomDialog({
               </label>
             ))}
           </fieldset>
-        ) : (
+        ) : null}
+        {tooBig ? (
           <FormFeedback tone="danger">
-            Nothing else is loaded there. This model doesn&apos;t fit even when
-            the memory is empty.
+            {entry.model.name} needs more than all{" "}
+            {formatGigabytes(check.pool.total_bytes)} of {pool}, so it
+            can&apos;t load there.
           </FormFeedback>
+        ) : reachable ? null : (
+          <>
+            {inUse.length ? (
+              <ul aria-label="Also using this memory" className="grid gap-0.5">
+                {inUse.map((holder) => (
+                  <li
+                    className="flex min-h-8 items-center gap-2 px-2 text-sm text-app-body"
+                    key={holder.id}
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      {holder.name}
+                    </span>
+                    <span className="w-16 text-right text-xs tabular-nums text-muted-foreground">
+                      {formatGigabytes(holder.bytes)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <FormFeedback tone="danger">
+              {otherBytes > 0 || unifiedFitsHardware
+                ? `${otherBytes > 0 ? `Other apps are using ${formatGigabytes(otherBytes)}. ` : ""}Close other apps that use ${placeName(view, check.pool.id)}, then ${onRecheck ? "click Recheck memory" : "try again"}.`
+                : "Unloading models here doesn't free enough. Choose a smaller model."}
+            </FormFeedback>
+          </>
         )}
+        {reachable && !enough && otherBytes > 0 ? (
+          <FormFeedback tone="warning">
+            Other apps are using {formatGigabytes(otherBytes)} on {pool}. Close
+            unnecessary apps and click Recheck memory to free the remaining
+            room.
+          </FormFeedback>
+        ) : reachable && !enough && remainingShortfallBytes > 0 ? (
+          <FormFeedback tone="info">
+            Select at least {formatGigabytes(remainingShortfallBytes)} more to
+            unload before loading {entry.model.name}.
+          </FormFeedback>
+        ) : null}
         {affected.length ? (
           <FormFeedback tone="warning">
             {affected.join(", ")} can&apos;t answer until their model is loaded
             again.
           </FormFeedback>
+        ) : null}
+        {canSwitchOnLoad ? (
+          <label className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-app-ink">
+            <input
+              checked={switchAgents}
+              className={sourceCheckClassName}
+              onChange={(event) => setSwitchAgents(event.target.checked)}
+              type="checkbox"
+            />
+            <span>
+              Switch {affectedAssignable.map((agent) => agent.name).join(", ")}{" "}
+              to {entry.model.name} once loaded
+            </span>
+          </label>
         ) : null}
       </div>
     </ModalDialog>
@@ -141,12 +277,14 @@ export function MakeRoomDialog({
 
 /** Unloading a model an Agent uses stops that Agent, so it asks first. */
 export function UnloadModelDialog({
+  assignableAgents = [],
   disabled,
   entry,
   onClose,
   onConfirm,
   view,
 }: {
+  assignableAgents?: readonly AssignableLocalModelAgent[];
   /** The action no longer applies, or its Computer takes no actions. */
   disabled: boolean;
   entry: ModelEntry;
@@ -155,6 +293,11 @@ export function UnloadModelDialog({
   view: LocalModelsView;
 }) {
   const pool = poolOf(view, entry.model.pool);
+  const names = usedByAgentNames(
+    entry,
+    assignableAgents,
+    view.computer.computer_id,
+  );
   return (
     <ModalDialog
       description={`Frees ${formatGigabytes(entry.model.memory_bytes)} of ${
@@ -173,19 +316,21 @@ export function UnloadModelDialog({
       title={`Unload ${entry.model.name}?`}
     >
       <div className="px-5 py-4">
-        <AffectedAgents entry={entry} until="it is loaded again" />
+        <AffectedAgents names={names} until="it is loaded again" />
       </div>
     </ModalDialog>
   );
 }
 
 export function RemoveModelDialog({
+  assignableAgents = [],
   disabled,
   entry,
   onClose,
   onConfirm,
   view,
 }: {
+  assignableAgents?: readonly AssignableLocalModelAgent[];
   /** The action no longer applies, or its Computer takes no actions. */
   disabled: boolean;
   entry: ModelEntry;
@@ -193,6 +338,11 @@ export function RemoveModelDialog({
   onConfirm: () => void;
   view: LocalModelsView;
 }) {
+  const names = usedByAgentNames(
+    entry,
+    assignableAgents,
+    view.computer.computer_id,
+  );
   return (
     <ModalDialog
       description={`${
@@ -214,8 +364,8 @@ export function RemoveModelDialog({
     >
       <div className="px-5 py-4">
         <AffectedAgents
-          entry={entry}
-          until={`you choose another model for ${entry.used_by.length === 1 ? "it" : "them"}`}
+          names={names}
+          until={`you choose another model for ${names.length === 1 ? "it" : "them"}`}
         />
       </div>
     </ModalDialog>

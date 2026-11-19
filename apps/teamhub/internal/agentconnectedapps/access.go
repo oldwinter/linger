@@ -3,6 +3,11 @@
 // sponsor's confirmation.
 package agentconnectedapps
 
+import (
+	"github.com/vektah/gqlparser/v2/ast"
+	"github.com/vektah/gqlparser/v2/parser"
+)
+
 // toolAccess is how TeamHub admits one provider tool call. The
 // generic `teamhub apps execute` and the wrapped connector commands submit
 // their calls to the same Execute, which decides here; neither the CLI nor
@@ -22,23 +27,50 @@ const (
 	accessWrite
 )
 
-// accessOf classifies a provider tool by its exact slug.
-func accessOf(slug string) toolAccess {
+// linearGraphQLTool runs any GraphQL document against Linear, so its slug
+// alone cannot say whether a call reads or writes.
+const linearGraphQLTool = "LINEAR_RUN_QUERY_OR_MUTATION"
+
+// accessOf classifies a provider tool call by its exact slug, and a Linear
+// GraphQL call by the operations its document declares.
+func accessOf(slug string, arguments map[string]any) toolAccess {
 	switch {
 	case readTools[slug]:
 		return accessRead
 	case directWriteTools[slug]:
 		return accessWrite
+	case slug == linearGraphQLTool && onlyQueries(arguments["query_or_mutation"]):
+		return accessRead
 	default:
 		return accessConfirm
 	}
 }
 
+// onlyQueries reports whether document is a GraphQL document whose operations
+// are all queries. A document that does not parse, declares no operation, or
+// declares a mutation or subscription is held like any other write.
+func onlyQueries(document any) bool {
+	text, ok := document.(string)
+	if !ok {
+		return false
+	}
+	parsed, err := parser.ParseQuery(&ast.Source{Input: text})
+	if err != nil || len(parsed.Operations) == 0 {
+		return false
+	}
+	for _, operation := range parsed.Operations {
+		if operation.Operation != ast.Query {
+			return false
+		}
+	}
+	return true
+}
+
 // readTools are the provider reads the wrapped connector commands make,
 // including the draft reads TeamHub makes to build a send-draft card, plus the
 // Slack reads Agents make through the generic execute to find direct messages
-// and the people in them. A read the generic execute names outside this list
-// is held like a write.
+// and the people in them, and the Linear reads, which have no wrapped command.
+// A read the generic execute names outside this list is held like a write.
 var readTools = map[string]bool{
 	"FAL_AI_GET_MODELS":                                   true,
 	"FAL_AI_GET_PRICING":                                  true,
@@ -74,6 +106,29 @@ var readTools = map[string]bool{
 	"GOOGLEDRIVE_GET_FILE_METADATA":                       true,
 	"HIGGSFIELD_MCP_JOB_STATUS":                           true,
 	"HIGGSFIELD_MCP_MODELS_EXPLORE":                       true,
+	"LINEAR_GET_ALL_LINEAR_TEAMS":                         true,
+	"LINEAR_GET_ATTACHMENT":                               true,
+	"LINEAR_GET_COMMENT":                                  true,
+	"LINEAR_GET_CURRENT_USER":                             true,
+	"LINEAR_GET_CYCLES_BY_TEAM_ID":                        true,
+	"LINEAR_GET_ISSUE_DEFAULTS":                           true,
+	"LINEAR_GET_LINEAR_ISSUE":                             true,
+	"LINEAR_GET_LINEAR_PROJECT":                           true,
+	"LINEAR_GET_PROJECT_UPDATE":                           true,
+	"LINEAR_LIST_COMMENTS":                                true,
+	"LINEAR_LIST_ISSUES_BY_TEAM_ID":                       true,
+	"LINEAR_LIST_ISSUE_DRAFTS":                            true,
+	"LINEAR_LIST_LINEAR_CYCLES":                           true,
+	"LINEAR_LIST_LINEAR_ISSUES":                           true,
+	"LINEAR_LIST_LINEAR_LABELS":                           true,
+	"LINEAR_LIST_LINEAR_PROJECTS":                         true,
+	"LINEAR_LIST_LINEAR_STATES":                           true,
+	"LINEAR_LIST_LINEAR_TEAMS":                            true,
+	"LINEAR_LIST_LINEAR_USERS":                            true,
+	"LINEAR_LIST_PROJECT_UPDATES":                         true,
+	"LINEAR_SEARCH_ISSUES":                                true,
+	"LINEAR_VALIDATE_CREDENTIAL":                          true,
+	"LINEAR_WHO_AM_I":                                     true,
 	"NOTION_GET_PAGE_MARKDOWN":                            true,
 	"NOTION_RETRIEVE_PAGE":                                true,
 	"NOTION_SEARCH_NOTION_PAGE":                           true,

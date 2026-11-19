@@ -111,6 +111,12 @@ export const commandExamples: Record<string, string[]> = {
   list_available_agents: ["--limit", "10"],
   get_agent: ["--agent-id", "actor_agent"],
   add_room_member: ["--agent-id", "actor_agent"],
+  hand_off_to_room: [
+    "--inbox",
+    "room:room_two",
+    "--content",
+    "Plan the offsite with the travel Agents and tell me the result.",
+  ],
   create_agent: [
     "--name",
     "Reviewer",

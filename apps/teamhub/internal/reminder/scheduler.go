@@ -11,8 +11,13 @@ import (
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 )
 
+// unfinishedOccurrenceTTL bounds how long an undelivered wake or non-terminal
+// trigger Message can suppress later fires, so a lost wake cannot wedge a
+// Routine permanently.
+const unfinishedOccurrenceTTL = 24 * time.Hour
+
 // fireOccurrence delivers one scheduled occurrence and enqueues the next one in
-// the same transaction. found is false when the occurrence is stale.
+// the same transaction. found is false when the occurrence is stale or skipped.
 func (s *Service) fireOccurrence(ctx context.Context, reminderID string, dueAt time.Time) (ScheduleResult, bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -33,7 +38,8 @@ func (s *Service) fireOccurrence(ctx context.Context, reminderID string, dueAt t
 	if err != nil {
 		return ScheduleResult{}, false, err
 	}
-	nextRunAtTime, err := advanceOccurrenceTx(ctx, tx, queries, record, dueAt)
+	now := s.currentTime()
+	nextRunAtTime, err := advanceOccurrenceTx(ctx, tx, queries, record, dueAt, now)
 	if err != nil {
 		return ScheduleResult{}, false, err
 	}
@@ -51,6 +57,16 @@ func (s *Service) fireOccurrence(ctx context.Context, reminderID string, dueAt t
 			return ScheduleResult{}, false, tx.Commit(ctx)
 		}
 	}
+	// Skip overlapping fires while the previous wake or Agent Run is still unfinished.
+	occurrenceState, err := queries.GetRoutineLatestOccurrenceState(ctx, store.GetRoutineLatestOccurrenceStateParams{
+		RoomID: record.RoomID, RoutineID: record.ID,
+	})
+	if err != nil {
+		return ScheduleResult{}, false, err
+	}
+	if isPreviousOccurrenceUnfinished(occurrenceState, now) {
+		return ScheduleResult{}, false, tx.Commit(ctx)
+	}
 	seq, messageID, dropped, err := deliverReminder(ctx, tx, queries, record, true)
 	if err != nil {
 		return ScheduleResult{}, false, err
@@ -62,6 +78,20 @@ func (s *Service) fireOccurrence(ctx context.Context, reminderID string, dueAt t
 		ReminderID: record.ID, MessageID: messageID, ScheduledFor: dueAt,
 		NextRunAt: nextRunAtTime, RoomID: record.RoomID, RoomSeq: seq, MentionDropped: dropped,
 	}, true, nil
+}
+
+// isPreviousOccurrenceUnfinished reports whether the Routine still has an
+// undelivered quiet wake or a non-terminal trigger Message within the 24-hour
+// expiry window.
+func isPreviousOccurrenceUnfinished(state store.GetRoutineLatestOccurrenceStateRow, now time.Time) bool {
+	cutoff := now.UTC().Add(-unfinishedOccurrenceTTL)
+	if state.LatestUndeliveredWakeAt.Valid && state.LatestUndeliveredWakeAt.Time.After(cutoff) {
+		return true
+	}
+	if state.LatestMessageCreatedAt.Valid && state.LatestMessageCreatedAt.Time.After(cutoff) && !state.LatestMessageTerminal {
+		return true
+	}
+	return false
 }
 
 // skipOccurrence moves past an occurrence that failed on its last attempt
@@ -82,7 +112,7 @@ func (s *Service) skipOccurrence(ctx context.Context, reminderID string, dueAt t
 	if err != nil {
 		return false, err
 	}
-	if _, err := advanceOccurrenceTx(ctx, tx, queries, record, dueAt); err != nil {
+	if _, err := advanceOccurrenceTx(ctx, tx, queries, record, dueAt, s.currentTime()); err != nil {
 		return false, err
 	}
 	return true, tx.Commit(ctx)
@@ -91,14 +121,14 @@ func (s *Service) skipOccurrence(ctx context.Context, reminderID string, dueAt t
 // advanceOccurrenceTx moves a locked Reminder to its next occurrence and enqueues
 // that occurrence in the caller's transaction. A one-shot Routine is done after
 // its occurrence: it is disabled and nothing more is scheduled.
-func advanceOccurrenceTx(ctx context.Context, tx pgx.Tx, queries *store.Queries, record store.RoomReminder, dueAt time.Time) (time.Time, error) {
+func advanceOccurrenceTx(ctx context.Context, tx pgx.Tx, queries *store.Queries, record store.RoomReminder, dueAt, now time.Time) (time.Time, error) {
 	if record.CadenceKind.String == "once" {
 		_, err := queries.FinishRoomReminderSchedule(ctx, store.FinishRoomReminderScheduleParams{
 			ID: record.ID, ExpectedNextRunAt: record.NextRunAt,
 		})
 		return time.Time{}, err
 	}
-	next, err := nextRunAt(cadenceFromRecord(record), maxTime(time.Now().UTC(), dueAt))
+	next, err := nextOccurrenceAt(cadenceFromRecord(record), dueAt, now)
 	if err != nil {
 		return time.Time{}, err
 	}

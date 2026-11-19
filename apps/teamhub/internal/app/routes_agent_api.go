@@ -48,6 +48,7 @@ func (a *App) agentAPIRoutes() []contractRoute {
 		route(http.MethodPost, "/api/agent/v1/personal-profile/builds", nil, a.startAgentPersonalProfileBuild),
 		route(http.MethodPost, "/api/agent/v1/personal-profile/revisions", nil, a.writeAgentPersonalProfile),
 		route(http.MethodPost, "/api/agent/v1/presentation-sequences", nil, a.sendAgentPresentationSequence),
+		route(http.MethodPost, "/api/agent/v1/room-handoffs", nil, a.handOffAgentRoomWork),
 		route(http.MethodPost, "/api/agent/v1/room-members/add", nil, a.addAgentRoomMember),
 		route(http.MethodPost, "/api/agent/v1/room-members/query", nil, a.getAgentRoomMembers),
 		route(http.MethodPost, "/api/agent/v1/routines", nil, a.createAgentRoutine),

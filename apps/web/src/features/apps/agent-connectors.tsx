@@ -20,7 +20,10 @@ import type {
   TeamHubExternalConnection,
 } from "@/features/teamhub/teamhub-types";
 import { AppLogo } from "./app-logo";
-import { establishedExternalConnections } from "./connection-state";
+import {
+  establishedExternalConnections,
+  accountIdentityText,
+} from "./connection-state";
 import {
   externalAppsQueryOptions,
   externalConnectionsQueryOptions,
@@ -181,7 +184,7 @@ function AgentConnectionAccess({
   ) : access.data && !agent ? (
     "Access unavailable for this Agent"
   ) : (
-    connection.identity_label || undefined
+    accountIdentityText(connection.provider, connection.identity_label)
   );
   return (
     <SettingsRow

@@ -406,7 +406,6 @@ export class DiagnosticsModule implements Module {
           runtime: daemon.state(),
           connection: daemon.connection(),
           running: daemon.running(),
-          connectionError: daemon.connectionError(),
           failure: daemon.failure(),
         },
         localServer: local && {

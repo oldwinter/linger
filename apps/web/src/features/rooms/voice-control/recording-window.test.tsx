@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -9,6 +10,7 @@ import {
 } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
@@ -18,6 +20,7 @@ import {
   resetVoicePipForTest,
 } from "../chat/voice-mode/voice-pip";
 import RecordingWindow, { pinchedPlacement } from "./recording-window";
+import { RecordingEntry } from "./recording-entry";
 import {
   openRecordingWindow,
   resetRecordingWindowForTest,
@@ -175,7 +178,10 @@ function WindowState() {
 
 function renderWindow(
   voice: VoiceControlContextValue,
-  { tenantId }: { tenantId?: string } = {},
+  {
+    tenantId,
+    showEntry = false,
+  }: { tenantId?: string; showEntry?: boolean } = {},
 ) {
   const { runtime, routes } = api();
   const queryClient = new QueryClient();
@@ -185,6 +191,9 @@ function renderWindow(
         <VoiceControlContext value={value}>
           <RecordingWindow />
           <WindowState />
+          {showEntry ? (
+            <RecordingEntry anotherMeRoomId="room-1" tenantId="tenant-1" />
+          ) : null}
         </VoiceControlContext>
       </TeamHubRuntimeProvider>
     </QueryClientProvider>
@@ -204,6 +213,7 @@ function renderWindow(
   return {
     routes,
     rerender: (value: VoiceControlContextValue) => view.rerender(tree(value)),
+    unmount: view.unmount,
   };
 }
 
@@ -213,7 +223,10 @@ beforeEach(() => {
   openRecordingWindow();
 });
 afterEach(() => {
+  // Unmount portals before removing their picture-in-picture documents.
+  cleanup();
   Reflect.deleteProperty(window, "documentPictureInPicture");
+  Reflect.deleteProperty(window, "lingerDesktop");
   document.querySelectorAll("iframe").forEach((frame) => frame.remove());
 });
 
@@ -535,20 +548,170 @@ describe("Recording window", () => {
     expect(screen.getByTestId("window-state")).toHaveTextContent("closed");
   });
 
+  it.each(["browser", "desktop"])(
+    "asks inside the row of a minimized in-page window in %s",
+    async (host) => {
+      if (host === "desktop") {
+        defineGlobalProperty(window, "lingerDesktop", {
+          configurable: true,
+          value: {},
+        });
+      }
+      const voice = voiceValue();
+      renderWindow(voice);
+      fireEvent.click(
+        screen.getByRole("button", { name: "Minimize recording" }),
+      );
+      expect(screen.queryByRole("tablist")).toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+      expect(
+        screen.getByRole("alertdialog", { name: "Stop recording?" }),
+      ).toBeVisible();
+      expect(screen.queryByRole("tablist")).toBeNull();
+      expect(screen.getByTestId("window-state")).toHaveTextContent("minimized");
+      // The row may sit at the bottom of the viewport, where a card hanging
+      // below it would be off screen; the actions stay inside the row.
+      expect(screen.getByText("Stop recording?")).toHaveClass("sr-only");
+      expect(
+        screen.getByRole("button", { name: "Stop & save" }).parentElement,
+      ).not.toHaveClass("flex-col");
+      expect(
+        screen.getByRole("region", { name: "Hardware voice focus" }),
+      ).toHaveClass("overflow-hidden");
+      expect(screen.getByRole("button", { name: "Stop & save" })).toBeVisible();
+      expect(
+        screen.getByRole("button", { name: "Keep recording" }),
+      ).toBeVisible();
+      fireEvent.click(screen.getByRole("button", { name: "Keep recording" }));
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+      expect(screen.queryByRole("tablist")).toBeNull();
+      expect(voice.leavePage).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+      fireEvent.click(screen.getByRole("button", { name: "Stop & save" }));
+      await waitFor(() => expect(voice.leavePage).toHaveBeenCalledOnce());
+    },
+  );
+
+  it("keeps the expanded Ask view while confirming Stop", () => {
+    const voice = voiceValue();
+    renderWindow(voice);
+    fireEvent.click(screen.getByRole("tab", { name: "Ask" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+    expect(screen.getByRole("tab", { name: "Ask" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByTestId("window-state")).toHaveTextContent("open");
+    // The open window has room for the full question card.
+    expect(screen.getByText("Stop recording?")).not.toHaveClass("sr-only");
+    expect(
+      screen.getByRole("button", { name: "Stop & save" }).parentElement,
+    ).toHaveClass("flex-col");
+    fireEvent.click(screen.getByRole("button", { name: "Keep recording" }));
+    expect(screen.getByRole("tab", { name: "Ask" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(voice.leavePage).not.toHaveBeenCalled();
+  });
+
+  it("opens a new Meeting at full size after stopping a minimized recording", async () => {
+    const { frame, pipWindow, requestWindow } = stubPictureInPicture();
+    const firstVoice = voiceValue();
+    const first = renderWindow(firstVoice);
+    await act(() => openVoicePip("recording"));
+    const floating = within(frame.contentDocument!.body);
+    fireEvent.click(
+      floating.getByRole("button", { name: "Minimize recording" }),
+    );
+    expect(pipWindow.innerHeight).toBe(104);
+    fireEvent.click(floating.getByRole("button", { name: "Stop recording" }));
+    fireEvent.click(floating.getByRole("button", { name: "Stop & save" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("window-state")).toHaveTextContent("closed"),
+    );
+    first.unmount();
+
+    const next = renderWindow(
+      voiceValue({ captureState: { status: "idle" } }),
+      { showEntry: true },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Meetings" }));
+    await waitFor(() => expect(requestWindow).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByTestId("window-state")).toHaveTextContent("open"),
+    );
+    next.rerender(
+      voiceValue({
+        captureState: {
+          status: "recording",
+          capture: { ...capture, id: "capture-2" },
+        },
+      }),
+    );
+    expect(floating.getByRole("tablist")).toBeInTheDocument();
+    expect(pipWindow.innerHeight).toBe(720);
+    expect(pipWindow.innerWidth).toBe(420);
+  });
+
+  it("uses horizontal confirmation without resizing a minimized picture-in-picture window", async () => {
+    const { frame, pipWindow } = stubPictureInPicture();
+    const voice = voiceValue();
+    renderWindow(voice);
+    await act(() => openVoicePip("recording"));
+    const floating = within(frame.contentDocument!.body);
+    pipWindow.resizeTo(560, 492);
+    fireEvent.click(
+      floating.getByRole("button", { name: "Minimize recording" }),
+    );
+    expect(pipWindow.innerHeight).toBe(104);
+    pipWindow.resizeTo.mockClear();
+
+    fireEvent.click(floating.getByRole("button", { name: "Stop recording" }));
+    expect(
+      floating.getByRole("alertdialog", { name: "Stop recording?" }),
+    ).toBeInTheDocument();
+    expect(pipWindow.outerWidth).toBe(560);
+    expect(pipWindow.innerHeight).toBe(104);
+    expect(
+      floating.getByRole("button", { name: "Stop & save" }).parentElement,
+    ).not.toHaveClass("flex-col");
+    expect(floating.getByText("Stop recording?")).toHaveClass("sr-only");
+    expect(floating.queryByRole("tablist")).toBeNull();
+    expect(screen.getByTestId("window-state")).toHaveTextContent("minimized");
+    fireEvent.click(floating.getByRole("button", { name: "Keep recording" }));
+    expect(pipWindow.innerHeight).toBe(104);
+    expect(pipWindow.resizeTo).not.toHaveBeenCalled();
+    expect(voice.leavePage).not.toHaveBeenCalled();
+    fireEvent.click(floating.getByRole("button", { name: "Open recording" }));
+    expect(pipWindow.outerHeight).toBe(492);
+    fireEvent.click(floating.getByRole("button", { name: "Stop recording" }));
+    expect(pipWindow.outerHeight).toBe(492);
+    expect(floating.getByText("Stop recording?")).not.toHaveClass("sr-only");
+    expect(
+      floating.getByRole("button", { name: "Stop & save" }).parentElement,
+    ).toHaveClass("flex-col");
+    fireEvent.click(floating.getByRole("button", { name: "Keep recording" }));
+    expect(pipWindow.outerHeight).toBe(492);
+  });
+
   it("floats over other apps, and closing it minimized ends the recording", async () => {
     const { frame, pipWindow } = stubPictureInPicture();
     const voice = voiceValue();
     renderWindow(voice);
     await act(() => openVoicePip("recording"));
     const floating = within(frame.contentDocument!.body);
-    expect(
+    expectInDocument(
       await floating.findByRole("region", { name: "Recording window" }),
-    ).toBeInTheDocument();
+      frame.contentDocument!,
+    );
     // Minimizing from inside the floating window shrinks it to its top row.
     fireEvent.click(
       floating.getByRole("button", { name: "Minimize recording" }),
     );
-    expect(pipWindow.resizeBy).toHaveBeenCalledWith(0, 104 - 720);
+    expect(pipWindow.resizeTo).toHaveBeenCalledWith(420, 136);
 
     act(() => pipWindow.close());
     expect(
@@ -565,15 +728,234 @@ describe("Recording window", () => {
     const voice = voiceValue();
     renderWindow(voice);
     await act(() => openVoicePip("recording"));
-    expect(
+    expectInDocument(
       within(frame.contentDocument!.body).getByRole("tab", { name: "Ask" }),
-    ).toBeInTheDocument();
+      frame.contentDocument!,
+    );
 
     act(() => pipWindow.close());
     await waitFor(() => expect(voice.leavePage).toHaveBeenCalledOnce());
     await waitFor(() =>
       expect(screen.getByTestId("window-state")).toHaveTextContent("closed"),
     );
+  });
+
+  it("returns to the page without stopping and preserves pause and Ask when floated again", async () => {
+    vi.useFakeTimers();
+    try {
+      const first = stubPictureInPicture();
+      const voice = voiceValue();
+      renderWindow(voice);
+      await act(() => openVoicePip("recording"));
+      const floating = within(first.frame.contentDocument!.body);
+      await act(async () => {
+        fireEvent.click(
+          floating.getByRole("button", { name: "Pause recording" }),
+        );
+      });
+      fireEvent.click(floating.getByRole("tab", { name: "Ask" }));
+      const draft = floating.getByRole<HTMLTextAreaElement>("textbox", {
+        name: "Ask about this recording",
+      });
+      fireEvent.change(draft, {
+        target: { value: "Keep this draft while changing windows" },
+      });
+      act(() => {
+        first.pipWindow.close();
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      expect(
+        screen.queryByRole("region", { name: "Recording window" }),
+      ).toBeNull();
+      await act(() => vi.advanceTimersByTimeAsync(300));
+      expect(
+        screen.getByRole("region", { name: "Recording window" }),
+      ).toBeVisible();
+      expect(
+        screen.getByRole("button", { name: "Resume recording" }),
+      ).toBeVisible();
+      expect(
+        screen.getByRole("textbox", { name: "Ask about this recording" }),
+      ).toBe(draft);
+      expect(draft.value).toBe("Keep this draft while changing windows");
+      expect(voice.leavePage).not.toHaveBeenCalled();
+      expect(voice.stopCapture).not.toHaveBeenCalled();
+
+      const second = stubPictureInPicture();
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole("button", { name: "Float recording window" }),
+        );
+        await second.requestWindow.mock.results[0]?.value;
+      });
+      const refloated = within(second.frame.contentDocument!.body);
+      expectInDocument(
+        refloated.getByRole("region", { name: "Recording window" }),
+        second.frame.contentDocument!,
+      );
+      expectInDocument(
+        refloated.getByRole("button", { name: "Resume recording" }),
+        second.frame.contentDocument!,
+      );
+      expect(
+        refloated.getByRole("textbox", { name: "Ask about this recording" }),
+      ).toBe(draft);
+      expect(draft.value).toBe("Keep this draft while changing windows");
+      expect(
+        screen.queryByRole("region", { name: "Recording window" }),
+      ).toBeNull();
+      expect(second.requestWindow).toHaveBeenCalledOnce();
+      expect(voice.leavePage).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ignores a pending native close after a new floating window opens", async () => {
+    vi.useFakeTimers();
+    try {
+      const first = stubPictureInPicture();
+      const voice = voiceValue();
+      renderWindow(voice);
+      await act(() => openVoicePip("recording"));
+      act(() => first.pipWindow.close());
+      const second = stubPictureInPicture();
+      await act(() => openVoicePip("recording"));
+      await act(() => vi.advanceTimersByTimeAsync(300));
+      expectInDocument(
+        within(second.frame.contentDocument!.body).getByRole("region", {
+          name: "Recording window",
+        }),
+        second.frame.contentDocument!,
+      );
+      expect(voice.leavePage).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not end recording from a close classification after unmount", async () => {
+    vi.useFakeTimers();
+    try {
+      const { pipWindow } = stubPictureInPicture();
+      const voice = voiceValue();
+      const { unmount } = renderWindow(voice);
+      await act(() => openVoicePip("recording"));
+      act(() => pipWindow.close());
+      unmount();
+      await act(() => vi.advanceTimersByTimeAsync(300));
+      expect(voice.leavePage).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("restores the user's full window size across repeated minimize cycles", async () => {
+    const { frame, pipWindow } = stubPictureInPicture();
+    const voice = voiceValue();
+    renderWindow(voice);
+    await act(() => openVoicePip("recording"));
+    const floating = within(frame.contentDocument!.body);
+    pipWindow.resizeTo(560, 492);
+    pipWindow.resizeTo.mockClear();
+
+    for (let cycle = 0; cycle < 3; cycle++) {
+      fireEvent.click(
+        floating.getByRole("button", { name: "Minimize recording" }),
+      );
+      expect(pipWindow.outerWidth).toBe(560);
+      expect(pipWindow.innerHeight).toBe(104);
+      fireEvent.click(floating.getByRole("button", { name: "Open recording" }));
+      expect(pipWindow.outerWidth).toBe(560);
+      expect(pipWindow.outerHeight).toBe(492);
+    }
+    expect(voice.stopCapture).not.toHaveBeenCalled();
+    expect(voice.leavePage).not.toHaveBeenCalled();
+    expect(pipWindow.close).not.toHaveBeenCalled();
+
+    pipWindow.resizeTo(620, 552);
+    fireEvent.click(
+      floating.getByRole("button", { name: "Minimize recording" }),
+    );
+    fireEvent.click(floating.getByRole("button", { name: "Open recording" }));
+    expect(pipWindow.outerWidth).toBe(620);
+    expect(pipWindow.outerHeight).toBe(552);
+  });
+
+  it("restores width even when the browser narrows the minimized window", async () => {
+    const { frame, pipWindow } = stubPictureInPicture();
+    renderWindow(voiceValue());
+    await act(() => openVoicePip("recording"));
+    const floating = within(frame.contentDocument!.body);
+    pipWindow.resizeTo(580, 512);
+    fireEvent.click(
+      floating.getByRole("button", { name: "Minimize recording" }),
+    );
+    pipWindow.resizeTo(360, 136);
+    fireEvent.click(floating.getByRole("button", { name: "Open recording" }));
+    expect(pipWindow.outerWidth).toBe(580);
+    expect(pipWindow.outerHeight).toBe(512);
+  });
+
+  it("does not overwrite the expanded size while a resize is still pending", async () => {
+    const { frame, pipWindow } = stubPictureInPicture();
+    renderWindow(voiceValue());
+    await act(() => openVoicePip("recording"));
+    const floating = within(frame.contentDocument!.body);
+    pipWindow.resizeTo(560, 492);
+    fireEvent.click(
+      floating.getByRole("button", { name: "Minimize recording" }),
+    );
+    // Browsers can impose a minimum larger than the requested compact height.
+    pipWindow.resizeTo(560, 180);
+    // Native resize requests may return before the window metrics change.
+    pipWindow.resizeTo.mockImplementation(() => undefined);
+    fireEvent.click(floating.getByRole("button", { name: "Open recording" }));
+    fireEvent.click(
+      floating.getByRole("button", { name: "Minimize recording" }),
+    );
+    fireEvent.click(floating.getByRole("button", { name: "Open recording" }));
+    expect(pipWindow.resizeTo).toHaveBeenLastCalledWith(560, 492);
+  });
+
+  it("fits the saved size to the current screen after moving between displays", async () => {
+    const { frame, pipWindow } = stubPictureInPicture();
+    renderWindow(voiceValue());
+    await act(() => openVoicePip("recording"));
+    const floating = within(frame.contentDocument!.body);
+    pipWindow.resizeTo(700, 752);
+    fireEvent.click(
+      floating.getByRole("button", { name: "Minimize recording" }),
+    );
+    pipWindow.screen.availWidth = 640;
+    pipWindow.screen.availHeight = 600;
+    fireEvent.click(floating.getByRole("button", { name: "Open recording" }));
+    expect(pipWindow.resizeTo).toHaveBeenLastCalledWith(640, 600);
+  });
+
+  it("keeps recording and its controls usable when native resize is refused", async () => {
+    const { frame, pipWindow } = stubPictureInPicture();
+    const voice = voiceValue();
+    renderWindow(voice);
+    await act(() => openVoicePip("recording"));
+    const floating = within(frame.contentDocument!.body);
+    pipWindow.resizeTo.mockImplementation(() => {
+      throw new Error("Resize refused");
+    });
+    fireEvent.click(
+      floating.getByRole("button", { name: "Minimize recording" }),
+    );
+    expectInDocument(
+      floating.getByRole("button", { name: "Open recording" }),
+      frame.contentDocument!,
+    );
+    fireEvent.click(floating.getByRole("button", { name: "Open recording" }));
+    expectInDocument(
+      floating.getByRole("tab", { name: "Transcript" }),
+      frame.contentDocument!,
+    );
+    expect(voice.stopCapture).not.toHaveBeenCalled();
+    expect(voice.leavePage).not.toHaveBeenCalled();
   });
 
   it("does not show the window in the page while the closed one stops", async () => {
@@ -587,7 +969,7 @@ describe("Recording window", () => {
     renderWindow(voice);
     await act(() => openVoicePip("recording"));
     act(() => pipWindow.close());
-    expect(voice.leavePage).toHaveBeenCalledOnce();
+    await waitFor(() => expect(voice.leavePage).toHaveBeenCalledOnce());
     expect(
       screen.queryByRole("region", { name: "Recording window" }),
     ).toBeNull();
@@ -610,7 +992,7 @@ describe("Recording window", () => {
     );
   });
 
-  it("marks the window ending the moment the floating window closes", async () => {
+  it("hides the closed window while distinguishing close from return to page", async () => {
     const { pipWindow } = stubPictureInPicture();
     let finishStop = () => {};
     const voice = voiceValue({
@@ -621,10 +1003,12 @@ describe("Recording window", () => {
     renderWindow(voice);
     await act(() => openVoicePip("recording"));
     act(() => pipWindow.close());
-    expect(screen.getByTestId("window-state")).toHaveTextContent("ending");
     expect(
       screen.queryByRole("region", { name: "Recording window" }),
     ).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByTestId("window-state")).toHaveTextContent("ending"),
+    );
     await act(async () => finishStop());
     await waitFor(() =>
       expect(screen.getByTestId("window-state")).toHaveTextContent("closed"),
@@ -651,24 +1035,58 @@ describe("Recording window", () => {
   });
 });
 
+function expectInDocument(element: HTMLElement, target: Document) {
+  // Adopted nodes retain their creation realm; containment works across windows.
+  expect(target.body.contains(element)).toBe(true);
+  expect(element.isConnected).toBe(true);
+}
+
 function stubPictureInPicture() {
   const frame = document.createElement("iframe");
   document.body.append(frame);
   const listeners: (() => void)[] = [];
   const pipWindow = {
     document: frame.contentDocument!,
+    innerWidth: 420,
     innerHeight: 720,
+    outerWidth: 420,
+    outerHeight: 752,
+    screen: { availWidth: 1440, availHeight: 900 },
     addEventListener: (type: string, listener: () => void) => {
       if (type === "pagehide") listeners.push(listener);
     },
     close: vi.fn(() => listeners.splice(0).forEach((listener) => listener())),
-    resizeBy: vi.fn(),
+    resizeTo: vi.fn((width: number, height: number) => {
+      pipWindow.outerWidth = width;
+      pipWindow.innerWidth = width;
+      pipWindow.outerHeight = height;
+      pipWindow.innerHeight = height - 32;
+    }),
+    resizeBy: vi.fn((width: number, height: number) => {
+      pipWindow.resizeTo(
+        pipWindow.outerWidth + width,
+        pipWindow.outerHeight + height,
+      );
+    }),
   };
-  Object.defineProperty(window, "documentPictureInPicture", {
+  // Browsers reuse the last closed bounds unless the caller opts out.
+  const requestWindow = vi.fn(
+    async (options?: {
+      width?: number;
+      height?: number;
+      preferInitialWindowPlacement?: boolean;
+    }) => {
+      if (options?.preferInitialWindowPlacement) {
+        pipWindow.resizeTo(options.width!, options.height! + 32);
+      }
+      return pipWindow;
+    },
+  );
+  defineGlobalProperty(window, "documentPictureInPicture", {
     configurable: true,
-    value: { requestWindow: vi.fn(async () => pipWindow) },
+    value: { requestWindow },
   });
-  return { frame, pipWindow };
+  return { frame, pipWindow, requestWindow };
 }
 
 describe("Recording window placement", () => {

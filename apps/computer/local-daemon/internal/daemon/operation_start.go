@@ -58,6 +58,9 @@ func (d *Daemon) handleOperationStart(ctx context.Context, stream transport.Stre
 	d.activeMu.Lock()
 	stopped := d.locallyStopped[command.AgentID]
 	d.activeMu.Unlock()
+	if d.runtimeCleanupUnconfirmed(command.RuntimeType) {
+		return d.finishFailure(ctx, stream, command, cleanupUnconfirmedCode, cleanupUnconfirmedMessage)
+	}
 	admittedCount, contextBusy := d.operationOccupancy(identity)
 	capacityExhausted := d.capacity != nil && admittedCount >= *d.capacity
 	if stopped {
@@ -127,15 +130,10 @@ func (d *Daemon) handleOperationStart(ctx context.Context, stream transport.Stre
 		"accepted_append_ms", acceptedAppendMs, "accepted_send_ms", acceptedSendMs,
 		"prepared", preparedAdopted,
 		"total_ms", time.Since(admissionStartedAt).Milliseconds())
-	if acceptanceSendErr != nil {
-		cancel()
-		d.discardPreparedOperationAsync(prepared, "acceptance_delivery")
-		terminalErr := d.finishFailure(
-			context.WithoutCancel(ctx), stream, command, operationCodeExecutionFailed,
-			"Operation acceptance delivery became indeterminate before Provider start",
-		)
-		return errors.Join(acceptanceSendErr, terminalErr)
-	}
+	// A failed acceptance send leaves the accepted event in the ledger, like
+	// any later event whose delivery fails. The Operation stays admitted and
+	// starts; the returned error reconnects, the next hello reports it active,
+	// and the Gateway's re-sent start replays the accepted event.
 	if prepared != nil {
 		prepared.suppressReceipt()
 	}

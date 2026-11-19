@@ -6,22 +6,15 @@ import * as Y from "yjs";
 
 import { roomDocumentCommentSchema } from "./room-document-comment-schema";
 import { mermaidSourceFromCodeBlock } from "./room-document-mermaid-code-block";
-
-vi.mock("../mermaid-preview-adapter", async (importOriginal) => {
-  const original =
-    await importOriginal<typeof import("../mermaid-preview-adapter")>();
-  return {
-    ...original,
-    renderMermaidSvg: vi
-      .fn()
-      .mockResolvedValue(
-        '<svg xmlns="http://www.w3.org/2000/svg"><text>Diagram</text></svg>',
-      ),
-  };
-});
+import { defineGlobalProperty } from "@/test/global-properties";
+import { serveMermaidRuntime } from "@/test/mermaid-runtime";
 
 describe("Room Document Mermaid code block", () => {
   beforeEach(() => {
+    serveMermaidRuntime(
+      () =>
+        '<svg xmlns="http://www.w3.org/2000/svg"><text>Diagram</text></svg>',
+    );
     vi.stubGlobal(
       "ResizeObserver",
       class {
@@ -291,8 +284,7 @@ describe("Room Document Mermaid code block", () => {
 
   it("copies the complete source through the Clipboard API", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(window.navigator, "clipboard", {
-      configurable: true,
+    defineGlobalProperty(window.navigator, "clipboard", {
       value: { writeText },
     });
     const editor = BlockNoteEditor.create({

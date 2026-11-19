@@ -983,31 +983,17 @@ func (s *Service) RequestWikiRefresh(
 	} else if lookupErr != nil {
 		return WikiRefreshResult{}, lookupErr
 	}
-	var result WikiRefreshResult
-	var err error
-	for attempt := 1; attempt <= memoryWikiTransactionAttempts; attempt++ {
-		if !replayed && attempt == 1 && input.CaptureID == "" {
-			if prepareErr := s.prepareWikiSources(ctx, input); prepareErr != nil {
-				return WikiRefreshResult{}, prepareErr
-			}
-		}
-		tx, beginErr := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
-		if beginErr != nil {
-			return WikiRefreshResult{}, beginErr
-		}
-		result, err = s.requestWikiRefreshInTransaction(ctx, tx, input, requestHash)
-		if err == nil {
-			err = tx.Commit(ctx)
-		} else {
-			_ = tx.Rollback(ctx)
-		}
-		if err == nil || !isRetryableDocumentTransactionError(err) || attempt == memoryWikiTransactionAttempts {
-			return result, err
-		}
-		if waitErr := waitMemoryWikiTransactionRetry(ctx, attempt); waitErr != nil {
-			return result, waitErr
+	if !replayed && input.CaptureID == "" {
+		if err := s.prepareWikiSources(ctx, input); err != nil {
+			return WikiRefreshResult{}, err
 		}
 	}
+	var result WikiRefreshResult
+	err := s.admitWikiRefresh(ctx, input.TenantID, input.AccountID, func(tx pgx.Tx) error {
+		var admitErr error
+		result, admitErr = s.requestWikiRefreshInTransaction(ctx, tx, input, requestHash)
+		return admitErr
+	})
 	return result, err
 }
 
@@ -1084,15 +1070,11 @@ func (s *Service) requestWikiRefreshInTransaction(
 	return result, nil
 }
 
-// lockWikiRefreshTarget serializes source-set changes of the requesting Human
-// and locks their Wiki and its active generator Agent.
+// lockWikiRefreshTarget locks the requesting Human's Wiki and its active
+// generator Agent. The caller already holds the Human's admission lock.
 func lockWikiRefreshTarget(ctx context.Context, tx pgx.Tx, input RequestWikiRefreshInput) (wikiRefreshTarget, error) {
 	actorID, err := resolveActiveHumanActorTx(ctx, tx, input.AccountID, input.TenantID)
 	if err != nil {
-		return wikiRefreshTarget{}, err
-	}
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`,
-		"memory-wiki-source-set|"+input.TenantID+"|"+actorID); err != nil {
 		return wikiRefreshTarget{}, err
 	}
 	var target wikiRefreshTarget

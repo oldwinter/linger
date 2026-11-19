@@ -173,15 +173,18 @@ export async function verifyNativeRuntime(
         throw new Error(`${file} does not match its Native runtime manifest.`);
     }
   };
-  // The first mismatch rejects; the other workers stop at their next file.
+  // Stop assigning files after a mismatch, then drain the active reads before
+  // the caller can remove or replace this runtime directory.
+  let failure: { reason: unknown } | undefined;
   await Promise.all(
     Array.from({ length: Math.min(CONCURRENCY, entries.length) }, () =>
       worker().catch((error: unknown) => {
         next = entries.length;
-        throw error;
+        failure ??= { reason: error };
       }),
     ),
   );
+  if (failure) throw failure.reason;
 }
 
 // Whether the checkout has a runtime for this computer, built from its own
