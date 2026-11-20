@@ -1,5 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
 import { createTeamHubApi } from "@/features/teamhub/teamhub-api";
@@ -33,7 +41,17 @@ type BrowserRoute = (
   body: unknown,
 ) => Promise<TeamHubBrowserConnectionStatus>;
 
-function setup(browser: BrowserRoute) {
+function setup(
+  browser: BrowserRoute,
+  options: {
+    computers?: {
+      computer_id: string;
+      display_name: string;
+      status: string;
+    }[];
+    withRouter?: boolean;
+  } = {},
+) {
   const route = vi.fn(browser);
   const request = vi.fn(async (path: string, init: SentRequestInit) => {
     const match =
@@ -63,7 +81,7 @@ function setup(browser: BrowserRoute) {
   });
   const client = {
     listTenantLocalComputers: vi.fn().mockResolvedValue({
-      items: [
+      items: options.computers ?? [
         {
           computer_id: "computer-mac",
           display_name: "Alice's Mac",
@@ -77,10 +95,13 @@ function setup(browser: BrowserRoute) {
     defaultOptions: { queries: { retry: false } },
   });
   const onClose = vi.fn();
+  const dialog = (
+    <BrowserConnectionDialog onClose={onClose} tenantId={tenantId} />
+  );
   render(
     <QueryClientProvider client={queryClient}>
       <TeamHubRuntimeProvider runtime={{ client } as never}>
-        <BrowserConnectionDialog onClose={onClose} tenantId={tenantId} />
+        {options.withRouter ? <MemoryRouter>{dialog}</MemoryRouter> : dialog}
       </TeamHubRuntimeProvider>
     </QueryClientProvider>,
   );
@@ -149,12 +170,51 @@ describe("BrowserConnectionDialog", () => {
     expect(JSON.stringify({ ...sessionStorage })).not.toContain(token);
   });
 
-  it("disconnects a connected Chrome", async () => {
-    const { route } = setup(async (method) =>
-      method === "DELETE" ? isolated : connected,
-    );
+  it("asks for inline confirmation before disconnecting a connected Chrome and shows loading", async () => {
+    let resolveDisconnect!: (status: TeamHubBrowserConnectionStatus) => void;
+    const { route } = setup(async (method) => {
+      if (method === "DELETE") {
+        return new Promise<TeamHubBrowserConnectionStatus>((resolve) => {
+          resolveDisconnect = resolve;
+        });
+      }
+      return connected;
+    });
+
+    const dialog = screen.getByRole("dialog", { name: "Connect my browser" });
+    expect(dialog).toHaveAttribute("data-size", "sm");
+    expect(dialog).toHaveClass("app-dialog-standard");
+    expect(dialog.className).not.toContain("fixed inset-0");
 
     fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+
+    const confirmation = screen.getByRole("group", {
+      name: "Confirm browser disconnection",
+    });
+    expect(within(confirmation).getByText("Disconnect Chrome?")).toBeVisible();
+    expect(route).not.toHaveBeenCalledWith("DELETE", undefined);
+
+    fireEvent.click(
+      within(confirmation).getByRole("button", { name: "Cancel" }),
+    );
+    expect(
+      screen.queryByRole("group", { name: "Confirm browser disconnection" }),
+    ).toBeNull();
+    expect(route).not.toHaveBeenCalledWith("DELETE", undefined);
+
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+    const confirmDisconnect = within(
+      screen.getByRole("group", { name: "Confirm browser disconnection" }),
+    ).getByRole("button", { name: "Disconnect" });
+    fireEvent.click(confirmDisconnect);
+
+    await waitFor(() =>
+      expect(confirmDisconnect).toHaveAttribute("aria-busy", "true"),
+    );
+
+    await act(async () => {
+      resolveDisconnect(isolated);
+    });
 
     expect(
       await screen.findByText(
@@ -162,6 +222,52 @@ describe("BrowserConnectionDialog", () => {
       ),
     ).toBeVisible();
     expect(route).toHaveBeenCalledWith("DELETE", undefined);
+  });
+
+  it("sets loading on Connect while configuring and links Settings › Computers when no Local Computer exists", async () => {
+    let resolveConnect!: (status: TeamHubBrowserConnectionStatus) => void;
+    setup(async (method) => {
+      if (method === "PUT") {
+        return new Promise<TeamHubBrowserConnectionStatus>((resolve) => {
+          resolveConnect = resolve;
+        });
+      }
+      return isolated;
+    });
+
+    fireEvent.change(await screen.findByLabelText("Extension token"), {
+      target: { value: token },
+    });
+    const connectButton = screen.getByRole("button", { name: "Connect" });
+    fireEvent.click(connectButton);
+    await waitFor(() =>
+      expect(connectButton).toHaveAttribute("aria-busy", "true"),
+    );
+    await act(async () => {
+      resolveConnect(connected);
+    });
+    expect(
+      await screen.findByText(
+        "Connected. Browser tasks use your Chrome and its sign-ins.",
+      ),
+    ).toBeVisible();
+  });
+
+  it("links to Settings › Computers when the user has no Local Computer yet", async () => {
+    const { onClose } = setup(async () => isolated, {
+      computers: [],
+      withRouter: true,
+    });
+
+    const link = await screen.findByRole("link", {
+      name: "Settings › Computers",
+    });
+    expect(link).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/settings/computers",
+    );
+    fireEvent.click(link);
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it("explains a rejected token and asks for a new paste", async () => {

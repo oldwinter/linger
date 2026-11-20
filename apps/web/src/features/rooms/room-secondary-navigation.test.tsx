@@ -941,11 +941,11 @@ describe("Room navigation working indicator", () => {
 
 describe("Another Me card", () => {
   it.each([
-    ["FFFFFF", "#1a1a16", "0.82"],
-    ["8DA488", "#1a1a16", "1"],
-    ["010101", "#fff", "0.82"],
-    ["777777", "#1a1a16", "1"],
-    ["6E3CED", "#fff", "1"],
+    ["FFFFFF", "var(--app-ink)", "0.82"],
+    ["8DA488", "var(--app-ink)", "1"],
+    ["010101", "var(--app-surface)", "0.82"],
+    ["777777", "var(--app-ink)", "1"],
+    ["6E3CED", "var(--app-surface)", "1"],
   ])("keeps text readable on avatar background %s", (color, text, opacity) => {
     const record = vi
       .spyOn(avatarImages, "useAgentAvatarRecord")
@@ -969,7 +969,7 @@ describe("Another Me card", () => {
         </MemoryRouter>,
       );
       const card = screen.getByRole("link", {
-        name: "Another Me Chat",
+        name: "Codex chat",
       }).parentElement!;
       expect(card.style.getPropertyValue("--am-brand")).toBe(`#${color}`);
       expect(card.style.getPropertyValue("--am-text")).toBe(text);
@@ -1014,7 +1014,8 @@ describe("Another Me card", () => {
         />
       </MemoryRouter>
     );
-    const card = () => screen.getByRole("link", { name: "Another Me Chat" });
+    const card = () =>
+      screen.getByRole("link", { name: "Jenny's Delegate chat" });
 
     const { rerender } = render(renderCard({ running: [anotherMe.id] }));
     expect(card().parentElement).not.toHaveAttribute("data-active");
@@ -1110,7 +1111,8 @@ describe("Another Me before its Computer connects", () => {
 
   it("shows no Another Me until it exists", () => {
     renderWithAnotherMe({});
-    expect(screen.queryByRole("link", { name: "Another Me Chat" })).toBeNull();
+    expect(document.querySelector(".another-me-card")).toBeNull();
+    expect(screen.queryByRole("link", { name: /chat$/i })).toBeNull();
     expect(screen.queryByRole("status")).toBeNull();
   });
 
@@ -1120,7 +1122,7 @@ describe("Another Me before its Computer connects", () => {
       { agent_actor_id: anotherMe.direct_peer!.id, room_id: anotherMe.id },
       [anotherMe],
     );
-    expect(screen.getByRole("link", { name: "Another Me Chat" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Codex chat" })).toBeVisible();
   });
 
   it("shows a quiet hold on the Another Me card and in the toolbar", () => {
@@ -1133,9 +1135,9 @@ describe("Another Me before its Computer connects", () => {
       [anotherMe],
       "account-jenny",
     );
-    expect(
-      screen.getByRole("link", { name: "Another Me Chat" }),
-    ).toHaveTextContent(label);
+    expect(screen.getByRole("link", { name: "Codex chat" })).toHaveTextContent(
+      label,
+    );
     expect(screen.getByRole("button", { name: label })).toBeVisible();
     localStorage.clear();
   });

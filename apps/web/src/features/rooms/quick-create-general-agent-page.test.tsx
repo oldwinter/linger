@@ -288,7 +288,7 @@ describe("quick General Agent creation", () => {
     await screen.findByText("Your Agent is ready");
     const firstActor = create.actor(0).id;
     fireEvent.click(screen.getByRole("button", { name: "Log out" }));
-    await screen.findByRole("button", { name: "Sign in" });
+    await screen.findByRole("button", { name: "Log in" });
     await waitFor(() =>
       expect(queryClient.getQueryData(["teamhub", "identity"])).toBeUndefined(),
     );
@@ -298,7 +298,7 @@ describe("quick General Agent creation", () => {
     fireEvent.change(screen.getByLabelText("Password", { selector: "input" }), {
       target: { value: "linger-second" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
     await waitFor(() => expect(create.count()).toBe(2));
     await screen.findByText("Your Agent is ready");
     expect(
@@ -308,7 +308,7 @@ describe("quick General Agent creation", () => {
     expect(await directRoomOpenings(runtime)).toEqual([]);
 
     fireEvent.click(screen.getByRole("button", { name: "Log out" }));
-    await screen.findByRole("button", { name: "Sign in" });
+    await screen.findByRole("button", { name: "Log in" });
     await waitFor(() =>
       expect(queryClient.getQueryData(["teamhub", "identity"])).toBeUndefined(),
     );
@@ -318,7 +318,7 @@ describe("quick General Agent creation", () => {
     fireEvent.change(screen.getByLabelText("Password", { selector: "input" }), {
       target: { value: "linger-v0" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
     await screen.findByText("Your Agent is ready");
     expect(
       (await teamHubData(runtime.client.api.GET("/v0/session"))).account_id,

@@ -5,9 +5,11 @@ import {
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ActionMenu } from "@/components/ui/action-menu";
 import { Icon } from "@/components/ui/icon";
 
 import { writeClipboardText } from "@/lib/clipboard";
+import { cn } from "@/lib/cn";
 
 import {
   appFontFaces,
@@ -177,96 +179,72 @@ function scrollingAncestor(element: HTMLElement) {
   return null;
 }
 
-function FragmentHostActions({ html, title }: { html: string; title: string }) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
+const copiedFeedbackMs = 1200;
 
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.key !== "Escape" ||
-        event.defaultPrevented ||
-        event.isComposing ||
-        event.keyCode === 229
-      ) {
-        return;
-      }
-      event.preventDefault();
-      setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
+function FragmentHostActions({ html, title }: { html: string; title: string }) {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
+  const resetTimerRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => () => window.clearTimeout(resetTimerRef.current), []);
+
+  function handleCopy() {
+    window.clearTimeout(resetTimerRef.current);
+    setCopyState("idle");
+    void writeClipboardText(html).then(
+      () => {
+        setCopyState("copied");
+        resetTimerRef.current = window.setTimeout(
+          () => setCopyState("idle"),
+          copiedFeedbackMs,
+        );
+      },
+      () => {
+        setCopyState("failed");
+      },
+    );
+  }
 
   return (
-    <div
-      className={`absolute right-2 top-2 z-10 ${
-        open
-          ? "opacity-100"
-          : "opacity-0 focus-within:opacity-100 group-hover:opacity-100"
-      }`}
-      ref={rootRef}
-    >
-      <button
-        aria-expanded={open}
-        aria-haspopup="menu"
-        aria-label="Widget actions"
-        className="flex size-7 items-center justify-center rounded-md border border-transparent bg-app-surface text-app-muted shadow-sm transition-colors hover:bg-app-hover hover:text-app-ink"
-        onClick={() => setOpen((current) => !current)}
-        type="button"
-      >
-        <Icon icon={MoreHorizontalIcon} size={16} />
-      </button>
-      {open ? (
-        <div
-          className="absolute right-0 mt-1 w-max min-w-[12rem] rounded-xl border border-app-border bg-app-surface p-1.5 shadow-md"
-          role="menu"
+    <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
+      {copyState !== "idle" ? (
+        <span
+          className={cn(
+            "rounded-md border bg-app-surface px-2 py-1 text-xs font-medium shadow-sm",
+            copyState === "copied"
+              ? "border-app-border text-app-ink"
+              : "border-app-danger/40 text-app-danger",
+          )}
+          role={copyState === "failed" ? "alert" : "status"}
         >
-          <button
-            className="flex w-full shrink-0 items-center gap-2.5 whitespace-nowrap rounded-lg px-2 py-2 text-left text-sm text-app-ink hover:bg-app-hover"
-            onClick={() => {
-              void writeClipboardText(html)
-                .then(() => {
-                  setCopied(true);
-                  window.setTimeout(() => setCopied(false), 1200);
-                })
-                .catch(() => setCopied(false));
-            }}
-            role="menuitem"
-            type="button"
-          >
-            {copied ? (
-              <Icon icon={Tick02Icon} size={16} />
-            ) : (
-              <Icon icon={Copy01Icon} size={16} />
-            )}
-            {copied ? "Copied" : "Copy to clipboard"}
-          </button>
-          <button
-            className="flex w-full shrink-0 items-center gap-2.5 whitespace-nowrap rounded-lg px-2 py-2 text-left text-sm text-app-ink hover:bg-app-hover"
-            onClick={() => {
-              downloadFragmentFile(title, html);
-              setOpen(false);
-            }}
-            role="menuitem"
-            type="button"
-          >
-            <Icon icon={Download04Icon} size={16} />
-            Download file
-          </button>
-        </div>
+          {copyState === "copied" ? "Copied" : "Copy failed"}
+        </span>
       ) : null}
+      <ActionMenu
+        buttonClassName="flex size-7 items-center justify-center rounded-md border border-transparent bg-app-surface text-app-muted opacity-0 shadow-sm transition-opacity hover:bg-app-hover hover:text-app-ink focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus group-hover:opacity-100 group-focus-within:opacity-100 aria-expanded:opacity-100 [@media(hover:none)]:opacity-100"
+        itemClassName="flex min-h-[33px] w-full items-center gap-2 whitespace-nowrap rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent focus:bg-accent disabled:pointer-events-none disabled:opacity-50"
+        items={[
+          {
+            icon: (
+              <Icon
+                icon={copyState === "copied" ? Tick02Icon : Copy01Icon}
+                size={14}
+              />
+            ),
+            label: copyState === "copied" ? "Copied" : "Copy to clipboard",
+            onSelect: handleCopy,
+          },
+          {
+            icon: <Icon icon={Download04Icon} size={14} />,
+            label: "Download file",
+            onSelect: () => downloadFragmentFile(title, html),
+          },
+        ]}
+        label="Widget actions"
+        menuClassName="app-popover-card fixed z-[100] w-max min-w-[12rem] p-1"
+        trigger={<Icon icon={MoreHorizontalIcon} size={16} />}
+      />
     </div>
   );
 }

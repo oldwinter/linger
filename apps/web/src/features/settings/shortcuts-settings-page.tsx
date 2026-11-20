@@ -56,7 +56,7 @@ export function ShortcutsSettingsPage() {
         <Icon
           icon={Search01Icon}
           className="shrink-0 text-muted-foreground"
-          size={15}
+          size={16}
         />
         <input
           aria-label="Filter shortcuts"
@@ -79,7 +79,7 @@ export function ShortcutsSettingsPage() {
             onClick={() => setQuery("")}
             type="button"
           >
-            <Icon icon={Cancel01Icon} size={13} />
+            <Icon icon={Cancel01Icon} size={14} />
           </button>
         ) : null}
       </label>

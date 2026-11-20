@@ -26,7 +26,10 @@ import { Link, useNavigate } from "react-router";
 import { ActionMenu } from "@/components/ui/action-menu";
 import { Spinner } from "@/components/ui/spinner";
 import { writeDocumentLinkClipboard } from "@/features/rooms/files/document-clipboard-link";
-import { revealCurrentTreeNode } from "./my-documents-tree-level";
+import {
+  FolderRenameInput,
+  revealCurrentTreeNode,
+} from "./my-documents-tree-level";
 import { WorkspaceFileIcon } from "./workspace-file-icon";
 import { triggerArtifactDownload } from "@/features/rooms/files/artifact-preview-loader";
 import { documentDetailPath } from "@/features/rooms/files/document-detail-routes";
@@ -555,7 +558,7 @@ function SharedDocumentsTreeSurface({
           items={[
             {
               disabled: creating || treePending || treeError !== null,
-              icon: <Icon icon={FolderAddIcon} size={16} />,
+              icon: <Icon icon={FolderAddIcon} size={14} />,
               label: "New folder",
               onSelect: () => onCreateFolder(),
             },
@@ -730,22 +733,12 @@ function renderSharedTreeLevel(input: {
               className={`group flex h-[33px] min-w-0 items-center gap-1 rounded-md hover:bg-app-hover focus-within:bg-app-hover ${input.dragTargetId === item.id ? "bg-app-selected" : ""}`}
             >
               {isRenaming ? (
-                <input
-                  aria-label="Rename shared folder"
-                  className="h-[33px] min-w-0 flex-1 rounded-md border border-app-focus bg-app-surface px-2 text-[14px] leading-[18px] outline-none"
-                  onChange={(event) => input.onRenameChange(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.nativeEvent.isComposing || event.keyCode === 229)
-                      return;
-                    if (event.key === "Enter") input.onRenameSubmit();
-                    if (event.key === "Escape") input.onRenameCancel();
-                  }}
-                  ref={(node) => {
-                    if (node && node.ownerDocument.activeElement !== node) {
-                      node.focus();
-                      node.select();
-                    }
-                  }}
+                <FolderRenameInput
+                  ariaLabel="Rename shared folder"
+                  initialName={item.name}
+                  onCancel={input.onRenameCancel}
+                  onChange={input.onRenameChange}
+                  onSubmit={input.onRenameSubmit}
                   value={input.renaming?.name ?? ""}
                 />
               ) : (

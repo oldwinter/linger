@@ -25,6 +25,7 @@ import { Link, useNavigate } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { Spinner } from "@/components/ui/spinner";
 import { jumpPath } from "@/features/jump/jump-path";
 import { jumpShortcutLabel } from "@/features/jump/jump-shortcut";
 import { searchShortcutLabel } from "@/features/search/search-shortcut";
@@ -556,7 +557,7 @@ export function RoomSecondaryNavigation({
         {!showingAwayRecap && catchUpAction ? (
           <Link
             aria-label={catchUpAction.ariaLabel}
-            className="mx-2 flex items-center justify-between rounded-lg bg-app-hover px-2.5 py-2 text-sm text-app-ink hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+            className="mx-2 flex items-center justify-between rounded-lg bg-app-hover px-2.5 py-2 text-sm text-app-ink hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={catchUpAction.onClick}
             to={`/t/${tenant.id}/rooms/catch-up`}
           >
@@ -607,7 +608,7 @@ export function RoomSecondaryNavigation({
                 <>
                   <Button
                     aria-label="Mark all Rooms as read"
-                    className="!rounded-lg border-0 text-app-muted"
+                    className="border-0 text-app-muted"
                     disabled={unreadRoomCount === 0}
                     loading={markAllRead.running}
                     onClick={() => void markAllRead.markAll(chats)}
@@ -1278,14 +1279,14 @@ function AnotherMeCard({
       style={
         {
           "--am-brand": brand,
-          "--am-text": darkText ? "#1a1a16" : "#fff",
+          "--am-text": darkText ? "var(--app-ink)" : "var(--app-surface)",
           "--am-sub-opacity": contrast >= 7 ? 0.82 : 1,
         } as CSSProperties
       }
     >
       <Link
         aria-current={active ? "page" : undefined}
-        aria-label="Another Me Chat"
+        aria-label={`${name} chat`}
         className="workspace-nav-row another-me-card-link flex text-app-ink"
         onClick={onNavigate}
         to={`/t/${tenantId}/rooms/${room.id}/chat`}
@@ -1364,29 +1365,14 @@ function RoomRowStatus({
           ) : null}
           <span className="flex size-4 shrink-0 items-center justify-center">
             {working ? (
-              <svg
+              <span
                 aria-label={duration?.speech ?? "Agent working"}
-                className="size-3.5 animate-spin text-app-muted motion-reduce:animate-none"
-                fill="none"
+                className="flex text-app-muted"
                 role="img"
-                viewBox="0 0 16 16"
+                title={duration?.speech ?? "Agent working"}
               >
-                <title>{duration?.speech ?? "Agent working"}</title>
-                <circle
-                  cx="8"
-                  cy="8"
-                  r="5.75"
-                  stroke="currentColor"
-                  strokeOpacity="0.2"
-                  strokeWidth="1.5"
-                />
-                <path
-                  d="M8 2.25a5.75 5.75 0 0 1 5.75 5.75"
-                  stroke="currentColor"
-                  strokeLinecap="round"
-                  strokeWidth="1.5"
-                />
-              </svg>
+                <Spinner size={14} />
+              </span>
             ) : (
               <span
                 aria-label="Last run failed"

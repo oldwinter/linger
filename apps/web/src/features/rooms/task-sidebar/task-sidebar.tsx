@@ -1,5 +1,5 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { ArrowUp02Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
+import { Message01Icon } from "@hugeicons/core-free-icons";
 import {
   lazy,
   Suspense,
@@ -23,7 +23,6 @@ import type {
   TeamHubMessage,
 } from "@/features/teamhub/teamhub-types";
 
-import { ActorAvatar } from "../members/actor-avatar";
 import {
   AgentActivityLog,
   AgentInfoPanelTab,
@@ -752,16 +751,7 @@ function MountedPanelTab({
       );
     }
     if (tab.kind === "thread") {
-      return (
-        <AnothermePanel
-          agent={mentionOptions.find((option) => option.kind === "agent")}
-          displayName={
-            mentionOptions.find((option) => option.id === currentActorId)
-              ?.display_name
-          }
-          hidden={hidden}
-        />
-      );
+      return <EmptyThreadPanel hidden={hidden} />;
     }
     return null;
   }
@@ -814,61 +804,29 @@ function MountedPanelTab({
   return null;
 }
 
-function AnothermePanel({
-  agent,
-  displayName,
-  hidden,
-}: {
-  agent?: TeamHubActorRef;
-  displayName?: string;
-  hidden: boolean;
-}) {
+function EmptyThreadPanel({ hidden }: { hidden: boolean }) {
   return (
     <div
       className={
         hidden
           ? "hidden"
-          : "relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden bg-card px-6 pb-20 text-center"
+          : "flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden bg-card px-6 text-center"
       }
       data-testid="panel-tab-thread-draft"
       hidden={hidden || undefined}
       inert={hidden || undefined}
     >
-      {agent ? (
-        <ActorAvatar
-          actorId={agent.id}
-          kind={agent.kind}
-          name={agent.display_name}
-          size="lg"
-        />
-      ) : (
-        <span className="size-16 rounded-full bg-muted" />
-      )}
-      <h3 className="mt-5 text-base font-semibold text-foreground">
-        Good afternoon{displayName ? `, ${displayName}` : ""}
-      </h3>
-      <div className="absolute inset-x-3 bottom-3 flex h-12 items-center gap-2 rounded-xl bg-card px-2 shadow-sm">
-        <button
-          aria-label="Attach to Anotherme message"
-          className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
-          disabled
-          title="Attach"
-          type="button"
-        >
-          <Icon icon={PlusSignIcon} size={16} />
-        </button>
-        <span className="min-w-0 flex-1 text-left text-sm text-muted-foreground">
-          Message Anotherme
+      <div className="flex max-w-64 flex-col items-center gap-2">
+        <span className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
+          <Icon icon={Message01Icon} size={16} />
         </span>
-        <button
-          aria-label="Send Anotherme message"
-          className="flex size-8 shrink-0 items-center justify-center rounded-full bg-(--composer-send) text-white opacity-50"
-          disabled
-          title="Send"
-          type="button"
-        >
-          <Icon icon={ArrowUp02Icon} size={16} />
-        </button>
+        <h3 className="text-sm font-semibold text-foreground">
+          No thread selected
+        </h3>
+        <p className="text-xs leading-5 text-app-muted">
+          Choose Reply in Thread on any message in this Room to follow and
+          continue the discussion here.
+        </p>
       </div>
     </div>
   );

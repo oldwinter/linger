@@ -907,6 +907,58 @@ describe("PinnedMessagesControl", () => {
     );
     expect(within(dialog).getByText("Freeze the release")).toBeVisible();
   });
+
+  it("shows a numeric count badge on the header pin button and formats Markdown previews cleanly", async () => {
+    const { client, queryClient } = setup((server) =>
+      server.on("GET", pinsPath, () =>
+        pinList([
+          {
+            message: message({
+              id: "message-md",
+              raw_message:
+                "Approve **launch** from [spec](https://example.com/spec)",
+            }),
+            pinned_at: "2026-10-10T08:00:00.000Z",
+            pinned_by_actor_id: "human-1",
+          },
+          {
+            message: message({
+              id: "message-2",
+              raw_message: "Ship it",
+            }),
+            pinned_at: "2026-10-09T08:00:00.000Z",
+            pinned_by_actor_id: "human-1",
+          },
+        ]),
+      ),
+    );
+    render(
+      <MemoryRouter>
+        <PinnedMessagesControl
+          onJump={vi.fn()}
+          roomId="room-1"
+          roomName="Design"
+          tenantId="tenant-1"
+        />
+      </MemoryRouter>,
+      { wrapper: wrapper(queryClient, client) },
+    );
+
+    expect(
+      await screen.findByTestId("pinned-messages-count"),
+    ).toHaveTextContent("2");
+    const trigger = screen.getByRole("button", { name: "Pinned messages" });
+    expect(trigger).toHaveAttribute("title", "Pinned messages (2)");
+
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole("dialog", {
+      name: "Pinned messages",
+    });
+    const rows = await within(dialog).findAllByRole("listitem");
+    expect(rows[0]).toHaveTextContent("Approve launch from spec");
+    expect(rows[0]).not.toHaveTextContent("**");
+    expect(rows[0]).not.toHaveTextContent("https://example.com/spec");
+  });
 });
 
 describe("Pinned messages copy", () => {

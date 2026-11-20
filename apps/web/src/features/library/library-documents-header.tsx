@@ -65,25 +65,25 @@ export function LibraryDocumentsHeader({
           items={[
             {
               disabled: createBusy,
-              icon: <Icon icon={FileAddIcon} size={16} />,
+              icon: <Icon icon={FileAddIcon} size={14} />,
               label: "New file",
               onSelect: onCreateDocument,
             },
             {
               disabled: createBusy,
-              icon: <Icon icon={FolderAddIcon} size={16} />,
+              icon: <Icon icon={FolderAddIcon} size={14} />,
               label: "New folder",
               onSelect: onNewFolder,
             },
             {
               disabled: createBusy,
-              icon: <Icon icon={FileImportIcon} size={16} />,
+              icon: <Icon icon={FileImportIcon} size={14} />,
               label: "Import",
               onSelect: onImportPick,
             },
             {
               disabled: createBusy,
-              icon: <Icon icon={FolderUploadIcon} size={16} />,
+              icon: <Icon icon={FolderUploadIcon} size={14} />,
               label: "Upload folder",
               onSelect: () => folderInputRef.current?.click(),
             },

@@ -34,10 +34,10 @@ import { HideMeetingDialog } from "./hide-meeting-dialog";
 import { upNextPath } from "./up-next";
 
 const levelClass = [
-  "bg-[#f1f0ec]",
-  "bg-[#dedcd1]",
-  "bg-[#b5b3a5]",
-  "bg-[#7d7b6e]",
+  "bg-app-heat-0",
+  "bg-app-heat-1",
+  "bg-app-heat-2",
+  "bg-app-heat-3",
   "bg-app-ink",
 ] as const;
 const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -409,7 +409,7 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
                   {query ? (
                     <button
                       aria-label="Clear search"
-                      className="flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                      className="flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={() => setQuery("")}
                       type="button"
                     >
@@ -498,7 +498,7 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
                                 ) : null}
                                 <button
                                   aria-label={`Delete ${name}`}
-                                  className="flex size-6 shrink-0 items-center justify-center rounded text-app-muted opacity-0 transition-opacity hover:text-app-danger focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                                  className="flex size-6 shrink-0 items-center justify-center rounded text-app-muted opacity-0 transition-opacity hover:text-app-danger focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 [@media(hover:none)]:opacity-100"
                                   onClick={() =>
                                     setDeleting({
                                       captureId: meeting.captureId,

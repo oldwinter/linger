@@ -44,11 +44,16 @@ export function DocumentTableOfContents({
             <button
               className="block h-8 w-full truncate rounded-lg px-2 text-left text-sm text-app-body transition-colors duration-300 hover:bg-muted/70 hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               key={heading.id}
-              onClick={() =>
+              onClick={() => {
+                const behavior = window.matchMedia?.(
+                  "(prefers-reduced-motion: reduce)",
+                )?.matches
+                  ? "auto"
+                  : "smooth";
                 contentRef.current
                   ?.querySelector(`[data-id="${CSS.escape(heading.id)}"]`)
-                  ?.scrollIntoView({ behavior: "smooth", block: "start" })
-              }
+                  ?.scrollIntoView({ behavior, block: "start" });
+              }}
               style={{
                 paddingLeft: `${8 + (heading.level - baseLevel) * 12}px`,
               }}

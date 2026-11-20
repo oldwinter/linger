@@ -826,4 +826,66 @@ describe("Room Chat", () => {
       ),
     ).toHaveLength(0);
   });
+
+  it("preserves the specific error message when a pasted Document is not eligible", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const document = seedNativeDocument(runtime, "room-chat-ineligible-doc");
+    runtime.server.on("GET", "/v0/documents/{documentId}", () => ({
+      ...document,
+      capabilities: { ...document.capabilities, use_as_context: false },
+    }));
+
+    await renderRoomChat(runtime, testQueryClient());
+    const editor = await screen.findByLabelText("Message Room");
+    await waitFor(() =>
+      expect(
+        runtime.server.requestsTo("GET", "/v0/rooms/{roomId}/documents").length,
+      ).toBeGreaterThan(0),
+    );
+    const paste = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, "clipboardData", {
+      value: {
+        getData: () =>
+          `${window.location.origin}/t/tenant-northstar/documents/${document.id}`,
+      },
+    });
+    act(() => {
+      editor.dispatchEvent(paste);
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Document is not eligible for this Room.",
+    );
+  });
+
+  it("renders a compact Button Retry control when shareable Documents fail to load", async () => {
+    const runtime = createTestTeamHubRuntime();
+    let failed = true;
+    const listShareable = vi.fn(() => {
+      if (failed) {
+        return teamHubErrorResponse(503, "UNAVAILABLE", "Library unavailable");
+      }
+      return { items: [], page: { has_more: false } };
+    });
+    runtime.server.on("GET", "/v0/library/documents", listShareable);
+
+    await renderRoomChat(runtime, testQueryClient());
+    const editor = await screen.findByLabelText("Message Room");
+    fireEvent.change(editor, { target: { selectionStart: 1, value: "@" } });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "Documents outside this Room could not be loaded.",
+    );
+    const retry = within(alert).getByRole("button", { name: "Retry" });
+    expect(retry).toHaveClass("ui-button-compact");
+
+    failed = false;
+    fireEvent.click(retry);
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Documents outside this Room could not be loaded."),
+      ).toBeNull(),
+    );
+  });
 });

@@ -1,7 +1,8 @@
-import { Cancel01Icon, LinkSquare02Icon } from "@hugeicons/core-free-icons";
+import { LinkSquare02Icon } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
+import { Link, useInRouterContext } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -71,6 +72,7 @@ export function BrowserConnectionDialog({
   });
   const [pastedToken, setPastedToken] = useState("");
   const [editing, setEditing] = useState(false);
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
   const [pending, setPending] = useState<PendingAction>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
@@ -78,6 +80,7 @@ export function BrowserConnectionDialog({
     setRequestedComputerId(computerId);
     setPastedToken("");
     setEditing(false);
+    setConfirmingDisconnect(false);
     setFailure(null);
   }
 
@@ -144,35 +147,15 @@ export function BrowserConnectionDialog({
 
   return (
     <ModalDialog
-      ariaLabel="Connect my browser"
-      className="fixed inset-0 z-50 m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-[480px] overflow-auto rounded-xl border border-border bg-popover p-0 shadow-lg backdrop:bg-[var(--app-overlay)]"
+      description="Let Agent browser tasks on this Computer use your everyday Chrome and its sign-ins. The token goes only to your Computer and never appears in chat."
       onClose={requestClose}
+      size="sm"
+      title="Connect my browser"
     >
-      <div className="p-5">
-        <header className="mb-5 flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-lg">Connect my browser</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Let Agent browser tasks on this Computer use your everyday Chrome
-              and its sign-ins. The token goes only to your Computer and never
-              appears in chat.
-            </p>
-            {reason ? (
-              <p className="mt-2 text-sm font-medium text-foreground">
-                {reason}
-              </p>
-            ) : null}
-          </div>
-          <Button
-            aria-label="Close"
-            disabled={pending !== null}
-            onClick={requestClose}
-            size="icon"
-            tone="ghost"
-          >
-            <Icon icon={Cancel01Icon} size={16} />
-          </Button>
-        </header>
+      <div className="space-y-5 px-5 py-4">
+        {reason ? (
+          <p className="text-sm font-medium text-foreground">{reason}</p>
+        ) : null}
 
         {inventory.isPending ? (
           <p className="text-sm text-muted-foreground" role="status">
@@ -180,13 +163,22 @@ export function BrowserConnectionDialog({
           </p>
         ) : inventory.isError ? (
           <FormFeedback tone="danger">
-            Can't load your Computers right now.
+            Can&apos;t load your Computers right now.
           </FormFeedback>
         ) : !computer ? (
           <FormFeedback tone="info">
-            {lockedComputerId
-              ? "This Computer is no longer connected to your account."
-              : "You don't have a Local Computer yet. Connect one in Settings > Computers first. Cloud Computers can't use your browser."}
+            {lockedComputerId ? (
+              "This Computer is no longer connected to your account."
+            ) : (
+              <>
+                You don&apos;t have a Local Computer yet. Connect one in{" "}
+                <ComputersSettingsLink
+                  onNavigate={requestClose}
+                  tenantId={tenantId}
+                />{" "}
+                first. Cloud Computers can&apos;t use your browser.
+              </>
+            )}
           </FormFeedback>
         ) : (
           <div className="space-y-5">
@@ -230,32 +222,63 @@ export function BrowserConnectionDialog({
             !unsupported &&
             isLinked(current) &&
             !editing ? (
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  disabled={pending !== null}
-                  onClick={() => {
-                    setFailure(null);
-                    setEditing(true);
-                  }}
+              confirmingDisconnect ? (
+                <div
+                  aria-label="Confirm browser disconnection"
+                  className="flex flex-wrap items-center gap-2"
+                  role="group"
                 >
-                  Reconfigure
-                </Button>
-                <Button
-                  disabled={pending !== null}
-                  onClick={() =>
-                    void run("disconnect", () =>
-                      disconnectBrowserConnection(
-                        client,
-                        tenantId,
-                        computer.computer_id,
-                      ),
-                    )
-                  }
-                  tone="danger"
-                >
-                  {pending === "disconnect" ? "Disconnecting…" : "Disconnect"}
-                </Button>
-              </div>
+                  <span className="text-sm text-foreground">
+                    Disconnect Chrome?
+                  </span>
+                  <Button
+                    disabled={pending !== null}
+                    loading={pending === "disconnect"}
+                    onClick={() =>
+                      void run("disconnect", () =>
+                        disconnectBrowserConnection(
+                          client,
+                          tenantId,
+                          computer.computer_id,
+                        ),
+                      ).finally(() => setConfirmingDisconnect(false))
+                    }
+                    tone="danger"
+                  >
+                    {pending === "disconnect" ? "Disconnecting…" : "Disconnect"}
+                  </Button>
+                  <Button
+                    disabled={pending !== null}
+                    onClick={() => setConfirmingDisconnect(false)}
+                    tone="ghost"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    disabled={pending !== null}
+                    onClick={() => {
+                      setFailure(null);
+                      setConfirmingDisconnect(false);
+                      setEditing(true);
+                    }}
+                  >
+                    Reconfigure
+                  </Button>
+                  <Button
+                    disabled={pending !== null}
+                    onClick={() => {
+                      setFailure(null);
+                      setConfirmingDisconnect(true);
+                    }}
+                    tone="danger"
+                  >
+                    Disconnect
+                  </Button>
+                </div>
+              )
             ) : null}
 
             {showForm ? (
@@ -316,6 +339,7 @@ export function BrowserConnectionDialog({
                   ) : null}
                   <Button
                     disabled={pending !== null || !pastedToken.trim()}
+                    loading={pending === "configure"}
                     tone="primary"
                     type="submit"
                   >
@@ -334,6 +358,31 @@ export function BrowserConnectionDialog({
         )}
       </div>
     </ModalDialog>
+  );
+}
+
+function ComputersSettingsLink({
+  onNavigate,
+  tenantId,
+}: {
+  onNavigate: () => void;
+  tenantId: string;
+}) {
+  const inRouter = useInRouterContext();
+  const to = `/t/${encodeURIComponent(tenantId)}/settings/computers`;
+  const className =
+    "font-medium text-app-link underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  if (inRouter) {
+    return (
+      <Link className={className} onClick={onNavigate} to={to}>
+        Settings › Computers
+      </Link>
+    );
+  }
+  return (
+    <a className={className} href={to} onClick={onNavigate}>
+      Settings › Computers
+    </a>
   );
 }
 

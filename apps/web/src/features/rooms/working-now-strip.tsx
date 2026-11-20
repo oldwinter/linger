@@ -36,7 +36,7 @@ export function WorkingNowStrip({
           <li key={room.id}>
             <Link
               aria-label={`${room.name}, ${workingPhaseLabel(room.phase)}`}
-              className="block rounded-lg bg-app-hover px-2.5 py-2 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+              className="block rounded-lg bg-app-hover px-2.5 py-2 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onClick={onNavigate}
               to={`/t/${encodeURIComponent(tenantId)}/rooms/${encodeURIComponent(room.id)}/chat`}
             >
@@ -83,7 +83,7 @@ function FinishedReplies({
         <li key={run.roomId}>
           <Link
             aria-label={`${run.name}, ${run.reply}`}
-            className="block rounded-lg bg-app-hover px-2.5 py-2 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+            className="block rounded-lg bg-app-hover px-2.5 py-2 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={onNavigate}
             to={`/t/${encodeURIComponent(tenantId)}/rooms/${encodeURIComponent(run.roomId)}/chat`}
           >

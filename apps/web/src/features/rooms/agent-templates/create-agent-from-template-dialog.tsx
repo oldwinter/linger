@@ -10,6 +10,7 @@ import {
   type CSSProperties,
   type FormEvent,
   type ReactNode,
+  useEffect,
   useState,
 } from "react";
 
@@ -72,27 +73,35 @@ export function CreateAgentFromTemplateDialog({
   tenantId: string;
 }) {
   const [template, setTemplate] = useState<TeamHubAgentTemplate | null>(null);
+  const [creating, setCreating] = useState(false);
   const { client } = useTeamHubRuntime();
   const templates = useQuery(agentTemplatesQueryOptions(client, tenantId));
+  function handleClose() {
+    if (!creating) onClose();
+  }
   return (
     <ModalDialog
       ariaLabel={TITLE}
       className="flex flex-col overflow-hidden"
-      onClose={onClose}
+      closeOnBackdrop={!creating}
+      onClose={handleClose}
       size="xl"
     >
       {template ? (
         <TemplateSetup
-          onBack={() => setTemplate(null)}
-          onClose={onClose}
+          onBack={() => {
+            if (!creating) setTemplate(null);
+          }}
+          onClose={handleClose}
           onCreated={onCreated}
+          onCreatingChange={setCreating}
           template={template}
           tenantId={tenantId}
         />
       ) : (
         <TemplatePicker
           error={Boolean(templates.error)}
-          onClose={onClose}
+          onClose={handleClose}
           onRetry={() => void templates.refetch()}
           onSelect={setTemplate}
           pending={templates.isPending}
@@ -356,7 +365,7 @@ function RemoveTemplateButton({
     <span className="absolute right-2 top-2">
       <Button
         aria-label={`Remove ${template.name} from the marketplace`}
-        className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+        className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
         onClick={() => setConfirming(true)}
         size="compactIcon"
         tone="ghost"
@@ -389,12 +398,14 @@ function TemplateSetup({
   onBack,
   onClose,
   onCreated,
+  onCreatingChange,
   template,
   tenantId,
 }: {
   onBack: () => void;
   onClose: () => void;
   onCreated: (actor: TeamHubActor) => Promise<void> | void;
+  onCreatingChange: (creating: boolean) => void;
   template: TeamHubAgentTemplate;
   tenantId: string;
 }) {
@@ -495,6 +506,9 @@ function TemplateSetup({
         : input.skillBindings;
       return createTenantAgent(client, { ...input, skillBindings });
     },
+    onSettled: () => {
+      onCreatingChange(false);
+    },
     onSuccess: async (actor) => {
       const avatarKey = template.avatar_key;
       storeAgentAvatarKey(
@@ -506,6 +520,7 @@ function TemplateSetup({
       await onCreated(actor);
     },
   });
+  useEffect(() => () => onCreatingChange(false), [onCreatingChange]);
   const busy = createAgent.isPending || bindings.isFetching;
   const canSubmit =
     Boolean(name.trim()) &&
@@ -522,7 +537,10 @@ function TemplateSetup({
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (canSubmit) createAgent.mutate();
+    if (canSubmit) {
+      onCreatingChange(true);
+      createAgent.mutate();
+    }
   }
 
   return (
@@ -531,6 +549,7 @@ function TemplateSetup({
         <div className="flex min-w-0 items-start gap-3">
           <Button
             aria-label="Back to templates"
+            disabled={createAgent.isPending}
             onClick={onBack}
             size="icon"
             tone="ghost"
@@ -551,7 +570,7 @@ function TemplateSetup({
             </p>
           </div>
         </div>
-        <CloseButton onClose={onClose} />
+        <CloseButton disabled={createAgent.isPending} onClose={onClose} />
       </header>
 
       <div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-5">
@@ -641,7 +660,11 @@ function TemplateSetup({
       ) : null}
 
       <footer className="flex shrink-0 justify-end gap-2 border-t border-app-border px-5 py-4">
-        <Button onClick={onClose} type="button">
+        <Button
+          disabled={createAgent.isPending}
+          onClick={onClose}
+          type="button"
+        >
           Cancel
         </Button>
         <Button disabled={!canSubmit} tone="primary" type="submit">
@@ -748,10 +771,17 @@ function Note({ children, tone }: { children: ReactNode; tone?: "danger" }) {
   );
 }
 
-function CloseButton({ onClose }: { onClose: () => void }) {
+function CloseButton({
+  disabled = false,
+  onClose,
+}: {
+  disabled?: boolean;
+  onClose: () => void;
+}) {
   return (
     <Button
       aria-label={`Close ${TITLE}`}
+      disabled={disabled}
       onClick={onClose}
       size="icon"
       tone="ghost"

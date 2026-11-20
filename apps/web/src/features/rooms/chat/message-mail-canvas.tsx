@@ -65,23 +65,33 @@ export function MessageMailCanvas({
   const { subject, to } = mail.mail;
   return (
     <CardBox label="Email">
-      <h3 className="-mx-2 flex min-h-9 w-[calc(100%+1rem)] items-center gap-1 rounded-lg pr-1 transition-colors duration-150 hover:bg-accent motion-reduce:transition-none">
-        <button
-          aria-controls={editorId}
-          aria-expanded={open}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-lg py-1.5 pl-2 text-left focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app-focus"
-          onClick={() => setOpen((current) => !current)}
-          type="button"
-        >
-          <Icon
-            className="shrink-0 text-app-muted"
-            icon={Mail01Icon}
-            size={16}
-          />
-          <span className="min-w-0 flex-1 text-sm font-semibold text-app-ink [overflow-wrap:anywhere]">
-            {subject.trim() || "No subject"}
-          </span>
-        </button>
+      <div className="-mx-2 flex min-h-9 w-[calc(100%+1rem)] items-center gap-1 pr-1">
+        <h3 className="flex min-w-0 flex-1">
+          <button
+            aria-controls={editorId}
+            aria-expanded={open}
+            className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors duration-150 hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app-focus motion-reduce:transition-none"
+            onClick={() => setOpen((current) => !current)}
+            type="button"
+          >
+            <Icon
+              className="shrink-0 text-app-muted"
+              icon={Mail01Icon}
+              size={16}
+            />
+            <span className="min-w-0 flex-1 text-sm font-semibold text-app-ink [overflow-wrap:anywhere]">
+              {subject.trim() || "No subject"}
+            </span>
+            <Icon
+              className={cn(
+                "shrink-0 text-app-muted transition-transform duration-(--chat-resize-duration) ease-(--app-out-quint) motion-reduce:transition-none",
+                open && "rotate-180",
+              )}
+              icon={ArrowDown01Icon}
+              size={14}
+            />
+          </button>
+        </h3>
         <button
           aria-label="Open in side panel"
           className={iconButton}
@@ -91,24 +101,7 @@ export function MessageMailCanvas({
         >
           <Icon icon={ArrowExpand01Icon} size={14} />
         </button>
-        <button
-          aria-controls={editorId}
-          aria-expanded={open}
-          aria-label={open ? "Collapse email" : "Expand email"}
-          className={iconButton}
-          onClick={() => setOpen((current) => !current)}
-          type="button"
-        >
-          <Icon
-            className={cn(
-              "transition-transform duration-(--chat-resize-duration) ease-(--app-out-quint) motion-reduce:transition-none",
-              open && "rotate-180",
-            )}
-            icon={ArrowDown01Icon}
-            size={14}
-          />
-        </button>
-      </h3>
+      </div>
       <AutoHeight open={!open}>
         <p className="pt-1 text-sm text-app-muted [overflow-wrap:anywhere]">
           {to ? `To ${to}` : "No recipients"}

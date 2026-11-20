@@ -9,7 +9,7 @@ async function signIn(page: Page) {
   await page.goto("/login");
   await page.getByLabel("Email").fill("alice@example.com");
   await page.getByLabel("Password", { exact: true }).fill("teamhub-dev-alice");
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.getByRole("button", { name: "Log in", exact: true }).click();
   await expect(page).toHaveURL(/\/t\/[^/]+\//);
 }
 

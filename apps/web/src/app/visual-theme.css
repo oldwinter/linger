@@ -174,4 +174,16 @@
   --composer-shadow-color: rgba(0, 0, 0, 0.06);
   --composer-shadow-focus-color: rgba(0, 0, 0, 0.07);
   --app-scrollbar: hsl(var(--town-muted-foreground) / 0.4);
+  /* Meeting calendar heatmap steps (0 = empty, 3 = busiest below full ink). */
+  --app-heat-0: #f1f0ec;
+  --app-heat-1: #dedcd1;
+  --app-heat-2: #b5b3a5;
+  --app-heat-3: #7d7b6e;
+  /* Wiki entity avatar and badge hues. */
+  --app-wiki-hue-0: #1c509c;
+  --app-wiki-hue-1: #9c731c;
+  --app-wiki-hue-2: #4a1c9c;
+  --app-wiki-hue-3: #1c9c2f;
+  --app-wiki-hue-4: #9c2a1c;
+  --app-wiki-hue-5: #5e9c1c;
 }

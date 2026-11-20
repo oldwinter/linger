@@ -1,5 +1,6 @@
 import { lazy, Suspense, useMemo, type ComponentProps } from "react";
 
+import { Button } from "@/components/ui/button";
 import { isRunWorking } from "@/features/teamhub/run-status";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 
@@ -96,15 +97,19 @@ export function RoomChatComposerSection({
       state={directPeerState}
     >
       {shareableDocuments.isError ? (
-        <p role="alert" className="px-4 py-2 text-sm text-app-danger">
-          Documents outside this Room could not be loaded.{" "}
-          <button
-            type="button"
+        <div
+          className="flex items-center justify-between gap-3 px-4 py-2 text-sm text-app-danger"
+          role="alert"
+        >
+          <span>Documents outside this Room could not be loaded.</span>
+          <Button
             onClick={() => void shareableDocuments.refetch()}
+            size="compact"
+            tone="secondary"
           >
             Retry
-          </button>
-        </p>
+          </Button>
+        </div>
       ) : null}
       <BackgroundTasksIndicator
         client={client}
@@ -279,8 +284,13 @@ async function resolveRoomDocumentLink(
       tenantId,
       updatedAt: document.updated_at,
     };
-  } catch {
-    throw new Error("Document cannot be shared in this Room.");
+  } catch (error) {
+    if (error instanceof Error && error.message.trim()) {
+      throw error;
+    }
+    throw new Error("Document cannot be shared in this Room.", {
+      cause: error,
+    });
   }
 }
 

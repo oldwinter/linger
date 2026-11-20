@@ -196,12 +196,15 @@ export default function RecordingWindow() {
   const pinched = usePinchZoom();
   const [moved, setMoved] = useState<{ left: number; top: number }>();
   const frameRef = useRef<HTMLDivElement>(null);
+  const dragCleanupRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => dragCleanupRef.current?.(), []);
   // Keep the window inside the viewport when dragging its title bar.
   const startMove = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || (event.target as Element).closest("button"))
       return;
     const frame = frameRef.current;
     if (!frame) return;
+    dragCleanupRef.current?.();
     const rect = frame.getBoundingClientRect();
     const offsetX = event.clientX - rect.left;
     const offsetY = event.clientY - rect.top;
@@ -219,9 +222,15 @@ export default function RecordingWindow() {
     const end = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      if (dragCleanupRef.current === end) {
+        dragCleanupRef.current = null;
+      }
     };
+    dragCleanupRef.current = end;
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
   };
   if (!voice) return null;
   return createPortal(

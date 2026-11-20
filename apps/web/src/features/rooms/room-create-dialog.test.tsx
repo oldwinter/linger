@@ -434,7 +434,9 @@ describe("Room creation", () => {
       </QueryClientProvider>,
     );
 
-    fireEvent.change(screen.getByLabelText("Room name"), {
+    const name = screen.getByLabelText("Room name");
+    expect(name.closest(".ui-field")).not.toBeNull();
+    fireEvent.change(name, {
       target: { value: "room-all" },
     });
     fireEvent.click(screen.getByRole("button", { name: /^Create Room$/ }));
@@ -444,6 +446,51 @@ describe("Room creation", () => {
         "You already have a Room with this name. Choose a different name.",
       ),
     ).resolves.toBeVisible();
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    expect(name).toHaveAccessibleDescription(
+      "You already have a Room with this name. Choose a different name.",
+    );
+    expect(name.className).not.toContain("!border-app-danger");
+
+    // Typing a new name clears the prior server error immediately.
+    fireEvent.change(name, {
+      target: { value: "room-all-2" },
+    });
+    expect(
+      screen.queryByText(
+        "You already have a Room with this name. Choose a different name.",
+      ),
+    ).toBeNull();
+    expect(name).not.toHaveAttribute("aria-invalid");
+  });
+
+  it("links inline duplicate-name validation through Field without !border-app-danger", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomCreation(runtime);
+    acceptRoomMembers(runtime);
+    const existing = await getRoom(runtime, "room-all");
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <MemoryRouter>
+            <RoomCreateDialog onClose={vi.fn()} tenantId="tenant-northstar" />
+          </MemoryRouter>
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    const name = screen.getByLabelText("Room name");
+    fireEvent.change(name, { target: { value: existing.name } });
+
+    await waitFor(() => expect(name).toHaveAttribute("aria-invalid", "true"));
+    expect(name).toHaveAccessibleDescription(
+      "You already have a Room with this name. Choose a different name.",
+    );
+    expect(name.className).not.toContain("!border-app-danger");
+    expect(
+      screen.getByRole("button", { name: /^Create Room$/ }),
+    ).toBeDisabled();
   });
 });
 

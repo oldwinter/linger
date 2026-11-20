@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
@@ -43,7 +43,7 @@ function createMockSession(
   };
 }
 
-function renderBody(session: RoomDocumentCollaborationSession) {
+function renderBody(session: RoomDocumentCollaborationSession | null) {
   const queryClient = new QueryClient();
   const model = {
     actor: {
@@ -176,5 +176,12 @@ describe("UnifiedDocumentBody beforeunload protection", () => {
     );
     renderBody(session);
     expect(dispatchBeforeUnload().defaultPrevented).toBe(false);
+  });
+
+  it("renders shared Skeleton placeholders while the document session is loading", () => {
+    renderBody(null);
+    const status = screen.getByRole("status", { name: "Opening document" });
+    expect(status.querySelectorAll(".town-skeleton").length).toBeGreaterThan(0);
+    expect(status.querySelector(".animate-pulse")).toBeNull();
   });
 });

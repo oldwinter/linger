@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Button } from "./button";
 import { FormFeedback } from "./form-feedback";
+import { SettingsGroup, SettingsRow, SettingsRowText } from "./settings-group";
 import { UnderlineTabs } from "./underline-tabs";
 
 describe("UI primitives", () => {
@@ -124,5 +125,34 @@ describe("UI primitives", () => {
     const alert = screen.getByRole("alert");
     expect(alert.tagName).toBe("DIV");
     expect(alert).toHaveTextContent("Details");
+  });
+
+  it("uses standard typography tokens and multi-line descriptions in SettingsGroup", () => {
+    render(
+      <SettingsGroup footer="Helpful footer note." label="Preferences">
+        <SettingsRow>
+          <SettingsRowText
+            description="Long explanatory description that should wrap cleanly across lines."
+            title="Notification policy"
+          />
+        </SettingsRow>
+      </SettingsGroup>,
+    );
+
+    const title = screen.getByText("Notification policy");
+    expect(title).toHaveClass("truncate", "text-sm", "leading-5");
+    expect(title.className).not.toContain("text-[14px]");
+    expect(title.className).not.toContain("leading-[18px]");
+
+    const description = screen.getByText(
+      "Long explanatory description that should wrap cleanly across lines.",
+    );
+    expect(description).toHaveClass("text-xs", "leading-4");
+    expect(description).not.toHaveClass("truncate");
+    expect(description.className).not.toContain("leading-[17px]");
+
+    const footer = screen.getByText("Helpful footer note.");
+    expect(footer).toHaveClass("text-xs", "leading-4");
+    expect(footer.className).not.toContain("leading-[18px]");
   });
 });

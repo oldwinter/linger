@@ -29,7 +29,7 @@ test("ordinary Office entry and direct link load only preview dependencies", asy
     await page
       .getByLabel("Password", { exact: true })
       .fill("teamhub-dev-alice");
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await page.getByRole("button", { name: "Log in", exact: true }).click();
     await expect(page).toHaveURL(/\/t\//);
     const content = await readFile(
       "apps/web/e2e/fixtures/office/single-100kb.docx",

@@ -996,20 +996,51 @@ describe("TaskSidebar", () => {
       tabs: [roomInfoTab],
     });
 
-    expect(screen.getByRole("heading", { name: "Product" })).toBeVisible();
-    expect(screen.getByLabelText("2 members")).toBeVisible();
+    const heading = screen.getByRole("heading", { name: "Product", level: 2 });
+    expect(heading).toBeVisible();
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+    const avatarStack = screen.getByLabelText("2 members");
+    expect(avatarStack).toBeVisible();
+    const overlappingTiles = avatarStack.querySelectorAll("span.bg-card");
+    expect(overlappingTiles).toHaveLength(2);
     expect(
       within(screen.getByRole("tablist", { name: "Room info sections" }))
         .getAllByRole("tab")
         .map((tab) => tab.textContent),
-    ).toEqual(["agents", "files"]);
-    expect(screen.getByRole("tab", { name: "agents" })).toHaveAttribute(
+    ).toEqual(["Members", "Files"]);
+    expect(screen.getByRole("tab", { name: "Members" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
+    const offlineRow = screen.getByText("Offline Agent").parentElement!;
+    expect(offlineRow.className).not.toMatch(/hover:bg-/);
     expect(screen.getByText("Offline Agent")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Files" }));
+    const emptyFiles = screen.getByText("No Room files");
+    expect(emptyFiles).toBeVisible();
+    expect(emptyFiles.querySelector("svg")).not.toBeNull();
+
     fireEvent.click(screen.getByRole("button", { name: "Edit Room" }));
     expect(onOpenRoomSettings).toHaveBeenCalledOnce();
+  });
+
+  it("renders an honest empty state for an unanchored thread collection tab", () => {
+    const draftThreadTab: PanelTab = {
+      id: "thread:draft",
+      kind: "thread",
+      lastActivatedAt: 1,
+      title: "Thread",
+    };
+    renderSidebar({
+      activeTabId: draftThreadTab.id,
+      tabs: [draftThreadTab],
+    });
+
+    const panel = screen.getByTestId("panel-tab-thread-draft");
+    expect(panel).toHaveTextContent("No thread selected");
+    expect(panel).not.toHaveTextContent("Good afternoon");
+    expect(panel).not.toHaveTextContent("Message Anotherme");
   });
 
   it("opens a safe browser-like URL preview", () => {

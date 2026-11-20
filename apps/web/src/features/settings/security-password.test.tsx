@@ -38,6 +38,16 @@ describe("Security password through the live HTTP client", () => {
       </QueryClientProvider>,
     );
     const dialog = screen.getByRole("dialog", { name: "Change password" });
+    const confirmInput = within(dialog).getByLabelText("Confirm new password");
+    expect(confirmInput.closest(".ui-field")).not.toBeNull();
+    fireEvent.change(within(dialog).getByLabelText("New password"), {
+      target: { value: "first-password" },
+    });
+    fireEvent.change(confirmInput, {
+      target: { value: "mismatch-password" },
+    });
+    expect(confirmInput).toHaveAttribute("aria-invalid", "true");
+    expect(confirmInput).toHaveAccessibleDescription("Passwords do not match.");
     for (const label of [
       "Current password",
       "New password",
@@ -47,6 +57,7 @@ describe("Security password through the live HTTP client", () => {
         target: { value: "test-password" },
       });
     }
+    expect(confirmInput).not.toHaveAttribute("aria-invalid");
     fireEvent.click(
       within(dialog).getByRole("button", { name: "Change password" }),
     );

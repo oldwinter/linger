@@ -3,6 +3,7 @@ import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
 import { ModalDialog } from "@/components/ui/modal-dialog";
 import { classifyTeamHubCommandFailure } from "@/features/teamhub/teamhub-command-outcome";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
@@ -21,8 +22,9 @@ export function RoomCreateDialog({
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const nameInputRef = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const formId = useId();
+  const serverErrorId = useId();
   const [name, setName] = useState("");
   const createRoom = useMutation({
     mutationFn: (input: TeamHubRoomCreateInput) =>
@@ -66,8 +68,9 @@ export function RoomCreateDialog({
   // conflicting Room is always one they can see.
   const nameTakenMessage =
     "You already have a Room with this name. Choose a different name.";
-  const failureMessage = duplicateName
-    ? nameTakenMessage
+  const fieldError = duplicateName ? nameTakenMessage : undefined;
+  const serverFailureMessage = duplicateName
+    ? undefined
     : createRoom.error instanceof Error &&
         "code" in createRoom.error &&
         createRoom.error.code === "ROOM_NAME_TAKEN"
@@ -75,7 +78,7 @@ export function RoomCreateDialog({
       : failure?.message;
 
   useEffect(() => {
-    nameInputRef.current?.focus();
+    formRef.current?.querySelector("input")?.focus();
   }, []);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -110,28 +113,38 @@ export function RoomCreateDialog({
         </Button>
       }
     >
-      <form className="px-5 py-4" id={formId} onSubmit={handleSubmit}>
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-app-ink">
-            Room name
-          </span>
-          <input
-            aria-invalid={duplicateName || undefined}
-            className={`ui-field-control w-full ${
-              duplicateName ? "!border-app-danger" : ""
-            }`}
-            disabled={createRoom.isPending}
-            maxLength={120}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Room name"
-            ref={nameInputRef}
-            value={name}
-          />
-        </label>
+      <form
+        className="px-5 py-4"
+        id={formId}
+        onSubmit={handleSubmit}
+        ref={formRef}
+      >
+        <Field
+          {...(serverFailureMessage
+            ? {
+                "aria-describedby": serverErrorId,
+                "aria-invalid": true,
+              }
+            : {})}
+          disabled={createRoom.isPending}
+          error={fieldError}
+          label="Room name"
+          maxLength={120}
+          onChange={(event) => {
+            if (createRoom.error) createRoom.reset();
+            setName(event.target.value);
+          }}
+          placeholder="Room name"
+          value={name}
+        />
 
-        {failureMessage ? (
-          <p className="mt-3 text-sm text-app-danger" role="alert">
-            {failureMessage}
+        {serverFailureMessage ? (
+          <p
+            className="mt-1.5 text-xs text-destructive"
+            id={serverErrorId}
+            role="alert"
+          >
+            {serverFailureMessage}
           </p>
         ) : null}
       </form>

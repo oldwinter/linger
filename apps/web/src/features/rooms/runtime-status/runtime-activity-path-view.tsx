@@ -4,6 +4,7 @@ import {
   CheckListIcon,
   Loading03Icon,
   SparklesIcon,
+  Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { HeadlessMantineProvider, Spoiler } from "@mantine/core";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
@@ -480,13 +481,13 @@ function ToolCallsRow({
             className={`relative inline-flex size-[15px] shrink-0 items-center justify-center ${lines ? "mt-0.5" : ""}`}
           >
             <Icon
-              className="absolute inset-0 m-auto group-hover:hidden group-focus-within:hidden group-open:hidden"
+              className="absolute inset-0 m-auto transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 group-open:opacity-0 [@media(hover:none)]:opacity-0 motion-reduce:transition-none"
               icon={groupGlyph}
               size={14}
             />
             <Icon
               icon={ArrowRight01Icon}
-              className="absolute inset-0 m-auto hidden group-hover:block group-focus-within:block group-open:block group-open:rotate-90 motion-reduce:transition-none"
+              className="absolute inset-0 m-auto opacity-0 transition-[opacity,transform] group-hover:opacity-100 group-focus-within:opacity-100 group-open:opacity-100 group-open:rotate-90 [@media(hover:none)]:opacity-100 motion-reduce:transition-none"
               size={14}
             />
           </span>
@@ -615,9 +616,20 @@ function PlanMark({
     return (
       <Icon
         icon={Loading03Icon}
-        className="mt-1 shrink-0 animate-spin text-app-info"
+        className="mt-1 shrink-0 animate-spin text-app-info motion-reduce:animate-none"
         size={12}
       />
+    );
+  }
+  if (status === "completed") {
+    return (
+      <span
+        aria-label="Completed"
+        className="mt-1 inline-flex shrink-0 text-app-success"
+        role="img"
+      >
+        <Icon icon={Tick02Icon} size={12} />
+      </span>
     );
   }
   return (

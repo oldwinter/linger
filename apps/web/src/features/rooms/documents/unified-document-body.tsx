@@ -10,6 +10,7 @@ import type * as Y from "yjs";
 
 import { Button, buttonClassName } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { documentLogicalTitle } from "@/features/library/document-display-name";
 import { WikiCarriedSentence } from "@/features/wiki/wiki-carried-voice";
@@ -277,15 +278,11 @@ function DocumentBodySkeleton() {
       role="status"
     >
       <span className="sr-only">Opening document...</span>
-      <div className="h-10 w-3/5 animate-pulse rounded-sm bg-muted motion-reduce:animate-none" />
-      <div className="mt-4 h-4 w-2/5 animate-pulse rounded-sm bg-muted motion-reduce:animate-none" />
+      <Skeleton className="h-10 w-3/5" />
+      <Skeleton className="mt-4 h-4 w-2/5" />
       <div className="mt-12 space-y-3">
         {["100%", "94%", "86%", "98%", "72%"].map((width) => (
-          <div
-            className="h-4 animate-pulse rounded-sm bg-muted motion-reduce:animate-none"
-            key={width}
-            style={{ width }}
-          />
+          <Skeleton className="h-4" key={width} style={{ width }} />
         ))}
       </div>
     </div>

@@ -1,14 +1,8 @@
 import { useMutation } from "@tanstack/react-query";
-import {
-  type FormEvent,
-  type RefObject,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
 import { ModalDialog } from "@/components/ui/modal-dialog";
 
 export function ChangePasswordDialog({
@@ -24,7 +18,8 @@ export function ChangePasswordDialog({
   onClose: () => void;
 }) {
   const formId = useId();
-  const currentPasswordRef = useRef<HTMLInputElement>(null);
+  const mismatchId = useId();
+  const formRef = useRef<HTMLFormElement>(null);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -45,7 +40,7 @@ export function ChangePasswordDialog({
     !mutation.isPending;
 
   useEffect(() => {
-    currentPasswordRef.current?.focus();
+    formRef.current?.querySelector("input")?.focus();
   }, []);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -88,40 +83,57 @@ export function ChangePasswordDialog({
         </>
       }
     >
-      <form className="px-5 py-4" id={formId} onSubmit={handleSubmit}>
+      <form
+        className="px-5 py-4"
+        id={formId}
+        onSubmit={handleSubmit}
+        ref={formRef}
+      >
         <fieldset className="space-y-4" disabled={mutation.isPending}>
-          <PasswordField
+          <Field
             autoComplete="current-password"
-            inputRef={currentPasswordRef}
             label="Current password"
-            onChange={(value) => {
+            onChange={(event) => {
               resetFailure();
-              setCurrentPassword(value);
+              setCurrentPassword(event.target.value);
             }}
+            type="password"
             value={currentPassword}
           />
-          <PasswordField
+          <Field
             autoComplete="new-password"
             label="New password"
-            onChange={(value) => {
+            onChange={(event) => {
               resetFailure();
-              setNewPassword(value);
+              setNewPassword(event.target.value);
             }}
+            type="password"
             value={newPassword}
           />
-          <PasswordField
+          <Field
+            {...(mismatch
+              ? {
+                  "aria-describedby": mismatchId,
+                  "aria-invalid": true,
+                }
+              : {})}
             autoComplete="new-password"
             label="Confirm new password"
-            onChange={(value) => {
+            onChange={(event) => {
               resetFailure();
-              setConfirmation(value);
+              setConfirmation(event.target.value);
             }}
+            type="password"
             value={confirmation}
           />
         </fieldset>
 
         {mismatch ? (
-          <p className="mt-4 text-sm text-app-danger" role="alert">
+          <p
+            className="mt-4 text-sm text-app-danger"
+            id={mismatchId}
+            role="alert"
+          >
             Passwords do not match.
           </p>
         ) : null}
@@ -132,36 +144,5 @@ export function ChangePasswordDialog({
         ) : null}
       </form>
     </ModalDialog>
-  );
-}
-
-function PasswordField({
-  autoComplete,
-  inputRef,
-  label,
-  onChange,
-  value,
-}: {
-  autoComplete: "current-password" | "new-password";
-  inputRef?: RefObject<HTMLInputElement | null>;
-  label: string;
-  onChange: (value: string) => void;
-  value: string;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-sm font-medium text-foreground">
-        {label}
-      </span>
-      <input
-        aria-label={label}
-        autoComplete={autoComplete}
-        className="ui-field-control w-full disabled:cursor-not-allowed disabled:bg-app-surface-soft"
-        onChange={(event) => onChange(event.target.value)}
-        ref={inputRef}
-        type="password"
-        value={value}
-      />
-    </label>
   );
 }

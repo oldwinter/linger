@@ -320,9 +320,10 @@ describe("Room navigation", () => {
     const agentsSection = screen
       .getByRole("heading", { name: "Messages" })
       .closest("section")!;
-    const card = screen.getByRole("link", { name: "Another Me Chat" });
+    const anotherMeLabel = `${anotherMeRoom.direct_peer!.display_name} chat`;
+    const card = screen.getByRole("link", { name: anotherMeLabel });
     expect(
-      within(agentsSection).queryByRole("link", { name: "Another Me Chat" }),
+      within(agentsSection).queryByRole("link", { name: anotherMeLabel }),
     ).toBeNull();
     expect(
       card.compareDocumentPosition(agentsSection) &

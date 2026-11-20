@@ -17,6 +17,7 @@ import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { HighlightedText } from "@/features/search/search-highlight";
+import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import type { TeamHubMessagePinList } from "@/features/teamhub/teamhub-types";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
@@ -45,10 +46,9 @@ export function PinnedMessagesControl({
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const { data, isError, isPending, refetch } = useQuery({
-    ...roomPinsQueryOptions(client, tenantId, roomId),
-    enabled: open,
-  });
+  const { data, isError, isPending, refetch } = useQuery(
+    roomPinsQueryOptions(client, tenantId, roomId),
+  );
   const togglePin = useMessagePinToggle({
     client,
     queryClient,
@@ -179,6 +179,7 @@ export function PinnedMessagesControl({
   function rememberScroll(event: UIEvent<HTMLDivElement>) {
     if (!filtering) scrollRef.current = event.currentTarget.scrollTop;
   }
+  const pinnedCount = pins.length;
   return (
     <div className="relative" ref={rootRef}>
       <Button
@@ -188,10 +189,23 @@ export function PinnedMessagesControl({
         className="!rounded-lg border-0 text-app-muted"
         onClick={() => setOpen((current) => !current)}
         size="compactIcon"
-        title="Pinned messages"
+        title={
+          pinnedCount > 0
+            ? `Pinned messages (${pinnedCount})`
+            : "Pinned messages"
+        }
         tone="ghost"
       >
         <Icon icon={PinIcon} size={16} />
+        {pinnedCount > 0 ? (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10px] leading-none font-medium text-foreground ring-1 ring-app-surface tabular-nums"
+            data-testid="pinned-messages-count"
+          >
+            {pinnedCount > 99 ? "99+" : pinnedCount}
+          </span>
+        ) : null}
       </Button>
       {open
         ? createPortal(
@@ -321,7 +335,10 @@ export function PinnedMessagesControl({
                             <p className="line-clamp-2 text-xs text-app-ink">
                               <HighlightedText
                                 query={query}
-                                text={pin.message.raw_message}
+                                text={
+                                  markdownPlainText(pin.message.raw_message) ||
+                                  pin.message.raw_message
+                                }
                               />
                             </p>
                             <div className="mt-1 flex items-center gap-1">

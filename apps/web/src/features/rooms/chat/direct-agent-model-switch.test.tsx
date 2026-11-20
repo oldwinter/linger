@@ -45,7 +45,9 @@ describe("Direct Agent runtime settings", () => {
     }));
     renderSwitch({ updateTenantAgent });
     fireEvent.click(
-      await screen.findByRole("button", { name: "5.4 Sol Medium" }),
+      await screen.findByRole("button", {
+        name: "Switch model (current: 5.4 Sol)",
+      }),
     );
     expect(
       await screen.findByRole("dialog", { name: "Runtime settings" }),
@@ -86,8 +88,12 @@ describe("Direct Agent runtime settings", () => {
   it("keeps the effort outside the model label that shortens", async () => {
     renderSwitch({});
     const trigger = await screen.findByRole("button", {
-      name: "5.4 Sol Medium",
+      name: "Switch model (current: 5.4 Sol)",
     });
+    expect(trigger).toHaveAttribute(
+      "title",
+      "Switch model (current: 5.4 Sol, Medium)",
+    );
     const label = within(trigger).getByText("5.4 Sol");
     expect(label).toHaveClass("agent-model-switch-trigger-label");
     expect(label).not.toHaveTextContent("Medium");
@@ -99,7 +105,9 @@ describe("Direct Agent runtime settings", () => {
     const updateTenantAgent = vi.fn();
     renderSwitch({ updateTenantAgent, busy: true });
     fireEvent.click(
-      await screen.findByRole("button", { name: "5.4 Sol Medium" }),
+      await screen.findByRole("button", {
+        name: "Switch model (current: 5.4 Sol)",
+      }),
     );
     // The settings dialog is a lazy chunk on its first open.
     expect(
@@ -167,7 +175,9 @@ describe("Direct Agent runtime settings", () => {
     );
 
     expect(
-      await screen.findByRole("button", { name: "Qwen3 Coder 30B" }),
+      await screen.findByRole("button", {
+        name: "Switch model (current: Qwen3 Coder 30B)",
+      }),
     ).toBeVisible();
   });
 });

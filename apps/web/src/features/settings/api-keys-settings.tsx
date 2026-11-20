@@ -180,12 +180,14 @@ function VoiceKeyRow({
 function KeyRow({
   actions,
   detail,
+  error,
   logo,
   pill,
   title,
 }: {
   actions?: ReactNode;
   detail: string;
+  error?: ReactNode;
   logo: ReactNode;
   pill?: ReactNode;
   title: string;
@@ -199,6 +201,7 @@ function KeyRow({
           {pill}
         </p>
         <p className="text-sm text-muted-foreground">{detail}</p>
+        {error}
       </div>
       {actions ? <div className="flex shrink-0 gap-2">{actions}</div> : null}
     </div>
@@ -218,13 +221,29 @@ function ComposioKeyRow({ onOpen }: { onOpen: () => void }) {
   return (
     <KeyRow
       actions={
-        key?.can_save ? (
+        catalog.isError ? (
+          <Button
+            loading={catalog.isFetching}
+            onClick={() => void catalog.refetch()}
+            size="compact"
+            tone="secondary"
+          >
+            Retry
+          </Button>
+        ) : key?.can_save ? (
           <Button onClick={onOpen}>
             {key.source === "stored" ? "Replace key" : "Add key"}
           </Button>
         ) : null
       }
       detail={detail}
+      error={
+        catalog.isError ? (
+          <p className="mt-1 text-xs text-destructive" role="alert">
+            Could not load Composio key status. Try again.
+          </p>
+        ) : null
+      }
       logo={<AppLogoTile name="Composio" url={composioLogoUrl} />}
       pill={key ? <KeySourcePill source={key.source} /> : null}
       title="Composio"

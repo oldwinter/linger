@@ -569,4 +569,134 @@ describe("My Rules", () => {
 
     expect(await row("Vendor invoices over 2000 → track")).toBeTruthy();
   });
+
+  it("wraps Reminders, Rules, and Clues in cards and keeps action errors inside Rules", async () => {
+    const runtime = renderPage();
+    runtime.server.on("PUT", `${rulePath}/pin`, () =>
+      teamHubErrorResponse(503, "SERVICE_UNAVAILABLE"),
+    );
+
+    const remindersSection = (
+      await screen.findByRole("heading", { name: "Reminders on this computer" })
+    ).closest("section")!;
+    const rulesSection = screen
+      .getByRole("heading", { name: "Rules" })
+      .closest("section")!;
+    const cluesSection = screen
+      .getByRole("heading", { name: "Clues" })
+      .closest("section")!;
+
+    for (const section of [remindersSection, rulesSection, cluesSection]) {
+      expect(section).toHaveClass(
+        "rounded-2xl",
+        "border",
+        "border-border",
+        "bg-background",
+        "p-6",
+      );
+    }
+
+    fireEvent.click(
+      within(await row("Client replies → remind directly")).getByRole(
+        "button",
+        { name: "Pin rule" },
+      ),
+    );
+
+    const alert = await within(rulesSection).findByRole("alert");
+    expect(alert).toHaveTextContent("The change was not saved. Try again.");
+    expect(
+      Boolean(
+        alert.compareDocumentPosition(cluesSection) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
+  });
+
+  it("shows loading only on the clicked rule button across Promote, Pin, Save, and Delete", async () => {
+    let resolvePending!: (response: Response) => void;
+    const defer = () =>
+      new Promise<Response>((resolve) => {
+        resolvePending = resolve;
+      });
+    const runtime = renderPage();
+    runtime.server.on("POST", `${rulePath}/promotion`, defer);
+    runtime.server.on("PUT", `${rulePath}/pin`, defer);
+    runtime.server.on("PATCH", rulePath, defer);
+    runtime.server.on("DELETE", rulePath, defer);
+
+    const activeRow = await row("Client replies → remind directly");
+    const shadowRow = await row("Vendor invoices → track for follow-up");
+
+    // Promote only spins Promote on shadowRow.
+    const promoteButton = within(shadowRow).getByRole("button", {
+      name: /Promote/u,
+    });
+    const activePinButton = within(activeRow).getByRole("button", {
+      name: "Pin rule",
+    });
+    fireEvent.click(promoteButton);
+    await waitFor(() =>
+      expect(promoteButton).toHaveAttribute("aria-busy", "true"),
+    );
+    expect(activePinButton).toBeDisabled();
+    expect(activePinButton).not.toHaveAttribute("aria-busy");
+    await act(async () => {
+      resolvePending(Response.json(book));
+    });
+    await waitFor(() => expect(promoteButton).not.toHaveAttribute("aria-busy"));
+
+    // Pin only spins Pin on activeRow.
+    fireEvent.click(activePinButton);
+    await waitFor(() =>
+      expect(activePinButton).toHaveAttribute("aria-busy", "true"),
+    );
+    expect(promoteButton).not.toHaveAttribute("aria-busy");
+    await act(async () => {
+      resolvePending(Response.json(book));
+    });
+    await waitFor(() =>
+      expect(activePinButton).not.toHaveAttribute("aria-busy"),
+    );
+
+    // Save only spins Save on the edited rule.
+    fireEvent.click(
+      within(activeRow).getByRole("button", { name: "Edit rule" }),
+    );
+    const saveButton = within(activeRow).getByRole("button", { name: "Save" });
+    fireEvent.click(saveButton);
+    await waitFor(() =>
+      expect(saveButton).toHaveAttribute("aria-busy", "true"),
+    );
+    expect(promoteButton).not.toHaveAttribute("aria-busy");
+    await act(async () => {
+      resolvePending(Response.json(book));
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Rule text" })).toBeNull(),
+    );
+
+    // Delete confirmation only spins Confirm on the deleted rule.
+    fireEvent.click(
+      within(activeRow).getByRole("button", { name: "Delete rule" }),
+    );
+    const confirmButton = within(activeRow).getByRole("button", {
+      name: "Confirm delete rule",
+    });
+    fireEvent.click(confirmButton);
+    await waitFor(() =>
+      expect(confirmButton).toHaveAttribute("aria-busy", "true"),
+    );
+    expect(promoteButton).not.toHaveAttribute("aria-busy");
+    await act(async () => {
+      resolvePending(Response.json(book));
+    });
+    await waitFor(() =>
+      expect(
+        within(activeRow).queryByRole("button", {
+          name: "Confirm delete rule",
+        }),
+      ).toBeNull(),
+    );
+  });
 });

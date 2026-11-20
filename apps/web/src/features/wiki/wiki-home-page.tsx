@@ -61,13 +61,13 @@ import {
 import "./wiki-home-page.css";
 
 const entityHues = [
-  "#1c509c",
-  "#9c731c",
-  "#4a1c9c",
-  "#1c9c2f",
-  "#9c2a1c",
-  "#5e9c1c",
-];
+  "var(--app-wiki-hue-0)",
+  "var(--app-wiki-hue-1)",
+  "var(--app-wiki-hue-2)",
+  "var(--app-wiki-hue-3)",
+  "var(--app-wiki-hue-4)",
+  "var(--app-wiki-hue-5)",
+] as const;
 const dateFormatter = new Intl.DateTimeFormat("en-US", {
   month: "short",
   day: "numeric",
@@ -92,7 +92,10 @@ function entityColors(key: number | string) {
   if (typeof key === "string")
     for (const char of key) index = (index * 31 + char.codePointAt(0)!) | 0;
   const color = entityHues[Math.abs(index) % entityHues.length]!;
-  return { background: `${color}1a`, color };
+  return {
+    background: `color-mix(in srgb, ${color} 10%, transparent)`,
+    color,
+  };
 }
 
 export function editedLabel(page: TeamHubDocument) {
@@ -382,7 +385,7 @@ function WikiOverview({
         {query ? (
           <button
             aria-label="Clear search"
-            className="flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+            className="flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => setQuery("")}
             type="button"
           >
@@ -678,7 +681,7 @@ function EntryCards({
                       className="project-involver"
                       key={name}
                       style={{
-                        background: `color-mix(in srgb, ${entityColors(name).color} 22%, white)`,
+                        background: `color-mix(in srgb, ${entityColors(name).color} 22%, var(--app-surface))`,
                       }}
                       title={name}
                     >

@@ -59,8 +59,10 @@ export function BackgroundTasksIndicator({
   );
 }
 
+const RELATIVE_TIME_TICK_MS = 30_000;
+
 export function BackgroundTasksPill({
-  now = Date.now(),
+  now,
   onCancel,
   onOpen,
   tasks,
@@ -73,8 +75,19 @@ export function BackgroundTasksPill({
   tasks: readonly TeamHubRoomBackgroundTask[];
 }) {
   const [open, setOpen] = useState(false);
+  const [clockNow, setClockNow] = useState(Date.now);
   const root = useRef<HTMLDivElement>(null);
   const listId = useId();
+  const trackTime = now === undefined && tasks.length > 0;
+  useEffect(() => {
+    if (!trackTime) return;
+    const timer = window.setInterval(
+      () => setClockNow(Date.now()),
+      RELATIVE_TIME_TICK_MS,
+    );
+    return () => window.clearInterval(timer);
+  }, [trackTime]);
+  const currentNow = now ?? clockNow;
   useEffect(() => {
     if (!open) return;
     const closeOutside = (event: PointerEvent) => {
@@ -135,7 +148,7 @@ export function BackgroundTasksPill({
                     {task.title}
                   </span>
                   <span className="text-[12px] leading-[18px] text-app-muted tabular-nums">
-                    {runningFor(task.created_at, now)}
+                    {runningFor(task.created_at, currentNow)}
                   </span>
                   <span className="col-span-2 col-start-2 truncate text-[12px] leading-[18px] text-app-muted">
                     {task.requirement}

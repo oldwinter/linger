@@ -45,6 +45,7 @@ export function AccountProfileSettings({
   );
   const [bio, setBio] = useState("");
   const [organization, setOrganization] = useState("");
+  const [armedInsightId, setArmedInsightId] = useState<string | null>(null);
   const dirtyRef = useRef(false);
   const updateAccount = useMutation({
     mutationFn: () =>
@@ -71,6 +72,9 @@ export function AccountProfileSettings({
   const deleteInsight = useMutation({
     mutationFn: (insightId: string) =>
       client.deletePersonalInsight(tenantId, insightId),
+    onSettled: () => {
+      setArmedInsightId(null);
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({
         queryKey: personalInsightsQueryKey(tenantId),
@@ -182,31 +186,41 @@ export function AccountProfileSettings({
       />
 
       <PersonalInsightsPanel
+        armedId={armedInsightId}
         deletingId={
           deleteInsight.isPending ? deleteInsight.variables : undefined
         }
         error={insightsQuery.error?.message ?? deleteInsight.error?.message}
         items={insightsQuery.data?.items ?? []}
         pending={insightsQuery.isPending}
+        onArm={(insightId) => setArmedInsightId(insightId)}
         onDelete={(insightId) => deleteInsight.mutate(insightId)}
+        onDisarm={() => setArmedInsightId(null)}
       />
     </>
   );
 }
 
 function PersonalInsightsPanel({
+  armedId,
   deletingId,
   error,
   items,
+  onArm,
   onDelete,
+  onDisarm,
   pending,
 }: {
+  armedId: string | null;
   deletingId?: string;
   error?: string;
   items: TeamHubPersonalInsight[];
+  onArm: (insightId: string) => void;
   onDelete: (insightId: string) => void;
+  onDisarm: () => void;
   pending: boolean;
 }) {
+  const deleting = Boolean(deletingId);
   return (
     <section className="rounded-2xl border border-border bg-background p-6">
       <div className="flex min-h-7 items-center justify-between gap-3">
@@ -223,7 +237,10 @@ function PersonalInsightsPanel({
           Loading insights...
         </div>
       ) : items.length === 0 ? (
-        <p className="mt-4 text-sm text-muted-foreground">No insights yet.</p>
+        <div className="mt-4 space-y-1 text-sm text-muted-foreground">
+          <p>No insights yet.</p>
+          <p>Insights appear as Another Me learns how you work.</p>
+        </div>
       ) : (
         <div className="mt-3 divide-y divide-border">
           {items.map((item) => (
@@ -237,24 +254,45 @@ function PersonalInsightsPanel({
                 </p>
                 <p className="mt-1 text-sm text-foreground">{item.statement}</p>
               </div>
-              <Button
-                aria-label={`Delete ${item.dimension} insight`}
-                disabled={deletingId === item.id}
-                onClick={() => onDelete(item.id)}
-                size="compactIcon"
-                title="Delete insight"
-                tone="ghost"
-              >
-                {deletingId === item.id ? (
-                  <Icon
-                    icon={Loading03Icon}
-                    className="animate-spin"
-                    size={16}
-                  />
-                ) : (
-                  <Icon icon={Delete02Icon} size={16} />
-                )}
-              </Button>
+              {armedId === item.id ? (
+                <div
+                  aria-label={`Confirm removing ${item.dimension} insight`}
+                  className="flex shrink-0 flex-wrap items-center gap-2"
+                  role="group"
+                >
+                  <span className="text-xs font-medium text-foreground">
+                    Remove?
+                  </span>
+                  <Button
+                    disabled={deleting}
+                    loading={deletingId === item.id}
+                    onClick={() => onDelete(item.id)}
+                    size="compact"
+                    tone="danger"
+                  >
+                    Confirm
+                  </Button>
+                  <Button
+                    disabled={deleting}
+                    onClick={onDisarm}
+                    size="compact"
+                    tone="ghost"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  aria-label={`Delete ${item.dimension} insight`}
+                  disabled={deleting}
+                  onClick={() => onArm(item.id)}
+                  size="compactIcon"
+                  title="Delete insight"
+                  tone="ghost"
+                >
+                  <Icon icon={Delete02Icon} size={14} />
+                </Button>
+              )}
             </div>
           ))}
         </div>
@@ -323,8 +361,8 @@ function AccountIdentityPanel({
           />
         </label>
         <p className="mt-2 text-xs text-muted-foreground">
-          Hand-edited fields stay yours. Later generations fill only the fields
-          you have not changed.
+          Your edits are always kept. Automatic profile updates only fill in
+          fields you haven&apos;t edited.
         </p>
 
         {saveError ? (
@@ -345,7 +383,7 @@ function AccountIdentityPanel({
         {hasChanges || savePending ? (
           <Button
             className="mt-5"
-            disabled={savePending}
+            loading={savePending}
             type="submit"
             tone="primary"
           >

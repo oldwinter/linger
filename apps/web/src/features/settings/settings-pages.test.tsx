@@ -28,7 +28,10 @@ import {
   createTestTeamHubRuntime,
   type TestTeamHubRuntime,
 } from "@/test/teamhub-test-runtime";
-import type { TestRouteRequest } from "@/test/teamhub-test-server";
+import {
+  teamHubErrorResponse,
+  type TestRouteRequest,
+} from "@/test/teamhub-test-server";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubAccountProfileUpdate } from "@/features/teamhub/teamhub-types";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
@@ -114,7 +117,7 @@ describe("Settings surfaces", () => {
     );
   });
 
-  it("shows Personal Insights without provenance and lets the Human remove one", async () => {
+  it("shows Personal Insights without provenance and requires confirmation before removing one", async () => {
     const runtime = await testRuntime();
     const remove = vi
       .spyOn(runtime.client, "deletePersonalInsight")
@@ -130,6 +133,11 @@ describe("Settings surfaces", () => {
       ),
     ).toBeVisible();
     expect(screen.queryByText("Evidence source")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Your edits are always kept. Automatic profile updates only fill in fields you haven't edited.",
+      ),
+    ).toBeVisible();
 
     vi.spyOn(runtime.client, "listPersonalInsights").mockResolvedValue({
       items: [],
@@ -140,8 +148,40 @@ describe("Settings surfaces", () => {
       }),
     );
 
+    const confirmation = screen.getByRole("group", {
+      name: "Confirm removing Communication style insight",
+    });
+    expect(within(confirmation).getByText("Remove?")).toBeVisible();
+    expect(remove).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      within(confirmation).getByRole("button", { name: "Cancel" }),
+    );
+    expect(
+      screen.queryByRole("group", {
+        name: "Confirm removing Communication style insight",
+      }),
+    ).toBeNull();
+    expect(remove).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Delete Communication style insight",
+      }),
+    );
+    fireEvent.click(
+      within(
+        screen.getByRole("group", {
+          name: "Confirm removing Communication style insight",
+        }),
+      ).getByRole("button", { name: "Confirm" }),
+    );
+
     await waitFor(() => expect(remove).toHaveBeenCalledTimes(1));
     expect(await screen.findByText("No insights yet.")).toBeVisible();
+    expect(
+      screen.getByText("Insights appear as Another Me learns how you work."),
+    ).toBeVisible();
   });
 
   it("switches Settings sections through their own addresses and supports browser Back", async () => {
@@ -672,6 +712,33 @@ describe("Voice API keys", () => {
     await act(async () => undefined);
     expect(screen.queryByText("Soniox")).toBeNull();
     expect(screen.queryByText("xAI")).toBeNull();
+  });
+
+  it("shows an error alert with Retry when Composio key status fails to load", async () => {
+    const runtime = await testRuntime();
+    let attempts = 0;
+    runtime.server.on("GET", "/v0/external-apps", () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return teamHubErrorResponse(503, "SERVICE_UNAVAILABLE");
+      }
+      return {
+        apps: [],
+        provider_key: { can_save: true, source: "none" },
+      };
+    });
+    renderSettings(runtime, "/t/tenant-northstar/settings/security");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not load Composio key status. Try again.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(
+      await screen.findByRole("button", { name: "Add key" }),
+    ).toBeVisible();
+    expect(screen.getByText("Not set")).toBeVisible();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
 

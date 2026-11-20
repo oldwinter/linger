@@ -67,11 +67,15 @@ function LocalAccountSignIn({
   account: DesktopLocalAccount;
   authentication: AuthenticationController;
 }) {
+  const { isSubmitting, submittingMethod } = authentication.state;
+  const desktopSubmitting = submittingMethod === "desktop";
+
   return (
     <div className="auth-local-account">
       <Button
         className="w-full"
-        disabled={authentication.state.isSubmitting}
+        disabled={isSubmitting}
+        loading={desktopSubmitting}
         onClick={() => {
           void authentication.signInWithDesktopAccount(account);
         }}
@@ -79,8 +83,8 @@ function LocalAccountSignIn({
         tone="secondary"
         type="button"
       >
-        <Icon icon={ComputerIcon} size={16} />
-        <span>Sign in with this computer's account</span>
+        {desktopSubmitting ? null : <Icon icon={ComputerIcon} size={16} />}
+        <span>Sign in with this computer&apos;s account</span>
       </Button>
       <div className="auth-divider">
         <span />
@@ -96,8 +100,17 @@ function AuthenticationForm({
 }: {
   authentication: AuthenticationController;
 }) {
-  const { email, error, isSubmitting, password } = authentication.state;
+  const {
+    email,
+    error,
+    fieldErrors,
+    isSubmitting,
+    password,
+    submittingMethod,
+  } = authentication.state;
   const { changeField, handleSubmit } = authentication;
+  const credentialsSubmitting = submittingMethod === "credentials";
+  const formError = !fieldErrors.email && !fieldErrors.password ? error : null;
 
   return (
     <form
@@ -109,6 +122,8 @@ function AuthenticationForm({
     >
       <Field
         autoComplete="email"
+        disabled={isSubmitting}
+        error={fieldErrors.email}
         label="Email"
         onChange={(event) => changeField("email", event.target.value)}
         placeholder="you@company.com"
@@ -117,21 +132,27 @@ function AuthenticationForm({
       />
       <PasswordField
         autoComplete="current-password"
+        disabled={isSubmitting}
+        error={fieldErrors.password}
         label="Password"
         onChange={(value) => changeField("password", value)}
         value={password}
       />
-      {error ? <FormFeedback tone="danger">{error}</FormFeedback> : null}
+      {formError ? (
+        <FormFeedback tone="danger">{formError}</FormFeedback>
+      ) : null}
       <Button
-        aria-label="Sign in"
         className="auth-submit w-full"
         disabled={isSubmitting}
+        loading={credentialsSubmitting}
         size="large"
         type="submit"
         tone="primary"
       >
-        <span>{isSubmitting ? "Working..." : "Log in"}</span>
-        {!isSubmitting ? <Icon icon={ArrowRight02Icon} size={16} /> : null}
+        <span>Log in</span>
+        {credentialsSubmitting ? null : (
+          <Icon icon={ArrowRight02Icon} size={16} />
+        )}
       </Button>
     </form>
   );
@@ -139,11 +160,15 @@ function AuthenticationForm({
 
 function PasswordField({
   autoComplete,
+  disabled,
+  error,
   label,
   onChange,
   value,
 }: {
   autoComplete: string;
+  disabled?: boolean;
+  error?: string;
   label: string;
   onChange: (value: string) => void;
   value: string;
@@ -153,6 +178,8 @@ function PasswordField({
   return (
     <Field
       autoComplete={autoComplete}
+      disabled={disabled}
+      error={error}
       label={label}
       onChange={(event) => onChange(event.target.value)}
       suffix={

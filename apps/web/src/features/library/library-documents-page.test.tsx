@@ -55,7 +55,7 @@ import {
   LibraryDocumentsPage,
 } from "./library-documents-page";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
-import { formatUpdatedAt } from "@/lib/date-format";
+import { formatDateTime, formatUpdatedAt } from "@/lib/date-format";
 
 const composingRenameKeys = [
   { key: "Enter", isComposing: true, keyCode: 13 },
@@ -1198,6 +1198,116 @@ describe("Library Documents", () => {
     ).toHaveLength(0);
   });
 
+  it("commits a changed Folder rename on blur and cancels when unchanged or blank", async () => {
+    const runtime = await signedInRuntime();
+    const folder = seedFolder(runtime, "folder-rename-blur", { name: "Plans" });
+    const updated = { ...folder, name: "Roadmaps" };
+    respondToPlacementUpdate(runtime, () => {
+      documentSeeds(runtime).tree.items = [updated];
+      return updated;
+    });
+    renderTree(runtime);
+
+    await chooseNodeAction("Plans", "Rename");
+    const unchangedInput = screen.getByRole("textbox", {
+      name: "Rename folder",
+    });
+    fireEvent.blur(unchangedInput);
+    expect(
+      screen.queryByRole("textbox", { name: "Rename folder" }),
+    ).not.toBeInTheDocument();
+    expect(
+      runtime.server.requestsTo(
+        "PATCH",
+        "/v0/tenants/{tenantId}/me/document-placements/{placementId}",
+      ),
+    ).toHaveLength(0);
+
+    await chooseNodeAction("Plans", "Rename");
+    const blankInput = screen.getByRole("textbox", { name: "Rename folder" });
+    fireEvent.change(blankInput, { target: { value: "   " } });
+    fireEvent.blur(blankInput);
+    expect(
+      screen.queryByRole("textbox", { name: "Rename folder" }),
+    ).not.toBeInTheDocument();
+    expect(
+      runtime.server.requestsTo(
+        "PATCH",
+        "/v0/tenants/{tenantId}/me/document-placements/{placementId}",
+      ),
+    ).toHaveLength(0);
+
+    await chooseNodeAction("Plans", "Rename");
+    const changedInput = screen.getByRole("textbox", { name: "Rename folder" });
+    fireEvent.change(changedInput, { target: { value: "Roadmaps" } });
+    fireEvent.blur(changedInput);
+    expect(
+      await screen.findByRole("treeitem", { name: "Roadmaps" }),
+    ).toBeVisible();
+    expect(
+      runtime.server.requestsTo(
+        "PATCH",
+        "/v0/tenants/{tenantId}/me/document-placements/{placementId}",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("commits a changed shared Folder rename on blur and cancels when unchanged", async () => {
+    const runtime = await signedInRuntime();
+    let folder: Extract<TeamHubDocumentPlacementNode, { node_kind: "folder" }> =
+      {
+        created_at: "2026-08-26T10:00:00.000Z",
+        id: "shared-folder-blur",
+        name: "Shared Plans",
+        node_kind: "folder",
+        sort_key: "shared-folder-blur",
+        updated_at: "2026-08-26T10:00:00.000Z",
+      };
+    runtime.server.on(
+      "GET",
+      "/v0/tenants/{tenantId}/me/shared-document-tree",
+      () => ({ items: [folder] }),
+    );
+    runtime.server.on(
+      "PATCH",
+      "/v0/tenants/{tenantId}/me/shared-document-folders/{folderId}",
+      () => {
+        folder = { ...folder, name: "Shared Roadmaps" };
+        return folder;
+      },
+    );
+    renderTree(runtime);
+
+    await screen.findByRole("treeitem", { name: "Shared Plans" });
+    await chooseMenuAction("Actions for shared folder Shared Plans", "Rename");
+    fireEvent.blur(
+      screen.getByRole("textbox", { name: "Rename shared folder" }),
+    );
+    expect(
+      screen.queryByRole("textbox", { name: "Rename shared folder" }),
+    ).not.toBeInTheDocument();
+    expect(
+      runtime.server.requestsTo(
+        "PATCH",
+        "/v0/tenants/{tenantId}/me/shared-document-folders/{folderId}",
+      ),
+    ).toHaveLength(0);
+
+    await chooseMenuAction("Actions for shared folder Shared Plans", "Rename");
+    const input = screen.getByRole("textbox", { name: "Rename shared folder" });
+    fireEvent.change(input, { target: { value: "Shared Roadmaps" } });
+    fireEvent.blur(input);
+    expect(
+      await screen.findByRole("treeitem", { name: "Shared Roadmaps" }),
+    ).toBeVisible();
+    expect(
+      runtime.server.requestsTo(
+        "PATCH",
+        "/v0/tenants/{tenantId}/me/shared-document-folders/{folderId}",
+      ),
+    ).toHaveLength(1);
+  });
+
   it("keeps a blank Folder rename editable without sending a mutation", async () => {
     const runtime = await signedInRuntime();
     seedFolder(runtime, "folder-rename-blank", { name: "Plans" });
@@ -1919,6 +2029,7 @@ describe("Library Documents", () => {
     await waitFor(() => expect(newFolder).toBeEnabled());
     fireEvent.click(newFolder);
     const name = await screen.findByRole("textbox", { name: "Folder name" });
+    expect(name).toHaveFocus();
     expect(name).toHaveValue("New Folder");
     fireEvent.change(name, { target: { value: "Design" } });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
@@ -1931,9 +2042,17 @@ describe("Library Documents", () => {
         }),
       ),
     );
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Open folder Design" }),
-    );
+    const folderButton = await screen.findByRole("button", {
+      name: "Open folder Design",
+    });
+    const folderTime = folderButton
+      .closest(".workspace-file-row")
+      ?.querySelector("time");
+    expect(folderTime).not.toBeNull();
+    const updatedAt = folderTime!.getAttribute("dateTime")!;
+    expect(folderTime).toHaveTextContent(formatUpdatedAt(updatedAt));
+    expect(folderTime).toHaveAttribute("title", formatDateTime(updatedAt));
+    fireEvent.click(folderButton);
     expect(router.state.location.search).toBe("?folder=created-Design");
     expect(
       await screen.findByRole("navigation", { name: "Folder path" }),

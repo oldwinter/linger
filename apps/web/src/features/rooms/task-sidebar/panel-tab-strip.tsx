@@ -166,7 +166,7 @@ export function PanelTabStrip({
                   : label;
             return (
               <div
-                className={`panel-tab-item group relative flex h-7 w-[128px] flex-none items-stretch rounded-full motion-safe:transition-transform motion-safe:duration-150 motion-safe:ease-out ${isGhost ? "outline outline-1 outline-dashed outline-app-focus bg-app-hover [&>button]:opacity-25" : ""} ${
+                className={`panel-tab-item group relative flex h-7 min-w-[96px] max-w-[200px] flex-1 items-stretch rounded-full motion-safe:transition-transform motion-safe:duration-150 motion-safe:ease-out ${isGhost ? "outline outline-1 outline-dashed outline-app-focus bg-app-hover [&>button]:opacity-25" : ""} ${
                   selected
                     ? "bg-card text-foreground shadow-outline"
                     : "bg-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground"
@@ -269,7 +269,7 @@ export function PanelTabStrip({
                   className={`panel-tab-close mr-1 flex size-5 shrink-0 self-center items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground ${
                     selected
                       ? "opacity-100"
-                      : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                      : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
                   }`}
                   onClick={() => onClose(tab.id)}
                   type="button"

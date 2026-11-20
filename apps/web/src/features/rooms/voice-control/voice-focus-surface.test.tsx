@@ -47,6 +47,7 @@ describe("RecordingEntry", () => {
     expect(meetings).toHaveAttribute("title", "Meetings");
     expect(meetings).toHaveTextContent("Meetings");
     expect(document.querySelector(".animate-spin")).toBeNull();
+    expect(document.querySelector(".town-spinner")).toBeNull();
   });
 });
 
@@ -620,12 +621,16 @@ describe("VoiceFocusSurface", () => {
     );
 
     expect(
-      screen.getByRole("region", { name: "Hardware voice focus" }),
+      screen.getByRole("region", { name: "Voice recording" }),
     ).toBeVisible();
     expect(screen.getByText("Recording")).toBeVisible();
     expect(
-      screen.getByRole("heading", { name: "I’m listening to the meeting..." }),
+      screen.getByRole("heading", {
+        level: 2,
+        name: "I’m listening to the meeting...",
+      }),
     ).toBeVisible();
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
     const transcript = screen.getByRole("log", {
       name: "Voice focus transcript",
     });
@@ -826,6 +831,53 @@ describe("VoiceFocusSurface", () => {
     expect(transcript.querySelector("span.italic")).toHaveTextContent(
       "And then we",
     );
+  });
+
+  it("supports ArrowLeft/ArrowRight navigation and exposes tabpanel semantics for recording views", () => {
+    const onViewChange = vi.fn();
+    const panels = {
+      ask: <p>Ask view body</p>,
+      askComposer: null,
+    };
+    const { rerender } = render(
+      <VoiceControlContext.Provider value={voiceValue()}>
+        <VoiceFocusSurface
+          onExit={vi.fn()}
+          onViewChange={onViewChange}
+          panels={panels}
+          view="transcript"
+        />
+      </VoiceControlContext.Provider>,
+    );
+
+    const transcriptTab = screen.getByRole("tab", { name: "Transcript" });
+    const askTab = screen.getByRole("tab", { name: "Ask" });
+    expect(transcriptTab).toHaveAttribute("tabindex", "0");
+    expect(askTab).toHaveAttribute("tabindex", "-1");
+    expect(screen.getByRole("tabpanel", { name: "Transcript" })).toBeVisible();
+
+    transcriptTab.focus();
+    fireEvent.keyDown(transcriptTab, { key: "ArrowRight" });
+    expect(askTab).toHaveFocus();
+    expect(onViewChange).toHaveBeenCalledWith("ask");
+
+    rerender(
+      <VoiceControlContext.Provider value={voiceValue()}>
+        <VoiceFocusSurface
+          onExit={vi.fn()}
+          onViewChange={onViewChange}
+          panels={panels}
+          view="ask"
+        />
+      </VoiceControlContext.Provider>,
+    );
+    expect(screen.getByRole("tabpanel", { name: "Ask" })).toHaveTextContent(
+      "Ask view body",
+    );
+
+    fireEvent.keyDown(askTab, { key: "ArrowLeft" });
+    expect(transcriptTab).toHaveFocus();
+    expect(onViewChange).toHaveBeenLastCalledWith("transcript");
   });
 });
 

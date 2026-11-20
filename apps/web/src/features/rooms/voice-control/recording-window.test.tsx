@@ -577,7 +577,7 @@ describe("Recording window", () => {
         screen.getByRole("button", { name: "Stop & save" }).parentElement,
       ).not.toHaveClass("flex-col");
       expect(
-        screen.getByRole("region", { name: "Hardware voice focus" }),
+        screen.getByRole("region", { name: "Voice recording" }),
       ).toHaveClass("overflow-hidden");
       expect(screen.getByRole("button", { name: "Stop & save" })).toBeVisible();
       expect(
@@ -1032,6 +1032,50 @@ describe("Recording window", () => {
     expect(
       screen.getByRole("region", { name: "Recording window" }),
     ).toBeVisible();
+  });
+
+  it("cleans up window drag listeners on pointercancel and on unmount", () => {
+    const addSpy = vi.spyOn(window, "addEventListener");
+    const removeSpy = vi.spyOn(window, "removeEventListener");
+    try {
+      const { unmount } = renderWindow(voiceValue());
+      const titleBar = screen.getByText("Meeting").parentElement!;
+
+      fireEvent.pointerDown(titleBar, { button: 0, clientX: 20, clientY: 20 });
+      expect(addSpy).toHaveBeenCalledWith("pointermove", expect.any(Function));
+      expect(addSpy).toHaveBeenCalledWith("pointerup", expect.any(Function));
+      expect(addSpy).toHaveBeenCalledWith(
+        "pointercancel",
+        expect.any(Function),
+      );
+
+      fireEvent(window, new Event("pointercancel"));
+      expect(removeSpy).toHaveBeenCalledWith(
+        "pointermove",
+        expect.any(Function),
+      );
+      expect(removeSpy).toHaveBeenCalledWith("pointerup", expect.any(Function));
+      expect(removeSpy).toHaveBeenCalledWith(
+        "pointercancel",
+        expect.any(Function),
+      );
+
+      removeSpy.mockClear();
+      fireEvent.pointerDown(titleBar, { button: 0, clientX: 20, clientY: 20 });
+      unmount();
+      expect(removeSpy).toHaveBeenCalledWith(
+        "pointermove",
+        expect.any(Function),
+      );
+      expect(removeSpy).toHaveBeenCalledWith("pointerup", expect.any(Function));
+      expect(removeSpy).toHaveBeenCalledWith(
+        "pointercancel",
+        expect.any(Function),
+      );
+    } finally {
+      addSpy.mockRestore();
+      removeSpy.mockRestore();
+    }
   });
 });
 

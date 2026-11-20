@@ -88,10 +88,16 @@ function RuntimeSettingsEntry({ client, registration, tenantId, busy }: Props) {
       setOpen(false);
     },
   });
+  const ariaLabel = `Switch model (current: ${label})`;
+  const title = effort
+    ? `Switch model (current: ${label}, ${EFFORT_LABEL[effort]})`
+    : ariaLabel;
   return (
     <div className="agent-model-switch">
       <button
+        aria-label={ariaLabel}
         className="agent-model-switch-trigger"
+        title={title}
         type="button"
         aria-haspopup="dialog"
         aria-expanded={open}

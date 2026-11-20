@@ -114,7 +114,7 @@ export function ActorProfilePanel({
               {actor.display_name}
             </h2>
             <p className="truncate text-xs text-app-subtle">
-              {actor.handle ?? "No public handle"} · Member
+              {actor.handle ?? "No public handle"}
             </p>
           </div>
           <Button
@@ -425,7 +425,7 @@ function HumanProfileContent({
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <h3 className="text-lg">{actor.display_name}</h3>
           <span className="rounded-sm bg-muted px-1.5 py-0.5 text-2xs font-medium text-muted-foreground">
-            Human
+            Member
           </span>
         </div>
         <p className="mt-1 text-sm text-app-subtle">
@@ -433,8 +433,6 @@ function HumanProfileContent({
         </p>
       </section>
       <ProfileSection>
-        <p className="mb-4 text-sm text-app-subtle">No description</p>
-        <ProfileField label="Role" value={actor.kind} />
         <ProfileField
           icon={<Icon icon={Calendar03Icon} size={14} />}
           label="Joined"

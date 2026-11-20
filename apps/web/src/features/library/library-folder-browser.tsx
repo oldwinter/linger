@@ -16,6 +16,7 @@ import type {
   TeamHubDocumentPlacementNode,
   TeamHubDocumentTreeSummary,
 } from "@/features/teamhub/teamhub-types";
+import { formatDateTime, formatUpdatedAt } from "@/lib/date-format";
 
 import type { PendingDocumentUpload } from "./library-upload-queue";
 
@@ -23,12 +24,6 @@ export type LibraryFolder = Extract<
   TeamHubDocumentPlacementNode,
   { node_kind: "folder" }
 >;
-
-const folderDateFormatter = new Intl.DateTimeFormat("en-US", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-});
 
 /** Folders and Documents placed directly in one My pages folder (root when undefined). */
 export function folderChildren(
@@ -167,7 +162,9 @@ export function LibraryFolderRow({
   folder: LibraryFolder;
   onOpen: (folderId: string) => void;
 }) {
-  const date = new Date(folder.updated_at);
+  const exactTitle = Number.isFinite(Date.parse(folder.updated_at))
+    ? formatDateTime(folder.updated_at)
+    : undefined;
   return (
     <div className="workspace-file-row">
       <button
@@ -185,10 +182,8 @@ export function LibraryFolderRow({
         </span>
       </button>
       <div className="workspace-file-metadata">
-        <time dateTime={folder.updated_at} title={folder.updated_at}>
-          {Number.isNaN(date.valueOf())
-            ? "—"
-            : folderDateFormatter.format(date)}
+        <time dateTime={folder.updated_at} title={exactTitle}>
+          {formatUpdatedAt(folder.updated_at)}
         </time>
       </div>
       {actions ? (
@@ -329,6 +324,8 @@ export function NewFolderDialog({
           Folder name
           <input
             aria-label="Folder name"
+            // eslint-disable-next-line jsx-a11y/no-autofocus -- the field is focused on purpose because the user just opened this dialog or inline editor
+            autoFocus
             className="mt-1 h-9 w-full rounded-md border border-app-border bg-transparent px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             maxLength={255}
             onChange={(event) => setName(event.target.value)}

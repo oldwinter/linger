@@ -29,7 +29,7 @@ test("documents: edit through UI and reopen in a fresh browser session", async (
     await page
       .getByLabel("Password", { exact: true })
       .fill("teamhub-dev-alice");
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await page.getByRole("button", { name: "Log in", exact: true }).click();
     await expect(page).toHaveURL(/\/t\/[^/]+\//);
   });
   await test.step("Open the Document link and type in the editor", async () => {
@@ -73,7 +73,7 @@ test("documents: edit through UI and reopen in a fresh browser session", async (
         .getByLabel("Password", { exact: true })
         .fill("teamhub-dev-alice");
       await reopened
-        .getByRole("button", { name: "Sign in", exact: true })
+        .getByRole("button", { name: "Log in", exact: true })
         .click();
       await expect(reopened).toHaveURL(/\/t\/[^/]+\//);
       await reopened.goto(documentUrl);

@@ -1,9 +1,19 @@
 import {
-  Loading03Icon,
   AiTranscribeAudioIcon,
+  AlertCircleIcon,
+  Cancel01Icon,
 } from "@hugeicons/core-free-icons";
-import { use, useEffect, useEffectEvent, useRef, useState } from "react";
+import {
+  use,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "@/components/ui/icon";
+import { Spinner } from "@/components/ui/spinner";
 
 import { useOptionalVoiceModeSession } from "../chat/voice-mode/voice-mode-session";
 import { LazyVoiceKeyDialog } from "./lazy-voice-key-dialog";
@@ -41,6 +51,8 @@ export function RecordingEntry({
   const needsKey = capabilities?.voiceMedia === false;
   const [keyDialogOpen, setKeyDialogOpen] = useState(false);
   const startWhenReady = useRef(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const alertRef = useRef<HTMLDivElement>(null);
   const status = voice?.captureState?.status;
   const recording = status === "recording" || status === "starting";
   const saving =
@@ -126,6 +138,55 @@ export function RecordingEntry({
     startSaved();
   }, [engineReady]);
 
+  useLayoutEffect(() => {
+    if (!error || !buttonRef.current || !alertRef.current) return;
+    const anchor = buttonRef.current;
+    const popover = alertRef.current;
+    function positionPopover() {
+      const gap = 8;
+      const anchorBounds = anchor.getBoundingClientRect();
+      const { width, height } = popover.getBoundingClientRect();
+      const maxWidth = Math.max(0, window.innerWidth - gap * 2);
+      popover.style.maxWidth = `${Math.min(288, maxWidth)}px`;
+      const left = Math.max(
+        gap,
+        Math.min(anchorBounds.left, window.innerWidth - width - gap),
+      );
+      const below = anchorBounds.bottom + gap;
+      const top =
+        height > 0 && below + height > window.innerHeight - gap
+          ? Math.max(gap, anchorBounds.top - height - gap)
+          : Math.max(gap, below);
+      popover.style.left = `${left}px`;
+      popover.style.top = `${top}px`;
+    }
+    positionPopover();
+    window.addEventListener("resize", positionPopover);
+    window.addEventListener("scroll", positionPopover, true);
+    return () => {
+      window.removeEventListener("resize", positionPopover);
+      window.removeEventListener("scroll", positionPopover, true);
+    };
+  }, [error]);
+
+  useEffect(() => {
+    if (!error) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (
+        event.key !== "Escape" ||
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.keyCode === 229
+      ) {
+        return;
+      }
+      event.preventDefault();
+      setError(undefined);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [error]);
+
   if (capabilities?.voiceAvailable === false) return null;
 
   return (
@@ -141,29 +202,48 @@ export function RecordingEntry({
           (pending || !voice || !anotherMeRoomId || voiceInputBusy)
         }
         onClick={start}
+        ref={buttonRef}
         title={hint}
         type="button"
       >
         {(saving && !switchFromLive) || connecting ? (
-          <Icon icon={Loading03Icon} className="animate-spin" size={16} />
+          <Spinner size={16} />
         ) : (
           <Icon icon={AiTranscribeAudioIcon} size={16} />
         )}
-        <span className="xs-nav-btn-label">
-          {saving && switchFromLive ? "New Meeting" : "Meetings"}
-        </span>
+        <span className="xs-nav-btn-label">{label}</span>
         {recording || connectionFailed ? (
           <span
             aria-hidden="true"
             className={`absolute top-1 right-1 size-2 rounded-full ring-2 ring-app-sidebar ${recording ? "bg-app-danger" : "bg-app-warning"}`}
           />
         ) : null}
-        {error ? (
-          <span className="sr-only" role="alert">
-            {error}
-          </span>
-        ) : null}
       </button>
+      {error
+        ? createPortal(
+            <div
+              className="app-popover-card fixed z-50 flex items-start gap-2 rounded-lg border border-app-danger/30 bg-app-surface px-3 py-2 text-xs text-app-danger shadow-md"
+              ref={alertRef}
+              role="alert"
+            >
+              <Icon
+                className="mt-0.5 shrink-0"
+                icon={AlertCircleIcon}
+                size={14}
+              />
+              <span className="min-w-0 flex-1">{error}</span>
+              <button
+                aria-label="Dismiss recording error"
+                className="flex size-5 shrink-0 items-center justify-center rounded text-app-muted transition-colors hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                onClick={() => setError(undefined)}
+                type="button"
+              >
+                <Icon icon={Cancel01Icon} size={12} />
+              </button>
+            </div>,
+            buttonRef.current?.closest("dialog[open]") ?? document.body,
+          )
+        : null}
       {keyDialogOpen ? (
         <LazyVoiceKeyDialog
           onClose={() => setKeyDialogOpen(false)}

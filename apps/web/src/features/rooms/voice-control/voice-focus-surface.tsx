@@ -10,7 +10,14 @@ import {
   PlayIcon,
   StopIcon,
 } from "@hugeicons/core-free-icons";
-import { useEffect, useState, type PointerEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type PointerEvent,
+  type ReactNode,
+} from "react";
 import { Link, useInRouterContext, useParams } from "react-router";
 import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
@@ -156,6 +163,8 @@ export function VoiceFocusSurface({
     ? growsOnTheLine
     : Boolean(unfinished && heldWords?.onTheLine);
 
+  const tabIdPrefix = useId();
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   if (!voice) return null;
   const captureActive =
     captureStatus === "recording" || captureStatus === "starting";
@@ -331,7 +340,7 @@ export function VoiceFocusSurface({
     <>
       {titleBar}
       <section
-        aria-label="Hardware voice focus"
+        aria-label="Voice recording"
         className={
           pip
             ? "relative flex min-h-0 flex-1 flex-col bg-app-canvas text-app-ink"
@@ -363,15 +372,15 @@ export function VoiceFocusSurface({
               </span>
             </>
           ) : (
-            <h1
+            <h2
               className="min-w-0 truncate text-sm leading-5 font-medium text-app-ink"
               title={title}
             >
               {title}
-            </h1>
+            </h2>
           )}
           {captureActive && !notice ? (
-            <h1 className="sr-only">{title}</h1>
+            <h2 className="sr-only">{title}</h2>
           ) : null}
           <span className="flex-1" />
           {captureActive ? (
@@ -487,17 +496,41 @@ export function VoiceFocusSurface({
                 className="flex shrink-0 items-center gap-1 border-b border-app-border px-4 py-2"
                 role="tablist"
               >
-                {tabs.map((tab) => (
+                {tabs.map((tab, index) => (
                   <button
+                    aria-controls={`${tabIdPrefix}-panel-${tab.id}`}
                     aria-selected={shown === tab.id}
                     className={`inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-[12px] leading-[18px] font-medium transition-colors focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--app-ring)] ${
                       shown === tab.id
                         ? "bg-app-surface-soft text-app-ink"
                         : "text-app-muted hover:bg-app-surface-soft/50 hover:text-app-ink"
                     }`}
+                    id={`${tabIdPrefix}-tab-${tab.id}`}
                     key={tab.id}
                     onClick={() => onViewChange?.(tab.id)}
+                    onKeyDown={(event) => {
+                      const nextIndex =
+                        event.key === "ArrowRight"
+                          ? (index + 1) % tabs.length
+                          : event.key === "ArrowLeft"
+                            ? (index - 1 + tabs.length) % tabs.length
+                            : event.key === "Home"
+                              ? 0
+                              : event.key === "End"
+                                ? tabs.length - 1
+                                : null;
+                      if (nextIndex === null) return;
+                      const nextTab = tabs[nextIndex];
+                      if (!nextTab) return;
+                      event.preventDefault();
+                      tabRefs.current[nextIndex]?.focus();
+                      onViewChange?.(nextTab.id);
+                    }}
+                    ref={(node) => {
+                      tabRefs.current[index] = node;
+                    }}
                     role="tab"
+                    tabIndex={shown === tab.id ? 0 : -1}
                     type="button"
                   >
                     {tab.label}
@@ -522,8 +555,13 @@ export function VoiceFocusSurface({
             />
             {/* Kept mounted behind the other views so its scroll position survives. */}
             <div
+              aria-labelledby={
+                panels ? `${tabIdPrefix}-tab-transcript` : undefined
+              }
               className="flex min-h-0 flex-1 flex-col"
               hidden={shown !== "transcript"}
+              id={panels ? `${tabIdPrefix}-panel-transcript` : undefined}
+              role={panels ? "tabpanel" : undefined}
             >
               <VoiceTranscriptViewport
                 revealLatestKey={
@@ -602,7 +640,16 @@ export function VoiceFocusSurface({
                 </div>
               </VoiceTranscriptViewport>
             </div>
-            {panels && shown === "ask" ? panels.ask : null}
+            {panels && shown === "ask" ? (
+              <div
+                aria-labelledby={`${tabIdPrefix}-tab-ask`}
+                className="flex min-h-0 flex-1 flex-col"
+                id={`${tabIdPrefix}-panel-ask`}
+                role="tabpanel"
+              >
+                {panels.ask}
+              </div>
+            ) : null}
             {panels?.askComposer}
           </>
         ) : null}
@@ -648,9 +695,9 @@ function VoiceFocusNotices({
     // icons carry the warning or danger colour.
     <div className="mx-4 mt-2 flex shrink-0 flex-col gap-1 rounded-lg border border-app-border bg-app-surface-soft/40 px-3 py-2 text-[12px] leading-[18px] font-normal tracking-[0.02em] text-app-muted">
       {notice ? (
-        <h1 className="text-[12px] leading-[18px] font-medium text-app-ink">
+        <h2 className="text-[12px] leading-[18px] font-medium text-app-ink">
           {notice}
-        </h1>
+        </h2>
       ) : null}
       {subtitle ? <p>{subtitle}</p> : null}
       {statusMessage ? (

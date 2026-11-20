@@ -63,7 +63,7 @@ test("production Room startup records cold and warm document loads", async ({
     await page
       .getByLabel("Password", { exact: true })
       .fill("teamhub-dev-alice");
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await page.getByRole("button", { name: "Log in", exact: true }).click();
     await expect(page).toHaveURL(/\/t\/[^/]+\//);
     const directoryPath = `/v0/tenants/${fixture.tenant_id}/agents`;
     const directory = await page.request.get(directoryPath + "?limit=200");

@@ -36,7 +36,15 @@ describe("Shortcuts settings page", () => {
     const searchbox = screen.getByRole("searchbox", {
       name: "Filter shortcuts",
     });
+    const searchIcon = searchbox.closest("label")?.querySelector("svg");
+    expect(searchIcon).toHaveAttribute("width", "16");
+    expect(searchIcon).toHaveAttribute("height", "16");
     fireEvent.change(searchbox, { target: { value: "recording" } });
+    const clearIcon = screen
+      .getByRole("button", { name: "Clear shortcuts filter" })
+      .querySelector("svg");
+    expect(clearIcon).toHaveAttribute("width", "14");
+    expect(clearIcon).toHaveAttribute("height", "14");
     expect(
       screen.getByRole("heading", { level: 2, name: "Meeting audio player" }),
     ).toBeVisible();

@@ -51,29 +51,43 @@ describe("MessageHtmlFragment", () => {
     expect(srcdoc).toContain("height: auto");
   });
 
-  it("exposes copy and download actions without save-as-artifact", async () => {
+  it("exposes copy and download actions via ActionMenu with touch visibility and clipboard feedback", async () => {
     const html = '<svg xmlns="http://www.w3.org/2000/svg"></svg>';
     const writeText = vi.fn(async (_text: string) => undefined);
     defineGlobalProperty(navigator, "clipboard", { value: { writeText } });
     render(<MessageHtmlFragment html={html} title="Architecture diagram" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Widget actions" }));
+    const trigger = screen.getByRole("button", { name: "Widget actions" });
+    expect(trigger).toHaveClass("[@media(hover:none)]:opacity-100");
+    fireEvent.click(trigger);
+
+    const menu = screen.getByRole("menu", { name: "Widget actions" });
+    expect(menu).toBeVisible();
     const copyItem = screen.getByRole("menuitem", {
       name: "Copy to clipboard",
     });
     expect(copyItem).toBeVisible();
     expect(copyItem).toHaveClass("whitespace-nowrap");
-    expect(screen.getByRole("menuitem", { name: "Download file" })).toHaveClass(
-      "whitespace-nowrap",
-    );
+    expect(copyItem.querySelector("svg")).toHaveAttribute("width", "14");
+    const downloadItem = screen.getByRole("menuitem", {
+      name: "Download file",
+    });
+    expect(downloadItem).toHaveClass("whitespace-nowrap");
+    expect(downloadItem.querySelector("svg")).toHaveAttribute("width", "14");
     expect(screen.queryByText("Save as artifact")).not.toBeInTheDocument();
 
+    fireEvent.keyDown(menu, { key: "Escape" });
+    expect(screen.queryByRole("menu", { name: "Widget actions" })).toBeNull();
+    expect(trigger).toHaveFocus();
+
+    fireEvent.click(trigger);
     fireEvent.click(
       screen.getByRole("menuitem", { name: "Copy to clipboard" }),
     );
     await vi.waitFor(() => {
       expect(writeText).toHaveBeenCalledWith(html);
     });
+    expect(await screen.findByRole("status")).toHaveTextContent("Copied");
   });
 
   it("creates the iframe only once the fragment nears the viewport", () => {

@@ -17,6 +17,7 @@ import {
   type FocusEventHandler,
   type ReactNode,
   useEffect,
+  useLayoutEffect,
   useRef,
 } from "react";
 import { Link } from "react-router";
@@ -275,9 +276,19 @@ function renderFolderNode(item: DocumentTreeFolder, input: TreeLevelInput) {
       <div
         className={`group flex h-[33px] min-w-0 items-center gap-1 rounded-md hover:bg-app-hover focus-within:bg-app-hover ${input.externalDrop?.parentId === item.id ? "bg-app-selected" : ""}`}
       >
-        {isRenaming
-          ? renderFolderRenameInput(input)
-          : renderFolderLabel(item, input, isCollapsed)}
+        {isRenaming ? (
+          <FolderRenameInput
+            ariaLabel="Rename folder"
+            initialName={item.name}
+            onCancel={input.onRenameCancel}
+            onChange={input.onRenameChange}
+            onSubmit={input.onRenameSubmit}
+            revealOnFocus
+            value={input.renamingFolder?.name ?? ""}
+          />
+        ) : (
+          renderFolderLabel(item, input, isCollapsed)
+        )}
       </div>
       {!isCollapsed ? (
         <div className="ml-4" role="group">
@@ -288,28 +299,75 @@ function renderFolderNode(item: DocumentTreeFolder, input: TreeLevelInput) {
   );
 }
 
-function renderFolderRenameInput(input: TreeLevelInput) {
+/**
+ * Inline sidebar folder rename field. Commits a changed non-blank name on Enter
+ * or blur, and exits without mutating when Escape is pressed or focus leaves an
+ * unchanged or blank draft.
+ */
+export function FolderRenameInput({
+  ariaLabel,
+  initialName,
+  onCancel,
+  onChange,
+  onSubmit,
+  revealOnFocus = false,
+  value,
+}: {
+  ariaLabel: string;
+  initialName: string;
+  onCancel: () => void;
+  onChange: (name: string) => void;
+  onSubmit: () => void;
+  revealOnFocus?: boolean;
+  value: string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const settledRef = useRef(false);
+
+  useLayoutEffect(() => {
+    const node = inputRef.current;
+    if (!node) return;
+    if (revealOnFocus) {
+      revealCurrentTreeNode(
+        node.closest<HTMLElement>('[role="treeitem"]'),
+        true,
+      );
+    }
+    node.focus();
+    node.select();
+  }, [revealOnFocus]);
+
   return (
     <input
-      aria-label="Rename folder"
+      aria-label={ariaLabel}
       className="h-[33px] min-w-0 flex-1 rounded-md border border-app-focus bg-app-surface px-2 text-[14px] leading-[18px] outline-none"
-      onChange={(event) => input.onRenameChange(event.target.value)}
+      onBlur={() => {
+        if (settledRef.current) return;
+        const trimmed = value.trim();
+        settledRef.current = true;
+        if (!trimmed || trimmed === initialName) {
+          onCancel();
+          return;
+        }
+        onSubmit();
+      }}
+      onChange={(event) => {
+        settledRef.current = false;
+        onChange(event.target.value);
+      }}
       onKeyDown={(event) => {
         if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-        if (event.key === "Enter") input.onRenameSubmit();
-        if (event.key === "Escape") input.onRenameCancel();
-      }}
-      ref={(node) => {
-        if (node && node.ownerDocument.activeElement !== node) {
-          revealCurrentTreeNode(
-            node.closest<HTMLElement>('[role="treeitem"]'),
-            true,
-          );
-          node.focus();
-          node.select();
+        if (event.key === "Enter") {
+          if (value.trim()) settledRef.current = true;
+          onSubmit();
+        }
+        if (event.key === "Escape") {
+          settledRef.current = true;
+          onCancel();
         }
       }}
-      value={input.renamingFolder?.name ?? ""}
+      ref={inputRef}
+      value={value}
     />
   );
 }

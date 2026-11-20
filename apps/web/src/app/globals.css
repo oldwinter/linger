@@ -34,6 +34,10 @@
   --color-app-warning: var(--app-status-warning-text);
   --color-app-work-surface: var(--app-work-surface);
   --color-app-link: var(--app-link);
+  --color-app-heat-0: var(--app-heat-0);
+  --color-app-heat-1: var(--app-heat-1);
+  --color-app-heat-2: var(--app-heat-2);
+  --color-app-heat-3: var(--app-heat-3);
   --color-background: hsl(var(--town-background));
   --color-foreground: hsl(var(--town-foreground));
   --color-card: hsl(var(--town-card));
