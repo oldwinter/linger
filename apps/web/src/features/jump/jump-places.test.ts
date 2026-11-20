@@ -87,6 +87,7 @@ describe("jump places", () => {
       "product-v0",
       "Nov 12, 15:30",
       "Nov 10, 09:00",
+      "Dashboard",
       "Library",
       "Meetings",
       "Wiki",
@@ -96,23 +97,53 @@ describe("jump places", () => {
       "Companies",
       "Connectors",
       "Messages",
+      "Settings",
+      "Computers",
+      "Models",
     ]);
     expect(places.some((place) => place.title === "A thread")).toBe(false);
+    expect(places.find((place) => place.title === "Dashboard")?.path).toBe(
+      "/t/tenant%20northstar/dashboard",
+    );
     expect(places.find((place) => place.title === "Library")?.path).toBe(
       "/t/tenant%20northstar/library",
+    );
+    expect(places.find((place) => place.title === "Meetings")?.detail).toBe(
+      "Recordings & transcripts",
+    );
+    expect(places.find((place) => place.title === "Wiki")?.detail).toBe(
+      "Personal knowledge",
+    );
+    expect(places.find((place) => place.title === "Connectors")?.detail).toBe(
+      "External integrations",
+    );
+    expect(places.find((place) => place.title === "Settings")?.path).toBe(
+      "/t/tenant%20northstar/settings/account",
+    );
+    expect(places.find((place) => place.title === "Computers")?.path).toBe(
+      "/t/tenant%20northstar/settings/computers",
+    );
+    expect(places.find((place) => place.title === "Models")?.path).toBe(
+      "/t/tenant%20northstar/settings/models",
     );
     expect(
       places.find((place) => place.title === "Nov 12, 15:30")?.detail,
     ).toBe("launch.m4a");
   });
 
-  it("narrows by the words in the title or the detail", () => {
+  it("narrows by the words in the title, detail, or keywords", () => {
     expect(
       filterJumpPlaces(places, "launch").map((place) => place.title),
     ).toEqual(["Nov 12, 15:30", "Nov 10, 09:00"]);
     expect(
       filterJumpPlaces(places, "  PEOPLE ").map((place) => place.title),
     ).toEqual(["People"]);
+    expect(
+      filterJumpPlaces(places, "apps").map((place) => place.title),
+    ).toEqual(["Connectors"]);
+    expect(
+      filterJumpPlaces(places, "byok").map((place) => place.title),
+    ).toEqual(["Models"]);
     expect(filterJumpPlaces(places, "no such place")).toEqual([]);
   });
 });

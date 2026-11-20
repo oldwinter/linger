@@ -29,16 +29,18 @@ export function LibraryLayout() {
   const tenantId = requireRoomRouteParam(params.tenantId, "Tenant");
   const documentId = params.documentId;
   const section = workspaceSection(location.pathname);
+  const hasList = section !== "wiki" && section !== "overview";
   // A tree opened over a phone-width page belongs to that page.
   const [treeOpenAt, setTreeOpenAt] = useState<string | null>(null);
   const treeOpen = treeOpenAt === location.pathname;
   const treeContext = useMemo(
     () => ({
+      hasList,
       open: treeOpen,
       setOpen: (open: boolean, pathname = location.pathname) =>
         setTreeOpenAt(open ? pathname : null),
     }),
-    [location.pathname, treeOpen],
+    [hasList, location.pathname, treeOpen],
   );
   const tree = useQuery({
     queryFn: () =>
@@ -60,7 +62,6 @@ export function LibraryLayout() {
       openDocument.data?.from.some(
         (source) => source.binding_kind === "wiki_page",
       ) === true);
-  const hasList = section !== "wiki" && section !== "overview";
   const content = (
     <RouteContentBoundary>
       <div

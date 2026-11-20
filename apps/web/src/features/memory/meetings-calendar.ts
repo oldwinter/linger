@@ -1,3 +1,4 @@
+import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 
 export interface CalendarMeeting {
@@ -7,6 +8,10 @@ export interface CalendarMeeting {
   time: string;
   recordingFilename: string;
   summaryReady: boolean;
+  /** Meaningful meeting title when distinct from the generated path timestamp. */
+  title?: string;
+  /** Plain-text summary excerpt when present on the memory entry. */
+  summary?: string;
 }
 
 export interface CalendarDay {
@@ -55,6 +60,23 @@ export function meetingWhen(
   };
 }
 
+const generatedMeetingTitle = /^Meeting\s+\d{2}[-:]\d{2}[-:]\d{2}$/iu;
+
+function meetingCustomTitle(entry: Pick<TeamHubMemoryEntry, "path" | "title">) {
+  const title = (entry.title ?? "").trim();
+  if (!title) return undefined;
+  const basename = entry.path.split("/").at(-1)?.trim();
+  if (title === basename || generatedMeetingTitle.test(title)) return undefined;
+  return title;
+}
+
+function meetingSummaryPreview(summary: string | undefined) {
+  const plain = markdownPlainText(summary ?? "")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return plain || undefined;
+}
+
 /** Meetings by folder date, each day sorted by start time. */
 export function meetingsByDate(
   entries: readonly TeamHubMemoryEntry[],
@@ -66,6 +88,8 @@ export function meetingsByDate(
     const [, year, month, day, hour, minute, second] = match;
     const date = `${year}-${month}-${day}`;
     const meetings = days.get(date) ?? [];
+    const customTitle = meetingCustomTitle(entry);
+    const summaryPreview = meetingSummaryPreview(entry.summary);
     meetings.push({
       id: entry.id,
       captureId: entry.meeting.capture_id,
@@ -73,6 +97,8 @@ export function meetingsByDate(
       time: `${hour}:${minute}:${second}`,
       recordingFilename: entry.meeting.recording_filename,
       summaryReady: entry.meeting.summary_ready,
+      ...(customTitle ? { title: customTitle } : {}),
+      ...(summaryPreview ? { summary: summaryPreview } : {}),
     });
     days.set(date, meetings);
   }

@@ -1,6 +1,11 @@
-import { Loading03Icon } from "@hugeicons/core-free-icons";
+import {
+  FileAddIcon,
+  FileImportIcon,
+  Loading03Icon,
+} from "@hugeicons/core-free-icons";
 import { Link } from "react-router";
 
+import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Spinner } from "@/components/ui/spinner";
 import { ActorAvatar } from "@/features/rooms/members/actor-avatar";
@@ -15,8 +20,11 @@ import type {
 import { formatDateTime, formatUpdatedAt } from "@/lib/date-format";
 
 import { documentFileName } from "./document-display-name";
-import { libraryWeekPath } from "./library-week";
-import { type LibraryFolder, LibraryFolderRow } from "./library-folder-browser";
+import {
+  type LibraryFolder,
+  type LibraryFolderRowActions,
+  LibraryFolderRow,
+} from "./library-folder-browser";
 import type { LibrarySection } from "./library-sidebar";
 import type { PendingDocumentUpload } from "./library-upload-queue";
 import { WorkspaceFileIcon } from "./workspace-file-icon";
@@ -45,15 +53,7 @@ export function RecentDocumentCards({
   const recentShowUnlinked = anyLinked(documents);
   return (
     <section aria-label="Recent" className="workspace-recent">
-      <div className="flex items-baseline justify-between gap-3">
-        <h3 className="workspace-recent-title">Recent</h3>
-        <Link
-          className="text-xs text-app-muted underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
-          to={libraryWeekPath(tenantId)}
-        >
-          What changed this week
-        </Link>
-      </div>
+      <h3 className="workspace-recent-title">Recent</h3>
       {pending ? (
         <p className="flex items-center gap-2 py-6 text-sm text-app-muted">
           <Spinner size={15} />
@@ -128,11 +128,21 @@ function anyLinked(documents: readonly LibraryRowDocument[]) {
   return documents.some((document) => (document.from?.length ?? 0) > 0);
 }
 
+export interface LibraryEmptyActions {
+  busy: boolean;
+  onCreateDocument: () => void;
+  onImportPick: () => void;
+}
+
 export function LibraryDocumentResults({
   activeView,
   documents,
+  emptyActions,
   error,
+  folderActions,
   folders,
+  isFiltered = false,
+  onClearFilters,
   onCopy,
   onOpenFolder,
   onToggleSelected,
@@ -145,8 +155,12 @@ export function LibraryDocumentResults({
 }: {
   activeView: { empty: string; label: string };
   documents: LibraryRowDocument[];
+  emptyActions?: LibraryEmptyActions;
   error: Error | null;
+  folderActions?: LibraryFolderRowActions;
   folders: readonly LibraryFolder[];
+  isFiltered?: boolean;
+  onClearFilters?: () => void;
   onCopy: (document: LibraryRowDocument) => void;
   onOpenFolder: (folderId: string) => void;
   onToggleSelected?: (documentId: string) => void;
@@ -180,10 +194,44 @@ export function LibraryDocumentResults({
     folders.length === 0 &&
     pendingUploads.length === 0
   ) {
+    if (isFiltered) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-3 border-y border-app-border py-16 text-center">
+          <p className="text-sm text-app-muted">No matching documents</p>
+          {onClearFilters ? (
+            <Button onClick={onClearFilters} size="compact" tone="secondary">
+              Clear filters
+            </Button>
+          ) : null}
+        </div>
+      );
+    }
     return (
-      <p className="border-y border-app-border py-16 text-center text-sm text-app-muted">
-        {activeView.empty}
-      </p>
+      <div className="flex flex-col items-center justify-center gap-4 border-y border-app-border py-16 text-center">
+        <p className="text-sm text-app-muted">{activeView.empty}</p>
+        {emptyActions ? (
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <Button
+              disabled={emptyActions.busy}
+              onClick={emptyActions.onCreateDocument}
+              size="compact"
+              tone="primary"
+            >
+              <Icon icon={FileAddIcon} size={14} />
+              New file
+            </Button>
+            <Button
+              disabled={emptyActions.busy}
+              onClick={emptyActions.onImportPick}
+              size="compact"
+              tone="secondary"
+            >
+              <Icon icon={FileImportIcon} size={14} />
+              Import
+            </Button>
+          </div>
+        ) : null}
+      </div>
     );
   }
   return (
@@ -193,6 +241,7 @@ export function LibraryDocumentResults({
     >
       {folders.map((folder) => (
         <LibraryFolderRow
+          actions={folderActions}
           folder={folder}
           key={folder.id}
           onOpen={onOpenFolder}

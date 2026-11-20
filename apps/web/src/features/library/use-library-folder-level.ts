@@ -18,6 +18,7 @@ import type { LibraryRowDocument } from "./library-document-results";
 import {
   folderChildren,
   folderDescendantDocuments,
+  folderDescendantFolders,
   folderTrail,
 } from "./library-folder-browser";
 import type { WorkspaceTab } from "./library-workspace-tabs";
@@ -28,6 +29,7 @@ interface LibraryFolderLevelInput {
   client: TeamHubClient;
   fileType: string;
   requestedFolder: string | null;
+  searchQuery?: string;
   tab: WorkspaceTab;
   tenantId: string;
   tree: UseQueryResult<TeamHubMyDocumentTree, Error>;
@@ -41,6 +43,7 @@ export function useLibraryFolderLevel({
   client,
   fileType,
   requestedFolder,
+  searchQuery,
   tab,
   tenantId,
   tree,
@@ -65,13 +68,19 @@ export function useLibraryFolderLevel({
   const trail = folderTrail(browsedItems, requestedFolderId);
   // A deleted or unknown folder falls back to the tab root.
   const folderId = trail.length > 0 ? requestedFolderId : undefined;
-  // A type filter searches the whole open folder, not only its first level.
+  const hasSearch = Boolean(searchQuery?.trim());
+  // A type filter or search query searches the whole open folder subtree.
   const openedFolder = fileType
     ? {
         documents: folderDescendantDocuments(browsedItems, folderId),
         folders: [],
       }
-    : folderChildren(browsedItems, folderId);
+    : hasSearch
+      ? {
+          documents: folderDescendantDocuments(browsedItems, folderId),
+          folders: folderDescendantFolders(browsedItems, folderId),
+        }
+      : folderChildren(browsedItems, folderId);
   // The smart view only supplies each row's "Visible in" sources.
   const library = useLibraryDocuments(tenantId, view, tab !== "meetings");
   const { fetchNextPage, hasNextPage, isFetchingNextPage } = library;

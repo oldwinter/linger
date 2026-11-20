@@ -82,6 +82,12 @@ describe("LibraryWeekPage", () => {
     expect(await screen.findByText(/2 files changed/)).toHaveTextContent(
       "2 files changed. Thu, Nov 12 held the most, with 2.",
     );
+    expect(
+      screen.getByRole("link", { name: "Back to the library" }),
+    ).toHaveAttribute("href", "/t/tenant-northstar/library");
+    expect(
+      screen.getByRole("link", { name: "The week in memory" }),
+    ).toHaveAttribute("href", "/t/tenant-northstar/library/week");
     const thursday = screen.getByRole("region", { name: "Thu, Nov 12" });
     expect(
       within(thursday).getByRole("link", { name: /Launch brief\.md/ }),

@@ -1,10 +1,11 @@
 import {
   ArrowDown01Icon,
+  Cancel01Icon,
   Delete02Icon,
-  File01Icon,
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
+import { StatusPill } from "@/components/ui/status-pill";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
@@ -141,7 +142,7 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
       date,
       items: needle
         ? items.filter((item) =>
-            `meeting ${item.recordingFilename} ${date} ${item.time} ${formatMeetingDay(date)}`
+            `meeting ${item.recordingFilename} ${item.title ?? ""} ${item.summary ?? ""} ${date} ${item.time} ${formatMeetingDay(date)}`
               .toLowerCase()
               .includes(needle),
           )
@@ -390,10 +391,31 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
                     aria-label="Search meetings"
                     className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-app-placeholder"
                     onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Search by date or time"
-                    type="search"
+                    onKeyDown={(event) => {
+                      if (
+                        event.nativeEvent.isComposing ||
+                        event.keyCode === 229
+                      )
+                        return;
+                      if (event.key !== "Escape" || !query) return;
+                      event.preventDefault();
+                      setQuery("");
+                    }}
+                    placeholder="Search meetings..."
+                    role="searchbox"
+                    type="text"
                     value={query}
                   />
+                  {query ? (
+                    <button
+                      aria-label="Clear search"
+                      className="flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                      onClick={() => setQuery("")}
+                      type="button"
+                    >
+                      <Icon icon={Cancel01Icon} size={12} />
+                    </button>
+                  ) : null}
                 </label>
               </div>
               {chosen && !byDate.has(chosen) && !needle ? (
@@ -450,31 +472,29 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
                           {day.items.map((meeting) => {
                             const to = meetingPath(tenantId, meeting.id);
                             const name = `Meeting ${formatMeetingWhen(meeting.date, meeting.time)}`;
+                            const detail = [meeting.title, meeting.summary]
+                              .filter(Boolean)
+                              .join(" · ");
                             return (
                               <li
                                 className="group flex items-center gap-3 transition-colors duration-300 hover:bg-muted/70"
                                 key={meeting.id}
                               >
                                 <Link
-                                  className="min-w-0 flex-1 truncate py-2 text-sm text-app-ink"
+                                  className="flex min-w-0 flex-1 items-baseline gap-2 py-2 text-sm text-app-ink"
                                   to={to}
                                 >
-                                  Meeting{" "}
-                                  {formatMeetingWhen(
-                                    meeting.date,
-                                    meeting.time,
-                                  )}
+                                  <span className="shrink-0">{name}</span>
+                                  {detail ? (
+                                    <span className="min-w-0 truncate text-app-muted">
+                                      {detail}
+                                    </span>
+                                  ) : null}
                                 </Link>
                                 {meeting.summaryReady ? (
-                                  // The meeting entry opens on its summary.
-                                  <Link
-                                    aria-label={`Summary of Meeting ${formatMeetingWhen(meeting.date, meeting.time)}`}
-                                    className="inline-flex shrink-0 items-center gap-1 rounded text-xs text-app-muted hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
-                                    to={to}
-                                  >
-                                    <Icon icon={File01Icon} size={12} />
+                                  <StatusPill tone="neutral">
                                     Summary
-                                  </Link>
+                                  </StatusPill>
                                 ) : null}
                                 <button
                                   aria-label={`Delete ${name}`}

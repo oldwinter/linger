@@ -26,6 +26,7 @@ import {
   writeRoomComposerDraft,
 } from "@/features/rooms/room-drafts";
 import { seedRoomUpload } from "@/test/document-scenarios";
+import { defineGlobalProperty } from "@/test/global-properties";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import {
   teamHubErrorResponse,
@@ -762,33 +763,21 @@ describe("MeetingPage", () => {
       true,
     );
     serveMeetings(runtime, [entry]);
-    const previous = Object.getOwnPropertyDescriptor(
-      HTMLElement.prototype,
-      "scrollHeight",
-    );
-    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
-      configurable: true,
+    defineGlobalProperty(HTMLElement.prototype, "scrollHeight", {
       get: () => 900,
     });
-    try {
-      renderPage(runtime, `?entry=${entry.id}`);
+    renderPage(runtime, `?entry=${entry.id}`);
+    expect(
+      await screen.findByRole("tab", { name: "Transcript" }),
+    ).toHaveAttribute("aria-selected", "true");
+    await screen.findByRole("article", {
+      name: "Read-only Markdown document",
+    });
+    await waitFor(() =>
       expect(
-        await screen.findByRole("tab", { name: "Transcript" }),
-      ).toHaveAttribute("aria-selected", "true");
-      await screen.findByRole("article", {
-        name: "Read-only Markdown document",
-      });
-      await waitFor(() =>
-        expect(
-          document.querySelector<HTMLElement>("[data-meeting-scroll]")
-            ?.scrollTop,
-        ).toBe(900),
-      );
-    } finally {
-      if (previous) {
-        Object.defineProperty(HTMLElement.prototype, "scrollHeight", previous);
-      }
-    }
+        document.querySelector<HTMLElement>("[data-meeting-scroll]")?.scrollTop,
+      ).toBe(900),
+    );
   });
 
   it("still opens a meeting that wrote a decision on its summary", async () => {

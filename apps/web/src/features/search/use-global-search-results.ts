@@ -6,7 +6,7 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   tenantAgentsQueryOptions,
@@ -14,6 +14,7 @@ import {
 } from "@/features/rooms/room-queries";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
+import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 
 import {
   clearGlobalSearchQueries,
@@ -23,6 +24,7 @@ import {
 import { resultKindSections } from "./global-search-kind-filter";
 import {
   BACKEND_PAGE_LIMIT,
+  buildSearchPlaces,
   byName,
   GROUP_ORDER,
   matchRank,
@@ -36,6 +38,8 @@ import {
   type TargetContext,
 } from "./global-search-model";
 import { matchesSearchQuery, normalizeSearchQuery } from "./search-text";
+
+const EMPTY_MEETINGS: readonly TeamHubMemoryEntry[] = [];
 
 /** The typed text, its debounced form, the type scope and Recent searches. */
 export function useGlobalSearchState(initialQuery: string, tenantId: string) {
@@ -107,8 +111,17 @@ export function useSearchGroups({
   const wantsMessages = roomScoped || tab === "all" || tab === "messages";
   const wantsDocs = !roomScoped && (tab === "all" || tab === "docs");
 
+  const queryClient = useQueryClient();
   const agents = useQuery(tenantAgentsQueryOptions(client, tenantId));
   const rooms = useQuery(tenantRoomsQueryOptions(client, tenantId));
+  // Reuse meetings already in cache without opening a polling query from search.
+  const cachedMeetings =
+    queryClient.getQueryData<TeamHubMemoryEntry[]>([
+      "teamhub",
+      tenantId,
+      "personal-memory",
+      "meetings",
+    ]) ?? EMPTY_MEETINGS;
 
   // Each search runs only where its group shows, and its signal cancels the
   // request once a newer query replaces it.
@@ -231,6 +244,21 @@ export function useSearchGroups({
     const messages = (messageSearch.data?.items ?? []).map(
       (hit): SearchResult => ({ hit, id: hit.message.id, kind: "message" }),
     );
+    const places = buildSearchPlaces(tenantId, cachedMeetings)
+      .filter((place) =>
+        matches([place.title, place.detail, ...(place.keywords ?? [])]),
+      )
+      .map((place, index) => ({
+        index,
+        rank: matchRank(debouncedQuery, place.title),
+        result: {
+          id: `place:${place.id}`,
+          kind: "place" as const,
+          place,
+        },
+      }))
+      .sort((left, right) => left.rank - right.rank || left.index - right.index)
+      .map((entry) => entry.result);
     const byTab: Record<GroupTab, ResultGroup> = {
       docs: {
         hasMore: documentSearch.data?.page.has_more === true,
@@ -243,15 +271,18 @@ export function useSearchGroups({
         tab: "messages",
       },
       people: { hasMore: false, items: people, tab: "people" },
+      places: { hasMore: false, items: places, tab: "places" },
       rooms: { hasMore: false, items: roomHits, tab: "rooms" },
     };
     return GROUP_ORDER.map((groupTab) => byTab[groupTab]);
   }, [
     agents.data?.items,
+    cachedMeetings,
     debouncedQuery,
     documentSearch.data,
     messageSearch.data,
     rooms.data?.items,
+    tenantId,
   ]);
 
   const messagesLoading =

@@ -1,5 +1,7 @@
+import { Cancel01Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import type { RoomDocumentMenuActions } from "@/features/rooms/documents/room-document-actions-menu";
 import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
 import { Select, SelectItem } from "@/components/ui/select";
 import type { TeamHubDocumentTreeSummary } from "@/features/teamhub/teamhub-types";
 import { writeClipboardText } from "@/lib/clipboard";
@@ -9,20 +11,24 @@ import { documentFileTypes } from "./document-file-types";
 import { folderContentsMarkdown } from "./library-folder-contents";
 import {
   LibraryDocumentResults,
+  type LibraryEmptyActions,
   type LibraryRowDocument,
 } from "./library-document-results";
 import {
   type LibraryFolder,
+  type LibraryFolderRowActions,
   LibraryFolderBreadcrumb,
-  LibraryUploadSummary,
 } from "./library-folder-browser";
 import type { PendingDocumentUpload } from "./library-upload-queue";
-import { visibleLibraryDocuments } from "./library-visible-documents";
+import {
+  visibleLibraryDocuments,
+  visibleLibraryFolders,
+} from "./library-visible-documents";
 import type { WorkspaceTab } from "./library-workspace-tabs";
 
 /**
- * One open folder level of My pages or Shared with me: type and sort filters,
- * the breadcrumb, errors, queued uploads and the rows themselves.
+ * One open folder level of My pages or Shared with me: search, type and sort
+ * filters, the breadcrumb, errors, queued uploads and the rows themselves.
  */
 export function LibraryFolderListing({
   activeView,
@@ -31,17 +37,22 @@ export function LibraryFolderListing({
   bulkBar,
   documentActions,
   documents,
+  emptyActions,
   error,
   fileType,
+  folderActions,
   folderId,
   folders,
+  onClearFilters,
   onCopy,
   onDismissError,
   onFileTypeChange,
   onOpenFolder,
+  onSearchQueryChange,
   onSortByChange,
   onToggleSelected,
   pendingUploads,
+  searchQuery,
   selectedDocumentIds,
   sortBy,
   tab,
@@ -56,17 +67,22 @@ export function LibraryFolderListing({
     document: TeamHubDocumentTreeSummary,
   ) => RoomDocumentMenuActions;
   documents: LibraryRowDocument[];
+  emptyActions?: LibraryEmptyActions;
   error: string | null;
   fileType: string;
+  folderActions?: LibraryFolderRowActions;
   folderId: string | undefined;
   folders: LibraryFolder[];
+  onClearFilters: () => void;
   onCopy: (document: LibraryRowDocument) => void;
   onDismissError: () => void;
   onFileTypeChange: (fileType: string) => void;
   onOpenFolder: (folderId?: string) => void;
+  onSearchQueryChange: (query: string) => void;
   onSortByChange: (sortBy: string) => void;
   onToggleSelected: (documentId: string) => void;
   pendingUploads: readonly PendingDocumentUpload[];
+  searchQuery: string;
   selectedDocumentIds: ReadonlySet<string>;
   sortBy: string;
   tab: Exclude<WorkspaceTab, "meetings">;
@@ -75,14 +91,49 @@ export function LibraryFolderListing({
 }) {
   const visibleDocuments = visibleLibraryDocuments(documents, {
     fileType,
+    query: searchQuery,
     sortBy,
   });
+  const visibleFolders = visibleLibraryFolders(folders, {
+    query: searchQuery,
+    sortBy,
+  });
+  const isFiltered = Boolean(fileType) || Boolean(searchQuery.trim());
   /** The open folder names the copy; the tab names it at the root level. */
   const contentsHeading = folderId ? trail.at(-1)!.name : activeView.label;
   return (
     <>
       {bulkBar}
       <div className="workspace-file-filters">
+        <label className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground transition-colors hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring/40 sm:w-64">
+          <Icon icon={Search01Icon} size={14} />
+          <input
+            aria-label="Search documents and folders"
+            className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-app-placeholder"
+            onChange={(event) => onSearchQueryChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing || event.keyCode === 229)
+                return;
+              if (event.key !== "Escape" || !searchQuery) return;
+              event.preventDefault();
+              onSearchQueryChange("");
+            }}
+            placeholder="Search documents and folders..."
+            role="searchbox"
+            type="text"
+            value={searchQuery}
+          />
+          {searchQuery ? (
+            <button
+              aria-label="Clear search"
+              className="flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+              onClick={() => onSearchQueryChange("")}
+              type="button"
+            >
+              <Icon icon={Cancel01Icon} size={12} />
+            </button>
+          ) : null}
+        </label>
         <Select
           aria-label="File type"
           onValueChange={onFileTypeChange}
@@ -132,9 +183,6 @@ export function LibraryFolderListing({
           </button>
         </div>
       ) : null}
-      {tab === "owned" ? (
-        <LibraryUploadSummary uploads={pendingUploads} />
-      ) : null}
       <LibraryDocumentResults
         activeView={
           folderId
@@ -146,12 +194,12 @@ export function LibraryFolderListing({
         }
         documents={visibleDocuments}
         documentActions={documentActions}
+        emptyActions={emptyActions}
         error={browsedError}
-        folders={[...folders].sort((a, b) =>
-          sortBy === "name"
-            ? a.name.localeCompare(b.name)
-            : b.updated_at.localeCompare(a.updated_at),
-        )}
+        folderActions={folderActions}
+        folders={visibleFolders}
+        isFiltered={isFiltered}
+        onClearFilters={onClearFilters}
         onCopy={onCopy}
         onOpenFolder={onOpenFolder}
         onToggleSelected={onToggleSelected}

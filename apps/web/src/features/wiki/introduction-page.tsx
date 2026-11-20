@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link, useParams } from "react-router";
+import { useParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
+import { LibrarySubpageShell } from "@/features/library/library-subpage-shell";
 import { personalProfileQueryOptions } from "@/features/settings/personal-profile-queries";
 import {
   pocketNotesQueryKey,
@@ -85,105 +86,93 @@ export function IntroductionPage() {
   };
 
   return (
-    <main className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-5 py-7">
-      <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
-        <header>
-          <h1 className="text-xl text-foreground">
-            How Another Me would introduce you
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            A few lines from what Another Me remembers, in an order you would
-            actually show someone.
+    <LibrarySubpageShell
+      backLabel="Back to Profile"
+      backTo={`/t/${encodeURIComponent(tenantId)}/library/wiki`}
+      subtitle="A few lines from what Another Me remembers, in an order you would actually show someone."
+      title="How Another Me would introduce you"
+    >
+      {profile.isPending || notes.isPending ? (
+        <p className="text-sm text-muted-foreground" role="status">
+          Loading your introduction.
+        </p>
+      ) : profile.isError || notes.isError ? (
+        <div className="flex flex-col items-start gap-3" role="alert">
+          <p className="text-sm text-destructive">
+            Could not load your introduction.
           </p>
-        </header>
-        {profile.isPending || notes.isPending ? (
-          <p className="text-sm text-muted-foreground" role="status">
-            Loading your introduction.
-          </p>
-        ) : profile.isError || notes.isError ? (
-          <div className="flex flex-col items-start gap-3" role="alert">
-            <p className="text-sm text-destructive">
-              Could not load your introduction.
-            </p>
-            <Button
-              onClick={() => {
-                if (profile.isError) void profile.refetch();
-                if (notes.isError) void notes.refetch();
-              }}
-              size="compact"
-              tone="secondary"
-            >
-              Retry
-            </Button>
-          </div>
-        ) : !current || paragraphs.length === 0 ? (
-          <p className="text-sm text-muted-foreground" role="status">
-            Another Me has not written enough to introduce you yet.
-          </p>
-        ) : (
-          <>
-            <div
-              className="flex flex-wrap gap-2"
-              role="group"
-              aria-label="Opening line"
-            >
-              {leads.map((item) => (
-                <Button
-                  aria-pressed={lead === item.id}
-                  key={item.id}
-                  onClick={() => {
-                    setLead(item.id);
-                    setKept(false);
-                  }}
-                  tone={lead === item.id ? "primary" : "secondary"}
-                  type="button"
-                >
-                  {item.label}
-                </Button>
-              ))}
-            </div>
-            <article
-              aria-label="Introduction"
-              className="flex flex-col gap-3 rounded-2xl border border-border bg-card px-5 py-5"
-            >
-              {paragraphs.map((paragraph) => (
-                <p className="text-sm text-foreground" key={paragraph}>
-                  {paragraph}
-                </p>
-              ))}
-            </article>
-            {error ? (
-              <p className="text-sm text-destructive" role="alert">
-                {error}
-              </p>
-            ) : null}
-            {kept || alreadyKept ? (
-              <p className="text-sm text-foreground" role="status">
-                It is on today's note.
-              </p>
-            ) : (
+          <Button
+            onClick={() => {
+              if (profile.isError) void profile.refetch();
+              if (notes.isError) void notes.refetch();
+            }}
+            size="compact"
+            tone="secondary"
+          >
+            Retry
+          </Button>
+        </div>
+      ) : !current || paragraphs.length === 0 ? (
+        <p className="text-sm text-muted-foreground" role="status">
+          Another Me has not written enough to introduce you yet.
+        </p>
+      ) : (
+        <>
+          <div
+            className="flex flex-wrap gap-2"
+            role="group"
+            aria-label="Opening line"
+          >
+            {leads.map((item) => (
               <Button
-                disabled={pending}
-                onClick={() => void keep()}
+                aria-pressed={lead === item.id}
+                key={item.id}
+                onClick={() => {
+                  setLead(item.id);
+                  setKept(false);
+                }}
+                tone={lead === item.id ? "primary" : "secondary"}
                 type="button"
               >
-                {pending ? "Leaving it" : "Leave this on today's note"}
+                {item.label}
               </Button>
-            )}
-            <IntroduceInRoom
-              key={paragraphs.join("\n")}
-              paragraphs={paragraphs}
-              tenantId={tenantId}
-            />
-          </>
-        )}
-        <Link
-          className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          to={`/t/${encodeURIComponent(tenantId)}/library/wiki`}
-        >
-          Back to Profile
-        </Link>
-      </div>
-    </main>
+            ))}
+          </div>
+          <article
+            aria-label="Introduction"
+            className="flex flex-col gap-3 rounded-2xl border border-border bg-card px-5 py-5"
+          >
+            {paragraphs.map((paragraph) => (
+              <p className="text-sm text-foreground" key={paragraph}>
+                {paragraph}
+              </p>
+            ))}
+          </article>
+          {error ? (
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
+          ) : null}
+          {kept || alreadyKept ? (
+            <p className="text-sm text-foreground" role="status">
+              It is on today's note.
+            </p>
+          ) : (
+            <Button
+              disabled={pending}
+              onClick={() => void keep()}
+              type="button"
+            >
+              {pending ? "Leaving it" : "Leave this on today's note"}
+            </Button>
+          )}
+          <IntroduceInRoom
+            key={paragraphs.join("\n")}
+            paragraphs={paragraphs}
+            tenantId={tenantId}
+          />
+        </>
+      )}
+    </LibrarySubpageShell>
   );
 }

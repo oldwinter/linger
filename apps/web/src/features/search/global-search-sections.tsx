@@ -64,7 +64,7 @@ export function GlobalSearchField({
 }) {
   const placeholder = scope
     ? scope.placeholder
-    : "Search messages, docs, members and rooms";
+    : "Search messages, docs, members, rooms and places";
   return (
     <>
       <div className="flex h-12 shrink-0 items-center gap-2 pl-4 pr-3">

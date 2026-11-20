@@ -14,6 +14,10 @@ const ALL_PANEL_CREATE_ITEMS = [
     label: "Room info",
   },
   {
+    kind: "routines",
+    label: "Routines",
+  },
+  {
     kind: "collaboration",
     label: "Collaboration",
   },

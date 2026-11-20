@@ -62,6 +62,11 @@ const CollaborationPanel = lazy(() =>
     default: module.CollaborationPanel,
   })),
 );
+const RemindersPanel = lazy(() =>
+  import("./reminders-panel").then((module) => ({
+    default: module.RemindersPanel,
+  })),
+);
 /** Matches the panel reveal/collapse duration declared in globals.css. */
 const PANEL_COLLAPSE_MS = 450;
 const EMPTY_TASK_RESOLUTIONS: Readonly<Record<string, TaskAnchorResolution>> =
@@ -456,6 +461,10 @@ export function TaskSidebar({
                       onOpenDocument={onOpenDocument}
                       onOpenProfile={onOpenProfile}
                       onOpenRoomSettings={onOpenRoomSettings}
+                      onOpenRoutines={() => {
+                        focusActiveTabRef.current = true;
+                        onCreate("routines");
+                      }}
                       onRetryResolution={onRetryResolution}
                       roomId={roomId}
                       roomName={roomName}
@@ -565,6 +574,7 @@ interface MountedPanelTabProps {
   onOpenDocument?: (document: TeamHubDocument) => void;
   onOpenProfile?: (actorId: string) => void;
   onOpenRoomSettings?: () => void;
+  onOpenRoutines?: () => void;
   onRetryResolution?: () => void;
   roomId: string;
   roomMembers: TeamHubActorRef[];
@@ -592,6 +602,7 @@ function MountedPanelTab({
   onOpenDocument,
   onOpenProfile,
   onOpenRoomSettings,
+  onOpenRoutines,
   onRetryResolution,
   roomId,
   roomMembers,
@@ -693,10 +704,25 @@ function MountedPanelTab({
         </Suspense>
       );
     }
+    if (tab.kind === "routines") {
+      return (
+        <Suspense fallback={<PanelLoading label="Loading routines" />}>
+          <div className="flex h-full min-h-0 flex-col bg-sidebar/50 px-2 pt-4">
+            <RemindersPanel
+              hidden={hidden || !sidebarOpen}
+              mentionOptions={mentionOptions}
+              roomId={roomId}
+              tenantId={tenantId}
+            />
+          </div>
+        </Suspense>
+      );
+    }
     if (tab.kind === "roomSettings")
       return (
         <RoomSettingsPanel
           onOpenProfile={onOpenProfile}
+          onOpenRoutines={onOpenRoutines}
           roomId={roomId}
           tenantId={tenantId}
         />

@@ -92,6 +92,12 @@ describe("RoomSecondaryNavigation attention", () => {
 
     const recap = screen.getByRole("region", { name: "While you were away" });
     expect(recap).toHaveTextContent("3 new messages in 1 room, 1 mention");
+    // Catch up lives inside the recap card while it is open instead of stacking
+    // a second standalone banner above it.
+    expect(screen.getAllByRole("link", { name: /^Catch up/ })).toHaveLength(1);
+    expect(
+      within(recap).getByRole("link", { name: "Catch up, 2 chats" }),
+    ).toHaveAttribute("href", "/t/tenant-a/rooms/catch-up");
     const messages = screen
       .getByRole("heading", { name: "Messages" })
       .closest("section")!;
@@ -99,6 +105,52 @@ describe("RoomSecondaryNavigation attention", () => {
       recap.compareDocumentPosition(messages) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+
+    fireEvent.click(
+      within(recap).getByRole("button", { name: "Dismiss recap" }),
+    );
+    expect(
+      screen.queryByRole("region", { name: "While you were away" }),
+    ).not.toBeInTheDocument();
+    // Dismissing the recap leaves the standalone Catch up link available.
+    expect(
+      screen.getByRole("link", { name: "Catch up, 2 chats" }),
+    ).toHaveAttribute("href", "/t/tenant-a/rooms/catch-up");
+  });
+
+  it("compacts Jump anywhere, Who is awake, and Surprise me into one shortcut row", () => {
+    render(
+      <MemoryRouter initialEntries={["/t/tenant-a/rooms/room-active/chat"]}>
+        <Routes>
+          <Route
+            element={
+              <RoomSecondaryNavigation
+                onCloseMobile={() => undefined}
+                onCreateRoom={() => undefined}
+                rooms={[room("room-active", 0, 0)]}
+                tenant={{
+                  created_at: "2026-07-24T09:00:00Z",
+                  id: "tenant-a",
+                  name: "Northstar",
+                }}
+              />
+            }
+            path="/t/:tenantId/rooms/:roomId/chat"
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const shortcuts = screen.getByRole("group", { name: "Room shortcuts" });
+    expect(
+      within(shortcuts).getByRole("link", { name: "Jump anywhere" }),
+    ).toHaveAttribute("href", "/t/tenant-a/jump");
+    expect(
+      within(shortcuts).getByRole("link", { name: "Who is awake" }),
+    ).toHaveAttribute("href", "/t/tenant-a/awake");
+    expect(
+      within(shortcuts).getByRole("link", { name: "Surprise me" }),
+    ).toHaveAttribute("href", "/t/tenant-a/surprise");
   });
 
   it("shows newly created Agents and Rooms first after updates and reloads", () => {
@@ -676,6 +728,12 @@ describe("Room navigation working indicator", () => {
         { name: "Agent working" },
       ),
     ).not.toBeInTheDocument();
+    // Idle rows reserve no empty status slot or wrapper.
+    expect(
+      screen
+        .getByRole("link", { name: "room-idle" })
+        .querySelector(".row-reveal-hide"),
+    ).toBeNull();
     expect(screen.getByLabelText("1 unread mention")).toBeVisible();
     rerender(renderNavigation([direct.id]));
     expect(
@@ -684,6 +742,10 @@ describe("Room navigation working indicator", () => {
         { name: "Agent working" },
       ),
     ).not.toBeInTheDocument();
+    // An idle unread row keeps its unread pill without reserving a 16px status slot.
+    expect(
+      screen.getByRole("link", { name: group.name }).querySelector(".size-4"),
+    ).toBeNull();
     expect(screen.getByRole("img", { name: "Agent working" })).toBeVisible();
     rerender(renderNavigation([]));
     expect(

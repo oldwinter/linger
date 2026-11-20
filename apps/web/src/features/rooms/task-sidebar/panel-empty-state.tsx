@@ -1,5 +1,6 @@
 import {
   ArrowUpRight01Icon,
+  Clock01Icon,
   File01Icon,
   HierarchyIcon,
   LayoutLeftIcon,
@@ -45,7 +46,7 @@ export function PanelEmptyState({
           <p className="mt-1 text-sm text-muted-foreground">
             {agent
               ? "Agent settings, routines, activity, and shared documents — alongside your chat."
-              : "Shared documents and message threads — alongside your chat."}
+              : "Shared documents, routines, and message threads — alongside your chat."}
           </p>
         </div>
         <div className="space-y-2">
@@ -97,6 +98,32 @@ export function PanelEmptyState({
                 {documentCount > 0
                   ? `${documentCount} shared ${documentCount === 1 ? "document" : "documents"}`
                   : "Browse files shared in this conversation"}
+              </span>
+            </span>
+            <Icon
+              className="shrink-0 text-muted-foreground"
+              icon={ArrowUpRight01Icon}
+              size={14}
+            />
+          </button>
+          <button
+            aria-label="Routines"
+            className={rowClassName}
+            onClick={() => onCreate("routines")}
+            type="button"
+          >
+            <span
+              aria-hidden="true"
+              className="grid size-8 shrink-0 place-items-center rounded-lg bg-acorn-500 text-white"
+            >
+              <Icon icon={Clock01Icon} size={16} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-foreground">
+                Routines
+              </span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                Scheduled reminders and recurring tasks in this room
               </span>
             </span>
             <Icon

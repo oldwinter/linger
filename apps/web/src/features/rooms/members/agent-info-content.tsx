@@ -1,4 +1,5 @@
 /* eslint-disable jsx-a11y/no-autofocus -- The name input is mounted only after an explicit edit action. */
+import { ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { useQuery } from "@tanstack/react-query";
 import {
   lazy,
@@ -10,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { Icon } from "@/components/ui/icon";
 import { AgentConnectors } from "@/features/apps/agent-connectors";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
@@ -19,6 +21,7 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 
 import {
+  roomQueryOptions,
   teamHubIdentityQueryOptions,
   tenantAgentsQueryOptions,
 } from "../room-queries";
@@ -102,6 +105,7 @@ export function AgentInfoContent({
       : skillUploadHint;
   const [tab, setTab] = useState<AgentInfoTab>("basic");
   const [showAllSkills, setShowAllSkills] = useState(false);
+  const [showRuntimeDetails, setShowRuntimeDetails] = useState(false);
   const skills = liveRegistration?.skill_bindings ?? [];
   const tabId = useId();
   return (
@@ -188,6 +192,25 @@ export function AgentInfoContent({
               : undefined
           }
         />
+        {runtimeDetails ? (
+          <section aria-label="Model & Runtime" className="px-1.5">
+            <button
+              aria-expanded={showRuntimeDetails}
+              className="flex min-h-7 w-full items-center justify-between gap-1.5 rounded-md px-1.5 text-xs font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => setShowRuntimeDetails((value) => !value)}
+              type="button"
+            >
+              <span>Model &amp; Runtime</span>
+              <Icon
+                icon={showRuntimeDetails ? ArrowDown01Icon : ArrowRight01Icon}
+                size={14}
+              />
+            </button>
+            {showRuntimeDetails ? (
+              <div className="mt-1.5">{runtimeDetails}</div>
+            ) : null}
+          </section>
+        ) : null}
         {detailsActions}
       </div>
       {tab === "routines" ? (
@@ -207,7 +230,6 @@ export function AgentInfoContent({
           id={`${tabId}-connectors`}
           aria-labelledby={`${tabId}-tab-connectors`}
         >
-          {runtimeDetails ? <div hidden>{runtimeDetails}</div> : null}
           <AgentConnectors agentActorId={actor.id} tenantId={tenantId} />
         </div>
       ) : null}
@@ -225,6 +247,11 @@ function AgentRoutines({
   roomId?: string;
   tenantId: string;
 }) {
+  const { client } = useTeamHubRuntime();
+  const roomQuery = useQuery({
+    ...roomQueryOptions(client, tenantId, roomId ?? ""),
+    enabled: Boolean(roomId),
+  });
   if (!roomId) {
     return (
       <p
@@ -235,10 +262,14 @@ function AgentRoutines({
       </p>
     );
   }
+  const isDirectRoomWithAgent =
+    roomQuery.data?.kind === "direct" &&
+    roomQuery.data.direct_peer?.id === actor.id;
   return (
     <Suspense fallback={null}>
       <RemindersPanel
         agentActorId={actor.id}
+        includeMessageOnly={isDirectRoomWithAgent}
         mentionOptions={[actor]}
         roomId={roomId}
         tenantId={tenantId}

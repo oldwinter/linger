@@ -109,6 +109,15 @@ describe("This day", () => {
         name: "Saturday, November 14, 2026",
       }),
     ).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "Back to Library" }),
+    ).toHaveAttribute("href", "/t/tenant-northstar/library");
+    expect(
+      screen.getByRole("link", { name: "Shape of today" }),
+    ).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/library/day-shape?date=2026-11-14",
+    );
     expect(screen.getByLabelText("Today's Pocket Note")).toHaveValue(
       "Buy milk",
     );

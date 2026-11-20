@@ -49,11 +49,21 @@ export function WikiOvernightWait({
   if (!page) return null;
   const name = documentFileName(page).replace(/\.md$/i, "");
   return (
-    <Link
-      className="mb-6 block text-xl text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      to={wikiDocumentPath(tenantId, page.id)}
+    <aside
+      aria-label="Updated yesterday by Another Me"
+      className="mb-6 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-app-border bg-card px-4 py-3"
     >
-      {name}
-    </Link>
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-xs font-medium text-app-muted">
+          Updated yesterday by Another Me
+        </span>
+        <Link
+          className="truncate text-sm font-semibold text-app-ink underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+          to={wikiDocumentPath(tenantId, page.id)}
+        >
+          {name}
+        </Link>
+      </div>
+    </aside>
   );
 }

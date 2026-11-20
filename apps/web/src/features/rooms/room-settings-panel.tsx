@@ -1,6 +1,7 @@
 import { RoomHistoryShareDialog } from "./sharing/room-history-share-dialog";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Clock01Icon,
   Delete02Icon,
   Link01Icon,
   Logout01Icon,
@@ -28,10 +29,12 @@ import type {
 
 export function RoomSettingsPanel({
   onOpenProfile,
+  onOpenRoutines,
   roomId,
   tenantId,
 }: {
   onOpenProfile?: (actorId: string) => void;
+  onOpenRoutines?: () => void;
   roomId: string;
   tenantId: string;
 }) {
@@ -47,9 +50,23 @@ export function RoomSettingsPanel({
     );
   if (!room.data || !members.data || !identity.data)
     return (
-      <p role="alert" className="p-5 text-sm text-app-danger">
-        Room settings could not be loaded.
-      </p>
+      <div className="flex items-center justify-between gap-3 p-5" role="alert">
+        <p className="text-sm text-app-danger">
+          Room settings could not be loaded.
+        </p>
+        <Button
+          onClick={() => {
+            if (room.isError) void room.refetch();
+            if (members.isError) void members.refetch();
+            if (identity.isError) void identity.refetch();
+          }}
+          size="compact"
+          tone="secondary"
+          type="button"
+        >
+          Retry
+        </Button>
+      </div>
     );
   const actorId = identity.data.actors.find(
     (actor) => actor.tenant_id === tenantId,
@@ -61,6 +78,7 @@ export function RoomSettingsPanel({
     <RoomSettingsContent
       members={members.data.items.map((member) => member.actor)}
       onOpenProfile={onOpenProfile}
+      onOpenRoutines={onOpenRoutines}
       owner={owner}
       room={room.data}
     />
@@ -69,11 +87,13 @@ export function RoomSettingsPanel({
 function RoomSettingsContent({
   members,
   onOpenProfile,
+  onOpenRoutines,
   room,
   owner,
 }: {
   members: TeamHubActorRef[];
   onOpenProfile?: (actorId: string) => void;
+  onOpenRoutines?: () => void;
   room: TeamHubRoom;
   owner: boolean;
 }) {
@@ -148,6 +168,12 @@ function RoomSettingsContent({
             />
           </Suspense>
           <div className="mx-5 mt-2 space-y-2 border-t border-app-border pb-5 pt-4">
+            {onOpenRoutines ? (
+              <Button className="w-full" onClick={onOpenRoutines}>
+                <Icon icon={Clock01Icon} size={16} />
+                Routines
+              </Button>
+            ) : null}
             {owner ? (
               <Button className="w-full" onClick={() => setSharing(true)}>
                 <Icon icon={Link01Icon} size={16} />

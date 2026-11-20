@@ -4,12 +4,14 @@ import { Link, useParams } from "react-router";
 
 import { dayKey } from "@/lib/date-format";
 import { formatMeetingDay } from "@/features/memory/meetings-calendar";
+import { weekMemoryPath } from "@/features/memory/week-memory";
 import { documentDetailPath } from "@/features/rooms/files/document-detail-routes";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
 import { documentFileName } from "./document-display-name";
+import { LibrarySubpageShell } from "./library-subpage-shell";
 import {
   describeLibraryWeek,
   type LibraryWeekFile,
@@ -55,64 +57,63 @@ export function LibraryWeekPage() {
   const span = weekDates(today);
 
   return (
-    <main className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-5 py-7">
-      <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
-        <header>
-          <h1 className="text-xl text-foreground">What changed this week</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {`${formatMeetingDay(span[0]!)} through ${formatMeetingDay(span[6]!)}. Files in the library, from the whole week.`}
-          </p>
-        </header>
-        {documents.isPending ? (
-          <p className="text-sm text-muted-foreground" role="status">
-            Loading the library.
-          </p>
-        ) : documents.isError ? (
-          <p className="text-sm text-destructive" role="alert">
-            The library could not be loaded.
-          </p>
-        ) : (
-          <>
-            <p className="text-sm text-foreground" role="status">
-              {picture.summary}
-            </p>
-            {picture.more ? (
-              <p className="text-sm text-muted-foreground">
-                There are more changes than this list holds.
-              </p>
-            ) : null}
-            {picture.days.map((day) => (
-              <section aria-label={day.label} key={day.date}>
-                <h2 className="text-sm text-muted-foreground">{day.label}</h2>
-                <ul className="mt-2 flex flex-col gap-2">
-                  {day.files.map((file) => (
-                    <li key={file.id}>
-                      <Link
-                        className="flex items-baseline justify-between gap-3 rounded-2xl border border-border px-4 py-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        to={documentDetailPath({
-                          documentId: file.id,
-                          tenantId,
-                        })}
-                      >
-                        <span>{file.title}</span>
-                        <span className="shrink-0 text-muted-foreground">
-                          {file.owner}
-                        </span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))}
-          </>
-        )}
+    <LibrarySubpageShell
+      backLabel="Back to the library"
+      backTo={`/t/${encodeURIComponent(tenantId)}/library`}
+      headerActions={
         <Link
-          className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          to={`/t/${encodeURIComponent(tenantId)}/library`}
+          className="text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          to={weekMemoryPath(tenantId)}
         >
-          Back to the library
+          The week in memory
         </Link>
-      </div>
-    </main>
+      }
+      subtitle={`${formatMeetingDay(span[0]!)} through ${formatMeetingDay(span[6]!)}. Files in the library, from the whole week.`}
+      title="What changed this week"
+    >
+      {documents.isPending ? (
+        <p className="text-sm text-muted-foreground" role="status">
+          Loading the library.
+        </p>
+      ) : documents.isError ? (
+        <p className="text-sm text-destructive" role="alert">
+          The library could not be loaded.
+        </p>
+      ) : (
+        <>
+          <p className="text-sm text-foreground" role="status">
+            {picture.summary}
+          </p>
+          {picture.more ? (
+            <p className="text-sm text-muted-foreground">
+              There are more changes than this list holds.
+            </p>
+          ) : null}
+          {picture.days.map((day) => (
+            <section aria-label={day.label} key={day.date}>
+              <h2 className="text-sm text-muted-foreground">{day.label}</h2>
+              <ul className="mt-2 flex flex-col gap-2">
+                {day.files.map((file) => (
+                  <li key={file.id}>
+                    <Link
+                      className="flex items-baseline justify-between gap-3 rounded-2xl border border-border px-4 py-3 text-sm text-foreground transition-colors hover:border-border-hover hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      to={documentDetailPath({
+                        documentId: file.id,
+                        tenantId,
+                      })}
+                    >
+                      <span>{file.title}</span>
+                      <span className="shrink-0 text-muted-foreground">
+                        {file.owner}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </>
+      )}
+    </LibrarySubpageShell>
   );
 }

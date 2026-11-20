@@ -30,6 +30,7 @@ import {
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubDocument,
+  TeamHubMemoryEntry,
   TeamHubMessage,
   TeamHubMessageSearchHit,
 } from "@/features/teamhub/teamhub-types";
@@ -69,7 +70,7 @@ describe("Global search dialog", () => {
     );
     expect(screen.getByRole("combobox", { name: INPUT_NAME })).toHaveAttribute(
       "placeholder",
-      "Search messages, docs, members and rooms",
+      "Search messages, docs, members, rooms and places",
     );
     expect(screen.getByRole("button", { name: "Close search" })).toBeVisible();
     expect(screen.getByRole("listbox")).toHaveClass("workspace-scrollbar");
@@ -349,7 +350,7 @@ describe("Global search dialog", () => {
     ).toBeNull();
     expect(input).toHaveAttribute(
       "placeholder",
-      "Search messages, docs, members and rooms",
+      "Search messages, docs, members, rooms and places",
     );
   });
 
@@ -1183,6 +1184,104 @@ describe("Global search dialog", () => {
     expect(seen).toBeDefined();
     expect(isGlobalSearchShortcut(seen!)).toBe(true);
     editor.remove();
+  });
+
+  it.each([
+    ["dashboard", /^Dashboard/, `/t/${TENANT}/dashboard`],
+    ["library", /^Library/, `/t/${TENANT}/library`],
+    ["meetings", /^Meetings/, `/t/${TENANT}/library?tab=meetings`],
+    ["wiki", /^Wiki/, `/t/${TENANT}/library/wiki`],
+    ["connectors", /^Connectors/, `/t/${TENANT}/apps`],
+    ["settings", /^Settings/, `/t/${TENANT}/settings/account`],
+    ["profile", /^Profile/, `/t/${TENANT}/settings/account`],
+    ["security", /^Security/, `/t/${TENANT}/settings/security`],
+    ["rules", /^My Rules/, `/t/${TENANT}/settings/my-rules`],
+    ["shortcuts", /^Shortcuts/, `/t/${TENANT}/settings/shortcuts`],
+    ["computers", /^Computers/, `/t/${TENANT}/settings/computers`],
+    ["models", /^Models/, `/t/${TENANT}/settings/models`],
+  ])(
+    "opens the %s place directly from Cmd+K",
+    async (query, rowPattern, expectedPath) => {
+      const harness = await renderDialog();
+      const input = screen.getByRole("combobox", { name: INPUT_NAME });
+      fireEvent.change(input, { target: { value: query } });
+
+      const row = await results().findByRole("option", { name: rowPattern });
+      expect(results().getByText("Places")).toBeVisible();
+      fireEvent.click(row);
+
+      await waitFor(() =>
+        expect(screen.getByTestId("location")).toHaveTextContent(expectedPath),
+      );
+      expect(harness.onClose).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("narrows into Places with Tab or See all, clears with Backspace, and includes cached meetings", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const cachedMeeting: TeamHubMemoryEntry = {
+      content: "",
+      id: "meeting-launch",
+      kind: "meeting",
+      meeting: {
+        capture_id: "capture-launch",
+        recording_document_id: "audio",
+        recording_filename: "launch-review.m4a",
+        recording_version_id: "audio-v1",
+        started_at: "2026-11-12T15:30:00Z",
+        summary_ready: true,
+        transcript_document_id: "transcript",
+        transcript_version_id: "transcript-v1",
+      },
+      path: "Meetings/2026/11/12/Meeting 15-30-00",
+      summary: "",
+      title: "Launch review",
+      updated_at: "2026-11-12T15:30:00Z",
+    };
+    queryClient.setQueryData(
+      ["teamhub", TENANT, "personal-memory", "meetings"],
+      [cachedMeeting],
+    );
+
+    const harness = await renderDialog({ queryClient });
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    fireEvent.change(input, { target: { value: "settings" } });
+
+    await results().findByRole("option", { name: /^Settings/ });
+    const seeAll = await screen.findByRole("button", {
+      name: /See all in Places/,
+    });
+    fireEvent.click(seeAll);
+
+    expect(
+      screen.getByRole("button", { name: "Remove Places scope" }),
+    ).toBeVisible();
+    expect(input).toHaveAttribute("placeholder", "Search places");
+    expect(results().getByRole("option", { name: /^Models/ })).toBeVisible();
+    expect(results().getByRole("option", { name: /^Shortcuts/ })).toBeVisible();
+
+    // Clearing the query inside Places browses every place without backend calls.
+    const callsBefore =
+      harness.searchMessages.mock.calls.length +
+      harness.searchDocuments.mock.calls.length;
+    fireEvent.change(input, { target: { value: "launch-review" } });
+    const meetingRow = await results().findByRole("option", {
+      name: /Nov 12, 15:30/,
+    });
+    expect(meetingRow).toBeVisible();
+    expect(
+      harness.searchMessages.mock.calls.length +
+        harness.searchDocuments.mock.calls.length,
+    ).toBe(callsBefore);
+
+    // Backspace when empty leaves the Places scope back to All.
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.keyDown(input, { key: "Backspace" });
+    expect(
+      screen.queryByRole("button", { name: "Remove Places scope" }),
+    ).toBeNull();
   });
 });
 

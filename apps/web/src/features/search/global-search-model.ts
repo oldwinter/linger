@@ -1,4 +1,5 @@
 import {
+  Compass01Icon,
   File01Icon,
   HashtagIcon,
   Message01Icon,
@@ -6,6 +7,11 @@ import {
 } from "@hugeicons/core-free-icons";
 
 import type { IconSvgElement } from "@/components/ui/icon";
+import {
+  buildCoreProductPlaces,
+  buildMeetingJumpPlaces,
+  type JumpPlace,
+} from "@/features/jump/jump-places";
 import {
   documentFileName,
   documentRepresentationFormat,
@@ -17,6 +23,7 @@ import { spokenRoomFace } from "@/features/rooms/members/room-spoken-face";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import type {
   TeamHubDocument,
+  TeamHubMemoryEntry,
   TeamHubMessageSearchHit,
   TeamHubRoomListItem,
   TeamHubTenantAgent,
@@ -25,7 +32,13 @@ import type {
 import type { SearchTarget, SearchTargetActor } from "./global-search-recent";
 
 /** "people" is the Members scope: the Agents a Human can open a Direct Room with. */
-export type GlobalSearchTab = "all" | "docs" | "messages" | "people" | "rooms";
+export type GlobalSearchTab =
+  | "all"
+  | "docs"
+  | "messages"
+  | "people"
+  | "places"
+  | "rooms";
 
 export type GroupTab = Exclude<GlobalSearchTab, "all">;
 
@@ -35,6 +48,7 @@ export const GROUP_ORDER: readonly GroupTab[] = [
   "docs",
   "people",
   "rooms",
+  "places",
 ];
 
 export const SCOPES: Record<
@@ -65,6 +79,12 @@ export const SCOPES: Record<
     label: "Rooms",
     placeholder: "Search rooms",
   },
+  places: {
+    hint: "Pages and settings",
+    icon: Compass01Icon,
+    label: "Places",
+    placeholder: "Search places",
+  },
 };
 
 export const SCOPE_ORDER: readonly GroupTab[] = [
@@ -93,9 +113,63 @@ export type SearchResult =
   | { id: string; kind: "agent"; agent: TeamHubTenantAgent }
   | { id: string; kind: "document"; document: TeamHubDocument }
   | { id: string; kind: "message"; hit: TeamHubMessageSearchHit }
+  | { id: string; kind: "place"; place: JumpPlace }
   | { id: string; kind: "room"; room: TeamHubRoomListItem }
   | { id: string; kind: "query"; text: string }
   | { id: string; kind: "scope"; tab: GroupTab };
+
+/** Navigable product pages, Settings sections, and already-loaded meetings. */
+export function buildSearchPlaces(
+  tenantId: string,
+  meetings: readonly TeamHubMemoryEntry[] = [],
+): JumpPlace[] {
+  const encodedTenant = encodeURIComponent(tenantId);
+  const settingsSections: JumpPlace[] = [
+    {
+      detail: "Settings",
+      id: "profile",
+      keywords: ["account"],
+      path: `/t/${encodedTenant}/settings/account`,
+      title: "Profile",
+    },
+    {
+      detail: "Settings",
+      id: "security",
+      keywords: ["password", "sessions"],
+      path: `/t/${encodedTenant}/settings/security`,
+      title: "Security",
+    },
+    {
+      detail: "Settings",
+      id: "my-rules",
+      path: `/t/${encodedTenant}/settings/my-rules`,
+      title: "My Rules",
+    },
+    {
+      detail: "Settings",
+      id: "shortcuts",
+      keywords: ["keyboard", "keys"],
+      path: `/t/${encodedTenant}/settings/shortcuts`,
+      title: "Shortcuts",
+    },
+  ];
+  const corePlaces = buildCoreProductPlaces(tenantId);
+  const settingsIndex = corePlaces.findIndex(
+    (place) => place.id === "settings",
+  );
+  const orderedProductPlaces =
+    settingsIndex >= 0
+      ? [
+          ...corePlaces.slice(0, settingsIndex + 1),
+          ...settingsSections,
+          ...corePlaces.slice(settingsIndex + 1),
+        ]
+      : [...corePlaces, ...settingsSections];
+  return [
+    ...orderedProductPlaces,
+    ...buildMeetingJumpPlaces(meetings, tenantId),
+  ];
+}
 
 type TargetResult = Exclude<SearchResult, { kind: "query" | "scope" }>;
 
@@ -135,6 +209,8 @@ export function rowScope(row: SearchResult | undefined): GroupTab | undefined {
       return "docs";
     case "agent":
       return "people";
+    case "place":
+      return "places";
     case "room":
       return "rooms";
     default:
@@ -151,6 +227,7 @@ export function emptyDetail(tab: GlobalSearchTab, query: string) {
   if (
     query.length < MIN_BACKEND_QUERY_LENGTH &&
     tab !== "people" &&
+    tab !== "places" &&
     tab !== "rooms"
   ) {
     return `Type at least ${MIN_BACKEND_QUERY_LENGTH} characters to search messages and docs.`;
@@ -268,6 +345,14 @@ export function resultTarget(
         ...(agent.avatar_key ? { avatarKey: agent.avatar_key } : {}),
       };
     }
+    case "place":
+      return {
+        detail: result.place.detail,
+        id: result.place.id,
+        kind: "place",
+        name: result.place.title,
+        path: result.place.path,
+      };
     case "room": {
       const { room } = result;
       const isThread =

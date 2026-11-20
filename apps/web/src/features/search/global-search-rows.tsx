@@ -1,13 +1,27 @@
 import {
+  AiChipIcon,
   ArrowRight01Icon,
   ArrowTurnBackwardIcon,
+  BookOpen01Icon,
   Cancel01Icon,
   Clock01Icon,
+  Compass01Icon,
+  DashboardSquare01Icon,
+  Idea01Icon,
+  Key01Icon,
+  KeyboardIcon,
+  LaptopIcon,
+  LibrariesIcon,
+  Message01Icon,
+  Mic01Icon,
+  Plug01Icon,
   Search01Icon,
+  Settings01Icon,
+  UserIcon,
 } from "@hugeicons/core-free-icons";
 import type { CSSProperties, ReactNode } from "react";
 
-import { Icon } from "@/components/ui/icon";
+import { Icon, type IconSvgElement } from "@/components/ui/icon";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WorkspaceFileIcon } from "@/features/library/workspace-file-icon";
 import { ActorAvatar } from "@/features/rooms/members/actor-avatar";
@@ -316,7 +330,26 @@ function rowLines(
             ? `#${target.parentName ?? ""} · thread`
             : "Room"),
       ];
+    case "place":
+      return [target.name, target.detail];
   }
+}
+
+function placeIcon(id: string): IconSvgElement {
+  if (id === "dashboard") return DashboardSquare01Icon;
+  if (id === "library") return LibrariesIcon;
+  if (id === "meetings" || id.startsWith("meeting-")) return Mic01Icon;
+  if (id === "wiki" || id.startsWith("wiki-")) return BookOpen01Icon;
+  if (id === "connectors") return Plug01Icon;
+  if (id === "messages") return Message01Icon;
+  if (id === "settings") return Settings01Icon;
+  if (id === "profile") return UserIcon;
+  if (id === "security") return Key01Icon;
+  if (id === "my-rules") return Idea01Icon;
+  if (id === "shortcuts") return KeyboardIcon;
+  if (id === "computers") return LaptopIcon;
+  if (id === "models") return AiChipIcon;
+  return Compass01Icon;
 }
 
 /** The 32px identity tile every row starts with. */
@@ -359,6 +392,12 @@ function TargetTile({ target }: { target: SearchTarget }) {
           }))}
           size="header"
         />
+      );
+    case "place":
+      return (
+        <span className="grid size-8 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
+          <Icon icon={placeIcon(target.id)} size={16} />
+        </span>
       );
   }
 }

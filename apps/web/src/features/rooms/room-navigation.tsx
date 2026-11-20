@@ -8,6 +8,7 @@ import {
   LibrariesIcon,
   Message01Icon,
   Plug01Icon,
+  Search01Icon,
   SidebarLeft01Icon,
   SidebarLeftIcon,
 } from "@hugeicons/core-free-icons";
@@ -16,6 +17,7 @@ import { BrandMark } from "@/components/ui/brand-mark";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
 import { NavigationDrawer } from "@/components/ui/navigation-drawer";
 import { useRoomListWidth } from "@/components/ui/use-sidebar-width";
+import { searchShortcutLabel } from "@/features/search/search-shortcut";
 import {
   documentQueryOptions,
   teamHubIdentityQueryOptions,
@@ -249,6 +251,13 @@ export function RoomNavigation({
               onNavigate={onCloseMobile}
               to={`/t/${tenant.id}/apps`}
             />
+            <RailSearchButton
+              expanded={railExpanded}
+              onClick={() => {
+                onOpenSearch?.();
+                onCloseMobile();
+              }}
+            />
           </div>
           <div className="primary-navigation-footer flex shrink-0 flex-col gap-1">
             {accountMenu}
@@ -323,6 +332,38 @@ function RailLink({
       {icon}
       <span className="primary-navigation-label truncate">{label}</span>
     </Link>
+  );
+}
+
+function RailSearchButton({
+  expanded,
+  onClick,
+}: {
+  expanded: boolean;
+  onClick: () => void;
+}) {
+  const shortcut = searchShortcutLabel();
+  return (
+    <button
+      aria-keyshortcuts="Control+k Meta+k"
+      aria-label="Search"
+      className="room-rail-link flex cursor-pointer select-none items-center text-app-muted"
+      onClick={onClick}
+      title={`Search (${shortcut})`}
+      type="button"
+    >
+      <Icon
+        className="room-rail-glyph pointer-events-none shrink-0"
+        icon={Search01Icon}
+        size={16}
+      />
+      <span className="primary-navigation-label truncate">Search</span>
+      {expanded ? (
+        <kbd className="ml-auto mr-2 shrink-0 font-sans text-2xs text-app-subtle">
+          {shortcut}
+        </kbd>
+      ) : null}
+    </button>
   );
 }
 

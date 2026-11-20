@@ -194,9 +194,26 @@ describe("Room shell Account menu", () => {
         screen.queryByRole("dialog", { name: "Search" }),
       ).not.toBeInTheDocument(),
     );
-    fireEvent.click(await shellControl("Search"));
+    const primaryNavigation = await screen.findByRole(
+      "navigation",
+      { name: "Primary navigation" },
+      { timeout: 10_000 },
+    );
+    fireEvent.click(
+      within(primaryNavigation).getByRole("button", { name: "Search" }),
+    );
     expect(await screen.findByRole("dialog", { name: "Search" })).toBeVisible();
     expect(screen.getByText("Shell content")).toBeVisible();
+  });
+
+  it("opens global search from the persistent primary rail button on non-Room routes", async () => {
+    await renderAccountShell({ initialEntry: "/t/tenant-northstar/apps" });
+    await act(async () => {
+      await import("@/features/search/global-search-dialog");
+    });
+
+    fireEvent.click(await shellControl("Search"));
+    expect(await screen.findByRole("dialog", { name: "Search" })).toBeVisible();
   });
 
   it("leaves Cmd/Ctrl+F to the browser outside a Room", async () => {

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useMemo, useRef, useState } from "react";
-import { Search01Icon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
 import type { TeamHubDocument } from "@/features/teamhub/teamhub-types";
 import { Navigate, useParams } from "react-router";
@@ -67,6 +67,27 @@ export function WikiCollectionPage() {
   );
 }
 
+const wikiCollectionNouns: Record<
+  WikiCollection,
+  { plural: string; singular: string }
+> = {
+  clients: { plural: "companies", singular: "company" },
+  contacts: { plural: "people", singular: "person" },
+  projects: { plural: "projects", singular: "project" },
+  topics: { plural: "topics", singular: "topic" },
+};
+
+function formatCollectionCount(
+  collection: WikiCollection,
+  shown: number,
+  total: number,
+  filtering: boolean,
+) {
+  const noun = wikiCollectionNouns[collection];
+  const unit = total === 1 ? noun.singular : noun.plural;
+  return filtering ? `${shown} of ${total} ${unit}` : `${total} ${unit}`;
+}
+
 function WikiCollectionContent({ collection }: { collection: WikiCollection }) {
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
   const collections = useWikiCollectionPages(tenantId);
@@ -123,23 +144,41 @@ function WikiCollectionContent({ collection }: { collection: WikiCollection }) {
         <WikiCollectionCopyList label={label} pages={copyPages} />
       </div>
       <p className="mb-6 text-sm text-muted-foreground">
-        {all.length} {label.toLowerCase()}
+        {formatCollectionCount(
+          collection,
+          pages.length,
+          all.length,
+          Boolean(needle),
+        )}
       </p>
       {/* Same search field as the Connectors catalog. */}
-      <label className="relative mb-6 block">
-        <Icon
-          icon={Search01Icon}
-          className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
-          size={14}
-        />
+      <label className="mb-6 flex h-9 w-full items-center gap-2 rounded-lg border border-border bg-card px-3 text-muted-foreground transition-colors duration-150 hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring/40">
+        <Icon icon={Search01Icon} size={14} />
         <input
           aria-label={`Search ${label}`}
-          className="h-9 w-full rounded-lg border border-border bg-card pr-3 pl-9 text-sm text-foreground transition-colors duration-150 placeholder:text-app-placeholder hover:border-border-hover focus-visible:border-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-app-placeholder"
           onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+            if (event.key !== "Escape" || !query) return;
+            event.preventDefault();
+            setQuery("");
+          }}
           placeholder={`Search ${label.toLowerCase()}`}
-          type="search"
+          role="searchbox"
+          type="text"
           value={query}
         />
+        {query ? (
+          <button
+            aria-label={`Clear ${label} search`}
+            className="flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+            onClick={() => setQuery("")}
+            type="button"
+          >
+            <Icon icon={Cancel01Icon} size={12} />
+          </button>
+        ) : null}
       </label>
       {collections.pending ? (
         <p role="status" className="text-sm text-muted-foreground">

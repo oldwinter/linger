@@ -102,7 +102,7 @@ describe("Room navigation", () => {
     expect(read).toHaveBeenCalledTimes(1);
   });
 
-  it("opens global search above Another Me and gives its old rail position to Wiki", async () => {
+  it("opens global search from both the primary rail and Room navigation", async () => {
     const fixture = await navigationFixture();
     const onOpenSearch = vi.fn();
     renderNavigation(
@@ -118,17 +118,33 @@ describe("Room navigation", () => {
     const navigation = screen.getByRole("navigation", {
       name: "Room navigation",
     });
+    const railSearch = within(primary).getByRole("button", { name: "Search" });
+    expect(railSearch).toHaveAttribute("aria-keyshortcuts", "Control+k Meta+k");
+    expect(railSearch).toHaveAttribute(
+      "title",
+      expect.stringMatching(/Search \((⌘K|Ctrl K)\)/),
+    );
+    expect(
+      railSearch.querySelector(".primary-navigation-label"),
+    ).toHaveTextContent("Search");
+    expect(railSearch.querySelector("kbd")).toBeNull();
+    expect(railSearch.querySelector("svg.room-rail-glyph")).not.toBeNull();
+    fireEvent.click(railSearch);
+    expect(onOpenSearch).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+    expect(railSearch.querySelector("kbd")).toHaveTextContent(/⌘K|Ctrl K/);
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    expect(railSearch.querySelector("kbd")).toBeNull();
+
     const search = within(navigation).getByRole("button", { name: "Search" });
     expect(search).toHaveAttribute("aria-keyshortcuts", "Control+k Meta+k");
     expect(search).toHaveAttribute(
       "title",
       expect.stringMatching(/Search \((⌘K|Ctrl K)\)/),
     );
-    expect(
-      within(primary).queryByRole("button", { name: "Search" }),
-    ).toBeNull();
     fireEvent.click(search);
-    expect(onOpenSearch).toHaveBeenCalledTimes(1);
+    expect(onOpenSearch).toHaveBeenCalledTimes(2);
     expect(
       within(primary)
         .getAllByRole("link")
@@ -137,6 +153,26 @@ describe("Room navigation", () => {
     expect(
       within(navigation).getByRole("button", { name: "Pocket Notes" }),
     ).toBeVisible();
+  });
+
+  it("keeps the Search trigger in the primary rail on non-Room routes and shows its shortcut when expanded", async () => {
+    const fixture = await navigationFixture();
+    const onOpenSearch = vi.fn();
+    renderNavigation(
+      fixture,
+      new QueryClient(),
+      `/t/${fixture.tenant.id}/apps`,
+      undefined,
+      onOpenSearch,
+    );
+    const primary = screen.getByRole("navigation", {
+      name: "Primary navigation",
+    });
+    const railSearch = within(primary).getByRole("button", { name: "Search" });
+    expect(railSearch).toBeVisible();
+    expect(railSearch.querySelector("kbd")).toHaveTextContent(/⌘K|Ctrl K/);
+    fireEvent.click(railSearch);
+    expect(onOpenSearch).toHaveBeenCalledTimes(1);
   });
 
   it("toggles the primary sidebar without changing the current Room", async () => {

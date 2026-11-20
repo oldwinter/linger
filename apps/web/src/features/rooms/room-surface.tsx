@@ -6,6 +6,7 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query";
 import {
+  Clock01Icon,
   Delete02Icon,
   FileAddIcon,
   Login01Icon,
@@ -537,6 +538,12 @@ function RoomSurfaceContent({
                 onJumpToPinnedMessage={openPinnedMessage}
                 onOpenAgent={openProfile}
                 onOpenDelete={() => setDeleteOpen(true)}
+                onOpenRoutines={() =>
+                  openPanelTabFromRoom({
+                    kind: "routines",
+                    title: PANEL_COLLECTION_TAB_TITLES.routines,
+                  })
+                }
                 onOpenSettings={() =>
                   openPanelTab({ kind: "roomSettings", title: "Room settings" })
                 }
@@ -798,6 +805,7 @@ function RoomHeader({
   onJumpToPinnedMessage,
   onOpenAgent,
   onOpenDelete,
+  onOpenRoutines,
   onOpenSearch,
   onOpenSettings,
   onTogglePanel,
@@ -822,6 +830,7 @@ function RoomHeader({
   onJumpToPinnedMessage: (messageId: string) => void;
   onOpenAgent: (actorId: string) => void;
   onOpenDelete: () => void;
+  onOpenRoutines: () => void;
   onOpenSearch?: (room: SearchRoomScope) => void;
   onOpenSettings: () => void;
   onTogglePanel: () => void;
@@ -867,16 +876,20 @@ function RoomHeader({
       label: "Add a document",
       path: roomAddDocumentPath(tenantId, roomId),
     },
-    {
-      icon: WorkflowSquare01Icon,
-      label: "How work moves",
-      path: workMovesPath(tenantId, roomId),
-    },
-    {
-      icon: UserGroupIcon,
-      label: "Who can manage",
-      path: whoManagesPath(tenantId, roomId),
-    },
+    ...(room.kind === "room"
+      ? [
+          {
+            icon: WorkflowSquare01Icon,
+            label: "How work moves",
+            path: workMovesPath(tenantId, roomId),
+          },
+          {
+            icon: UserGroupIcon,
+            label: "Who can manage",
+            path: whoManagesPath(tenantId, roomId),
+          },
+        ]
+      : []),
     ...(runningRoomIds.includes(roomId)
       ? [
           {
@@ -898,6 +911,11 @@ function RoomHeader({
     ...(room.kind === "room"
       ? [
           {
+            icon: Clock01Icon,
+            label: "Routines",
+            onSelect: onOpenRoutines,
+          },
+          {
             icon: room.participation === "left" ? Login01Icon : Logout01Icon,
             label: room.participation === "left" ? "Come back" : "Step out",
             path: stepOutPath(tenantId, roomId),
@@ -905,11 +923,14 @@ function RoomHeader({
         ]
       : []),
   ]
-    .filter((action) => action.path !== pathname)
-    .map(({ icon, label, path }) => ({
-      icon: <Icon icon={icon} size={14} />,
-      label,
-      onSelect: () => void navigate(path),
+    .filter((action) => !("path" in action) || action.path !== pathname)
+    .map((action) => ({
+      icon: <Icon icon={action.icon} size={14} />,
+      label: action.label,
+      onSelect:
+        "onSelect" in action
+          ? action.onSelect
+          : () => void navigate(action.path),
     }));
 
   const detailsTabId = headerPeer

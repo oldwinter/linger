@@ -9,6 +9,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import {
   SettingsGroup,
@@ -47,10 +48,11 @@ import {
 import { deleteRoomRoutine, RoutineDialog } from "./routine-dialog";
 import { PanelLoading } from "./panel-loading";
 
-/** One Agent's Routines in a Room, laid out by the day they next run. */
+/** Routines in a Room (optionally scoped to one Agent), laid out by next run. */
 export function RemindersPanel({
   agentActorId,
   hidden = false,
+  includeMessageOnly = false,
   mentionOptions,
   roomId,
   tenantId,
@@ -58,6 +60,8 @@ export function RemindersPanel({
   /** Lists routines this Agent created or is mentioned by; new ones mention it. */
   agentActorId?: string;
   hidden?: boolean;
+  /** In a 1:1 DM with an Agent, keep message-only routines visible too. */
+  includeMessageOnly?: boolean;
   mentionOptions: TeamHubActorRef[];
   roomId: string;
   tenantId: string;
@@ -73,7 +77,8 @@ export function RemindersPanel({
       !agentActorId ||
       (isScheduled(item) &&
         (item.created_by_actor_id === agentActorId ||
-          item.mention_actor_id === agentActorId)),
+          item.mention_actor_id === agentActorId ||
+          (includeMessageOnly && !item.mention_actor_id))),
   );
   const open =
     openId && openId !== "new"
@@ -95,6 +100,8 @@ export function RemindersPanel({
         client={client}
         failed={listQuery.isError}
         loading={listQuery.isPending}
+        mentionOptions={mentionOptions}
+        onRetry={() => void listQuery.refetch()}
         routines={routines}
         tenantId={tenantId}
         onCreate={() => setOpenId("new")}
@@ -142,8 +149,10 @@ function RoutineAgenda({
   client,
   failed,
   loading,
+  mentionOptions,
   onCreate,
   onOpen,
+  onRetry,
   routines,
   tenantId,
 }: {
@@ -151,8 +160,10 @@ function RoutineAgenda({
   client: TeamHubClient;
   failed: boolean;
   loading: boolean;
+  mentionOptions: TeamHubActorRef[];
   onCreate: () => void;
   onOpen: (id: string) => void;
+  onRetry: () => void;
   routines: TeamHubRoutine[];
   tenantId: string;
 }) {
@@ -251,9 +262,17 @@ function RoutineAgenda({
   }
   if (failed) {
     return (
-      <p className="px-4 py-6 text-sm text-destructive" role="alert">
-        Routines could not be loaded.
-      </p>
+      <div
+        className="flex items-center justify-between gap-3 px-4 py-6"
+        role="alert"
+      >
+        <p className="text-sm text-destructive">
+          Routines could not be loaded.
+        </p>
+        <Button onClick={onRetry} size="compact" tone="secondary" type="button">
+          Retry
+        </Button>
+      </div>
     );
   }
   const onToggled = (routine: TeamHubRoutine) => {
@@ -285,6 +304,7 @@ function RoutineAgenda({
   const rowProps = {
     agentActorId,
     client,
+    mentionOptions,
     onDeleteError: setActionError,
     onDeleted,
     onToggleError: setActionError,
@@ -485,6 +505,7 @@ function RoutineRow({
   agentActorId,
   detail,
   laterAt,
+  mentionOptions,
   onDeleteError,
   onDeleted,
   onOpen,
@@ -494,6 +515,7 @@ function RoutineRow({
   agentActorId?: string;
   detail: string;
   laterAt?: Date;
+  mentionOptions: TeamHubActorRef[];
   onDeleteError: (message: string | null) => void;
   onDeleted: (routineId: string) => void;
   onOpen: () => void;
@@ -502,18 +524,23 @@ function RoutineRow({
   const wakesOther = Boolean(
     routine.mention_actor_id && routine.mention_actor_id !== agentActorId,
   );
+  const mentionTarget = wakesOther
+    ? mentionOptions.find((actor) => actor.id === routine.mention_actor_id)
+    : undefined;
   const agents = useQuery({
     ...tenantAgentsQueryOptions(toggle.client, toggle.tenantId),
-    enabled: wakesOther,
+    enabled: wakesOther && !mentionTarget,
   });
-  const target = agents.data?.items.find(
-    (item) => item.actor.id === routine.mention_actor_id,
-  );
+  const targetName =
+    mentionTarget?.display_name ??
+    agents.data?.items.find(
+      (item) => item.actor.id === routine.mention_actor_id,
+    )?.actor.display_name;
   // The Agent whose Info this is goes without saying; say who else wakes.
   const audience = !routine.mention_actor_id
     ? "Message only"
     : wakesOther
-      ? `Wakes ${target?.actor.display_name ?? "an Agent"}`
+      ? `Wakes ${targetName ?? "an Agent"}`
       : undefined;
   const description = [detail, audience].filter(Boolean).join(" · ");
   if (!isEditableRoutine(routine)) {
@@ -629,26 +656,64 @@ function RoutineDeleteButton({
   tenantId: string;
 }) {
   const queryClient = useQueryClient();
+  const [armed, setArmed] = useState(false);
   const remove = useMutation({
     mutationFn: () => deleteRoomRoutine(client, routine),
     onMutate: () => onError(null),
     onSuccess: async () => {
+      setArmed(false);
       onDeleted();
       await queryClient.invalidateQueries({
         queryKey: roomRoutinesQueryKey(tenantId, routine.room_id),
       });
     },
-    onError: (cause) =>
+    onError: (cause) => {
+      setArmed(false);
       onError(
         cause instanceof Error ? cause.message : "Could not delete routine.",
-      ),
+      );
+    },
   });
+  if (armed) {
+    return (
+      <div
+        aria-label="Confirm routine deletion"
+        className="flex shrink-0 items-center gap-1.5"
+        role="group"
+      >
+        <span className="text-xs font-medium text-foreground">Delete?</span>
+        <Button
+          aria-label="Confirm delete routine"
+          disabled={remove.isPending}
+          loading={remove.isPending}
+          onClick={() => remove.mutate()}
+          size="compact"
+          tone="danger"
+          type="button"
+        >
+          {remove.isPending ? "Deleting…" : "Confirm delete"}
+        </Button>
+        <Button
+          disabled={remove.isPending}
+          onClick={() => setArmed(false)}
+          size="compact"
+          tone="ghost"
+          type="button"
+        >
+          Cancel
+        </Button>
+      </div>
+    );
+  }
   return (
     <button
       aria-label="Delete routine"
       className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
       disabled={remove.isPending}
-      onClick={() => remove.mutate()}
+      onClick={() => {
+        onError(null);
+        setArmed(true);
+      }}
       title="Delete routine"
       type="button"
     >

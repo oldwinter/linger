@@ -2471,6 +2471,146 @@ describe("Room Message timeline cards", () => {
     expect(cancelRoomRun).toHaveBeenCalledTimes(1);
   });
 
+  it("exposes a polite status live region and an Activity button on the dock", () => {
+    const onViewActivity = vi.fn();
+    render(
+      <MemoryRouter>
+        <AgentStreamingStatusDock
+          onViewActivity={onViewActivity}
+          runStatuses={[
+            runStatus({ id: "run-status-live", run_id: "run-live" }),
+          ]}
+          runtimePresentationEventsByRunStatusId={{
+            "run-status-live": [
+              runtimeStatusRecord("1", "working"),
+              runtimeActivityStartedRecord("2", "search", "search", "Search"),
+            ],
+          }}
+        />
+      </MemoryRouter>,
+    );
+
+    const dock = screen.getByTestId("agent-streaming-status-dock");
+    const liveStatus = within(dock).getByRole("status");
+    expect(liveStatus).toHaveAttribute("aria-live", "polite");
+    expect(liveStatus).toHaveTextContent("Searching");
+
+    const activityButton = within(dock).getByRole("button", {
+      name: "Activity",
+    });
+    expect(activityButton).toBeVisible();
+    fireEvent.click(activityButton);
+    expect(onViewActivity).toHaveBeenCalledWith(
+      "run-status-live",
+      expect.objectContaining({ id: "agent-1" }),
+      "run-live",
+    );
+  });
+
+  it("shows an explicit multi-agent count badge, lets users select an agent, and pauses auto-rotation", async () => {
+    vi.useFakeTimers();
+    const onViewActivity = vi.fn();
+    const cancelRoomRun = vi.fn().mockResolvedValue({
+      run_id: "run-b",
+      status: "cancel_requested",
+      agent_actor_id: "agent-reviewer",
+      message_ids: [],
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AgentStreamingStatusDock
+            cancelRoomRun={cancelRoomRun}
+            onViewActivity={onViewActivity}
+            runStatuses={[
+              runStatus({ id: "rs-a", run_id: "run-a" }),
+              runStatus({
+                id: "rs-b",
+                run_id: "run-b",
+                agent: {
+                  display_name: "Reviewer",
+                  id: "agent-reviewer",
+                  kind: "agent",
+                },
+              }),
+            ]}
+            runtimePresentationEventsByRunStatusId={{
+              "rs-a": [
+                runtimeStatusRecord("1", "working"),
+                runtimeActivityStartedRecord("2", "search", "search", "Search"),
+              ],
+              "rs-b": [
+                runtimeStatusRecord("1", "working"),
+                runtimeActivityStartedRecord(
+                  "2",
+                  "read",
+                  "read",
+                  "Read file",
+                  "segment-1",
+                  inputBlock({
+                    file_path: "src/app.tsx",
+                    status_steps: ["Reading app.tsx"],
+                  }),
+                ),
+              ],
+            }}
+            scopeKey={["teamhub", "tenant-1", "room-1"]}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const selectorButton = screen.getByRole("button", {
+      name: "2 agents working",
+    });
+    expect(selectorButton).toBeVisible();
+    expect(shownStatus()).toBe("Codex: Searching");
+
+    // Opening the menu pauses auto-rotation even beyond the 2s turn window.
+    fireEvent.click(selectorButton);
+    await act(async () => {
+      vi.advanceTimersByTime(AGENT_STATUS_LINE_TIMING.turnMs * 2);
+    });
+    expect(shownStatus()).toBe("Codex: Searching");
+
+    // Selecting Reviewer immediately switches the dock and locks onto Reviewer.
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: /Reviewer · Reading app\.tsx/ }),
+    );
+    expect(shownStatus()).toBe("Reviewer: Reading app.tsx");
+    expect(stopButton("Stop Reviewer's task")).toBeVisible();
+
+    // Auto-rotation remains paused while Reviewer is manually selected.
+    await act(async () => {
+      vi.advanceTimersByTime(AGENT_STATUS_LINE_TIMING.turnMs * 3);
+    });
+    expect(shownStatus()).toBe("Reviewer: Reading app.tsx");
+
+    // Clicking Activity opens the selected agent's live run.
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    expect(onViewActivity).toHaveBeenCalledWith(
+      "rs-b",
+      expect.objectContaining({ id: "agent-reviewer" }),
+      "run-b",
+    );
+
+    // Resuming auto-rotation allows rotation to continue across both agents.
+    fireEvent.click(screen.getByRole("button", { name: "2 agents working" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Auto-rotate all" }));
+    fireEvent.pointerLeave(screen.getByTestId("agent-streaming-status-dock"));
+    fireEvent.blur(screen.getByTestId("agent-streaming-status-dock"));
+    expect(shownStatus()).toBe("Codex: Searching");
+    await act(async () => {
+      vi.advanceTimersByTime(
+        AGENT_STATUS_LINE_TIMING.turnMs + AGENT_STATUS_LINE_TIMING.tickMs,
+      );
+    });
+    expect(shownStatus()).toBe("Reviewer: Reading app.tsx");
+  });
+
   it("marks a working Agent's avatar live and keeps its activity out of the timeline", () => {
     const message = ordinaryAgentMessage();
     renderTimeline(message, {

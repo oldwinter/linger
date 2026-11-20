@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
+import { LibrarySubpageShell } from "@/features/library/library-subpage-shell";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 
+import { dayReviewPath } from "./day-review";
 import {
   dayShape,
   dayShapePath,
@@ -60,17 +62,18 @@ export function DayShapePage() {
   const title = `Shape of ${formatMeetingDay(date)}`;
 
   return (
-    <main className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-5 py-7 md:px-10">
-      <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
-        <header>
-          <h1 className="text-xl text-foreground">
-            {date === today ? `${title} · Today` : title}
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Open stretches and the meetings that sit in them. The hours run from
-            08:00 through 19:00, and widen when a meeting falls outside.
-          </p>
-        </header>
+    <LibrarySubpageShell
+      backLabel="Back to meetings"
+      backTo={`/t/${encodeURIComponent(tenantId)}/library?tab=meetings&meetings=${date === today ? "today" : "7d"}`}
+      headerActions={
+        <Link
+          className="text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          to={dayReviewPath(tenantId, date)}
+        >
+          This day
+        </Link>
+      }
+      headerExtra={
         <nav aria-label="Days" className="flex items-center gap-4 text-sm">
           <Link
             className="text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -89,68 +92,65 @@ export function DayShapePage() {
             <span className="text-muted-foreground">Next day</span>
           )}
         </nav>
-        {meetings.isPending ? (
-          <p className="text-sm text-muted-foreground" role="status">
-            Loading the day.
+      }
+      subtitle="Open stretches and the meetings that sit in them. The hours run from 08:00 through 19:00, and widen when a meeting falls outside."
+      title={date === today ? `${title} · Today` : title}
+    >
+      {meetings.isPending ? (
+        <p className="text-sm text-muted-foreground" role="status">
+          Loading the day.
+        </p>
+      ) : meetings.isError ? (
+        <p className="text-sm text-destructive" role="alert">
+          Meetings could not be loaded.
+        </p>
+      ) : (
+        <>
+          <p className="text-sm text-foreground" role="status">
+            {placed.summary}
           </p>
-        ) : meetings.isError ? (
-          <p className="text-sm text-destructive" role="alert">
-            Meetings could not be loaded.
-          </p>
-        ) : (
-          <>
-            <p className="text-sm text-foreground" role="status">
-              {placed.summary}
-            </p>
-            <ol aria-label={title} className="flex flex-col">
-              {placed.segments.map((segment) => {
-                const meeting = dayMeetings.find(
-                  (item) => item.id === segment.meetingId,
-                );
-                const height =
-                  segment.kind === "meeting"
-                    ? "4.5rem"
-                    : `${Math.max(44, Math.round(segment.minutes * 0.45))}px`;
-                return (
-                  <li
-                    className={`flex items-center justify-between gap-3 border-t border-border px-3 ${
-                      segment.kind === "meeting" ? "bg-card" : "bg-muted/40"
-                    }`}
-                    key={`${segment.kind}-${segment.from}-${segment.meetingId ?? "open"}`}
-                    style={{ minHeight: height }}
-                  >
-                    {segment.kind === "meeting" && meeting ? (
-                      <Link
-                        className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        to={meetingPath(tenantId, meeting.id)}
-                      >
-                        {`Meeting ${formatMeetingWhen(date, meeting.time)}`}
-                      </Link>
-                    ) : (
-                      <span className="text-sm text-muted-foreground">
-                        {segment.kind === "open"
-                          ? openStretchPhrase(segment.minutes)
-                          : "Meeting"}
-                      </span>
-                    )}
-                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                      {segment.kind === "meeting"
-                        ? segment.from
-                        : `${segment.from}–${segment.to}`}
+          <ol aria-label={title} className="flex flex-col">
+            {placed.segments.map((segment) => {
+              const meeting = dayMeetings.find(
+                (item) => item.id === segment.meetingId,
+              );
+              const height =
+                segment.kind === "meeting"
+                  ? "4.5rem"
+                  : `${Math.max(44, Math.round(segment.minutes * 0.45))}px`;
+              return (
+                <li
+                  className={`flex items-center justify-between gap-3 border-t border-border px-3 ${
+                    segment.kind === "meeting" ? "bg-card" : "bg-muted/40"
+                  }`}
+                  key={`${segment.kind}-${segment.from}-${segment.meetingId ?? "open"}`}
+                  style={{ minHeight: height }}
+                >
+                  {segment.kind === "meeting" && meeting ? (
+                    <Link
+                      className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      to={meetingPath(tenantId, meeting.id)}
+                    >
+                      {`Meeting ${formatMeetingWhen(date, meeting.time)}`}
+                    </Link>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">
+                      {segment.kind === "open"
+                        ? openStretchPhrase(segment.minutes)
+                        : "Meeting"}
                     </span>
-                  </li>
-                );
-              })}
-            </ol>
-          </>
-        )}
-        <Link
-          className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          to={`/t/${encodeURIComponent(tenantId)}/library?tab=meetings&meetings=${date === today ? "today" : "7d"}`}
-        >
-          Back to meetings
-        </Link>
-      </div>
-    </main>
+                  )}
+                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                    {segment.kind === "meeting"
+                      ? segment.from
+                      : `${segment.from}–${segment.to}`}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </>
+      )}
+    </LibrarySubpageShell>
   );
 }

@@ -3,10 +3,13 @@ import { useMemo } from "react";
 import { Link, useParams } from "react-router";
 
 import { dayKey } from "@/lib/date-format";
+import { LibrarySubpageShell } from "@/features/library/library-subpage-shell";
+import { libraryWeekPath } from "@/features/library/library-week";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
+import { dayReviewPath } from "./day-review";
 import { useMeetings } from "./memory-queries";
 import { formatMeetingDay, meetingsByDate } from "./meetings-calendar";
 import { meetingsTabPath } from "./meetings-panel";
@@ -55,48 +58,49 @@ export function WeekMemoryPage() {
   }, [dailies.data, daySet, days, meetings.data, notes.data]);
 
   return (
-    <main className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-5 py-7">
-      <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
-        <header>
-          <h1 className="text-xl text-foreground">The week in memory</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {`${formatMeetingDay(days[0]!)} through ${formatMeetingDay(days[6]!)}. Meetings, dailies, and notes from the whole week.`}
-          </p>
-        </header>
-        {meetings.isPending || dailies.isPending || notes.isPending ? (
-          <p className="text-sm text-muted-foreground" role="status">
-            Loading the week.
-          </p>
-        ) : meetings.isError || dailies.isError || notes.isError ? (
-          <p className="text-sm text-destructive" role="alert">
-            The week could not be loaded.
-          </p>
-        ) : (
-          <>
-            <p className="text-sm text-foreground" role="status">
-              {picture.summary}
-            </p>
-            {picture.lines.length ? (
-              <ul aria-label="Days with memory" className="flex flex-col gap-2">
-                {picture.lines.map((line) => (
-                  <li
-                    className="rounded-2xl border border-border px-4 py-3 text-sm text-foreground"
-                    key={line}
-                  >
-                    {line}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </>
-        )}
+    <LibrarySubpageShell
+      backLabel="Back to meetings"
+      backTo={meetingsTabPath(tenantId, "week")}
+      headerActions={
         <Link
-          className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          to={meetingsTabPath(tenantId, "week")}
+          className="text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          to={libraryWeekPath(tenantId)}
         >
-          Back to meetings
+          What changed this week
         </Link>
-      </div>
-    </main>
+      }
+      subtitle={`${formatMeetingDay(days[0]!)} through ${formatMeetingDay(days[6]!)}. Meetings, dailies, and notes from the whole week.`}
+      title="The week in memory"
+    >
+      {meetings.isPending || dailies.isPending || notes.isPending ? (
+        <p className="text-sm text-muted-foreground" role="status">
+          Loading the week.
+        </p>
+      ) : meetings.isError || dailies.isError || notes.isError ? (
+        <p className="text-sm text-destructive" role="alert">
+          The week could not be loaded.
+        </p>
+      ) : (
+        <>
+          <p className="text-sm text-foreground" role="status">
+            {picture.summary}
+          </p>
+          {picture.entries.length ? (
+            <ul aria-label="Days with memory" className="flex flex-col gap-2">
+              {picture.entries.map((entry) => (
+                <li key={entry.date}>
+                  <Link
+                    className="block rounded-2xl border border-border px-4 py-3 text-sm text-foreground transition-colors hover:border-border-hover hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    to={dayReviewPath(tenantId, entry.date)}
+                  >
+                    {entry.text}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </>
+      )}
+    </LibrarySubpageShell>
   );
 }

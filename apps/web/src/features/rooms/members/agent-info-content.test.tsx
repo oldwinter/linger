@@ -7,6 +7,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -28,6 +29,7 @@ async function setup(
     runtime?: ReturnType<typeof createTestTeamHubRuntime>;
     agentName?: string;
     roomId?: string;
+    runtimeDetails?: ReactNode;
     onSaveName?: (name: string) => Promise<unknown>;
   } = {},
 ) {
@@ -36,6 +38,7 @@ async function setup(
     runtime = createTestTeamHubRuntime(),
     agentName = "Codex",
     roomId,
+    runtimeDetails,
     onSaveName,
   } = options;
   const listed = (await readTenantAgents(runtime)).items.find(
@@ -86,6 +89,7 @@ async function setup(
             }}
             details={<p>Read-only Agent details</p>}
             roomId={roomId}
+            runtimeDetails={runtimeDetails}
           />
         </MemoryRouter>
       </TeamHubRuntimeProvider>
@@ -651,6 +655,51 @@ describe("Agent Info", () => {
     expect(
       screen.getByRole("button", { name: "Remove Research Market" }),
     ).toBeDisabled();
+  });
+
+  it("includes message-only routines in a 1:1 DM with the Agent", async () => {
+    const runtime = createTestTeamHubRuntime();
+    runtime.server.on("GET", "/v0/rooms/{roomId}/routines", () => ({
+      items: [
+        {
+          cadence: {
+            kind: "daily" as const,
+            hour: 9,
+            minute: 0,
+            timezone: "UTC",
+          },
+          created_at: "2026-10-14T00:00:00Z",
+          created_by_actor_id: "actor-jenny",
+          enabled: true,
+          id: "dm-msg-only",
+          instruction: "Stand up and stretch",
+          name: "Stretch break",
+          next_run_at: "2027-01-01T09:00:00Z",
+          revision: 1,
+          room_id: "room-dm-codex",
+          updated_at: "2026-10-14T00:00:00Z",
+        },
+      ],
+      page: { has_more: false },
+    }));
+    await setup({ runtime, roomId: "room-dm-codex" });
+    fireEvent.click(await screen.findByRole("tab", { name: "Routines" }));
+    expect(await screen.findByText("Stretch break")).toBeVisible();
+    expect(screen.getByText(/Message only$/)).toBeVisible();
+  });
+
+  it("exposes runtimeDetails in a collapsible Model & Runtime section inside Details", async () => {
+    await setup({
+      runtimeDetails: <p>Local · Mac Studio · Codex</p>,
+    });
+    const toggle = await screen.findByRole("button", {
+      name: "Model & Runtime",
+    });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Local · Mac Studio · Codex")).toBeNull();
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Local · Mac Studio · Codex")).toBeVisible();
   });
 });
 

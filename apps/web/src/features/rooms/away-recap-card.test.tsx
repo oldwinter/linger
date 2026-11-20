@@ -122,6 +122,9 @@ describe("AwayRecapCard", () => {
     expect(screen.getByText("Ready to go")).toBeVisible();
     expect(screen.getByText("Restarted the worker")).toBeVisible();
     expect(screen.queryByText("Old news")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Catch up, 4 chats" }),
+    ).toHaveAttribute("href", "/t/tenant-a/rooms/catch-up");
   });
 
   it("opens a Room from its row and keeps the other Rooms", () => {

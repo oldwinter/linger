@@ -1,4 +1,4 @@
-import { Cancel01Icon } from "@hugeicons/core-free-icons";
+import { ArrowDown01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import {
   formatMessageTime,
   isRoomNotice,
@@ -24,12 +24,14 @@ import {
   Fragment,
   type ReactNode,
   type RefObject,
+  useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import { cn } from "@/lib/cn";
 
+import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type {
@@ -1022,6 +1024,42 @@ export function AgentStreamingStatusDock({
     return next;
   }, [runtimeStatuses, typingAgent]);
   const [hovered, setHovered] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const menuWrapperRef = useRef<HTMLSpanElement>(null);
+  const workingEntries = useMemo(
+    () =>
+      entries.filter(
+        (entry) =>
+          entry.runtimeStatus?.state !== "Failed" &&
+          entry.runtimeStatus?.state !== "Stopped" &&
+          entry.runtimeStatus?.state !== "Needs attention",
+      ),
+    [entries],
+  );
+  const hasMultipleWorking = workingEntries.length > 1;
+  const selectedEntry =
+    hasMultipleWorking && selectedAgentId
+      ? workingEntries.find((entry) => entry.key === selectedAgentId)
+      : undefined;
+  useEffect(() => {
+    if (!hasMultipleWorking) {
+      setMenuOpen(false);
+      return;
+    }
+    const node = menuWrapperRef.current;
+    if (!node || typeof MutationObserver === "undefined") return;
+    const sync = () =>
+      setMenuOpen(Boolean(node.querySelector('[aria-expanded="true"]')));
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(node, {
+      attributes: true,
+      attributeFilter: ["aria-expanded"],
+      subtree: true,
+    });
+    return () => observer.disconnect();
+  }, [hasMultipleWorking]);
   const lineTargets = useMemo(
     () =>
       entries.map((entry) => ({
@@ -1033,12 +1071,16 @@ export function AgentStreamingStatusDock({
       })),
     [entries],
   );
-  const line = useAgentStatusLine(lineTargets, hovered);
-  const workingEntries = entries.filter(
-    (entry) =>
-      entry.runtimeStatus?.state !== "Failed" &&
-      entry.runtimeStatus?.state !== "Stopped" &&
-      entry.runtimeStatus?.state !== "Needs attention",
+  const activeLineTargets = useMemo(
+    () =>
+      selectedEntry
+        ? lineTargets.filter((target) => target.id === selectedEntry.key)
+        : lineTargets,
+    [lineTargets, selectedEntry],
+  );
+  const line = useAgentStatusLine(
+    activeLineTargets,
+    hovered || menuOpen || Boolean(selectedEntry),
   );
   useRoomRenderTiming("dock", {
     result: workingEntries.length ? "working" : "stopped",
@@ -1069,6 +1111,49 @@ export function AgentStreamingStatusDock({
         runId: shownEntry.runtimeStatus.runStatus.run_id,
       }
     : undefined;
+  const openShownActivity = () => {
+    if (!shownActivity || !shownEntry) return;
+    if (shownActivity.runId) {
+      onViewActivity?.(
+        shownActivity.runStatusId,
+        shownEntry.agent,
+        shownActivity.runId,
+      );
+    } else {
+      onViewActivity?.(shownActivity.runStatusId, shownEntry.agent);
+    }
+  };
+  const agentSelectorItems: ActionMenuItem[] = hasMultipleWorking
+    ? [
+        ...workingEntries.map((entry) => ({
+          icon: (
+            <ActorAvatar
+              actorId={entry.agent.id}
+              kind="agent"
+              name={entry.agent.display_name}
+              size="micro"
+            />
+          ),
+          label: `${entry.agent.display_name}${entry.key === selectedEntry?.key ? " (Selected)" : ""} · ${statusLineText(dockEntryLine(entry))}`,
+          onSelect: () => {
+            setMenuOpen(false);
+            setSelectedAgentId(entry.key);
+          },
+        })),
+        ...(selectedEntry
+          ? [
+              {
+                label: "Auto-rotate all",
+                onSelect: () => {
+                  setMenuOpen(false);
+                  setSelectedAgentId(null);
+                },
+                separatorBefore: true,
+              },
+            ]
+          : []),
+      ]
+    : [];
 
   return (
     // Keep the dock in normal flow above the composer so it never collides with
@@ -1089,17 +1174,7 @@ export function AgentStreamingStatusDock({
           aria-label={`Open ${statusLabel} activity`}
           className="flex min-h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-1 text-left text-xs text-app-muted transition-colors hover:bg-app-hover focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-app-focus disabled:hover:bg-transparent"
           disabled={!shownActivity}
-          onClick={() => {
-            // The status line opens the shown Agent's Activity panel.
-            if (!shownActivity || !shownEntry) return;
-            if (shownActivity.runId)
-              onViewActivity?.(
-                shownActivity.runStatusId,
-                shownEntry.agent,
-                shownActivity.runId,
-              );
-            else onViewActivity?.(shownActivity.runStatusId, shownEntry.agent);
-          }}
+          onClick={openShownActivity}
           title={
             shownEntry && line.current
               ? `${shownEntry.agent.display_name}: ${statusLineText(line.current.content)}`
@@ -1127,6 +1202,7 @@ export function AgentStreamingStatusDock({
           <StatusLineRoll
             className="h-4 min-w-0 flex-1"
             current={line.current}
+            live
             previous={line.previous}
             itemKey={(shown) => `${shown.id}:${shown.key}`}
             render={(shown) => (
@@ -1134,6 +1210,32 @@ export function AgentStreamingStatusDock({
             )}
           />
         </button>
+        {hasMultipleWorking ? (
+          <span className="shrink-0" ref={menuWrapperRef}>
+            <ActionMenu
+              buttonClassName="inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-muted px-2 text-2xs font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-app-focus"
+              items={agentSelectorItems}
+              label={`${workingEntries.length} agents working`}
+              placement="top-start"
+              trigger={
+                <>
+                  <span>{`${workingEntries.length} agents working`}</span>
+                  <Icon icon={ArrowDown01Icon} size={14} />
+                </>
+              }
+            />
+          </span>
+        ) : null}
+        {onViewActivity && shownActivity && shownEntry ? (
+          <button
+            className="shrink-0 rounded-md px-1.5 py-0.5 text-xs font-medium text-app-muted transition-colors hover:bg-app-hover hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-app-focus"
+            onClick={openShownActivity}
+            title={`Open ${shownEntry.agent.display_name} activity`}
+            type="button"
+          >
+            Activity
+          </button>
+        ) : null}
         {shownEntry ? (
           <>
             <DockEntryStop
@@ -1287,7 +1389,12 @@ function StatusLineText({
   minutes?: number;
 }) {
   if (content.tone === "wait")
-    return <TypingDots className="text-app-subtle" />;
+    return (
+      <>
+        <TypingDots className="text-app-subtle" />
+        <span className="sr-only">Starting</span>
+      </>
+    );
   const text = (
     <span
       className={cn(
@@ -1317,18 +1424,24 @@ function StatusLineRoll({
   className,
   current,
   itemKey,
+  live = false,
   previous,
   render,
 }: {
   className: string;
   current?: AgentStatusLineShown;
   itemKey: (shown: AgentStatusLineShown) => string;
+  live?: boolean;
   previous?: AgentStatusLineShown;
   render: (shown: AgentStatusLineShown) => ReactNode;
 }) {
   const currentKey = current ? itemKey(current) : undefined;
   return (
-    <span className={cn("grid grid-cols-1 overflow-hidden", className)}>
+    <span
+      aria-live={live ? "polite" : undefined}
+      className={cn("grid grid-cols-1 overflow-hidden", className)}
+      role={live ? "status" : undefined}
+    >
       {previous && itemKey(previous) !== currentKey ? (
         <span
           aria-hidden="true"

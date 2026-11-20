@@ -1,10 +1,13 @@
+import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Link, useParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import type { TeamHubRoomMemberPage } from "@/features/teamhub/teamhub-types";
 import { requireRoomRouteParam } from "./room-route-params";
 import {
   roomMembersQueryOptions,
@@ -27,7 +30,9 @@ export function WhoManagesPage() {
   const params = useParams();
   const tenantId = requireRoomRouteParam(params.tenantId, "Tenant");
   const roomId = requireRoomRouteParam(params.roomId, "Room");
-  const members = useQuery(roomMembersQueryOptions(client, tenantId, roomId));
+  const headingId = useId();
+  const membersQuery = roomMembersQueryOptions(client, tenantId, roomId);
+  const members = useQuery(membersQuery);
   const identity = useQuery(teamHubIdentityQueryOptions(client));
   const [chosen, setChosen] = useState<Map<string, RoomRole>>(new Map());
   const [pending, setPending] = useState(false);
@@ -56,18 +61,33 @@ export function WhoManagesPage() {
     setSaved(false);
     try {
       for (const write of writes) {
-        await teamHubData(
+        const updated = await teamHubData(
           client.api.PUT("/v0/rooms/{roomId}/members/{actorId}", {
             params: { path: { actorId: write.id, roomId } },
             body: { role: write.role },
           }),
         );
+        setChosen((current) => {
+          const next = new Map(current);
+          next.delete(write.id);
+          return next;
+        });
+        queryClient.setQueryData<TeamHubRoomMemberPage>(
+          membersQuery.queryKey,
+          (current) =>
+            current
+              ? {
+                  ...current,
+                  items: current.items.map((item) =>
+                    item.actor.id === write.id
+                      ? { ...item, role: updated?.role ?? write.role }
+                      : item,
+                  ),
+                }
+              : current,
+        );
       }
-      setChosen(new Map());
       setSaved(true);
-      await queryClient.invalidateQueries({
-        queryKey: roomMembersQueryOptions(client, tenantId, roomId).queryKey,
-      });
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -75,15 +95,32 @@ export function WhoManagesPage() {
           : "The room could not be updated.",
       );
     } finally {
+      await queryClient.invalidateQueries({
+        queryKey: membersQuery.queryKey,
+      });
       setPending(false);
     }
   };
 
   return (
-    <main className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-5 py-7">
+    <section
+      aria-labelledby={headingId}
+      className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-5 py-7"
+    >
       <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
+        <div>
+          <Link
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            to={chat}
+          >
+            <Icon icon={ArrowLeft01Icon} size={14} />
+            Back to room
+          </Link>
+        </div>
         <header>
-          <h1 className="text-xl text-foreground">Who can manage this room</h1>
+          <h2 className="text-xl text-foreground" id={headingId}>
+            Who can manage this room
+          </h2>
           <p className="mt-2 text-sm text-muted-foreground">
             Someone who can manage may change the room and who belongs to it.
             Someone who takes part can work in it. The room keeps this choice.
@@ -93,10 +130,23 @@ export function WhoManagesPage() {
           <p className="text-sm text-muted-foreground" role="status">
             Loading who can manage.
           </p>
-        ) : members.isError ? (
-          <p className="text-sm text-destructive" role="alert">
-            Who can manage could not be loaded.
-          </p>
+        ) : members.isError || identity.isError ? (
+          <div className="flex items-center justify-between gap-3" role="alert">
+            <p className="text-sm text-destructive">
+              Who can manage could not be loaded.
+            </p>
+            <Button
+              onClick={() => {
+                if (members.isError) void members.refetch();
+                if (identity.isError) void identity.refetch();
+              }}
+              size="compact"
+              tone="secondary"
+              type="button"
+            >
+              Retry
+            </Button>
+          </div>
         ) : (
           <form
             className="flex flex-col gap-4"
@@ -198,13 +248,7 @@ export function WhoManagesPage() {
             ) : null}
           </form>
         )}
-        <Link
-          className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          to={chat}
-        >
-          Back to chat
-        </Link>
       </div>
-    </main>
+    </section>
   );
 }

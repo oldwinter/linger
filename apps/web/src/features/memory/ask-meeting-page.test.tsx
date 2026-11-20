@@ -82,6 +82,12 @@ it("saves an answer from the recording and does not send a task", async () => {
   expect(await screen.findByText("Ship the note before Friday.")).toBeVisible();
   expect(screen.getByText("Let's ship the note before Friday.")).toBeVisible();
   expect(
+    screen.getByRole("link", { name: /Let's ship the note before Friday\./ }),
+  ).toHaveAttribute(
+    "href",
+    `/t/tenant-northstar/library/meetings?entry=${meeting.id}&at=8`,
+  );
+  expect(
     runtime.server.requestsTo(
       "POST",
       "/v0/voice-captures/{captureSessionId}/questions/{questionId}/task",

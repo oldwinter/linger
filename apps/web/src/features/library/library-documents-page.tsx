@@ -1,10 +1,13 @@
+import { Calendar03Icon, Clock01Icon } from "@hugeicons/core-free-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { FileDropTarget } from "@/components/ui/file-drop-target";
+import { Icon } from "@/components/ui/icon";
 import { Spinner } from "@/components/ui/spinner";
+import { dayReviewPath } from "@/features/memory/day-review";
 import { writeDocumentLinkClipboard } from "@/features/rooms/files/document-clipboard-link";
 import { documentDetailPath } from "@/features/rooms/files/document-detail-routes";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
@@ -23,11 +26,17 @@ import { DocumentDeleteDialog } from "./document-delete-dialog";
 import { documentFileName } from "./document-display-name";
 import { RecentDocumentCards } from "./library-document-results";
 import { LibraryDocumentsHeader } from "./library-documents-header";
-import { NewFolderDialog } from "./library-folder-browser";
+import {
+  DeleteFolderDialog,
+  LibraryUploadSummary,
+  NewFolderDialog,
+  RenameFolderDialog,
+} from "./library-folder-browser";
 import { LibraryFolderListing } from "./library-folder-listing";
 import { MoveFolderPickerDialog } from "./move-folder-picker-dialog";
 import { readDroppedUploadSources } from "./library-upload-queue";
 import { visibleLibraryDocuments } from "./library-visible-documents";
+import { libraryWeekPath } from "./library-week";
 import { RecentDocumentsStrip } from "./recent-documents-strip";
 import {
   type LibraryBulkOutcome,
@@ -40,6 +49,7 @@ import {
 } from "./library-workspace-tabs";
 import {
   type DocumentTreeFolder,
+  isFolderMoveCycle,
   nextFolderName,
 } from "./my-documents-tree-helpers";
 import { MyDocumentsTreeView } from "./my-documents-tree-view";
@@ -77,16 +87,21 @@ export function LibraryDocumentsPage() {
     workspaceTabs.find((candidate) => candidate.id === searchParams.get("tab"))
       ?.id ?? "owned";
   const [fileType, setFileType] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState("updated");
   const copy = useCopyToMyDocuments(client, tenantId);
   const { tree, treeModel, reload } = useOwnedDocumentTree(client, tenantId);
   const treeItems = tree.data?.items ?? [];
+  const treeFolders = treeItems.filter(
+    (item): item is DocumentTreeFolder => item.node_kind === "folder",
+  );
   const [creatingFolder, setCreatingFolder] = useState(false);
   const { browsedTree, folderId, levelDocuments, openedFolder, trail } =
     useLibraryFolderLevel({
       client,
       fileType,
       requestedFolder: searchParams.get("folder"),
+      searchQuery,
       tab,
       tenantId,
       tree,
@@ -102,16 +117,19 @@ export function LibraryDocumentsPage() {
   // Copy links follows the rows the list shows, in its order.
   const copyDocuments = visibleLibraryDocuments(levelDocuments, {
     fileType,
+    query: searchQuery,
     sortBy,
   }).filter((document) => bulk.selectedDocumentIds.has(document.id));
   function chooseTab(next: WorkspaceTab) {
-    // A selection belongs to the folder level it was made in.
+    // A selection and inline search belong to the tab they were made in.
     bulk.clear();
+    setSearchQuery("");
     setSearchParams(next === "owned" ? {} : { tab: next }, { replace: true });
   }
   // An open folder also lives in the URL, so Back leaves the folder.
   function openFolder(nextFolderId?: string) {
     bulk.clear();
+    setSearchQuery("");
     setSearchParams({
       ...(tab === "owned" ? {} : { tab }),
       ...(nextFolderId ? { folder: nextFolderId } : {}),
@@ -143,6 +161,18 @@ export function LibraryDocumentsPage() {
   });
   const createBusy =
     Boolean(treeModel.creating) || treeModel.pending || Boolean(tree.error);
+  const confirmingDeleteFolder = treeModel.confirmingDeleteFolderId
+    ? treeFolders.find(
+        (folder) => folder.id === treeModel.confirmingDeleteFolderId,
+      )
+    : undefined;
+  const movingFolderDisabledIds = new Set<string>();
+  if (treeModel.movingPlacement?.node_kind === "folder") {
+    for (const folder of treeFolders) {
+      if (isFolderMoveCycle(treeModel.movingPlacement.id, folder.id, treeItems))
+        movingFolderDisabledIds.add(folder.id);
+    }
+  }
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -150,12 +180,8 @@ export function LibraryDocumentsPage() {
         <CopyToMyDocumentsDialog
           document={copy.copyingDocument}
           error={copy.copyError}
-          folders={
-            tree.data?.items.filter(
-              (item): item is DocumentTreeFolder => item.node_kind === "folder",
-            ) ?? []
-          }
-          items={tree.data?.items ?? []}
+          folders={treeFolders}
+          items={treeItems}
           onCancel={copy.cancelCopy}
           onCopy={(targetFolderId) =>
             void copy.copyToMyDocuments(targetFolderId)
@@ -171,7 +197,45 @@ export function LibraryDocumentsPage() {
           onCreate={async (name) => {
             await treeModel.onCreateNamedFolder(name, ownedFolderId);
             setCreatingFolder(false);
+            if (tab !== "owned") chooseTab("owned");
           }}
+        />
+      ) : null}
+      {treeModel.renamingFolder ? (
+        <RenameFolderDialog
+          error={treeModel.error}
+          name={treeModel.renamingFolder.name}
+          onCancel={() => {
+            treeModel.onRenameCancel();
+            treeModel.onDismissError();
+          }}
+          onChange={treeModel.onRenameChange}
+          onSubmit={treeModel.onRenameSubmit}
+        />
+      ) : null}
+      {treeModel.movingPlacement ? (
+        <MoveFolderPickerDialog
+          currentParentId={treeModel.movingPlacement.parent_id}
+          disabledFolderIds={movingFolderDisabledIds}
+          folders={treeFolders}
+          label={
+            treeModel.movingPlacement.node_kind === "folder"
+              ? treeModel.movingPlacement.name
+              : "document"
+          }
+          onCancel={treeModel.onMoveCancel}
+          onMove={(parentId) =>
+            treeModel.onMove(treeModel.movingPlacement!, parentId)
+          }
+          rootLabel="Owned by Me"
+        />
+      ) : null}
+      {confirmingDeleteFolder ? (
+        <DeleteFolderDialog
+          name={confirmingDeleteFolder.name}
+          onCancel={treeModel.onCancelDeleteFolder}
+          onConfirm={treeModel.onConfirmDeleteFolder}
+          pending={Boolean(treeModel.deletingFolderId)}
         />
       ) : null}
       {historyDocumentId ? (
@@ -194,9 +258,7 @@ export function LibraryDocumentsPage() {
       {bulk.moving ? (
         <MoveFolderPickerDialog
           currentParentId={ownedFolderId}
-          folders={treeItems.filter(
-            (item): item is DocumentTreeFolder => item.node_kind === "folder",
-          )}
+          folders={treeFolders}
           label={
             bulk.moving.length === 1
               ? "1 document"
@@ -242,21 +304,36 @@ export function LibraryDocumentsPage() {
               createBusy={createBusy}
               importRef={treeModel.importRef}
               onCreateDocument={() => treeModel.onCreateDocument(ownedFolderId)}
-              onImport={(file) => treeModel.onImport(file, ownedFolderId)}
+              onImport={(file) => {
+                if (tab !== "owned") chooseTab("owned");
+                treeModel.onImport(file, ownedFolderId);
+              }}
               onImportPick={() => treeModel.onImportPick(ownedFolderId)}
               onNewFolder={() => setCreatingFolder(true)}
-              onUploadFolder={(files) =>
-                treeModel.onUploadFolder(files, ownedFolderId)
-              }
+              onUploadFolder={(files) => {
+                if (tab !== "owned") chooseTab("owned");
+                treeModel.onUploadFolder(files, ownedFolderId);
+              }}
             />
-            <p className="mt-3">
+            <nav
+              aria-label="Library time views"
+              className="mb-5 flex flex-wrap items-center gap-2"
+            >
               <Link
-                className="text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                to={`/t/${tenantId}/library/day`}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                to={dayReviewPath(tenantId)}
               >
+                <Icon icon={Calendar03Icon} size={14} />
                 This day
               </Link>
-            </p>
+              <Link
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                to={libraryWeekPath(tenantId)}
+              >
+                <Icon icon={Clock01Icon} size={14} />
+                What changed this week
+              </Link>
+            </nav>
             <RecentDocumentCards
               documentActions={documentActions}
               documents={recentDocuments}
@@ -265,6 +342,7 @@ export function LibraryDocumentsPage() {
               tenantId={tenantId}
             />
             <WorkspaceTabs onChange={chooseTab} value={tab} />
+            <LibraryUploadSummary uploads={treeModel.pendingUploads} />
             {tab === "meetings" ? (
               <MeetingsPanel tenantId={tenantId} />
             ) : (
@@ -290,17 +368,44 @@ export function LibraryDocumentsPage() {
                   }
                   documentActions={documentActions}
                   documents={levelDocuments}
+                  emptyActions={
+                    tab === "owned"
+                      ? {
+                          busy: createBusy,
+                          onCreateDocument: () =>
+                            treeModel.onCreateDocument(ownedFolderId),
+                          onImportPick: () =>
+                            treeModel.onImportPick(ownedFolderId),
+                        }
+                      : undefined
+                  }
                   error={treeModel.error}
                   fileType={fileType}
+                  folderActions={
+                    tab === "owned"
+                      ? {
+                          busy: Boolean(treeModel.deletingFolderId),
+                          onDelete: treeModel.onDeleteFolder,
+                          onMove: treeModel.onMoveBegin,
+                          onRename: treeModel.onBeginRename,
+                        }
+                      : undefined
+                  }
                   folderId={folderId}
                   folders={openedFolder.folders}
+                  onClearFilters={() => {
+                    setFileType("");
+                    setSearchQuery("");
+                  }}
                   onCopy={copy.beginCopy}
                   onDismissError={treeModel.onDismissError}
                   onFileTypeChange={setFileType}
                   onOpenFolder={openFolder}
+                  onSearchQueryChange={setSearchQuery}
                   onSortByChange={setSortBy}
                   onToggleSelected={bulk.toggle}
                   pendingUploads={treeModel.pendingUploads}
+                  searchQuery={searchQuery}
                   selectedDocumentIds={bulk.selectedDocumentIds}
                   sortBy={sortBy}
                   tab={tab}

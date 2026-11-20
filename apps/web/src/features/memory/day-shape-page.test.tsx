@@ -95,6 +95,16 @@ describe("DayShapePage", () => {
     expect(
       screen.getByRole("heading", { name: "Shape of Thu, Oct 1 · Today" }),
     ).toBeVisible();
+    expect(screen.getByRole("link", { name: "This day" })).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/library/day?date=2026-10-01",
+    );
+    expect(
+      screen.getByRole("link", { name: "Back to meetings" }),
+    ).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/library?tab=meetings&meetings=today",
+    );
     expect(
       screen.getByRole("link", { name: "Meeting Oct 1, 09:05" }),
     ).toHaveAttribute(

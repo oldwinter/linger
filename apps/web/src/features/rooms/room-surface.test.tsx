@@ -541,7 +541,7 @@ describe("RoomSurface command availability", () => {
     );
   });
 
-  it("omits inactive run commands and room participation from a direct chat menu", async () => {
+  it("omits inactive run commands, group-only actions, and room participation from a direct chat menu", async () => {
     await renderRoomSurface("room-dm-codex");
     fireEvent.click(
       await screen.findByRole("button", { name: "More actions for Codex" }),
@@ -550,10 +550,39 @@ describe("RoomSurface command availability", () => {
     expect(
       screen.queryByRole("menuitem", { name: "Steer this run" }),
     ).toBeNull();
+    expect(
+      screen.queryByRole("menuitem", { name: "How work moves" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("menuitem", { name: "Who can manage" }),
+    ).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Routines" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Step out" })).toBeNull();
     expect(screen.getByRole("menuitem", { name: "Hand off" })).toBeVisible();
     expect(
       screen.getByRole("menuitem", { name: "Copy Room link" }),
+    ).toBeVisible();
+  });
+
+  it("opens Group Room Routines from the overflow menu", async () => {
+    const runtime = surfaceRuntime();
+    runtime.server.on("GET", "/v0/rooms/{roomId}/routines", () => ({
+      items: [],
+      page: { has_more: false },
+    }));
+    await renderRoomSurface("room-all", "", runtime);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "More actions for all" }),
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Routines" }));
+    const sidebar = await screen.findByRole("complementary", {
+      name: "Panel sidebar",
+    });
+    expect(
+      await within(sidebar).findByRole("tab", { name: "Routines" }),
+    ).toBeVisible();
+    expect(
+      await within(sidebar).findByText("No routines in this room yet."),
     ).toBeVisible();
   });
 

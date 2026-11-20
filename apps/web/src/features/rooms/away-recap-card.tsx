@@ -13,6 +13,13 @@ import {
   type AwayRecap,
 } from "./away-recap";
 
+export interface AwayRecapCatchUp {
+  ariaLabel: string;
+  count: number;
+  label: string;
+  onClick?: () => void;
+}
+
 /**
  * The card sits above the Room rows and answers "what did I miss?". Its rows
  * open the Room but do not dismiss it: the Rooms that remain unread still
@@ -21,12 +28,18 @@ import {
 export function AwayRecapCard({
   accountId,
   activeRoomId,
+  catchUp,
+  dismissedAt: controlledDismissedAt,
+  onDismiss,
   onNavigate,
   rooms,
   tenantId,
 }: {
   accountId?: string;
   activeRoomId?: string;
+  catchUp?: AwayRecapCatchUp;
+  dismissedAt?: string | null;
+  onDismiss?: (cutoff: string) => void;
   onNavigate?: (event: MouseEvent<HTMLAnchorElement>, roomId: string) => void;
   rooms: readonly TeamHubRoomListItem[];
   tenantId: string;
@@ -35,17 +48,29 @@ export function AwayRecapCard({
     () => awayRecap(rooms, activeRoomId),
     [activeRoomId, rooms],
   );
-  const [dismissedAt, setDismissedAt] = useState<string | null>(() =>
+  const [localDismissedAt, setLocalDismissedAt] = useState<string | null>(() =>
     readAwayRecapDismissal(accountId, tenantId),
   );
+  const dismissedAt = onDismiss
+    ? (controlledDismissedAt ?? null)
+    : localDismissedAt;
   if (!awayRecapVisible(recap, dismissedAt)) return null;
   function dismiss() {
     // A recap whose Rooms carry no usable timestamp still dismisses for the
     // session and until later activity arrives.
     const cutoff = recap.newestAt ?? new Date().toISOString();
+    if (onDismiss) {
+      onDismiss(cutoff);
+      return;
+    }
     writeAwayRecapDismissal(accountId, tenantId, cutoff);
-    setDismissedAt(cutoff);
+    setLocalDismissedAt(cutoff);
   }
+  const catchUpLink: AwayRecapCatchUp = catchUp ?? {
+    ariaLabel: `Catch up, ${recap.roomCount} ${recap.roomCount === 1 ? "chat" : "chats"}`,
+    count: recap.roomCount,
+    label: "Catch up",
+  };
   return (
     <section
       aria-label="While you were away"
@@ -95,6 +120,19 @@ export function AwayRecapCard({
           </li>
         ))}
       </ul>
+      <div className="mt-1.5 border-t border-border/50 pt-1.5">
+        <Link
+          aria-label={catchUpLink.ariaLabel}
+          className="flex items-center justify-between rounded-md px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-app-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={catchUpLink.onClick}
+          to={`/t/${tenantId}/rooms/catch-up`}
+        >
+          <span>{catchUpLink.label}</span>
+          <span className="text-2xs tabular-nums text-app-muted">
+            {catchUpLink.count}
+          </span>
+        </Link>
+      </div>
     </section>
   );
 }

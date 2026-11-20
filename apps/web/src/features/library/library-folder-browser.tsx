@@ -1,6 +1,14 @@
-import { ArrowRight01Icon, Folder01Icon } from "@hugeicons/core-free-icons";
+import {
+  ArrowRight01Icon,
+  Delete02Icon,
+  Folder01Icon,
+  FolderExportIcon,
+  MoreHorizontalIcon,
+  PencilEdit01Icon,
+} from "@hugeicons/core-free-icons";
 import { type FormEvent, useState } from "react";
 
+import { ActionMenu } from "@/components/ui/action-menu";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { ModalDialog } from "@/components/ui/modal-dialog";
@@ -58,6 +66,31 @@ export function folderDescendantDocuments(
     else pending.push(...(childrenByParent.get(item.id) ?? []));
   }
   return documents;
+}
+
+/** Every Folder below a folder (the whole tree when undefined), at any depth. */
+export function folderDescendantFolders(
+  items: readonly TeamHubDocumentPlacementNode[],
+  folderId: string | undefined,
+) {
+  const childrenByParent = new Map<
+    string | undefined,
+    TeamHubDocumentPlacementNode[]
+  >();
+  for (const item of items) {
+    const siblings = childrenByParent.get(item.parent_id) ?? [];
+    siblings.push(item);
+    childrenByParent.set(item.parent_id, siblings);
+  }
+  const folders: LibraryFolder[] = [];
+  const pending = [...(childrenByParent.get(folderId) ?? [])];
+  for (let item = pending.pop(); item; item = pending.pop()) {
+    if (item.node_kind === "folder") {
+      folders.push(item);
+      pending.push(...(childrenByParent.get(item.id) ?? []));
+    }
+  }
+  return folders;
 }
 
 /** The folder and its ancestors, outermost first; empty when the folder is gone. */
@@ -118,10 +151,19 @@ export function LibraryFolderBreadcrumb({
   );
 }
 
+export interface LibraryFolderRowActions {
+  busy?: boolean;
+  onDelete: (folderId: string) => void;
+  onMove: (folder: LibraryFolder) => void;
+  onRename: (folder: LibraryFolder) => void;
+}
+
 export function LibraryFolderRow({
+  actions,
   folder,
   onOpen,
 }: {
+  actions?: LibraryFolderRowActions;
   folder: LibraryFolder;
   onOpen: (folderId: string) => void;
 }) {
@@ -149,7 +191,38 @@ export function LibraryFolderRow({
             : folderDateFormatter.format(date)}
         </time>
       </div>
-      <span aria-hidden="true" />
+      {actions ? (
+        <ActionMenu
+          buttonClassName="workspace-file-action"
+          items={[
+            {
+              disabled: actions.busy,
+              icon: <Icon icon={PencilEdit01Icon} size={14} />,
+              label: "Rename",
+              onSelect: () => actions.onRename(folder),
+            },
+            {
+              disabled: actions.busy,
+              icon: <Icon icon={FolderExportIcon} size={14} />,
+              label: "Move",
+              onSelect: () => actions.onMove(folder),
+            },
+            {
+              danger: true,
+              disabled: actions.busy,
+              icon: <Icon icon={Delete02Icon} size={14} />,
+              label: "Delete",
+              onSelect: () => actions.onDelete(folder.id),
+              separatorBefore: true,
+            },
+          ]}
+          label={`Actions for ${folder.name}`}
+          placement="bottom-end"
+          trigger={<Icon icon={MoreHorizontalIcon} size={14} />}
+        />
+      ) : (
+        <span aria-hidden="true" />
+      )}
     </div>
   );
 }
@@ -269,6 +342,110 @@ export function NewFolderDialog({
           </p>
         ) : null}
       </form>
+    </ModalDialog>
+  );
+}
+
+export function RenameFolderDialog({
+  error,
+  name,
+  onCancel,
+  onChange,
+  onSubmit,
+}: {
+  error: string | null;
+  name: string;
+  onCancel: () => void;
+  onChange: (name: string) => void;
+  onSubmit: () => void;
+}) {
+  const trimmed = name.trim();
+
+  function submit(event?: FormEvent) {
+    event?.preventDefault();
+    if (!trimmed) return;
+    onSubmit();
+  }
+
+  return (
+    <ModalDialog
+      footer={
+        <>
+          <Button onClick={onCancel} tone="secondary">
+            Cancel
+          </Button>
+          <Button disabled={!trimmed} onClick={() => submit()} tone="primary">
+            Save
+          </Button>
+        </>
+      }
+      onClose={onCancel}
+      size="sm"
+      title="Rename folder"
+    >
+      <form className="px-5 py-4" onSubmit={submit}>
+        <label className="block text-sm font-medium text-app-body">
+          Folder name
+          <input
+            aria-label="Folder name"
+            className="mt-1 h-9 w-full rounded-md border border-app-border bg-transparent px-3 text-sm placeholder:text-app-placeholder focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            maxLength={255}
+            onChange={(event) => onChange(event.target.value)}
+            onFocus={(event) => event.currentTarget.select()}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing || event.keyCode === 229) {
+                event.stopPropagation();
+              }
+            }}
+            value={name}
+          />
+        </label>
+        {error ? (
+          <p className="mt-3 text-sm text-app-danger" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </form>
+    </ModalDialog>
+  );
+}
+
+export function DeleteFolderDialog({
+  name,
+  onCancel,
+  onConfirm,
+  pending,
+}: {
+  name: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+  pending: boolean;
+}) {
+  return (
+    <ModalDialog
+      closeOnBackdrop={!pending}
+      description={
+        <>
+          Delete <strong>{name}</strong>? This action cannot be undone.
+        </>
+      }
+      footer={
+        <>
+          <Button disabled={pending} onClick={onCancel} tone="secondary">
+            Cancel
+          </Button>
+          <Button loading={pending} onClick={onConfirm} tone="danger">
+            Delete folder
+          </Button>
+        </>
+      }
+      onClose={() => {
+        if (!pending) onCancel();
+      }}
+      size="sm"
+      title="Delete folder"
+    >
+      {null}
     </ModalDialog>
   );
 }

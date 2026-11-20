@@ -377,11 +377,36 @@ describe("Wiki directory", () => {
       name: "Search Projects",
     });
     expect(await screen.findByRole("link", { name: /alpha/ })).toBeVisible();
+    expect(screen.getByText("2 projects")).toBeVisible();
     fireEvent.change(search, { target: { value: "BET" } });
+    expect(screen.getByText("1 of 2 projects")).toBeVisible();
     expect(screen.queryByRole("link", { name: /alpha/ })).toBeNull();
     expect(screen.getByRole("link", { name: /beta/ })).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Clear Projects search" }),
+    );
+    expect(search).toHaveValue("");
+    expect(screen.getByText("2 projects")).toBeVisible();
     fireEvent.change(search, { target: { value: "gamma" } });
+    expect(screen.getByText("0 of 2 projects")).toBeVisible();
     expect(screen.getByText("No projects match “gamma”.")).toBeVisible();
+    fireEvent.keyDown(search, { key: "Escape" });
+    expect(search).toHaveValue("");
+  });
+  it("uses singular nouns for single-item collections", async () => {
+    const first = await setup(
+      "/t/tenant-northstar/library/wiki/projects",
+      undefined,
+      { alpha: "projects/alpha.md", beta: "topics/beta.md" },
+    );
+    expect(await screen.findByText("1 project")).toBeVisible();
+    first.unmount();
+
+    await setup("/t/tenant-northstar/library/wiki/clients", undefined, {
+      alpha: "clients/alpha.md",
+      beta: "topics/beta.md",
+    });
+    expect(await screen.findByText("1 company")).toBeVisible();
   });
   it("filters a collection page by body text", async () => {
     await setup("/t/tenant-northstar/library/wiki/projects");

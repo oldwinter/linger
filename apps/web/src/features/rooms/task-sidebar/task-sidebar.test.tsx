@@ -883,7 +883,7 @@ describe("TaskSidebar", () => {
       within(launcher)
         .getAllByRole("button")
         .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["Documents", "Collaboration"]);
+    ).toEqual(["Documents", "Routines", "Collaboration"]);
     expect(screen.queryByRole("button", { name: "Thread" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Room info" })).toBeNull();
     expect(screen.queryByText("Suggestion")).toBeNull();
@@ -900,18 +900,56 @@ describe("TaskSidebar", () => {
 
     fireEvent.click(documents);
     expect(onCreate).toHaveBeenCalledWith("file");
-    expect(screen.queryByRole("button", { name: "Routines" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Routines" }));
+    expect(onCreate).toHaveBeenCalledWith("routines");
     fireEvent.click(screen.getByRole("button", { name: "Collaboration" }));
     expect(onCreate).toHaveBeenCalledWith("collaboration");
 
     fireEvent.click(screen.getByRole("button", { name: "Add panel view" }));
     expect(screen.getByRole("menu", { name: "Add panel view" })).toBeVisible();
     expect(screen.getByRole("menuitem", { name: "Documents" })).toBeVisible();
-    expect(screen.queryByRole("menuitem", { name: "Routines" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Routines" })).toBeVisible();
     expect(
       screen.getByRole("menuitem", { name: "Collaboration" }),
     ).toBeVisible();
     expect(screen.queryByRole("menuitem", { name: "Room info" })).toBeNull();
+  });
+
+  it("renders the room Routines tab and opens it from Room settings", async () => {
+    const runtime = createTestTeamHubRuntime();
+    runtime.server.on("GET", "/v0/rooms/{roomId}/routines", () => ({
+      items: [
+        {
+          id: "routine-room-1",
+          room_id: "room-all",
+          created_by_actor_id: "actor-jenny",
+          name: "Weekly sync reminder",
+          instruction: "Post the weekly sync reminder",
+          cadence: { kind: "daily", timezone: "UTC", hour: 9, minute: 0 },
+          enabled: true,
+          revision: 1,
+          created_at: "2026-09-21T00:00:00Z",
+          updated_at: "2026-09-21T00:00:00Z",
+          next_run_at: "2027-01-01T09:00:00Z",
+        },
+      ],
+      page: { has_more: false },
+    }));
+    const routinesTab: PanelTab = {
+      id: panelTabKey("routines", {}),
+      kind: "routines",
+      lastActivatedAt: 1,
+      title: "Routines",
+    };
+    renderSidebar({
+      activeTabId: routinesTab.id,
+      roomId: "room-all",
+      runtime,
+      tabs: [routinesTab],
+      tenantId: "tenant-northstar",
+    });
+    expect(await screen.findByText("Weekly sync reminder")).toBeVisible();
+    expect(screen.getByText(/Message only$/)).toBeVisible();
   });
 
   it("reopens the current Agent Info from the empty panel", () => {

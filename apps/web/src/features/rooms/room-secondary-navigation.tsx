@@ -17,6 +17,7 @@ import {
   Suspense,
   type ReactNode,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -38,7 +39,13 @@ import { cn } from "@/lib/cn";
 import { latestShadowLine } from "./shadow-line";
 
 import { AgentCreateMenu } from "./agent-create-menu";
-import { AwayRecapCard } from "./away-recap-card";
+import {
+  awayRecap,
+  awayRecapVisible,
+  readAwayRecapDismissal,
+  writeAwayRecapDismissal,
+} from "./away-recap";
+import { AwayRecapCard, type AwayRecapCatchUp } from "./away-recap-card";
 import { beginCatchUp, readCatchUpWalk } from "./catch-up";
 import type {
   TeamHubRoomListItem,
@@ -268,6 +275,40 @@ export function RoomSecondaryNavigation({
     storedCatchUp && storedCatchUp.index < storedCatchUp.rooms.length
       ? storedCatchUp.rooms.length - storedCatchUp.index
       : 0;
+  const recap = useMemo(
+    () => awayRecap(rooms, activeRoomId),
+    [activeRoomId, rooms],
+  );
+  const recapScopeKey = `${accountId}:${tenant.id}`;
+  const [recapDismissal, setRecapDismissal] = useState<{
+    at: string | null;
+    scopeKey: string;
+  }>(() => ({
+    at: readAwayRecapDismissal(accountId, tenant.id),
+    scopeKey: recapScopeKey,
+  }));
+  const awayRecapDismissedAt =
+    recapDismissal.scopeKey === recapScopeKey
+      ? recapDismissal.at
+      : readAwayRecapDismissal(accountId, tenant.id);
+  const showingAwayRecap =
+    !navigationStatus && awayRecapVisible(recap, awayRecapDismissedAt);
+  function dismissAwayRecap(cutoff: string) {
+    writeAwayRecapDismissal(accountId, tenant.id, cutoff);
+    setRecapDismissal({ at: cutoff, scopeKey: recapScopeKey });
+  }
+  const catchUpAction: AwayRecapCatchUp | undefined =
+    catchUpCount > 0 || remainingCatchUpCount > 0
+      ? {
+          ariaLabel:
+            catchUpCount > 0
+              ? `Catch up, ${catchUpCount} ${catchUpCount === 1 ? "chat" : "chats"}`
+              : `Resume catch up, ${remainingCatchUpCount} ${remainingCatchUpCount === 1 ? "chat" : "chats"} left`,
+          count: catchUpCount > 0 ? catchUpCount : remainingCatchUpCount,
+          label: catchUpCount > 0 ? "Catch up" : "Resume catch up",
+          onClick: onCloseMobile,
+        }
+      : undefined;
   const visibleRoomIds = new Set(
     rooms.flatMap((room) =>
       room.parent_room_id ? [room.parent_room_id] : [room.id],
@@ -469,45 +510,59 @@ export function RoomSecondaryNavigation({
         className="room-secondary-navigation-list workspace-scrollbar flex-1 space-y-3 overflow-y-auto pb-1 pt-2"
         ref={listRef}
       >
-        <Link
-          aria-keyshortcuts="Control+j Meta+j"
-          className="mx-2 flex h-7 items-center justify-between gap-2 rounded-lg px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onCloseMobile}
-          title={`Jump (${jumpShortcutLabel()})`}
-          to={jumpPath(tenant.id)}
+        <div
+          aria-label="Room shortcuts"
+          className="mx-2 flex items-center gap-1"
+          role="group"
         >
-          <span>Jump anywhere</span>
-          <span>{jumpShortcutLabel()}</span>
-        </Link>
-        <Link
-          className="mx-2 flex h-7 items-center rounded-lg px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onCloseMobile}
-          to={whoIsAwakePath(tenant.id)}
-        >
-          Who is awake
-        </Link>
-        <Link
-          className="mx-2 flex h-7 items-center rounded-lg px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onCloseMobile}
-          to={surprisePath(tenant.id)}
-        >
-          Surprise me
-        </Link>
-        {onCollapse ? searchButton : null}
-        {catchUpCount > 0 || remainingCatchUpCount > 0 ? (
           <Link
-            aria-label={
-              catchUpCount > 0
-                ? `Catch up, ${catchUpCount} ${catchUpCount === 1 ? "chat" : "chats"}`
-                : `Resume catch up, ${remainingCatchUpCount} ${remainingCatchUpCount === 1 ? "chat" : "chats"} left`
-            }
-            className="mx-2 flex items-center justify-between rounded-lg bg-app-hover px-2.5 py-2 text-sm text-app-ink hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+            aria-keyshortcuts="Control+j Meta+j"
+            aria-label="Jump anywhere"
+            className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1 rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={onCloseMobile}
+            title={`Jump anywhere (${jumpShortcutLabel()})`}
+            to={jumpPath(tenant.id)}
+          >
+            <span className="truncate">Jump</span>
+            <span
+              aria-hidden="true"
+              className="shrink-0 text-2xs text-app-subtle"
+            >
+              {jumpShortcutLabel()}
+            </span>
+          </Link>
+          <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border/60" />
+          <Link
+            aria-label="Who is awake"
+            className="flex h-7 min-w-0 flex-1 items-center justify-center rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={onCloseMobile}
+            title="Who is awake"
+            to={whoIsAwakePath(tenant.id)}
+          >
+            <span className="truncate">Awake</span>
+          </Link>
+          <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border/60" />
+          <Link
+            aria-label="Surprise me"
+            className="flex h-7 min-w-0 flex-1 items-center justify-center rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={onCloseMobile}
+            title="Surprise me"
+            to={surprisePath(tenant.id)}
+          >
+            <span className="truncate">Surprise</span>
+          </Link>
+        </div>
+        {onCollapse ? searchButton : null}
+        {!showingAwayRecap && catchUpAction ? (
+          <Link
+            aria-label={catchUpAction.ariaLabel}
+            className="mx-2 flex items-center justify-between rounded-lg bg-app-hover px-2.5 py-2 text-sm text-app-ink hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+            onClick={catchUpAction.onClick}
             to={`/t/${tenant.id}/rooms/catch-up`}
           >
-            {catchUpCount > 0 ? "Catch up" : "Resume catch up"}
+            {catchUpAction.label}
             <span className="text-xs text-app-muted">
-              {catchUpCount > 0 ? catchUpCount : remainingCatchUpCount}
+              {catchUpAction.count}
             </span>
           </Link>
         ) : null}
@@ -524,7 +579,10 @@ export function RoomSecondaryNavigation({
             <AwayRecapCard
               accountId={accountId}
               activeRoomId={activeRoomId}
-              key={`${accountId}:${tenant.id}`}
+              catchUp={catchUpAction}
+              dismissedAt={awayRecapDismissedAt}
+              key={recapScopeKey}
+              onDismiss={dismissAwayRecap}
               onNavigate={completeNavigation}
               rooms={rooms}
               tenantId={tenant.id}
@@ -1287,54 +1345,60 @@ function RoomRowStatus({
     roomId: room.id,
     result: working ? "working" : "stopped",
   });
+  const hasUnread =
+    room.unread_message_count > 0 || room.unread_mention_count > 0;
+  const hasActivity = working || failed;
+  if (!hasUnread && !hasActivity) return null;
   return (
     <span className="row-reveal-hide ml-auto flex shrink-0 items-center gap-1.5">
-      <RoomAttentionBadge room={room} />
-      <span className="flex shrink-0 items-center gap-1">
-        {working && duration ? (
-          <span
-            aria-hidden="true"
-            className="text-2xs tabular-nums text-app-muted"
-          >
-            {duration.short}
-          </span>
-        ) : null}
-        <span className="flex size-4 shrink-0 items-center justify-center">
-          {working ? (
-            <svg
-              aria-label={duration?.speech ?? "Agent working"}
-              className="size-3.5 animate-spin text-app-muted motion-reduce:animate-none"
-              fill="none"
-              role="img"
-              viewBox="0 0 16 16"
-            >
-              <title>{duration?.speech ?? "Agent working"}</title>
-              <circle
-                cx="8"
-                cy="8"
-                r="5.75"
-                stroke="currentColor"
-                strokeOpacity="0.2"
-                strokeWidth="1.5"
-              />
-              <path
-                d="M8 2.25a5.75 5.75 0 0 1 5.75 5.75"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeWidth="1.5"
-              />
-            </svg>
-          ) : failed ? (
+      {hasUnread ? <RoomAttentionBadge room={room} /> : null}
+      {hasActivity ? (
+        <span className="flex shrink-0 items-center gap-1">
+          {working && duration ? (
             <span
-              aria-label="Last run failed"
-              className="flex text-app-danger"
-              role="img"
+              aria-hidden="true"
+              className="text-2xs tabular-nums text-app-muted"
             >
-              <Icon icon={AlertCircleIcon} size={14} />
+              {duration.short}
             </span>
           ) : null}
+          <span className="flex size-4 shrink-0 items-center justify-center">
+            {working ? (
+              <svg
+                aria-label={duration?.speech ?? "Agent working"}
+                className="size-3.5 animate-spin text-app-muted motion-reduce:animate-none"
+                fill="none"
+                role="img"
+                viewBox="0 0 16 16"
+              >
+                <title>{duration?.speech ?? "Agent working"}</title>
+                <circle
+                  cx="8"
+                  cy="8"
+                  r="5.75"
+                  stroke="currentColor"
+                  strokeOpacity="0.2"
+                  strokeWidth="1.5"
+                />
+                <path
+                  d="M8 2.25a5.75 5.75 0 0 1 5.75 5.75"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeWidth="1.5"
+                />
+              </svg>
+            ) : (
+              <span
+                aria-label="Last run failed"
+                className="flex text-app-danger"
+                role="img"
+              >
+                <Icon icon={AlertCircleIcon} size={14} />
+              </span>
+            )}
+          </span>
         </span>
-      </span>
+      ) : null}
     </span>
   );
 }

@@ -5,6 +5,7 @@ import { Link } from "react-router";
 import { Icon } from "@/components/ui/icon";
 import { useRecentDocumentsAccountId } from "@/features/library/use-recent-documents";
 import type { WikiGraphNode } from "@/features/memory/wiki-graph-model";
+import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import { cn } from "@/lib/cn";
 
 import {
@@ -105,6 +106,7 @@ function PointedBackPage({
   page: WikiGraphNode;
 }) {
   const title = page.title.trim() || page.id;
+  const plainBody = pointedBackPlainText(page.body);
   return (
     <section aria-label="The page that points back" className="mt-4">
       <h3 className="text-sm font-medium text-app-ink">
@@ -119,11 +121,24 @@ function PointedBackPage({
           title
         )}
       </h3>
-      <p className="mt-1 text-sm whitespace-pre-wrap text-app-body">
-        {page.body.trim()}
-      </p>
+      {plainBody ? (
+        <p className="mt-1 text-sm leading-relaxed whitespace-pre-line text-app-body">
+          {plainBody}
+        </p>
+      ) : null}
     </section>
   );
+}
+
+function pointedBackPlainText(markdown: string): string {
+  const withoutFrontmatter = markdown.replace(
+    /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/u,
+    "",
+  );
+  const withoutWikilinks = withoutFrontmatter
+    .replace(/\[\[[^\]|]+\|([^\]]+)\]\]/gu, "$1")
+    .replace(/\[\[([^\]]+)\]\]/gu, "$1");
+  return markdownPlainText(withoutWikilinks);
 }
 
 function ConnectionList({

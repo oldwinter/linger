@@ -1,7 +1,10 @@
+import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import { Link, useParams } from "react-router";
 
+import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
 import { isRunWorking } from "@/features/teamhub/run-status";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { requireRoomRouteParam } from "./room-route-params";
@@ -19,6 +22,7 @@ export function RoomWorkPage() {
   const params = useParams();
   const tenantId = requireRoomRouteParam(params.tenantId, "Tenant");
   const roomId = requireRoomRouteParam(params.roomId, "Room");
+  const headingId = useId();
   const runs = useQuery({
     ...roomRunStatusesQueryOptions(client, tenantId, roomId),
     refetchInterval: 2_000,
@@ -42,28 +46,68 @@ export function RoomWorkPage() {
   const chat = `/t/${encodeURIComponent(tenantId)}/rooms/${encodeURIComponent(roomId)}/chat`;
 
   return (
-    <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-surface">
+    <section
+      aria-labelledby={headingId}
+      className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-surface"
+    >
       <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-4 px-5 py-6">
+        <div>
+          <Link
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            to={chat}
+          >
+            <Icon icon={ArrowLeft01Icon} size={14} />
+            Back to room
+          </Link>
+        </div>
         {runs.isPending ? (
-          <p className="text-sm text-muted-foreground" role="status">
-            Loading this room.
-          </p>
+          <>
+            <h2 className="text-xl text-foreground" id={headingId}>
+              Watch the work
+            </h2>
+            <p className="text-sm text-muted-foreground" role="status">
+              Loading this room.
+            </p>
+          </>
         ) : runs.isError ? (
-          <p className="text-sm text-destructive" role="alert">
-            This room could not be read.
-          </p>
+          <>
+            <h2 className="text-xl text-foreground" id={headingId}>
+              Watch the work
+            </h2>
+            <div
+              className="flex items-center justify-between gap-3"
+              role="alert"
+            >
+              <p className="text-sm text-destructive">
+                This room could not be read.
+              </p>
+              <Button
+                onClick={() => void runs.refetch()}
+                size="compact"
+                tone="secondary"
+                type="button"
+              >
+                Retry
+              </Button>
+            </div>
+          </>
         ) : !run ? (
-          <p className="text-sm text-muted-foreground" role="status">
-            Nothing is happening in this room.
-          </p>
+          <>
+            <h2 className="text-xl text-foreground" id={headingId}>
+              Watch the work
+            </h2>
+            <p className="text-sm text-muted-foreground" role="status">
+              Nothing is happening in this room.
+            </p>
+          </>
         ) : (
           <>
             <header>
-              <h1 className="text-xl text-foreground">
+              <h2 className="text-xl text-foreground" id={headingId}>
                 {working
                   ? `${run.agent.display_name} is working`
                   : `${run.agent.display_name} finished this run`}
-              </h1>
+              </h2>
               <p className="mt-2 text-sm text-muted-foreground">
                 {working
                   ? "This page keeps up while the agent is still working."
@@ -71,9 +115,22 @@ export function RoomWorkPage() {
               </p>
             </header>
             {events.isError ? (
-              <p className="text-sm text-destructive" role="alert">
-                The work could not be loaded.
-              </p>
+              <div
+                className="flex items-center justify-between gap-3"
+                role="alert"
+              >
+                <p className="text-sm text-destructive">
+                  The work could not be loaded.
+                </p>
+                <Button
+                  onClick={() => void events.refetch()}
+                  size="compact"
+                  tone="secondary"
+                  type="button"
+                >
+                  Retry
+                </Button>
+              </div>
             ) : events.isPending ? (
               <p className="text-sm text-muted-foreground" role="status">
                 Loading the work.
@@ -88,13 +145,7 @@ export function RoomWorkPage() {
             )}
           </>
         )}
-        <Link
-          className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          to={chat}
-        >
-          Back to chat
-        </Link>
       </div>
-    </main>
+    </section>
   );
 }

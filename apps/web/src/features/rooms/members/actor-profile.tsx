@@ -717,8 +717,8 @@ function PanelAgentRuntimeDetails({
     localRuntime?.display_name || placement?.computer_id || "Local Computer";
   const status = localRuntime?.computer_status ?? "unknown";
   return (
-    <section className="mx-4 mt-4 space-y-3" aria-label="Runtime configuration">
-      <div className="overflow-hidden rounded-xl border border-app-border">
+    <section className="space-y-3" aria-label="Runtime configuration">
+      <div className="overflow-hidden rounded-xl bg-card shadow-outline">
         <InfoRow
           icon={<Icon icon={ServerStack01Icon} size={16} />}
           label="Runs on"

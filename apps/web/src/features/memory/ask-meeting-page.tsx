@@ -4,6 +4,7 @@ import { Link, useParams, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { LibrarySubpageShell } from "@/features/library/library-subpage-shell";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
@@ -59,36 +60,28 @@ export function AskMeetingPage() {
 
   if (meetings.isPending) {
     return (
-      <main className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-6 py-10">
-        <div className="mx-auto w-full max-w-xl">
-          <Link
-            className="mb-6 inline-block text-sm text-muted-foreground underline"
-            to={meetingsTabPath(tenantId, "week")}
-          >
-            Back to meetings
-          </Link>
-          <p
-            className="flex items-center gap-2 text-sm text-muted-foreground"
-            role="status"
-          >
-            <Spinner size={16} />
-            Loading this meeting...
-          </p>
-        </div>
-      </main>
+      <LibrarySubpageShell
+        backLabel="Back to meetings"
+        backTo={meetingsTabPath(tenantId, "week")}
+      >
+        <p
+          className="flex items-center gap-2 text-sm text-muted-foreground"
+          role="status"
+        >
+          <Spinner size={16} />
+          Loading this meeting...
+        </p>
+      </LibrarySubpageShell>
     );
   }
 
   if (meetings.isError || !meeting?.meeting || !captureId) {
     return (
-      <main className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-6 py-10">
-        <div className="mx-auto flex w-full max-w-xl flex-col items-start gap-4">
-          <Link
-            className="text-sm text-muted-foreground underline"
-            to={meetingsTabPath(tenantId, "week")}
-          >
-            Back to meetings
-          </Link>
+      <LibrarySubpageShell
+        backLabel="Back to meetings"
+        backTo={meetingsTabPath(tenantId, "week")}
+      >
+        <div className="flex flex-col items-start gap-4">
           <p className="text-sm text-destructive" role="alert">
             {meetings.isError
               ? "Could not load this meeting."
@@ -102,7 +95,7 @@ export function AskMeetingPage() {
             Retry
           </Button>
         </div>
-      </main>
+      </LibrarySubpageShell>
     );
   }
 
@@ -121,84 +114,88 @@ export function AskMeetingPage() {
   const saved = questions.data?.items ?? [];
 
   return (
-    <main className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-6 py-10">
-      <div className="mx-auto w-full max-w-xl">
-        <Link
-          className="mb-6 inline-block text-sm text-muted-foreground underline"
-          to={meetingPath(tenantId, meeting.id)}
-        >
-          Back to {name}
-        </Link>
-        <p className="text-sm text-muted-foreground">{name}</p>
-        <h1 className="mt-1 text-2xl text-foreground">Ask the recording</h1>
-        <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          Ask something the recording can answer. The answer stays with this
-          meeting.
+    <LibrarySubpageShell
+      backLabel={`Back to ${name}`}
+      backTo={meetingPath(tenantId, meeting.id)}
+      eyebrow={name}
+      subtitle="Ask something the recording can answer. The answer stays with this meeting."
+      title="Ask the recording"
+    >
+      {questions.isPending ? (
+        <p className="text-sm" role="status">
+          Loading saved questions...
         </p>
-        {questions.isPending ? (
-          <p className="mt-6 text-sm" role="status">
-            Loading saved questions...
+      ) : questions.isError ? (
+        <div className="flex flex-col items-start gap-2" role="alert">
+          <p className="text-sm text-destructive">
+            Could not load saved questions.
           </p>
-        ) : questions.isError ? (
-          <div className="mt-6 flex flex-col items-start gap-2" role="alert">
-            <p className="text-sm text-destructive">
-              Could not load saved questions.
-            </p>
-            <Button
-              onClick={() => void questions.refetch()}
-              size="compact"
-              tone="secondary"
-            >
-              Retry
-            </Button>
-          </div>
-        ) : saved.length === 0 ? (
-          <p className="mt-6 text-sm text-muted-foreground" role="status">
-            Nothing has been asked of this recording yet.
-          </p>
-        ) : (
-          <ol className="mt-6 flex flex-col gap-4">
-            {saved.map((item) => (
-              <li key={item.id}>
-                <SavedQuestion item={item} />
-              </li>
-            ))}
-          </ol>
-        )}
-        <form className="mt-8" onSubmit={submit}>
-          <label className="block" htmlFor={questionId}>
-            <span className="mb-1.5 block text-sm font-medium">
-              What do you want to know?
-            </span>
-            <textarea
-              className="ui-field-control min-h-24 w-full resize-none"
-              id={questionId}
-              maxLength={1000}
-              onChange={(event) => setQuestion(event.target.value)}
-              ref={questionRef}
-              value={question}
-            />
-          </label>
           <Button
-            className="mt-3"
-            disabled={!question.trim() || ask.isPending}
-            tone="primary"
-            type="submit"
+            onClick={() => void questions.refetch()}
+            size="compact"
+            tone="secondary"
           >
-            Ask the recording
+            Retry
           </Button>
-          {ask.isError ? (
-            <p className="mt-3 text-sm text-destructive" role="alert">
-              That question did not go through.
-            </p>
-          ) : null}
-        </form>
-      </div>
-    </main>
+        </div>
+      ) : saved.length === 0 ? (
+        <p className="text-sm text-muted-foreground" role="status">
+          Nothing has been asked of this recording yet.
+        </p>
+      ) : (
+        <ol className="flex flex-col gap-4">
+          {saved.map((item) => (
+            <li key={item.id}>
+              <SavedQuestion
+                item={item}
+                meetingId={meeting.id}
+                tenantId={tenantId}
+              />
+            </li>
+          ))}
+        </ol>
+      )}
+      <form onSubmit={submit}>
+        <label className="block" htmlFor={questionId}>
+          <span className="mb-1.5 block text-sm font-medium">
+            What do you want to know?
+          </span>
+          <textarea
+            className="ui-field-control min-h-24 w-full resize-none"
+            id={questionId}
+            maxLength={1000}
+            onChange={(event) => setQuestion(event.target.value)}
+            ref={questionRef}
+            value={question}
+          />
+        </label>
+        <Button
+          className="mt-3"
+          disabled={!question.trim() || ask.isPending}
+          tone="primary"
+          type="submit"
+        >
+          Ask the recording
+        </Button>
+        {ask.isError ? (
+          <p className="mt-3 text-sm text-destructive" role="alert">
+            That question did not go through.
+          </p>
+        ) : null}
+      </form>
+    </LibrarySubpageShell>
   );
 }
 
-function SavedQuestion({ item }: { item: TeamHubVoiceCaptureQuestion }) {
+function SavedQuestion({
+  item,
+  meetingId,
+  tenantId,
+}: {
+  item: TeamHubVoiceCaptureQuestion;
+  meetingId: string;
+  tenantId: string;
+}) {
   return (
     <article className="rounded-xl border border-border p-4">
       <h2 className="text-sm font-medium text-foreground">{item.question}</h2>
@@ -211,17 +208,49 @@ function SavedQuestion({ item }: { item: TeamHubVoiceCaptureQuestion }) {
         <p className="mt-2 text-sm leading-6 text-foreground">{item.answer}</p>
       )}
       {item.sources.length > 0 ? (
-        <ul className="mt-3 flex flex-col gap-1">
-          {item.sources.map((source) => (
-            <li
-              className="text-sm text-muted-foreground"
-              key={`${source.start_offset_ms}-${source.end_offset_ms}`}
-            >
-              {source.text}
-            </li>
-          ))}
+        <ul className="mt-3 flex flex-col gap-1.5">
+          {item.sources.map((source) => {
+            const hasOffset =
+              typeof source.start_offset_ms === "number" &&
+              Number.isFinite(source.start_offset_ms) &&
+              source.start_offset_ms >= 0;
+            const seconds = hasOffset
+              ? Math.floor(source.start_offset_ms / 1000)
+              : undefined;
+            return (
+              <li
+                className="text-sm text-muted-foreground"
+                key={`${source.start_offset_ms}-${source.end_offset_ms}-${source.text}`}
+              >
+                {seconds !== undefined ? (
+                  <Link
+                    className="inline-flex items-baseline gap-2 rounded-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    to={`${meetingPath(tenantId, meetingId)}&at=${seconds}`}
+                  >
+                    <span className="shrink-0 font-mono text-xs tabular-nums">
+                      {formatSourceTimestamp(seconds)}
+                    </span>
+                    <span>{source.text}</span>
+                  </Link>
+                ) : (
+                  source.text
+                )}
+              </li>
+            );
+          })}
         </ul>
       ) : null}
     </article>
   );
+}
+
+function formatSourceTimestamp(totalSeconds: number) {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const paddedSeconds = String(seconds).padStart(2, "0");
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${paddedSeconds}`;
+  }
+  return `${minutes}:${paddedSeconds}`;
 }

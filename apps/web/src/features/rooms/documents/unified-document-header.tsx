@@ -338,7 +338,13 @@ function UnifiedDocumentHeader({
             <span className="truncate text-sm font-semibold text-app-ink">
               {documentFileName(document)}
             </span>
-            {document.capabilities.write ? (
+            {!isWikiPage &&
+            document.status === "active" &&
+            document.format === "blocknote" &&
+            document.representation_format !== "html" &&
+            document.can_edit_native_content &&
+            document.capabilities.write &&
+            document.draft_capability === "write" ? (
               <Link
                 className="shrink-0 text-xs text-app-muted underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
                 to={markMomentPath(tenantId, document.id)}

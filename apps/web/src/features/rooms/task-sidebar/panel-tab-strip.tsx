@@ -4,6 +4,7 @@ import {
   ArrowExpand01Icon,
   ArrowShrink01Icon,
   Cancel01Icon,
+  Clock01Icon,
   File01Icon,
   Globe02Icon,
   HierarchyIcon,
@@ -30,6 +31,7 @@ const kindIcons = {
   thread: Message01Icon,
   roomSettings: Settings01Icon,
   roomInfo: InformationCircleIcon,
+  routines: Clock01Icon,
   collaboration: HierarchyIcon,
   url: Globe02Icon,
 } as const;

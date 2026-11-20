@@ -273,6 +273,8 @@ export function WikiDirectory({
                     setFilter({ collection, text: event.target.value })
                   }
                   onKeyDown={(event) => {
+                    if (event.nativeEvent.isComposing || event.keyCode === 229)
+                      return;
                     if (event.key !== "Escape" || !filterText) return;
                     event.preventDefault();
                     clearFilter();
