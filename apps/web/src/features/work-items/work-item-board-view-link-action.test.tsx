@@ -56,7 +56,8 @@ describe("Copy the Work Items board's view link", () => {
       WORK_ITEMS_PATH,
     ).length;
 
-    fireEvent.click(screen.getByRole("button", { name: "Copy view link" }));
+    fireEvent.click(screen.getByRole("button", { name: "Export & share" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy view link" }));
 
     const copied = `${window.location.origin}${BOARD_PATH}?q=release+plan&priority=high&sort=priority`;
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(copied));
@@ -88,8 +89,9 @@ describe("Copy the Work Items board's view link", () => {
 
     renderPage(runtime);
     fireEvent.click(
-      await screen.findByRole("button", { name: "Copy view link" }),
+      await screen.findByRole("button", { name: "Export & share" }),
     );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy view link" }));
 
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith(
@@ -111,10 +113,11 @@ describe("Copy the Work Items board's view link", () => {
 
     renderPage(runtime);
     fireEvent.click(
-      await screen.findByRole("button", { name: "Copy view link" }),
+      await screen.findByRole("button", { name: "Export & share" }),
     );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy view link" }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("Copy failed");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
   });
 });
 

@@ -166,6 +166,11 @@ export function WikiDirectory({
     collection: WikiCollection | null;
     text: string;
   }>({ collection: null, text: "" });
+  const [hiddenNotice, setHiddenNotice] = useState<{
+    collection: WikiCollection;
+    path: string;
+    title: string;
+  } | null>(null);
   const filterText = filter.collection === collection ? filter.text : "";
   const clearFilter = () => setFilter({ collection, text: "" });
   // Slash opens the filter field without reaching for the pointer, unless the
@@ -298,6 +303,37 @@ export function WikiDirectory({
                 ) : null}
               </label>
             ) : null}
+            {hiddenNotice && hiddenNotice.collection === collection ? (
+              <div
+                className="mb-2 flex items-center gap-1.5 rounded-lg border border-app-border bg-app-surface-soft px-2.5 py-1.5 text-xs text-app-muted"
+                role="status"
+              >
+                <span className="min-w-0 truncate">
+                  Hidden {hiddenNotice.title}
+                </span>
+                <span aria-hidden="true" className="shrink-0">
+                  ·
+                </span>
+                <button
+                  className="shrink-0 font-medium text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                  onClick={() => {
+                    display.decide(hiddenNotice.path, "keep");
+                    setHiddenNotice(null);
+                  }}
+                  type="button"
+                >
+                  Undo
+                </button>
+                <button
+                  aria-label="Dismiss hidden notice"
+                  className="ml-auto flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                  onClick={() => setHiddenNotice(null)}
+                  type="button"
+                >
+                  <Icon icon={Cancel01Icon} size={12} />
+                </button>
+              </div>
+            ) : null}
             {documents.isPending ? (
               <p className="px-2 py-2 text-sm text-app-muted">
                 Loading Wiki Documents…
@@ -368,17 +404,23 @@ export function WikiDirectory({
                       Keep
                     </button>
                     <button
-                      className="min-h-7 max-sm:min-h-11 max-sm:min-w-11 rounded-full border border-destructive/40 bg-card px-2.5 text-xs font-medium text-destructive transition-colors hover:border-foreground/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                      className="min-h-7 max-sm:min-h-11 max-sm:min-w-11 rounded-full border border-border bg-card px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-foreground/15 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                       disabled={!display.ready}
-                      aria-label={`Delete ${page.title}`}
+                      aria-label={`Hide ${page.title}`}
                       type="button"
                       onClick={() => {
-                        display.decide(wikiPagePath(page), "delete");
+                        const path = wikiPagePath(page);
+                        display.decide(path, "delete");
+                        setHiddenNotice({
+                          collection,
+                          path,
+                          title: pageRowTitle(page),
+                        });
                         if (documentId === page.id)
                           void navigate(`${base}/${collection}`);
                       }}
                     >
-                      Delete
+                      Hide
                     </button>
                   </div>
                 ) : null}

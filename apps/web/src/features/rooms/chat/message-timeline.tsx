@@ -152,6 +152,7 @@ interface MessageTimelineProps {
   onTogglePin?: (message: TeamHubMessage, pinned: boolean) => Promise<void>;
   pinnedMessageIds?: ReadonlySet<string>;
   actorKinds?: Readonly<Record<string, "human" | "agent">>;
+  onRestoreToDraft?: (clientId: string) => Promise<void> | void;
   onRetry: (clientId: string) => void;
   pendingMessages: PendingRoomMessage[];
   presentations: Record<string, TeamHubMessagePresentation>;
@@ -203,6 +204,7 @@ export function MessageTimeline({
   onTogglePin,
   pinnedMessageIds = EMPTY_STATIC_AGENT_ACTOR_IDS,
   actorKinds = EMPTY_ACTOR_KINDS,
+  onRestoreToDraft,
   onRetry,
   pendingMessages,
   presentations,
@@ -486,6 +488,7 @@ export function MessageTimeline({
                     message={message}
                     onCancel={onCancel}
                     onOpenProfile={onOpenProfile}
+                    onRestoreToDraft={onRestoreToDraft}
                     onRetry={onRetry}
                   />
                 </Fragment>

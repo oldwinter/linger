@@ -301,13 +301,21 @@ describe("Message Reactions in the timeline", () => {
       "false",
       "true",
     ]);
-    // Reactors are in each chip's label only; no hover tooltip. The chip's
-    // wrapper stays positioned so the chip paints above the Message bubble.
-    expect(
-      within(screen.getByRole("group", { name: "Reactions" })).queryByRole(
-        "tooltip",
-      ),
-    ).toBeNull();
+    // Each reaction chip exposes its reactors via title and an accessible tooltip,
+    // and its wrapper stays positioned so the chip paints above the Message bubble.
+    expect(chips.map((chip) => chip.getAttribute("title"))).toEqual([
+      "Party Popper: Bob, Lin (Agent)",
+      "Ok Hand: You",
+    ]);
+    const tooltips = within(
+      screen.getByRole("group", { name: "Reactions" }),
+    ).getAllByRole("tooltip");
+    expect(tooltips.map((tooltip) => tooltip.textContent)).toEqual([
+      "Bob, Lin (Agent)",
+      "You",
+    ]);
+    expect(chips[0]).toHaveAttribute("aria-describedby", tooltips[0]?.id);
+    expect(chips[1]).toHaveAttribute("aria-describedby", tooltips[1]?.id);
     for (const chip of chips)
       expect(chip.parentElement).toHaveClass("relative");
     fireEvent.click(chips[1]!);
@@ -318,6 +326,72 @@ describe("Message Reactions in the timeline", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Reaction was not saved. Try again.",
     );
+  });
+
+  it("closes on Escape from an emoji button, clamps width, and keeps pointerdown listener stable", async () => {
+    const parentKeyDown = vi.fn();
+    const addListenerSpy = vi.spyOn(document, "addEventListener");
+    const onToggleReaction = vi.fn().mockResolvedValue(undefined);
+    render(
+      // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- test harness checks that Escape does not bubble past the open picker
+      <div onKeyDown={parentKeyDown}>
+        <QueryClientProvider client={new QueryClient()}>
+          <MemoryRouter>
+            <MessageTimeline
+              actorDisplayNames={{ "agent-1": "Lin", "human-1": "Alice" }}
+              actorKinds={{ "agent-1": "agent", "human-1": "human" }}
+              canLoadOlder={false}
+              currentActorId="human-1"
+              loadingOlder={false}
+              mentionableActorIds={new Set()}
+              messages={[message()]}
+              onCancel={vi.fn()}
+              onCardDecision={vi.fn()}
+              onCloseLinkedSource={vi.fn()}
+              onOpenArtifact={vi.fn()}
+              onOpenMessageFile={vi.fn()}
+              onOpenProfile={vi.fn()}
+              onRetry={vi.fn()}
+              onToggleReaction={onToggleReaction}
+              pendingMessages={[]}
+              presentations={{}}
+              tenantId="tenant-1"
+            />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </div>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add reaction" }));
+    const quick = await screen.findByRole("dialog", { name: "Add reaction" });
+    const pointerDownAddsBeforeExpand = addListenerSpy.mock.calls.filter(
+      ([type]) => type === "pointerdown",
+    ).length;
+    expect(pointerDownAddsBeforeExpand).toBe(1);
+
+    fireEvent.click(
+      await within(quick).findByRole("button", { name: "Search all emoji" }),
+    );
+    const expandedDialog = screen.getByRole("dialog", { name: "Add reaction" });
+    expect(expandedDialog).toHaveClass("w-[min(352px,calc(100vw-16px))]");
+
+    const search = screen.getByRole("combobox", { name: "Search emoji" });
+    fireEvent.change(search, { target: { value: "party popper" } });
+    const pointerDownAddsAfterRerenders = addListenerSpy.mock.calls.filter(
+      ([type]) => type === "pointerdown",
+    ).length;
+    expect(pointerDownAddsAfterRerenders).toBe(1);
+
+    const emojiOption = within(screen.getByRole("listbox")).getByRole(
+      "option",
+      { name: "Party Popper" },
+    );
+    emojiOption.focus();
+    fireEvent.keyDown(emojiOption, { key: "Escape" });
+
+    expect(screen.queryByRole("dialog", { name: "Add reaction" })).toBeNull();
+    expect(parentKeyDown).not.toHaveBeenCalled();
+    addListenerSpy.mockRestore();
   });
 });
 

@@ -18,6 +18,7 @@ import {
 } from "./message-composer-references";
 import type { StagedQuoteReply } from "./quote-reply";
 import { TEAMHUB_MESSAGE_MAX_LENGTH } from "./use-composer-draft";
+import { defineGlobalProperty } from "@/test/global-properties";
 import { TeamHubError } from "@/features/teamhub/teamhub-error";
 import { createTeamHubMessageContent } from "@/features/teamhub/teamhub-message-content";
 
@@ -516,7 +517,7 @@ describe("MessageComposer", () => {
     const remove = await screen.findByRole("button", {
       name: "Remove plan.md",
     });
-    expect(remove).toHaveClass("size-3");
+    expect(remove).toHaveClass("size-6", "[@media(pointer:coarse)]:size-8");
     expect(remove).not.toHaveClass("opacity-0");
     fireEvent.click(remove);
 
@@ -594,7 +595,7 @@ describe("MessageComposer", () => {
     );
     expect(
       screen.getByRole("button", { name: "Download brief.pdf" }).parentElement,
-    ).toHaveClass("h-5", "bg-[var(--composer-attachment-pdf-surface)]");
+    ).toHaveClass("min-h-7", "bg-[var(--composer-attachment-pdf-surface)]");
     expect(
       screen.getByRole("button", { name: "Download readme.md" }).parentElement,
     ).toHaveClass("bg-[var(--composer-attachment-code-surface)]");
@@ -1085,9 +1086,13 @@ describe("MessageComposer", () => {
         tenantId: "tenant-1",
       });
       finishResolution?.(resolved);
-      expect(
-        await screen.findByRole("button", { name: "Open Personal brief.md" }),
-      ).toBeVisible();
+      await waitFor(() =>
+        expect(
+          document.querySelector(
+            '[data-composer-references] [data-reference-kind="document"][data-reference-id="document-personal"]',
+          ),
+        ).not.toBeNull(),
+      );
       expect(editor).toHaveValue("@Personal_brief_md ");
       fireEvent.change(editor, { target: { value: "" } });
       fireEvent.paste(editor, {
@@ -1229,13 +1234,13 @@ describe("MessageComposer", () => {
 
     expect(paste.defaultPrevented).toBe(false);
     expect(
-      screen.queryByRole("group", { name: "Composer references" }),
-    ).not.toHaveTextContent(/@/);
+      document.querySelectorAll(
+        "[data-composer-references] [data-reference-kind]",
+      ),
+    ).toHaveLength(0);
   });
 
-  it("renders only structured Person and Document tokens as distinct actions", () => {
-    const onOpenDocument = vi.fn();
-    const onOpenProfile = vi.fn();
+  it("renders structured Person and Document tokens inside a decorative aria-hidden overlay with no focusable tab stops", () => {
     const codex = {
       display_name: "Codex",
       id: "actor-codex",
@@ -1248,7 +1253,7 @@ describe("MessageComposer", () => {
       tenantId: "tenant-1",
       updatedAt: "2026-08-08T10:00:00Z",
     };
-    render(
+    const { container } = render(
       <MessageComposer
         documentOptions={[document]}
         initialDocumentReferences={[
@@ -1259,32 +1264,116 @@ describe("MessageComposer", () => {
         ]}
         initialMentions={[codex]}
         initialValue="Ask @Codex to inspect @Launch_plan, not @plain."
-        onOpenDocument={onOpenDocument}
-        onOpenProfile={onOpenProfile}
+        onOpenDocument={vi.fn()}
+        onOpenProfile={vi.fn()}
         onSend={vi.fn()}
       />,
     );
 
-    const actorAction = screen.getByRole("button", {
-      name: "Open Codex profile",
-    });
-    const documentAction = screen.getByRole("button", {
-      name: "Open Launch plan",
-    });
-    expect(actorAction).toHaveAttribute("data-reference-kind", "actor");
-    expect(documentAction).toHaveAttribute("data-reference-kind", "document");
+    const overlay = container.querySelector<HTMLElement>(
+      "[data-composer-references]",
+    );
+    expect(overlay).toHaveAttribute("aria-hidden", "true");
     expect(
-      screen.queryByRole("button", { name: /plain/i }),
-    ).not.toBeInTheDocument();
+      overlay?.querySelectorAll("[tabindex], [role='button']"),
+    ).toHaveLength(0);
+    const actorToken = overlay?.querySelector(
+      '[data-reference-kind="actor"][data-reference-id="actor-codex"]',
+    );
+    const documentToken = overlay?.querySelector(
+      '[data-reference-kind="document"][data-reference-id="document-plan"]',
+    );
+    expect(actorToken).not.toBeNull();
+    expect(documentToken).not.toBeNull();
+    expect(overlay?.querySelectorAll("[data-reference-kind]")).toHaveLength(2);
+  });
 
-    fireEvent.click(actorAction);
-    expect(onOpenProfile).toHaveBeenCalledWith("actor-codex");
-    fireEvent.click(documentAction);
-    expect(onOpenDocument).toHaveBeenCalledWith(document);
-    fireEvent.keyDown(actorAction, { key: "Enter" });
-    expect(onOpenProfile).toHaveBeenCalledTimes(2);
-    fireEvent.keyDown(documentAction, { key: " " });
-    expect(onOpenDocument).toHaveBeenCalledTimes(2);
+  it("enlarges image attachment remove controls to at least 24px (32px on coarse pointers)", async () => {
+    const originalCreateObjectUrl = URL.createObjectURL;
+    const originalRevokeObjectUrl = URL.revokeObjectURL;
+    defineGlobalProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:image-preview"),
+    });
+    defineGlobalProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    try {
+      const image = new File(["png"], "photo.png", { type: "image/png" });
+      render(<MessageComposer attachmentEnabled onSend={vi.fn()} />);
+      fireEvent.change(screen.getByLabelText("Choose message attachments"), {
+        target: { files: [image] },
+      });
+
+      const remove = await screen.findByRole("button", {
+        name: "Remove photo.png",
+      });
+      expect(remove).toHaveClass("size-6", "[@media(pointer:coarse)]:size-8");
+    } finally {
+      defineGlobalProperty(URL, "createObjectURL", {
+        configurable: true,
+        value: originalCreateObjectUrl,
+      });
+      defineGlobalProperty(URL, "revokeObjectURL", {
+        configurable: true,
+        value: originalRevokeObjectUrl,
+      });
+    }
+  });
+
+  it("clears the active reply bar on Escape when no picker is open and stops propagation", () => {
+    const onRemoveContextMessage = vi.fn();
+    const parentKeyDown = vi.fn();
+    const replyMessage = {
+      attachments: [],
+      author: {
+        display_name: "Codex",
+        id: "actor-codex",
+        kind: "agent" as const,
+        tenant_id: "tenant-1",
+      },
+      created_at: "2026-10-01T10:00:00Z",
+      id: "message-reply-target",
+      message_kind: "conversation" as const,
+      raw_message: "Please review this",
+      room_id: "room-1",
+      segments: [{ content: "Please review this", type: "text" as const }],
+      tenant_id: "tenant-1",
+    };
+    render(
+      // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- test harness checks that Escape does not bubble out of composer
+      <div onKeyDown={parentKeyDown}>
+        <MessageComposer
+          mentionOptions={[replyMessage.author]}
+          onRemoveContextMessage={onRemoveContextMessage}
+          onSend={vi.fn()}
+          selectedContextMessages={[replyMessage]}
+        />
+      </div>,
+    );
+    const editor = screen.getByLabelText<HTMLTextAreaElement>("Message Room");
+
+    // When a mention picker is open, Escape closes only the picker first.
+    fireEvent.change(editor, { target: { selectionStart: 1, value: "@" } });
+    expect(
+      screen.getByRole("listbox", { name: "Mention people or documents" }),
+    ).toBeVisible();
+    fireEvent.keyDown(editor, { key: "Escape" });
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(onRemoveContextMessage).not.toHaveBeenCalled();
+    expect(parentKeyDown).not.toHaveBeenCalled();
+
+    // With no picker open, Escape clears the active replyTo context and stops propagation.
+    const event = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Escape",
+    });
+    editor.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(onRemoveContextMessage).toHaveBeenCalledWith("message-reply-target");
+    expect(parentKeyDown).not.toHaveBeenCalled();
   });
 
   it("publishes a complete structured draft and restores its send semantics", () => {

@@ -870,13 +870,10 @@ function ConversationMessageActions({
   onToggleReaction?: (reactionId: TeamHubMessageReactionId) => void;
   onTogglePin?: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
-  const [quoteState, setQuoteState] = useState<"idle" | "copied" | "failed">(
-    "idle",
-  );
-  const [textCopy, setTextCopy] = useState<"idle" | "copied" | "failed">(
-    "idle",
-  );
+  const [copyFeedback, setCopyFeedback] = useState<{
+    source: "link" | "message" | "quote" | "text";
+    status: "copied" | "failed";
+  } | null>(null);
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const runtime = useOptionalTeamHubRuntime();
   const queryClient = useQueryClient();
@@ -898,10 +895,13 @@ function ConversationMessageActions({
   }, [pocketSave]);
 
   useEffect(() => {
-    if (textCopy === "idle") return;
-    const timer = window.setTimeout(() => setTextCopy("idle"), 1200);
+    if (!copyFeedback) return;
+    const timer = window.setTimeout(
+      () => setCopyFeedback(null),
+      copyFeedback.status === "copied" ? 1200 : 3000,
+    );
     return () => window.clearTimeout(timer);
-  }, [textCopy]);
+  }, [copyFeedback]);
 
   function saveToPocketNote() {
     if (!runtime || pocketSaving.current) return;
@@ -924,23 +924,14 @@ function ConversationMessageActions({
       });
   }
 
-  function copyText(text: string) {
+  function copyToClipboard(
+    source: "link" | "message" | "quote" | "text",
+    text: string,
+  ) {
     void import("@/lib/clipboard")
       .then(({ writeClipboardText }) => writeClipboardText(text))
-      .then(() => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1200);
-      })
-      .catch(() => setCopied(false));
-  }
-
-  function copyMessageText() {
-    void import("@/lib/clipboard")
-      .then(({ writeClipboardText }) =>
-        writeClipboardText(messagePlainText(message.raw_message)),
-      )
-      .then(() => setTextCopy("copied"))
-      .catch(() => setTextCopy("failed"));
+      .then(() => setCopyFeedback({ source, status: "copied" }))
+      .catch(() => setCopyFeedback({ source, status: "failed" }));
   }
 
   overflowItems.push({
@@ -948,12 +939,29 @@ function ConversationMessageActions({
     label: "Copy link",
     // Absolute, so the link opens from a document or another app.
     onSelect: () =>
-      copyText(roomMessageUrl(window.location.origin, tenantId, message)),
+      copyToClipboard(
+        "link",
+        roomMessageUrl(window.location.origin, tenantId, message),
+      ),
   });
   overflowItems.push({
     icon: <Icon icon={Copy01Icon} size={14} />,
     label: "Copy text",
-    onSelect: copyMessageText,
+    onSelect: () =>
+      copyToClipboard("text", messagePlainText(message.raw_message)),
+  });
+  overflowItems.push({
+    icon: <Icon icon={TextQuoteIcon} size={14} />,
+    label: "Copy as quote",
+    onSelect: () =>
+      copyToClipboard(
+        "quote",
+        messageQuoteText({
+          authorName,
+          createdAt: message.created_at,
+          message: message.raw_message,
+        }),
+      ),
   });
   if (runtime) {
     overflowItems.push({
@@ -976,13 +984,6 @@ function ConversationMessageActions({
       icon: <Icon icon={CheckListIcon} size={14} />,
       label: "Create issue",
       onSelect: () => onCreateIssueMessage(message),
-    });
-  }
-  if (onReply) {
-    overflowItems.push({
-      icon: <Icon icon={MailReply01Icon} size={14} />,
-      label: "Reply to message",
-      onSelect: () => onReply(message),
     });
   }
   if (onReplyWithQuote) {
@@ -1020,6 +1021,9 @@ function ConversationMessageActions({
     });
   }
 
+  const messageCopyStatus =
+    copyFeedback?.source === "message" ? copyFeedback.status : "idle";
+
   return (
     <div
       ref={actionsRef}
@@ -1029,7 +1033,7 @@ function ConversationMessageActions({
           ? pocketSave
           : undefined
       }
-      data-text-copy-status={textCopy === "idle" ? undefined : textCopy}
+      data-text-copy-status={copyFeedback?.status}
       data-reaction-picker-open={reactionPickerOpen || undefined}
     >
       {onToggleReaction ? (
@@ -1057,50 +1061,32 @@ function ConversationMessageActions({
           onSelect={onToggleReaction}
         />
       ) : null}
+      {onReply ? (
+        <MessageActionButton
+          aria-label="Reply to message"
+          onClick={() => onReply(message)}
+          tooltip="Reply to message"
+        >
+          <Icon icon={MailReply01Icon} size={16} />
+        </MessageActionButton>
+      ) : null}
       <MessageActionButton
         aria-label="Copy message"
-        onClick={() => copyText(message.raw_message)}
-        tooltip={copied ? "Copied" : "Copy message"}
-      >
-        {copied ? (
-          <Icon icon={Tick02Icon} size={16} />
-        ) : (
-          <Icon icon={Copy01Icon} size={16} />
-        )}
-      </MessageActionButton>
-      <MessageActionButton
-        aria-label="Copy as quote"
-        onClick={() => {
-          void import("@/lib/clipboard")
-            .then(({ writeClipboardText }) =>
-              writeClipboardText(
-                messageQuoteText({
-                  authorName,
-                  createdAt: message.created_at,
-                  message: message.raw_message,
-                }),
-              ),
-            )
-            .then(() => setQuoteState("copied"))
-            .catch(() => setQuoteState("failed"))
-            .finally(() => {
-              window.setTimeout(() => setQuoteState("idle"), 1200);
-            });
-        }}
+        onClick={() => copyToClipboard("message", message.raw_message)}
         tooltip={
-          quoteState === "copied"
+          messageCopyStatus === "copied"
             ? "Copied"
-            : quoteState === "failed"
+            : messageCopyStatus === "failed"
               ? "Copy failed"
-              : "Copy as quote"
+              : "Copy message"
         }
       >
-        {quoteState === "copied" ? (
+        {messageCopyStatus === "copied" ? (
           <Icon icon={Tick02Icon} size={16} />
-        ) : quoteState === "failed" ? (
+        ) : messageCopyStatus === "failed" ? (
           <Icon icon={Cancel01Icon} size={16} />
         ) : (
-          <Icon icon={TextQuoteIcon} size={16} />
+          <Icon icon={Copy01Icon} size={16} />
         )}
       </MessageActionButton>
       {overflowItems.length ? (
@@ -1114,17 +1100,17 @@ function ConversationMessageActions({
           trigger={<Icon icon={MoreHorizontalIcon} size={16} />}
         />
       ) : null}
-      {textCopy === "copied" || textCopy === "failed" ? (
+      {copyFeedback ? (
         <span
           className={cn(
             "ml-1 whitespace-nowrap rounded-md px-2 py-1 text-xs leading-[18px]",
-            textCopy === "copied"
+            copyFeedback.status === "copied"
               ? "bg-primary text-primary-foreground"
               : "border border-[var(--app-status-danger-border)] bg-[var(--app-status-danger-surface)] text-destructive",
           )}
           role="status"
         >
-          {textCopy === "copied" ? "Copied" : "Copy failed"}
+          {copyFeedback.status === "copied" ? "Copied" : "Copy failed"}
         </span>
       ) : null}
       {pocketSave === "saved" || pocketSave === "failed" ? (
@@ -1189,6 +1175,7 @@ export function PendingMessageRow({
   onCancel,
   onOpenProfile,
   onOpenUrl,
+  onRestoreToDraft,
   onRetry,
 }: {
   actorId?: string;
@@ -1198,6 +1185,7 @@ export function PendingMessageRow({
   onCancel: (clientId: string) => Promise<void> | void;
   onOpenProfile: (actorId: string) => void;
   onOpenUrl?: (url: string) => void;
+  onRestoreToDraft?: (clientId: string) => Promise<void> | void;
   onRetry: (clientId: string) => void;
 }) {
   // A send that commits quickly never shows a status line, so the committed
@@ -1292,31 +1280,35 @@ export function PendingMessageRow({
             <span className="text-right text-sm text-destructive" role="alert">
               {message.error ?? "Failed to connect to the server..."}
             </span>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                className="inline-flex h-6 items-center gap-1 rounded-full px-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            <div className="flex flex-wrap items-center justify-end gap-1.5">
+              <Button
                 onClick={() => onRetry(message.clientId)}
-                type="button"
+                size="compact"
+                tone="secondary"
               >
-                <Icon
-                  icon={RotateLeft01Icon}
-                  className="size-4 text-muted-foreground"
-                  size={16}
-                />
-                <span className="px-1">Retry</span>
-              </button>
-              <button
-                className="inline-flex h-6 items-center gap-1 rounded-full px-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                <Icon icon={RotateLeft01Icon} size={16} />
+                Retry
+              </Button>
+              {onRestoreToDraft &&
+              (message.body.trim().length > 0 ||
+                message.contextMessages.length > 0) ? (
+                <Button
+                  onClick={() => void onRestoreToDraft(message.clientId)}
+                  size="compact"
+                  tone="ghost"
+                >
+                  <Icon icon={NoteEditIcon} size={16} />
+                  Restore to draft
+                </Button>
+              ) : null}
+              <Button
                 onClick={() => void onCancel(message.clientId)}
-                type="button"
+                size="compact"
+                tone="ghost"
               >
-                <Icon
-                  icon={Cancel01Icon}
-                  className="size-4 text-muted-foreground"
-                  size={16}
-                />
-                <span className="px-1">Cancel</span>
-              </button>
+                <Icon icon={Cancel01Icon} size={16} />
+                Cancel
+              </Button>
             </div>
           </div>
         ) : null}

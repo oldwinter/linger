@@ -18,6 +18,10 @@ import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { TeamHubDocumentCommentThread } from "@/features/teamhub/teamhub-types";
 
+import {
+  useDocumentCommentDraft,
+  useDocumentCommentsClose,
+} from "./document-comment-draft-guard";
 import { roomDocumentCommentThreadsQueryOptions } from "./room-document-comments";
 
 export function DocumentCommentsPanel({
@@ -46,6 +50,7 @@ export function DocumentCommentsPanel({
   tenantId: string;
 }) {
   const queryClient = useQueryClient();
+  const requestClose = useDocumentCommentsClose();
   const threadOptions = roomDocumentCommentThreadsQueryOptions(
     client,
     tenantId,
@@ -144,7 +149,7 @@ export function DocumentCommentsPanel({
         <h3 className="text-sm font-semibold text-app-ink">Comments</h3>
         <Button
           aria-label="Close comments"
-          onClick={onClose}
+          onClick={() => requestClose(onClose)}
           size="compactIcon"
           title="Close comments"
           tone="ghost"
@@ -220,23 +225,30 @@ function DocumentCommentComposer({
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const pendingRef = useRef(false);
   const isComposing = useRef(false);
   const inputId = useId();
+  const draft = useDocumentCommentDraft("");
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     const content = body.trim();
-    if (!content || pending) return;
+    if (!content || pendingRef.current) return;
+    pendingRef.current = true;
     setPending(true);
     setError(null);
+    draft.onSubmittingChange(true);
     try {
       await onSubmit(content);
       setBody("");
+      draft.onDraftStateChange({ body: "" });
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Comment could not be added.",
       );
     } finally {
+      pendingRef.current = false;
+      draft.onSubmittingChange(false);
       setPending(false);
     }
   }
@@ -265,7 +277,11 @@ function DocumentCommentComposer({
           className="document-comment-input workspace-scrollbar block min-h-8 min-w-0 max-h-20 flex-1 resize-none border-0 bg-transparent px-2 text-sm text-app-ink outline-none placeholder:text-app-placeholder"
           disabled={pending}
           id={inputId}
-          onChange={(event) => setBody(event.target.value)}
+          onChange={(event) => {
+            const next = event.target.value;
+            setBody(next);
+            draft.onDraftStateChange({ body: next });
+          }}
           onCompositionStart={() => {
             isComposing.current = true;
           }}

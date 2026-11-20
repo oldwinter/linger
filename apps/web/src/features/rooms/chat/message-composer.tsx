@@ -149,6 +149,7 @@ export interface MessageComposerHandle {
   /** Places a mention without moving focus into the composer. */
   insertMentionQuietly: (actor: TeamHubActorRef) => void;
   focus: (options?: FocusOptions) => void;
+  restoreDraft: (draft: { body: string; mentions?: TeamHubActorRef[] }) => void;
   stageQuoteReply: (reply: StagedQuoteReply) => void;
 }
 
@@ -271,9 +272,7 @@ function useMessageComposer(
     onDocumentQueryChange,
     onDraftStateChange,
     onVoiceModePresentation,
-    onOpenDocument,
     onOpenDocumentContext,
-    onOpenProfile,
     onCancel,
     onRemoveContextMessage,
     onSend,
@@ -349,7 +348,16 @@ function useMessageComposer(
     voiceModeTarget,
   });
   const quoteReply = useComposerQuoteReply({ draft });
+  const clearReplyContext =
+    selectedContextMessages.length > 0 && onRemoveContextMessage
+      ? () => {
+          for (const message of selectedContextMessages) {
+            onRemoveContextMessage(message.id);
+          }
+        }
+      : undefined;
   const { handleKeyDown } = useComposerKeyDown({
+    clearReplyContext,
     draft,
     insertion,
     picker,
@@ -410,10 +418,8 @@ function useMessageComposer(
     mentionTab: picker.mentionTab,
     mentions: currentReferences.mentions,
     messageError: draft.messageError,
-    onOpenDocument,
     onOpenDocumentContext,
     onCancel,
-    onOpenProfile,
     onRemoveContextMessage,
     placeholder,
     resolvingDocumentLinks: draft.resolvingDocumentLinks,
@@ -638,8 +644,6 @@ function ComposerEditor({
     mentionQuery,
     mentions,
     messageError,
-    onOpenDocument,
-    onOpenProfile,
     placeholder,
     skillOptions,
     skillQuery,
@@ -721,8 +725,6 @@ function ComposerEditor({
         documentReferences={documentReferences}
         highlightContentRef={highlightContentRef}
         mentions={mentions}
-        onOpenDocument={onOpenDocument}
-        onOpenProfile={onOpenProfile}
         skillOptions={skillOptions}
         skillReferences={skillReferences}
       />
@@ -907,8 +909,6 @@ function ComposerHighlight({
   documentReferences,
   highlightContentRef,
   mentions,
-  onOpenDocument,
-  onOpenProfile,
   skillOptions,
   skillReferences,
 }: {
@@ -917,8 +917,6 @@ function ComposerHighlight({
   documentReferences: RoomComposerDocumentReference[];
   highlightContentRef: RefObject<HTMLDivElement | null>;
   mentions: TeamHubActorRef[];
-  onOpenDocument?: (document: MessageDocumentOption) => void;
-  onOpenProfile?: (actorId: string) => void;
   skillOptions: MessageSkillOption[];
   skillReferences: TeamHubMessageSkillReference[];
 }) {
@@ -936,7 +934,7 @@ function ComposerHighlight({
   for (const reference of references) {
     if (reference.start > cursor) {
       content.push(
-        <span aria-hidden="true" key={`text-${cursor}`}>
+        <span key={`text-${cursor}`}>
           {body.slice(cursor, reference.start)}
         </span>,
       );
@@ -968,68 +966,38 @@ function ComposerHighlight({
       ) : (
         reference.token
       );
-    const actionable =
-      reference.kind === "actor"
-        ? Boolean(onOpenProfile)
-        : Boolean(onOpenDocument);
-    const label =
-      reference.kind === "actor"
-        ? `Open ${reference.actor.display_name} profile`
-        : `Open ${reference.document.name}`;
-    const token = actionable ? (
+    content.push(
       <span
-        aria-label={label}
         className="message-composer-reference"
         data-agent={agent || undefined}
+        data-reference-id={
+          reference.kind === "actor"
+            ? reference.actor.id
+            : reference.document.documentId
+        }
         data-reference-kind={reference.kind}
-        key={`${reference.kind}-${reference.start}`}
-        onClick={() => {
-          if (reference.kind === "actor") {
-            onOpenProfile?.(reference.actor.id);
-          } else {
-            onOpenDocument?.(reference.document);
-          }
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            event.currentTarget.click();
-          }
-        }}
-        role="button"
-        tabIndex={0}
-        title={label}
-      >
-        {display}
-      </span>
-    ) : (
-      <span
-        aria-hidden="true"
-        className="message-composer-reference"
-        data-agent={agent || undefined}
-        data-reference-kind={reference.kind}
+        data-reference-name={
+          reference.kind === "actor"
+            ? reference.actor.display_name
+            : reference.document.name
+        }
         key={`${reference.kind}-${reference.start}`}
       >
         {display}
-      </span>
+      </span>,
     );
-    content.push(token);
     cursor = reference.end;
   }
 
   if (cursor < body.length) {
-    content.push(
-      <span aria-hidden="true" key={`text-${cursor}`}>
-        {body.slice(cursor)}
-      </span>,
-    );
+    content.push(<span key={`text-${cursor}`}>{body.slice(cursor)}</span>);
   }
 
   return (
     <div
-      aria-label="Composer references"
+      aria-hidden="true"
       className="message-composer-highlight-layer absolute inset-0 overflow-hidden"
-      role="group"
+      data-composer-references=""
     >
       <div
         className="message-composer-highlight-content whitespace-pre-wrap text-app-ink"
@@ -1150,12 +1118,8 @@ function SkillReferenceToken({
         aria-label={`Skill ${token}`}
         className="message-composer-reference"
         data-reference-kind="skill"
-        onBlur={() => setTooltipPosition(undefined)}
-        onFocus={(event) => showTooltip(event.currentTarget)}
         onMouseEnter={(event) => showTooltip(event.currentTarget)}
         onMouseLeave={() => setTooltipPosition(undefined)}
-        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- the focusable reference token reveals its tooltip for keyboard users
-        tabIndex={0}
       >
         {token}
       </span>
@@ -1472,10 +1436,10 @@ function AttachmentPreview({
 
   if (isImage && objectUrl && attachment.status === "ready") {
     return (
-      <div className="group relative h-8 shrink-0">
+      <div className="group relative h-10 shrink-0">
         <button
           aria-label={`Preview ${file.name}`}
-          className="block h-8 overflow-hidden rounded-md border border-border focus-visible:outline-2 focus-visible:outline-app-focus"
+          className="block h-10 overflow-hidden rounded-md border border-border focus-visible:outline-2 focus-visible:outline-app-focus"
           onClick={() => setPreviewOpen(true)}
           type="button"
         >
@@ -1487,11 +1451,11 @@ function AttachmentPreview({
         </button>
         <button
           aria-label={`Remove ${file.name}`}
-          className="pointer-events-none absolute right-0 top-0 flex size-4 items-center justify-center rounded-bl bg-foreground/60 text-background opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:outline-2 focus-visible:outline-app-focus [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+          className="pointer-events-none absolute right-0 top-0 flex size-6 items-center justify-center rounded-bl bg-foreground/60 text-background opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:outline-2 focus-visible:outline-app-focus [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100 [@media(pointer:coarse)]:size-8"
           onClick={onRemove}
           type="button"
         >
-          <Icon icon={Cancel01Icon} size={10} />
+          <Icon icon={Cancel01Icon} size={14} />
         </button>
         {previewOpen ? (
           <ImageAttachmentDialog
@@ -1506,7 +1470,7 @@ function AttachmentPreview({
 
   return (
     <div
-      className={`flex h-5 max-w-32 shrink-0 items-center overflow-hidden rounded-md px-1 py-0.5 font-(family-name:--app-header-font) text-[10px] font-medium leading-4 backdrop-blur-[6px] ${token.surface}`}
+      className={`flex min-h-7 max-w-44 shrink-0 items-center overflow-hidden rounded-md pl-1.5 pr-0.5 py-0.5 font-(family-name:--app-header-font) text-[11px] font-medium leading-4 backdrop-blur-[6px] [@media(pointer:coarse)]:min-h-8 ${token.surface}`}
     >
       {attachment.status === "uploading" ? (
         <span
@@ -1559,11 +1523,11 @@ function AttachmentPreview({
       )}
       <button
         aria-label={`Remove ${file.name}`}
-        className="flex size-3 shrink-0 items-center justify-center text-muted-foreground/60 hover:text-muted-foreground focus-visible:outline-2 focus-visible:outline-app-focus"
+        className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground/70 hover:text-muted-foreground focus-visible:outline-2 focus-visible:outline-app-focus [@media(pointer:coarse)]:size-8"
         onClick={onRemove}
         type="button"
       >
-        <Icon icon={Cancel01Icon} size={12} />
+        <Icon icon={Cancel01Icon} size={14} />
       </button>
     </div>
   );

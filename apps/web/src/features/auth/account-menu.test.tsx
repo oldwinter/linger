@@ -1,9 +1,26 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AccountMenu } from "@/features/auth/account-menu";
 import type { DesktopUpdateState } from "@/features/auth/desktop-update";
+import {
+  LOGOUT_UNSAVED_DOCUMENT_MESSAGE,
+  useLogout,
+} from "@/features/auth/use-logout";
+import { browserRoomMessageOutbox } from "@/features/rooms/chat/room-message-outbox";
+import { registerOpenDocumentSession } from "@/features/rooms/documents/room-document-local-copies";
+import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubCurrentIdentity } from "@/features/teamhub/teamhub-types";
+import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 
 const identity = {
   account: { id: "account-1", email: "owner@linger.local" },
@@ -54,6 +71,7 @@ async function openMenu() {
 
 afterEach(() => {
   delete desktop.lingerDesktop;
+  vi.restoreAllMocks();
 });
 
 describe("AccountMenu desktop update", () => {
@@ -158,5 +176,97 @@ describe("AccountMenu desktop update", () => {
     expect(off).not.toHaveBeenCalled();
     view.unmount();
     expect(off).toHaveBeenCalledOnce();
+  });
+});
+
+function AccountMenuWithLogout({
+  currentIdentity,
+  tenantId,
+}: {
+  currentIdentity: TeamHubCurrentIdentity;
+  tenantId: string;
+}) {
+  const logout = useLogout();
+  return (
+    <AccountMenu
+      identity={currentIdentity}
+      tenantId={tenantId}
+      isPending={logout.isPending}
+      onLogout={logout.mutate}
+      onNavigate={vi.fn()}
+      onOpenSettings={vi.fn()}
+    />
+  );
+}
+
+describe("AccountMenu unsaved document logout confirmation", () => {
+  it("renders a ModalDialog instead of window.confirm when logging out with unsaved edits", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const revoke = vi.fn(() => undefined);
+    runtime.server.on("POST", "/v0/auth/logout", revoke);
+    vi.spyOn(browserRoomMessageOutbox, "clearAccount").mockResolvedValue();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const unregister = registerOpenDocumentSession({
+      actorId: runtime.seed.identity.actors[0]!.id,
+      close: async () => undefined,
+      documentId: "document-1",
+      hasUnsavedChanges: () => true,
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    try {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <TeamHubRuntimeProvider runtime={runtime}>
+            <MemoryRouter initialEntries={["/t/tenant-northstar/rooms"]}>
+              <Routes>
+                <Route path="/login" element={<p>Signed out</p>} />
+                <Route
+                  path="*"
+                  element={
+                    <AccountMenuWithLogout
+                      currentIdentity={runtime.seed.identity}
+                      tenantId="tenant-northstar"
+                    />
+                  }
+                />
+              </Routes>
+            </MemoryRouter>
+          </TeamHubRuntimeProvider>
+        </QueryClientProvider>,
+      );
+
+      await openMenu();
+      fireEvent.click(screen.getByRole("menuitem", { name: "Log out" }));
+
+      expect(confirm).not.toHaveBeenCalled();
+      const dialog = screen.getByRole("dialog", {
+        name: "Unsaved Document edits",
+      });
+      expect(dialog).toHaveTextContent(LOGOUT_UNSAVED_DOCUMENT_MESSAGE);
+      expect(revoke).not.toHaveBeenCalled();
+
+      fireEvent.click(within(dialog).getByRole("button", { name: "Stay" }));
+      expect(
+        screen.queryByRole("dialog", { name: "Unsaved Document edits" }),
+      ).toBeNull();
+      expect(revoke).not.toHaveBeenCalled();
+
+      await openMenu();
+      fireEvent.click(screen.getByRole("menuitem", { name: "Log out" }));
+      const reopened = screen.getByRole("dialog", {
+        name: "Unsaved Document edits",
+      });
+      fireEvent.click(
+        within(reopened).getByRole("button", { name: "Log out anyway" }),
+      );
+
+      await waitFor(() => expect(revoke).toHaveBeenCalledOnce());
+      expect(await screen.findByText("Signed out")).toBeVisible();
+    } finally {
+      unregister();
+    }
   });
 });

@@ -17,11 +17,12 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type RefCallback,
 } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonClassName } from "@/components/ui/button";
 import { Select, SelectItem } from "@/components/ui/select";
 import { cn } from "@/lib/cn";
 import {
@@ -33,7 +34,10 @@ import { AuthenticatedRouteLoading } from "@/features/rooms/route-loading-surfac
 import { ActorAvatar } from "@/features/rooms/members/actor-avatar";
 import { TeamHubError } from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
-import type { TeamHubWorkItem } from "@/features/teamhub/teamhub-types";
+import type {
+  TeamHubRoomListItem,
+  TeamHubWorkItem,
+} from "@/features/teamhub/teamhub-types";
 
 import {
   clearWorkItemDashboardFilters,
@@ -52,22 +56,24 @@ import {
   type WorkItemDashboardFilters,
   type WorkItemDashboardPriority,
 } from "./work-item-dashboard-filters";
-import { WorkItemBoardCopyAction } from "./work-item-board-copy-action";
 import { workItemBoardCsv } from "./work-item-board-csv";
+import { WorkItemBoardExportMenu } from "./work-item-board-export-menu";
 import { workItemPairPath } from "./work-item-pair";
-import { WorkItemBoardCsvAction } from "./work-item-board-csv-action";
 import {
   nextWorkItemCardId,
   workItemBoardMoveForKey,
 } from "./work-item-board-keyboard";
 import { workItemBoardMarkdown } from "./work-item-board-markdown";
-import { WorkItemBoardViewLinkAction } from "./work-item-board-view-link-action";
 import { WorkItemCardMenu } from "./work-item-card-menu";
 import {
   WorkItemCreateAction,
   WorkItemCreateDialog,
 } from "./work-item-create-dialog";
 import { workItemDuplicateDraft } from "./work-item-duplicate";
+import {
+  workItemPriorityBadgeClassName,
+  workItemPriorityLabel,
+} from "./work-item-labels";
 import { WorkItemPeek } from "./work-item-peek";
 import {
   tenantWorkItemTargetQueryOptions,
@@ -229,7 +235,86 @@ export function WorkItemsPage() {
   const rooms = roomsQuery.data;
   if (!data || !rooms) return <WorkItemsLoading />;
   const items = mergeFocusedWorkItem(data.items, focusedWorkItemQuery.data);
-  const roomFilter = createWorkItemRoomFilterModel(rooms.items, items);
+
+  function updateFilters(next: WorkItemDashboardFilters) {
+    setSearchParams(
+      workItemDashboardSortSearch(workItemDashboardFiltersSearch(next), sort),
+      { replace: true },
+    );
+  }
+
+  // A new order is a step the reader can undo, so it pushes a history entry.
+  function updateSort(next: WorkItemDashboardSort) {
+    setSearchParams(
+      workItemDashboardSortSearch(
+        workItemDashboardFiltersSearch(filters),
+        next,
+      ),
+    );
+  }
+
+  return (
+    <WorkItemsLoadedView
+      currentActorId={currentActorId}
+      day={day}
+      duplicateItem={duplicateItem}
+      filters={filters}
+      focusedCardRef={focusedCardRef}
+      focusedWorkItemId={focusedWorkItemId}
+      items={items}
+      onCloseDuplicate={() => setDuplicateItem(undefined)}
+      onClosePeek={() => setPeekWorkItem(undefined)}
+      onDuplicate={setDuplicateItem}
+      onPeek={openPeek}
+      onUpdateFilters={updateFilters}
+      onUpdateSort={updateSort}
+      peekWorkItem={peekWorkItem}
+      rooms={rooms.items}
+      sort={sort}
+      tenantId={tenantId}
+    />
+  );
+}
+
+function WorkItemsLoadedView({
+  currentActorId,
+  day,
+  duplicateItem,
+  filters,
+  focusedCardRef,
+  focusedWorkItemId,
+  items,
+  onCloseDuplicate,
+  onClosePeek,
+  onDuplicate,
+  onPeek,
+  onUpdateFilters,
+  onUpdateSort,
+  peekWorkItem,
+  rooms,
+  sort,
+  tenantId,
+}: {
+  currentActorId?: string;
+  day: Date;
+  duplicateItem?: TeamHubWorkItem;
+  filters: WorkItemDashboardFilters;
+  focusedCardRef: RefCallback<HTMLAnchorElement>;
+  focusedWorkItemId?: string;
+  items: TeamHubWorkItem[];
+  onCloseDuplicate: () => void;
+  onClosePeek: () => void;
+  onDuplicate: (item: TeamHubWorkItem) => void;
+  onPeek: (item: TeamHubWorkItem, card: HTMLAnchorElement) => void;
+  onUpdateFilters: (next: WorkItemDashboardFilters) => void;
+  onUpdateSort: (next: WorkItemDashboardSort) => void;
+  peekWorkItem?: TeamHubWorkItem;
+  rooms: TeamHubRoomListItem[];
+  sort: WorkItemDashboardSort;
+  tenantId: string;
+}) {
+  const [closedExpanded, setClosedExpanded] = useState(true);
+  const roomFilter = createWorkItemRoomFilterModel(rooms, items);
   const filteredItems = items.filter(
     (item) =>
       matchesWorkItemText(item, filters.text) &&
@@ -260,6 +345,14 @@ export function WorkItemsPage() {
           : columnItems,
     };
   });
+  // A collapsed column shows no cards, so its Items leave the move order and selection too.
+  const shownItems = filtersHideBoard
+    ? []
+    : boardSections.flatMap(({ column, items: columnItems }) =>
+        column.id === "closed" && !closedExpanded ? [] : columnItems,
+      );
+  const selection = useWorkItemSelection({ items: shownItems, tenantId });
+  const hasSelection = selection.count > 0;
   const exportSections = boardSections.map(
     ({ column, items: columnItems }) => ({
       items: columnItems,
@@ -280,23 +373,6 @@ export function WorkItemsPage() {
     tenantId,
   });
 
-  function updateFilters(next: WorkItemDashboardFilters) {
-    setSearchParams(
-      workItemDashboardSortSearch(workItemDashboardFiltersSearch(next), sort),
-      { replace: true },
-    );
-  }
-
-  // A new order is a step the reader can undo, so it pushes a history entry.
-  function updateSort(next: WorkItemDashboardSort) {
-    setSearchParams(
-      workItemDashboardSortSearch(
-        workItemDashboardFiltersSearch(filters),
-        next,
-      ),
-    );
-  }
-
   return (
     <main className="work-items-surface flex min-h-0 flex-1 flex-col overflow-hidden bg-app-surface">
       <header className="work-items-header shrink-0 border-b border-app-border px-5 py-3 sm:px-8">
@@ -310,17 +386,15 @@ export function WorkItemsPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <WorkItemBoardCsvAction
+            <WorkItemBoardExportMenu
               csv={boardCsv}
-              disabled={!filteredItems.length}
-            />
-            <WorkItemBoardCopyAction markdown={boardMarkdown} />
-            <WorkItemBoardViewLinkAction
+              csvDisabled={!filteredItems.length}
               filters={filters}
+              markdown={boardMarkdown}
               sort={sort}
               tenantId={tenantId}
             />
-            <WorkItemCreateAction rooms={rooms.items} tenantId={tenantId} />
+            <WorkItemCreateAction rooms={rooms} tenantId={tenantId} />
           </div>
         </div>
         {showFilterBar ? (
@@ -335,7 +409,7 @@ export function WorkItemsPage() {
                 aria-label="Filter by title"
                 className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-app-placeholder"
                 onChange={(event) =>
-                  updateFilters({ ...filters, text: event.target.value })
+                  onUpdateFilters({ ...filters, text: event.target.value })
                 }
                 placeholder="Filter by title"
                 role="searchbox"
@@ -346,7 +420,7 @@ export function WorkItemsPage() {
                 <button
                   aria-label="Clear title filter"
                   className="flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
-                  onClick={() => updateFilters({ ...filters, text: "" })}
+                  onClick={() => onUpdateFilters({ ...filters, text: "" })}
                   type="button"
                 >
                   <Icon icon={Cancel01Icon} size={12} />
@@ -355,7 +429,7 @@ export function WorkItemsPage() {
             </label>
             <Select
               aria-label="Room"
-              onValueChange={(room) => updateFilters({ ...filters, room })}
+              onValueChange={(room) => onUpdateFilters({ ...filters, room })}
               value={filters.room}
               variant="pill"
             >
@@ -369,7 +443,7 @@ export function WorkItemsPage() {
             <Select
               aria-label="Priority"
               onValueChange={(priority) =>
-                updateFilters({
+                onUpdateFilters({
                   ...filters,
                   priority: priority as WorkItemDashboardPriority | "",
                 })
@@ -387,7 +461,7 @@ export function WorkItemsPage() {
             <Select
               aria-label="Assignment"
               onValueChange={(assignment) =>
-                updateFilters({
+                onUpdateFilters({
                   ...filters,
                   assignment: assignment as WorkItemDashboardAssignment,
                 })
@@ -404,7 +478,7 @@ export function WorkItemsPage() {
             <Select
               aria-label="Execution"
               onValueChange={(execution) =>
-                updateFilters({
+                onUpdateFilters({
                   ...filters,
                   execution: execution as WorkItemDashboardExecutionStatus | "",
                 })
@@ -423,7 +497,7 @@ export function WorkItemsPage() {
               aria-pressed={filters.archived}
               className="select-pill"
               onClick={() =>
-                updateFilters({ ...filters, archived: !filters.archived })
+                onUpdateFilters({ ...filters, archived: !filters.archived })
               }
               type="button"
             >
@@ -433,7 +507,7 @@ export function WorkItemsPage() {
               <button
                 className="select-pill"
                 onClick={() =>
-                  updateFilters(clearWorkItemDashboardFilters(filters))
+                  onUpdateFilters(clearWorkItemDashboardFilters(filters))
                 }
                 type="button"
               >
@@ -443,7 +517,7 @@ export function WorkItemsPage() {
             <Select
               aria-label="Sort"
               onValueChange={(value) =>
-                updateSort(createWorkItemDashboardSort(value))
+                onUpdateSort(createWorkItemDashboardSort(value))
               }
               value={sort}
               variant="pill"
@@ -454,6 +528,17 @@ export function WorkItemsPage() {
                 </SelectItem>
               ))}
             </Select>
+            {!hasSelection && shownItems.length > 0 ? (
+              <button
+                className="select-pill"
+                disabled={selection.pending}
+                onClick={selection.selectAll}
+                title="Select every card the board shows"
+                type="button"
+              >
+                Select all
+              </button>
+            ) : null}
           </div>
         ) : null}
       </header>
@@ -475,7 +560,7 @@ export function WorkItemsPage() {
             <Button
               className="mt-4"
               onClick={() =>
-                updateFilters(clearWorkItemDashboardFilters(filters))
+                onUpdateFilters(clearWorkItemDashboardFilters(filters))
               }
               size="compact"
               tone="secondary"
@@ -486,13 +571,17 @@ export function WorkItemsPage() {
         </section>
       ) : items.length || showFilterBar ? (
         <WorkItemBoard
+          closedExpanded={closedExpanded}
           focusedCardRef={focusedCardRef}
           focusedWorkItemId={focusedWorkItemId}
-          onDuplicate={setDuplicateItem}
-          onPeek={openPeek}
+          onDuplicate={onDuplicate}
+          onPeek={onPeek}
+          onSetClosedExpanded={setClosedExpanded}
           originRoomLabel={roomFilter.originLabel}
           search={dashboardSearch}
           sections={boardSections}
+          selection={selection}
+          shownItems={shownItems}
           tenantId={tenantId}
         />
       ) : (
@@ -509,7 +598,7 @@ export function WorkItemsPage() {
               issue to get started.
             </p>
             <div className="mt-4 flex justify-center">
-              <WorkItemCreateAction rooms={rooms.items} tenantId={tenantId} />
+              <WorkItemCreateAction rooms={rooms} tenantId={tenantId} />
             </div>
           </div>
         </section>
@@ -518,7 +607,7 @@ export function WorkItemsPage() {
       {peekWorkItem ? (
         <WorkItemPeek
           key={peekWorkItem.id}
-          onClose={() => setPeekWorkItem(undefined)}
+          onClose={onClosePeek}
           search={dashboardSearch}
           tenantId={tenantId}
           workItem={peekWorkItem}
@@ -528,8 +617,8 @@ export function WorkItemsPage() {
         <WorkItemCreateDialog
           initial={workItemDuplicateDraft(duplicateItem)}
           key={duplicateItem.id}
-          onClose={() => setDuplicateItem(undefined)}
-          rooms={rooms.items}
+          onClose={onCloseDuplicate}
+          rooms={rooms}
           tenantId={tenantId}
         />
       ) : null}
@@ -553,31 +642,45 @@ function cardForWorkItem(workItemId: string) {
  * moving the page, and typing elsewhere never inherits it.
  */
 function WorkItemBoard({
+  closedExpanded,
   focusedCardRef,
   focusedWorkItemId,
   onDuplicate,
   onPeek,
+  onSetClosedExpanded,
   originRoomLabel,
   search,
   sections,
+  selection,
+  shownItems,
   tenantId,
 }: {
+  closedExpanded: boolean;
   focusedCardRef: RefCallback<HTMLAnchorElement>;
   focusedWorkItemId?: string;
   onDuplicate: (item: TeamHubWorkItem) => void;
   onPeek: (item: TeamHubWorkItem, card: HTMLAnchorElement) => void;
+  onSetClosedExpanded: (
+    updater: boolean | ((expanded: boolean) => boolean),
+  ) => void;
   originRoomLabel: (item: TeamHubWorkItem) => string;
   search: string;
   sections: BoardSection[];
+  selection: ReturnType<typeof useWorkItemSelection>;
+  shownItems: TeamHubWorkItem[];
   tenantId: string;
 }) {
-  const [closedExpanded, setClosedExpanded] = useState(true);
+  const [selectedMobileColumn, setSelectedMobileColumn] =
+    useState<DashboardColumn["id"]>();
+  const columnTabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [keyboardFocusId, setKeyboardFocusId] = useState<string>();
-  // A collapsed column shows no cards, so its Items leave the move order too.
-  const shownItems = sections.flatMap(({ column, items }) =>
-    column.id === "closed" && !closedExpanded ? [] : items,
-  );
-  const selection = useWorkItemSelection({ items: shownItems, tenantId });
+  const focusedItemColumn = focusedWorkItemId
+    ? sections.find(({ items }) =>
+        items.some((item) => item.id === focusedWorkItemId),
+      )?.column.id
+    : undefined;
+  const activeMobileColumn: DashboardColumn["id"] =
+    selectedMobileColumn ?? focusedItemColumn ?? "todo";
   const hasSelection = selection.count > 0;
   // Display order and the visible set both come from the cards the board drew.
   const selectedItems = shownItems.filter((item) =>
@@ -648,9 +751,36 @@ function WorkItemBoard({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  function selectMobileColumn(columnId: DashboardColumn["id"]) {
+    setSelectedMobileColumn(columnId);
+    if (columnId === "closed") onSetClosedExpanded(true);
+  }
+
+  function handleColumnTabKeyDown(
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    index: number,
+  ) {
+    let nextIndex: number | undefined;
+    if (event.key === "ArrowRight") {
+      nextIndex = (index + 1) % sections.length;
+    } else if (event.key === "ArrowLeft") {
+      nextIndex = (index - 1 + sections.length) % sections.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = sections.length - 1;
+    }
+    if (nextIndex === undefined) return;
+    event.preventDefault();
+    const target = sections[nextIndex];
+    if (!target) return;
+    columnTabRefs.current[nextIndex]?.focus();
+    selectMobileColumn(target.column.id);
+  }
+
   return (
     <>
-      {shownItems.length > 0 || selection.outcome ? (
+      {hasSelection || selection.outcome ? (
         <div
           aria-label="Work Item selection"
           className="flex shrink-0 flex-wrap items-center gap-2 border-b border-app-border px-4 py-2 text-sm sm:px-5"
@@ -659,7 +789,7 @@ function WorkItemBoard({
           {hasSelection ? (
             <span className="text-app-body">{selection.count} selected</span>
           ) : null}
-          {shownItems.length > 0 ? (
+          {hasSelection && shownItems.length > 0 ? (
             <Button
               disabled={selection.pending}
               onClick={
@@ -678,16 +808,16 @@ function WorkItemBoard({
               {selection.allSelected ? "Deselect all" : "Select all"}
             </Button>
           ) : null}
-          {shownItems.length > 0 ? (
+          {hasSelection && shownItems.length > 0 ? (
             <WorkItemSelectionCopyLinks
-              disabled={!hasSelection || selection.pending}
+              disabled={selection.pending}
               items={selectedItems}
               tenantId={tenantId}
             />
           ) : null}
           {selectedItems.length === 2 ? (
             <Link
-              className="inline-flex h-7 items-center rounded-lg border border-border px-2.5 text-sm text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className={buttonClassName({ size: "compact" })}
               to={workItemPairPath(
                 tenantId,
                 selectedItems[0]!.id,
@@ -729,8 +859,40 @@ function WorkItemBoard({
           ) : null}
         </div>
       ) : null}
+      <div
+        aria-label="Board columns"
+        className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-app-border px-4 py-2 md:hidden"
+        role="tablist"
+      >
+        {sections.map(({ column, items }, index) => {
+          const selected = column.id === activeMobileColumn;
+          return (
+            <button
+              aria-selected={selected}
+              className={cn(
+                "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                selected
+                  ? "bg-app-selected text-app-ink"
+                  : "text-muted-foreground hover:bg-app-hover hover:text-foreground",
+              )}
+              key={column.id}
+              onClick={() => selectMobileColumn(column.id)}
+              onKeyDown={(event) => handleColumnTabKeyDown(event, index)}
+              ref={(node) => {
+                columnTabRefs.current[index] = node;
+              }}
+              role="tab"
+              tabIndex={selected ? 0 : -1}
+              type="button"
+            >
+              <span>{column.label}</span>
+              <span className="tabular-nums opacity-75">({items.length})</span>
+            </button>
+          );
+        })}
+      </div>
       <div className="work-items-board workspace-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-hidden p-4 sm:p-5">
-        <div className="grid h-full min-w-[960px] grid-cols-4 gap-3">
+        <div className="grid h-full grid-cols-1 gap-3 md:min-w-[960px] md:grid-cols-4">
           {sections.map(({ column, items }) => (
             <WorkItemColumn
               closedExpanded={closedExpanded}
@@ -741,9 +903,12 @@ function WorkItemBoard({
               items={items}
               key={column.id}
               keyboardFocusId={keyboardFocusId}
+              mobileActive={column.id === activeMobileColumn}
               onDuplicate={onDuplicate}
               onPeek={onPeek}
-              onToggleClosed={() => setClosedExpanded((expanded) => !expanded)}
+              onToggleClosed={() =>
+                onSetClosedExpanded((expanded) => !expanded)
+              }
               onToggleSelected={selection.toggle}
               originRoomLabel={originRoomLabel}
               search={search}
@@ -844,6 +1009,7 @@ function WorkItemColumn({
   isSelected,
   items,
   keyboardFocusId,
+  mobileActive,
   onDuplicate,
   onPeek,
   onToggleClosed,
@@ -861,6 +1027,8 @@ function WorkItemColumn({
   items: TeamHubWorkItem[];
   /** The card the board's keys marked, which scrolls and Enter opens. */
   keyboardFocusId?: string;
+  /** Whether this column is the active full-width tab below the md breakpoint. */
+  mobileActive: boolean;
   onDuplicate: (item: TeamHubWorkItem) => void;
   onPeek: (item: TeamHubWorkItem, card: HTMLAnchorElement) => void;
   onToggleClosed: () => void;
@@ -876,7 +1044,10 @@ function WorkItemColumn({
   return (
     <section
       aria-label={column.label}
-      className="work-item-column flex min-h-0 min-w-0 flex-col"
+      className={cn(
+        "work-item-column min-h-0 min-w-0 flex-col",
+        mobileActive ? "flex" : "hidden md:flex",
+      )}
     >
       <header className="flex h-11 shrink-0 items-center justify-between px-2">
         <span className="flex min-w-0 items-center gap-1.5">
@@ -916,7 +1087,7 @@ function WorkItemColumn({
                 aria-current={
                   item.id === focusedWorkItemId ? "location" : undefined
                 }
-                className="work-item-card block py-2.5 pl-3 pr-9 text-app-ink outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                className="work-item-card block px-3 py-2.5 text-app-ink outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
                 data-keyboard-focus={
                   item.id === keyboardFocusId ? "true" : undefined
                 }
@@ -941,15 +1112,18 @@ function WorkItemColumn({
                   search,
                 }}
               >
-                <span className="flex items-start justify-between gap-2">
+                <span className="flex min-h-6 items-start justify-between gap-2 pr-14">
                   <span className="min-w-0 [overflow-wrap:anywhere] text-sm font-semibold leading-5">
                     {item.title}
                   </span>
                   <span
-                    className="work-item-priority shrink-0 border border-app-border-strong px-1.5 py-0.5 text-[12px] font-medium leading-4 text-app-body [border-radius:var(--app-pill-radius)]"
+                    className={cn(
+                      "shrink-0 border px-1.5 py-0.5 text-[12px] font-medium leading-4 [border-radius:var(--app-pill-radius)]",
+                      workItemPriorityBadgeClassName(item.priority),
+                    )}
                     data-priority={item.priority}
                   >
-                    {capitalize(item.priority)}
+                    {workItemPriorityLabel(item.priority)}
                   </span>
                 </span>
                 <span className="mt-2 flex min-w-0 items-center justify-between gap-2">
@@ -999,37 +1173,37 @@ function WorkItemColumn({
                       {item.kind === "issue" ? "Issue" : "Task"} #{item.number}
                     </span>
                   </span>
-                  <span className="flex shrink-0 items-center gap-2">
-                    <WorkItemStatus compact status={column.id} />
-                    <time dateTime={item.updated_at}>
-                      {formatDashboardDate(item.updated_at)}
-                    </time>
-                  </span>
+                  <time className="shrink-0" dateTime={item.updated_at}>
+                    {formatDashboardDate(item.updated_at)}
+                  </time>
                 </span>
               </Link>
-              <span
-                className={cn(
-                  "absolute right-2.5 top-9",
-                  selectionActive
-                    ? "opacity-100"
-                    : "pointer-events-none opacity-0 transition-opacity group-focus-within/card:pointer-events-auto group-focus-within/card:opacity-100 group-hover/card:pointer-events-auto group-hover/card:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100",
-                )}
-              >
-                <input
-                  aria-label={`Select ${item.title}`}
-                  checked={isSelected(item.id)}
-                  className="size-4 cursor-pointer accent-primary"
-                  onChange={() => onToggleSelected(item.id)}
-                  type="checkbox"
-                />
-              </span>
-              <span className="pointer-events-none absolute right-1.5 top-1.5 opacity-0 transition-opacity group-focus-within/card:pointer-events-auto group-focus-within/card:opacity-100 group-hover/card:pointer-events-auto group-hover/card:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
-                <WorkItemCardMenu
-                  item={item}
-                  onDuplicate={onDuplicate}
-                  tenantId={tenantId}
-                />
-              </span>
+              {/* Kept aligned with row 1 so the checkbox never collides with row-2 assignee avatars. */}
+              <div className="pointer-events-none absolute right-2 top-2 flex items-center gap-1">
+                <span
+                  className={cn(
+                    "flex size-6 items-center justify-center",
+                    selectionActive
+                      ? "pointer-events-auto opacity-100"
+                      : "opacity-0 transition-opacity group-focus-within/card:pointer-events-auto group-focus-within/card:opacity-100 group-hover/card:pointer-events-auto group-hover/card:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100",
+                  )}
+                >
+                  <input
+                    aria-label={`Select ${item.title}`}
+                    checked={isSelected(item.id)}
+                    className="size-4 cursor-pointer accent-primary"
+                    onChange={() => onToggleSelected(item.id)}
+                    type="checkbox"
+                  />
+                </span>
+                <span className="opacity-0 transition-opacity group-focus-within/card:pointer-events-auto group-focus-within/card:opacity-100 group-hover/card:pointer-events-auto group-hover/card:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
+                  <WorkItemCardMenu
+                    item={item}
+                    onDuplicate={onDuplicate}
+                    tenantId={tenantId}
+                  />
+                </span>
+              </div>
               <Link
                 className="mt-1 block px-3 text-xs text-muted-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 to={workItemStoryPath(tenantId, item.id)}
@@ -1061,21 +1235,11 @@ function WorkItemMandateNote({
   );
 }
 
-function WorkItemStatus({
-  compact = false,
-  status,
-}: {
-  compact?: boolean;
-  status: DashboardColumn["id"];
-}) {
+function WorkItemStatus({ status }: { status: DashboardColumn["id"] }) {
   const column = dashboardColumns.find((candidate) => candidate.id === status)!;
 
   return (
-    <span
-      className="work-item-status"
-      data-compact={compact ? "true" : "false"}
-      data-status={status}
-    >
+    <span className="work-item-status" data-status={status}>
       <span>{column.label}</span>
     </span>
   );
@@ -1100,10 +1264,6 @@ function dashboardColumnFor(item: TeamHubWorkItem): DashboardColumn["id"] {
   if (item.state === "open") return "todo";
   if (item.state === "in_progress") return "in-progress";
   return item.resolution === "completed" ? "done" : "closed";
-}
-
-function capitalize(value: string) {
-  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function formatDashboardDate(value: string) {

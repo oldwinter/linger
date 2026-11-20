@@ -408,8 +408,8 @@ describe("local models rules", () => {
     });
     expect(parametersLabel(moe)).toBe("30B · 3B active (MoE)");
     expect(collapsedRowBadges(moe)).toEqual({
-      badges: ["3B active", "Vision", "Tool use", "+2"],
-      overflowTitle: "Reasoning, Coding",
+      badges: ["3B active", "Vision", "+3"],
+      overflowTitle: "Tool use, Reasoning, Coding",
     });
 
     const dense = localModel({

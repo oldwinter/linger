@@ -410,7 +410,7 @@ describe("Room Chat", () => {
     preload.mockRestore();
   });
 
-  it("opens Composer Document references by stable unified identity", async () => {
+  it("highlights Composer Actor and Document references inside the decorative overlay without tab stops", async () => {
     window.localStorage.clear();
     const runtime = createTestTeamHubRuntime();
 
@@ -431,38 +431,6 @@ describe("Room Chat", () => {
       await screen.findByRole("option", { name: /product-v0-brief\.md/i }),
     );
 
-    let composerReferences = screen.getByRole("group", {
-      name: "Composer references",
-    });
-    fireEvent.click(
-      within(composerReferences).getByRole("button", {
-        name: "Open Codex profile",
-      }),
-    );
-    await waitFor(() =>
-      expect(openPanelTab).toHaveBeenCalledWith({
-        actorId: "actor-codex",
-        kind: "agentInfo",
-        title: "Agent · Codex",
-      }),
-    );
-    expect(router.state.location.search).toBe("");
-    composerReferences = screen.getByRole("group", {
-      name: "Composer references",
-    });
-
-    fireEvent.click(
-      within(composerReferences).getByRole("button", {
-        name: "Open product-v0-brief.md",
-      }),
-    );
-    await waitFor(() =>
-      expect(openPanelTab).toHaveBeenCalledWith({
-        documentId: "document-product-v0-brief",
-        kind: "file",
-        title: "product-v0-brief.md",
-      }),
-    );
     expect(router.state.location.pathname).toBe(
       "/t/tenant-northstar/rooms/room-all/chat",
     );
@@ -470,19 +438,23 @@ describe("Room Chat", () => {
     expect(await screen.findByLabelText("Message Room")).toHaveValue(
       "@Codex @product-v0-brief_md ",
     );
-    composerReferences = screen.getByRole("group", {
-      name: "Composer references",
-    });
+    const overlay = document.querySelector<HTMLElement>(
+      "[data-composer-references]",
+    );
+    expect(overlay).toHaveAttribute("aria-hidden", "true");
     expect(
-      within(composerReferences).getByRole("button", {
-        name: "Open Codex profile",
-      }),
-    ).toBeVisible();
+      overlay?.querySelectorAll("[tabindex], [role='button']"),
+    ).toHaveLength(0);
     expect(
-      within(composerReferences).getByRole("button", {
-        name: "Open product-v0-brief.md",
-      }),
-    ).toBeVisible();
+      overlay?.querySelector(
+        '[data-reference-kind="actor"][data-reference-id="actor-codex"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      overlay?.querySelector(
+        '[data-reference-kind="document"][data-reference-id="document-product-v0-brief"]',
+      ),
+    ).not.toBeNull();
   });
 
   it("offers only the Wiki Documents the caller owns in the Composer catalog", async () => {
@@ -613,10 +585,10 @@ describe("Room Chat", () => {
     // The pick survives the catalog dropping the search page once the picker closes.
     await waitFor(() =>
       expect(
-        within(
-          screen.getByRole("group", { name: "Composer references" }),
-        ).getByRole("button", { name: "Open Quarterly launch plan" }),
-      ).toBeVisible(),
+        window.document.querySelector(
+          '[data-composer-references] [data-reference-kind="document"][data-reference-name="Quarterly launch plan"]',
+        ),
+      ).not.toBeNull(),
     );
   });
 
@@ -648,10 +620,10 @@ describe("Room Chat", () => {
 
     await waitFor(() =>
       expect(
-        within(
-          screen.getByRole("group", { name: "Composer references" }),
-        ).getByRole("button", { name: `Open ${document.title}` }),
-      ).toBeVisible(),
+        window.document.querySelector(
+          `[data-composer-references] [data-reference-kind="document"][data-reference-id="${document.id}"]`,
+        ),
+      ).not.toBeNull(),
     );
   });
 
@@ -704,10 +676,10 @@ describe("Room Chat", () => {
       }
       await waitFor(() =>
         expect(
-          within(
-            screen.getByRole("group", { name: "Composer references" }),
-          ).getByRole("button", { name: `Open ${document.title}` }),
-        ).toBeVisible(),
+          window.document.querySelector(
+            `[data-composer-references] [data-reference-kind="document"][data-reference-id="${document.id}"]`,
+          ),
+        ).not.toBeNull(),
       );
       fireEvent.keyDown(editor, { key: "Enter" });
       await waitFor(async () =>
@@ -768,11 +740,13 @@ describe("Room Chat", () => {
             `${window.location.origin}/t/tenant-northstar/documents/${document.id}`,
         },
       });
-      expect(
-        await within(
-          screen.getByRole("group", { name: "Composer references" }),
-        ).findByRole("button", { name: `Open ${document.title}` }),
-      ).toBeVisible();
+      await waitFor(() =>
+        expect(
+          window.document.querySelector(
+            `[data-composer-references] [data-reference-kind="document"][data-reference-id="${document.id}"]`,
+          ),
+        ).not.toBeNull(),
+      );
       expect(bindDocument).not.toHaveBeenCalled();
       expect(createMessage).not.toHaveBeenCalled();
       expect(listDocuments()).toHaveLength(initialDocumentLoads);
@@ -847,9 +821,9 @@ describe("Room Chat", () => {
       ),
     ).toHaveLength(0);
     expect(
-      within(
-        screen.getByRole("group", { name: "Composer references" }),
-      ).queryByRole("button", { name: /Open/ }),
-    ).toBeNull();
+      document.querySelectorAll(
+        '[data-composer-references] [data-reference-kind="document"]',
+      ),
+    ).toHaveLength(0);
   });
 });

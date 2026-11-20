@@ -62,6 +62,28 @@ describe("Copy message text", () => {
     await waitFor(() => expect(statusTexts()).toContain("Copy failed"));
     expect(statusTexts()).not.toContain("Copied");
   });
+
+  it("confirms and reports failures for inline Copy message via role=status", async () => {
+    const writeText = stubClipboard(() => Promise.resolve());
+    renderTimeline("Inline copy body");
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith("Inline copy body"),
+    );
+    await waitFor(() => expect(statusTexts()).toContain("Copied"));
+
+    stubClipboard(() => Promise.reject(new Error("Clipboard is denied")));
+    defineGlobalProperty(document, "execCommand", {
+      configurable: true,
+      value: vi.fn(() => false),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
+
+    await waitFor(() => expect(statusTexts()).toContain("Copy failed"));
+  });
 });
 
 function openMenu(name: string) {

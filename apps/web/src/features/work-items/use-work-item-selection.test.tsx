@@ -394,14 +394,11 @@ function selectAllButton() {
   return screen.getByRole("button", { name: "Select all" });
 }
 
-/** The toolbar with nothing selected: every visible card is offered, none held. */
+/** With nothing selected, the bulk selection bar stays hidden while Select all stays available in the filter bar. */
 function expectNoSelection() {
-  const selectionBar = toolbar();
-  expect(selectionBar).not.toBeNull();
-  expect(within(selectionBar!).queryByText(/\d+ selected/u)).toBeNull();
-  expect(
-    within(selectionBar!).getByRole("button", { name: "Select all" }),
-  ).toBeVisible();
+  expect(toolbar()).toBeNull();
+  expect(screen.queryByText(/\d+ selected/u)).toBeNull();
+  expect(selectAllButton()).toBeVisible();
 }
 
 function selectBox(title: string) {

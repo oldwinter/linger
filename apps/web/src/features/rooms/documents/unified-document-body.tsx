@@ -4,7 +4,7 @@ import {
   Download04Icon,
 } from "@hugeicons/core-free-icons";
 import type { QueryClient } from "@tanstack/react-query";
-import { useSyncExternalStore, type MutableRefObject } from "react";
+import { useEffect, useSyncExternalStore, type MutableRefObject } from "react";
 import { Link } from "react-router";
 import type * as Y from "yjs";
 
@@ -31,6 +31,7 @@ import type {
   RoomDocumentHeading,
 } from "./room-document-blocknote-editor";
 import type { RoomDocumentCollaborationSession } from "./room-document-collaboration";
+import { hasUnsavedRoomDocumentChanges } from "./room-document-local-copies";
 import type { UnifiedDocumentPageModel } from "./use-unified-document-page-model";
 
 interface UnifiedDocumentBodyProps {
@@ -491,6 +492,21 @@ function ActiveRoomDocumentEditor({
     session.getSaveSnapshot,
     session.getSaveSnapshot,
   );
+  const hasUnsavedChanges =
+    !session.readOnly &&
+    (save.status === "Local pending" ||
+      save.status === "Offline pending" ||
+      save.protocolError === "durable_save_failed" ||
+      (save.status === "Connection failed" && hasUnsavedRoomDocumentChanges()));
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedChanges]);
   return (
     <RoomDocumentBlockNoteEditor
       canComment={canComment}

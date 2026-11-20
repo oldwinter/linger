@@ -498,8 +498,7 @@ function canceledAfterNetworkStartedIntent(
 ): OutgoingMessage {
   return {
     ...intent,
-    error:
-      "Delivery may already have reached TeamHub. Retry with the same idempotency key to reconcile it safely.",
+    error: "Message could not be sent. Try sending it again.",
     heldByPerson: true,
     status: "unknown",
   };

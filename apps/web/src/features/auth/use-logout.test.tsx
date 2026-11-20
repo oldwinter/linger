@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import {
@@ -36,6 +37,7 @@ import {
 } from "./interrupted-page";
 import { registerOpenDocumentSession } from "@/features/rooms/documents/room-document-local-copies";
 import { defineGlobalProperty } from "@/test/global-properties";
+import { LogoutConfirmationDialog } from "./account-menu";
 import { LOGOUT_UNSAVED_DOCUMENT_MESSAGE, useLogout } from "./use-logout";
 
 // Document editors open in this tab, one per actor; logout must close exactly
@@ -281,24 +283,39 @@ describe("useLogout", () => {
     expect(revoke).toHaveBeenCalledOnce();
   });
 
-  it("asks before discarding unsaved Document edits", async () => {
+  it("asks in a modal dialog instead of window.confirm before discarding unsaved Document edits", async () => {
     const runtime = await testRuntime();
     const identity = runtime.seed.identity;
     vi.spyOn(browserRoomMessageOutbox, "clearAccount").mockResolvedValue();
     const revoke = vi.fn(() => undefined);
     runtime.server.on("POST", "/v0/auth/logout", revoke);
     documentEditsUnsaved = true;
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     renderLogout(runtime);
 
     fireEvent.click(screen.getByRole("button", { name: "Log out" }));
-    expect(confirm).toHaveBeenCalledWith(LOGOUT_UNSAVED_DOCUMENT_MESSAGE);
+    expect(confirm).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("dialog", {
+      name: "Unsaved Document edits",
+    });
+    expect(dialog).toHaveTextContent(LOGOUT_UNSAVED_DOCUMENT_MESSAGE);
     expect(revoke).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Log out" })).toBeEnabled();
 
-    confirm.mockClear().mockReturnValue(true);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Stay" }));
+    expect(
+      screen.queryByRole("dialog", { name: "Unsaved Document edits" }),
+    ).toBeNull();
+    expect(revoke).not.toHaveBeenCalled();
+
     fireEvent.click(screen.getByRole("button", { name: "Log out" }));
-    expect(confirm).toHaveBeenCalledOnce();
+    expect(confirm).not.toHaveBeenCalled();
+    const reopened = screen.getByRole("dialog", {
+      name: "Unsaved Document edits",
+    });
+    fireEvent.click(
+      within(reopened).getByRole("button", { name: "Log out anyway" }),
+    );
     await waitFor(() =>
       expect(screen.getByTestId("location")).toHaveTextContent(/^\/login$/),
     );
@@ -386,6 +403,7 @@ function LogoutProbe() {
       {logout.error ? (
         <p role="alert">Could not confirm logout. Please retry.</p>
       ) : null}
+      <LogoutConfirmationDialog />
     </>
   );
 }

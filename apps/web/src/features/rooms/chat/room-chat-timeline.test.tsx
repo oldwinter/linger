@@ -85,11 +85,6 @@ describe("Room Chat", () => {
     ).toBeVisible();
     fireEvent.click(
       within(linkedSource).getByRole("button", {
-        name: "More message actions",
-      }),
-    );
-    fireEvent.click(
-      screen.getByRole("menuitem", {
         name: "Reply to message",
       }),
     );
@@ -99,11 +94,8 @@ describe("Room Chat", () => {
     );
 
     fireEvent.click(
-      within(linkedSource).getByRole("button", {
-        name: "More message actions",
-      }),
+      within(linkedSource).getByRole("button", { name: "Reply to message" }),
     );
-    fireEvent.click(screen.getByRole("menuitem", { name: "Reply to message" }));
     expect(
       screen.getByLabelText<HTMLTextAreaElement>("Message Room").value,
     ).toContain("@Codex");

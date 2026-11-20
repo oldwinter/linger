@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { browserRoomMessageOutbox } from "@/features/rooms/chat/room-message-outbox";
@@ -20,11 +20,42 @@ export const LOGOUT_ERROR_MESSAGE = "Could not confirm logout. Please retry.";
 export const LOGOUT_UNSAVED_DOCUMENT_MESSAGE =
   "Some Document edits are not saved yet. Log out and discard them?";
 
+export interface PendingLogoutConfirmation {
+  readonly cancel: () => void;
+  readonly confirm: () => void;
+}
+
+const confirmationListeners = new Set<() => void>();
+let pendingLogoutConfirmation: PendingLogoutConfirmation | null = null;
+
+function setPendingLogoutConfirmation(
+  next: PendingLogoutConfirmation | null,
+): void {
+  if (pendingLogoutConfirmation === next) return;
+  pendingLogoutConfirmation = next;
+  for (const listener of confirmationListeners) listener();
+}
+
+export function subscribeLogoutConfirmation(listener: () => void): () => void {
+  confirmationListeners.add(listener);
+  return () => {
+    confirmationListeners.delete(listener);
+  };
+}
+
+export function getLogoutConfirmationSnapshot(): PendingLogoutConfirmation | null {
+  return pendingLogoutConfirmation;
+}
+
 export function useLogout({ returnTo }: { returnTo?: string } = {}) {
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const pending = useRef(false);
+  const confirmationRef = useRef<PendingLogoutConfirmation | null>(null);
+  const [confirmingUnsavedDocuments, setConfirmingUnsavedDocuments] =
+    useState(false);
+
   const mutation = useMutation({
     retry: false,
     mutationFn: async () => {
@@ -57,18 +88,56 @@ export function useLogout({ returnTo }: { returnTo?: string } = {}) {
     },
   });
 
+  useEffect(() => {
+    return () => {
+      if (
+        confirmationRef.current &&
+        pendingLogoutConfirmation === confirmationRef.current
+      ) {
+        setPendingLogoutConfirmation(null);
+      }
+      confirmationRef.current = null;
+    };
+  }, []);
+
+  function clearConfirmation() {
+    if (
+      confirmationRef.current &&
+      pendingLogoutConfirmation === confirmationRef.current
+    ) {
+      setPendingLogoutConfirmation(null);
+    }
+    confirmationRef.current = null;
+    setConfirmingUnsavedDocuments(false);
+  }
+
+  function runLogout() {
+    if (pending.current) return;
+    clearConfirmation();
+    pending.current = true;
+    mutation.mutate();
+  }
+
   return {
+    cancelLogout: clearConfirmation,
+    confirmLogout: runLogout,
+    confirmingUnsavedDocuments,
     error: mutation.error,
     isPending: mutation.isPending,
     mutate: () => {
       if (pending.current) return;
-      if (
-        hasUnsavedRoomDocumentChanges() &&
-        !window.confirm(LOGOUT_UNSAVED_DOCUMENT_MESSAGE)
-      )
+      if (hasUnsavedRoomDocumentChanges()) {
+        if (confirmationRef.current) return;
+        const request: PendingLogoutConfirmation = {
+          cancel: () => clearConfirmation(),
+          confirm: () => runLogout(),
+        };
+        confirmationRef.current = request;
+        setConfirmingUnsavedDocuments(true);
+        setPendingLogoutConfirmation(request);
         return;
-      pending.current = true;
-      mutation.mutate();
+      }
+      runLogout();
     },
   };
 }

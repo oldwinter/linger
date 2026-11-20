@@ -11,6 +11,7 @@ import { Icon } from "@/components/ui/icon";
 import { ModalDialog } from "@/components/ui/modal-dialog";
 import { Select, SelectItem } from "@/components/ui/select";
 import type { TeamHubLocalComputerPage } from "@/features/teamhub/teamhub-types";
+import { writeClipboardText } from "@/lib/clipboard";
 import { cn } from "@/lib/cn";
 
 import {
@@ -78,7 +79,9 @@ function Fact({
 }
 
 function CopyEndpoint({ endpoint, name }: { endpoint: string; name: string }) {
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
   const timerRef = useRef<number | undefined>(undefined);
   const codeRef = useRef<HTMLElement>(null);
 
@@ -89,40 +92,51 @@ function CopyEndpoint({ endpoint, name }: { endpoint: string; name: string }) {
     [],
   );
 
-  function markCopied() {
-    window.clearTimeout(timerRef.current);
-    setCopied(true);
-    timerRef.current = window.setTimeout(() => setCopied(false), 1_500);
-  }
-
   function copy() {
-    const clipboard = navigator.clipboard;
-    if (clipboard?.writeText) {
-      void clipboard.writeText(endpoint).then(
-        () => markCopied(),
-        () => selectCodeText(codeRef.current),
-      );
-      return;
-    }
-    selectCodeText(codeRef.current);
+    window.clearTimeout(timerRef.current);
+    void writeClipboardText(endpoint)
+      .then(() => {
+        setCopyState("copied");
+      })
+      .catch(() => {
+        selectCodeText(codeRef.current);
+        setCopyState("failed");
+      })
+      .finally(() => {
+        timerRef.current = window.setTimeout(() => setCopyState("idle"), 1_500);
+      });
   }
 
   return (
-    <span className="flex items-center gap-1">
+    <span className="flex items-center gap-1.5">
       <code className="min-w-0 truncate font-mono text-xs" ref={codeRef}>
         {endpoint}
       </code>
       <Button
         aria-label={
-          copied ? `Copied ${name} endpoint` : `Copy ${name} endpoint`
+          copyState === "copied"
+            ? `Copied ${name} endpoint`
+            : `Copy ${name} endpoint`
         }
         onClick={copy}
         size="compactIcon"
-        title={copied ? "Copied" : "Copy endpoint"}
+        title={copyState === "copied" ? "Copied" : "Copy endpoint"}
         tone="ghost"
       >
-        <Icon icon={copied ? Tick02Icon : Copy01Icon} size={14} />
+        <Icon
+          icon={copyState === "copied" ? Tick02Icon : Copy01Icon}
+          size={14}
+        />
       </Button>
+      {copyState === "copied" ? (
+        <span className="shrink-0 text-xs text-muted-foreground" role="status">
+          Copied
+        </span>
+      ) : copyState === "failed" ? (
+        <span className="shrink-0 text-xs text-app-danger" role="alert">
+          Copy failed
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -234,34 +248,30 @@ export function ModelFacts({
     primaryAgent.busy;
   return (
     <div>
-      {model.error || status === "unavailable" ? (
-        <div className="my-1.5 rounded-lg border border-[var(--app-status-danger-border)] bg-[var(--app-status-danger-surface)] px-3 py-0.5">
-          {model.error ? (
-            <Fact
-              bordered={false}
-              label={stopped ? "Last download" : "Last load"}
-            >
-              <span className="text-app-danger">
-                {modelErrorCopy(model.error)}
-              </span>
-            </Fact>
-          ) : null}
-          {status === "unavailable" ? (
-            <Fact bordered={Boolean(model.error)} label="Why not">
-              <span className="text-app-danger">
-                {unavailableCopy(model.availability.reason, reclaimable)}
-              </span>
-            </Fact>
-          ) : null}
+      {model.error ? (
+        <div className="my-1.5">
+          <FormFeedback tone="danger">
+            <span className="font-medium">
+              {stopped ? "Last download" : "Last load"}:{" "}
+            </span>
+            {modelErrorCopy(model.error)}
+          </FormFeedback>
+        </div>
+      ) : null}
+      {status === "unavailable" ? (
+        <div className="my-1.5">
+          <FormFeedback tone="danger">
+            <span className="font-medium">Why not: </span>
+            {unavailableCopy(model.availability.reason, reclaimable)}
+          </FormFeedback>
         </div>
       ) : null}
       {model.note ? (
-        <div className="my-1.5 rounded-lg border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-surface)] px-3 py-0.5">
-          <Fact bordered={false} label="Note">
-            <span className="text-app-warning">
-              {modelNoteCopy(model.note.code, placeName(view, model.pool))}
-            </span>
-          </Fact>
+        <div className="my-1.5">
+          <FormFeedback tone="warning">
+            <span className="font-medium">Note: </span>
+            {modelNoteCopy(model.note.code, placeName(view, model.pool))}
+          </FormFeedback>
         </div>
       ) : null}
       {idleUsedWarning ? (

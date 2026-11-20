@@ -24,7 +24,7 @@ export function WorkItemCopyStatus({
         "absolute right-0 top-full z-10 mt-1 whitespace-nowrap rounded-md bg-card px-1.5 py-0.5 text-[12px] leading-4 shadow-outline",
         state === "failed" ? "text-app-danger" : "text-app-body",
       )}
-      role="status"
+      role={state === "failed" ? "alert" : "status"}
     >
       {state === "copied" ? copiedLabel : failedLabel}
     </span>

@@ -82,7 +82,7 @@ describe("Copy Work Item as Markdown", () => {
     );
     fireEvent.click(screen.getByRole("menuitem", { name: "Copy as Markdown" }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("Copy failed");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
   });
 });
 

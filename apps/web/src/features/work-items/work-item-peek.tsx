@@ -28,6 +28,7 @@ import type {
   TeamHubWorkItemPriority,
   TeamHubWorkItemTimelineEntry,
 } from "@/features/teamhub/teamhub-types";
+import { cn } from "@/lib/cn";
 import { dateTimeFormat } from "@/lib/date-format";
 
 import { WorkItemAssigneePicker } from "./work-item-assignee-picker";
@@ -45,6 +46,7 @@ import {
 import { updateFailureMessage } from "./work-item-failure";
 import {
   workItemPriorities,
+  workItemPriorityBadgeClassName,
   workItemPriorityLabel,
   workItemStateLabel,
   workItemStateLabels,
@@ -341,7 +343,13 @@ export function WorkItemPeek({
           <span className="rounded-full bg-app-selected px-2 py-0.5 font-medium text-app-ink">
             {workItemStateLabel(item)}
           </span>
-          <span className="rounded-full border border-app-border-strong px-2 py-0.5 capitalize text-app-body">
+          <span
+            className={cn(
+              "rounded-full border px-2 py-0.5 font-medium capitalize",
+              workItemPriorityBadgeClassName(item.priority),
+            )}
+            data-priority={item.priority}
+          >
             {item.priority}
           </span>
           <span className="text-app-muted">

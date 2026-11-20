@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useId, useLayoutEffect, useRef } from "react";
 import { cn } from "@/lib/cn";
 
 import type {
@@ -33,6 +33,7 @@ export function MessageReactionBar({
 }) {
   const catalog = useReactionCatalog();
   const reactions = catalog ? (message.reactions ?? []) : [];
+  const tooltipBaseId = useId();
   const rowRef = useRef<HTMLDivElement>(null);
   // Reactions already shown; null until the first render with the catalog.
   const shownRef = useRef<Set<string> | null>(null);
@@ -114,9 +115,14 @@ export function MessageReactionBar({
               })
               .join(", ");
             const count = reaction.actor_ids.length;
+            const tooltipId = `${tooltipBaseId}-${reaction.reaction_id}`;
             return (
-              <span className="relative inline-flex" key={reaction.reaction_id}>
+              <span
+                className="group/reaction relative inline-flex"
+                key={reaction.reaction_id}
+              >
                 <button
+                  aria-describedby={tooltipId}
                   aria-label={`${entry.name} ${count}: ${reactors}`}
                   aria-pressed={own}
                   className="message-reaction-chip flex h-6 items-center gap-1 rounded-full border border-app-border bg-app-surface px-2 text-xs leading-none text-app-ink tabular-nums focus-visible:outline-2 focus-visible:outline-app-focus disabled:cursor-default"
@@ -127,6 +133,7 @@ export function MessageReactionBar({
                   onClick={(event) =>
                     toggle(reaction.reaction_id, event.currentTarget)
                   }
+                  title={`${entry.name}: ${reactors}`}
                   type="button"
                 >
                   <span aria-hidden="true" className="text-sm">
@@ -134,6 +141,13 @@ export function MessageReactionBar({
                   </span>
                   {count > 1 ? <span aria-hidden="true">{count}</span> : null}
                 </button>
+                <span
+                  className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1.5 w-max max-w-56 -translate-x-1/2 rounded-md bg-primary px-2 py-1 text-center text-xs leading-[18px] text-primary-foreground opacity-0 shadow-sm transition-opacity duration-150 group-hover/reaction:opacity-100 group-focus-within/reaction:opacity-100 motion-reduce:transition-none"
+                  id={tooltipId}
+                  role="tooltip"
+                >
+                  {reactors}
+                </span>
               </span>
             );
           })}

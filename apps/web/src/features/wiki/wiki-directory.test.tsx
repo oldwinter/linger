@@ -627,14 +627,14 @@ describe("Wiki directory", () => {
       screen.queryByRole("navigation", { name: "Topics files" }),
     ).toBeNull();
   });
-  it("persists Keep/Delete locally without deleting Documents", async () => {
+  it("persists Keep/Hide locally without deleting Documents and offers inline Undo", async () => {
     const { runtime, unmount, pages } = await setup(
       "/t/tenant-northstar/documents/alpha",
     );
     const keep = await screen.findByRole("button", { name: "Keep alpha" });
     await waitFor(() => expect(keep).toBeEnabled());
     fireEvent.click(keep);
-    fireEvent.click(screen.getByRole("button", { name: "Delete beta" }));
+    fireEvent.click(screen.getByRole("button", { name: "Hide beta" }));
     const files = screen.getByRole("navigation", { name: "Projects files" });
     expect(within(files).getByRole("link", { name: "alpha" })).toBeVisible();
     expect(within(files).queryByText("Kept")).toBeNull();
@@ -642,9 +642,12 @@ describe("Wiki directory", () => {
       within(files).queryByRole("button", { name: "Keep alpha" }),
     ).toBeNull();
     expect(
-      within(files).queryByRole("button", { name: "Delete alpha" }),
+      within(files).queryByRole("button", { name: "Hide alpha" }),
     ).toBeNull();
     expect(within(files).queryByRole("link", { name: "beta" })).toBeNull();
+    const status = within(files).getByRole("status");
+    expect(status).toHaveTextContent("Hidden beta");
+    expect(within(status).getByRole("button", { name: "Undo" })).toBeVisible();
     expect(
       runtime.server.requestsTo("DELETE", "/v0/documents/{documentId}"),
     ).toHaveLength(0);
@@ -662,13 +665,28 @@ describe("Wiki directory", () => {
       within(restored).queryByRole("button", { name: "Keep alpha" }),
     ).toBeNull();
     expect(
-      within(restored).queryByRole("button", { name: "Delete alpha" }),
+      within(restored).queryByRole("button", { name: "Hide alpha" }),
     ).toBeNull();
     expect(
       within(
         screen.getByRole("navigation", { name: "Projects files" }),
       ).queryByRole("link", { name: "beta" }),
     ).toBeNull();
+  });
+  it("restores a hidden Wiki page immediately when clicking Undo", async () => {
+    await setup("/t/tenant-northstar/documents/alpha");
+    const hideBeta = await screen.findByRole("button", { name: "Hide beta" });
+    await waitFor(() => expect(hideBeta).toBeEnabled());
+    fireEvent.click(hideBeta);
+
+    const files = screen.getByRole("navigation", { name: "Projects files" });
+    expect(within(files).queryByRole("link", { name: "beta" })).toBeNull();
+    const status = within(files).getByRole("status");
+    expect(status).toHaveTextContent("Hidden beta");
+
+    fireEvent.click(within(status).getByRole("button", { name: "Undo" }));
+    expect(within(files).getByRole("link", { name: "beta" })).toBeVisible();
+    expect(within(files).queryByRole("status")).toBeNull();
   });
   it("filters the open collection's files and highlights the match", async () => {
     const { runtime } = await setup("/t/tenant-northstar/documents/alpha");

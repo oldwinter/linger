@@ -462,12 +462,9 @@ describe("Room Chat", () => {
     fireEvent.click(
       (
         await screen.findAllByRole("button", {
-          name: "More message actions",
+          name: "Reply to message",
         })
       )[0]!,
-    );
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Reply to message" }),
     );
     expect(screen.getByLabelText("Selected reply context")).toBeVisible();
     fireEvent.change(screen.getByLabelText("Message Room"), {
@@ -821,12 +818,9 @@ describe("Room Chat replied Run", () => {
     fireEvent.click(
       (
         await screen.findAllByRole("button", {
-          name: "More message actions",
+          name: "Reply to message",
         })
       )[0]!,
-    );
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Reply to message" }),
     );
     expect(screen.getByLabelText("Selected reply context")).toBeVisible();
 
@@ -838,18 +832,60 @@ describe("Room Chat replied Run", () => {
       )[0]!,
     );
     expect(
-      await screen.findByRole("menuitem", { name: "Reply to message" }),
-    ).toBeVisible();
-    expect(
       screen.queryByRole("menuitem", { name: "Reply with quote" }),
     ).toBeNull();
-    fireEvent.keyDown(editor, { key: "Escape" });
+    fireEvent.keyDown(document, { key: "Escape" });
 
     fireEvent.change(editor, { target: { value: "Continuing the context." } });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
     await waitFor(() => expect(createMessage).toHaveBeenCalledOnce());
     expect(createMessage.mock.calls[0]?.[0].contextMessageIds).toHaveLength(1);
+  });
+
+  it("restores a failed optimistic send back into the composer and clears the failed row", async () => {
+    const runtime = createTestTeamHubRuntime();
+    vi.spyOn(
+      roomMessageSender(runtime.client),
+      "createMessage",
+    ).mockRejectedValueOnce(
+      new TeamHubError({
+        code: "INVALID_REQUEST",
+        message: "Message rejected",
+        status: 400,
+      }),
+    );
+
+    await renderRoomChat(runtime, testQueryClient());
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("Message Room");
+
+    fireEvent.change(editor, {
+      target: { value: "Draft that failed on first send" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(await screen.findByText("Message rejected")).toBeVisible();
+    expect(editor).toHaveValue("");
+
+    const retryButton = screen.getByRole("button", { name: "Retry" });
+    const restoreButton = screen.getByRole("button", {
+      name: "Restore to draft",
+    });
+    const cancelButton = screen.getByRole("button", { name: "Cancel" });
+    expect(retryButton).toHaveClass("ui-button-compact");
+    expect(restoreButton).toHaveClass("ui-button-compact");
+    expect(cancelButton).toHaveClass("ui-button-compact");
+
+    fireEvent.click(restoreButton);
+
+    await waitFor(() =>
+      expect(editor).toHaveValue("Draft that failed on first send"),
+    );
+    await waitFor(() =>
+      expect(screen.queryByText("Message rejected")).not.toBeInTheDocument(),
+    );
+    expect(editor).toHaveFocus();
   });
 
   it("focuses and highlights the Message a link names", async () => {

@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { defineGlobalProperty } from "@/test/global-properties";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
@@ -107,6 +113,29 @@ it("explains how to regenerate a copyable URL when an active link has no cached 
   expect(screen.queryByRole("button", { name: "Copy shared link" })).toBeNull();
 
   fireEvent.click(screen.getByRole("button", { name: "Reset link" }));
+  const confirmDialog = screen.getByRole("dialog", {
+    name: "Reset shared link?",
+  });
+  expect(confirmDialog).toHaveTextContent(
+    "Previously shared links will immediately stop working.",
+  );
+  expect(client.documentLinks.set).not.toHaveBeenCalled();
+
+  fireEvent.click(
+    within(confirmDialog).getByRole("button", { name: "Cancel" }),
+  );
+  expect(
+    screen.queryByRole("dialog", { name: "Reset shared link?" }),
+  ).toBeNull();
+  expect(client.documentLinks.set).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole("button", { name: "Reset link" }));
+  const reopenedDialog = screen.getByRole("dialog", {
+    name: "Reset shared link?",
+  });
+  fireEvent.click(
+    within(reopenedDialog).getByRole("button", { name: "Reset link" }),
+  );
   fireEvent.click(
     await screen.findByRole("button", { name: "Copy shared link" }),
   );

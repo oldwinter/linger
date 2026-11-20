@@ -188,6 +188,20 @@ export function RoomChatTimelineSection({
             ? undefined
             : interactions.stageQuoteReply
         }
+        onRestoreToDraft={async (clientId) => {
+          const pending = conversation.pendingMessages.find(
+            (item) => item.clientId === clientId,
+          );
+          if (!pending || !interactions.composerRef.current) return;
+          interactions.composerRef.current.restoreDraft({
+            body: pending.body,
+            mentions: pending.mentions,
+          });
+          if (pending.contextMessages.length) {
+            interactions.holdReply(pending.contextMessages[0]!);
+          }
+          await delivery.cancelMessage(clientId);
+        }}
         onRetry={delivery.retryMessage}
         pendingMessages={conversation.pendingMessages}
         presentations={actions.resolvedPresentations}

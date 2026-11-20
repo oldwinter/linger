@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { FormFeedback } from "@/components/ui/form-feedback";
 import { Icon } from "@/components/ui/icon";
 import { Select, SelectItem } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { relativeTime } from "@/features/local-computer/computer-relative-time";
 import { useDesktopComputer } from "@/features/local-computer/desktop-computer";
@@ -503,6 +504,7 @@ function ComputerModels({
           {status && status.mode !== "local" ? (
             <SwitchToLocalNotice
               disabled={switching || offline}
+              fromSubscription={status.mode === "subscription"}
               models={switchTargets}
               switcher={switcher}
             />
@@ -551,9 +553,28 @@ function ComputerModels({
           {actionErrorCopy(queryErrorCode)}
         </EmptyState>
       ) : (
-        <p className="mt-6 text-sm text-muted-foreground" role="status">
-          Loading models
-        </p>
+        <div
+          aria-busy="true"
+          aria-label="Loading models"
+          className="mt-6 grid gap-2"
+          role="status"
+        >
+          {[0, 1, 2].map((index) => (
+            <div
+              className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3"
+              key={index}
+            >
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <Skeleton className="size-10 shrink-0 rounded-lg" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <Skeleton className="h-4 w-40 max-w-full" />
+                  <Skeleton className="h-3 w-56 max-w-full" />
+                </div>
+              </div>
+              <Skeleton className="h-7 w-20 shrink-0 rounded-md" />
+            </div>
+          ))}
+        </div>
       )}
     </>
   );

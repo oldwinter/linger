@@ -463,6 +463,22 @@ export function ModelRow({
     Boolean(primaryAgent) &&
     !primaryUsing &&
     Boolean(onAssignAgent);
+  const showsUseForAgents = Boolean(
+    status === "loaded" && handlers.onUseForAgents,
+  );
+  const showsOpenChat = Boolean(
+    !handlers.onUseForAgents &&
+    canUsePrimary &&
+    primaryAgent?.isAnotherMe &&
+    primaryUsing &&
+    anotherMeChatHref,
+  );
+  const hasActions = Boolean(
+    showsUseForAgents ||
+    (showsPrimaryAssignButton && primaryAgent && onAssignAgent) ||
+    showsOpenChat ||
+    action,
+  );
   // A stopped download has no record to remove; discarding it deletes the
   // kept partial instead.
   const removable =
@@ -481,8 +497,14 @@ export function ModelRow({
     >
       <div
         className={cn(
-          "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-2 px-4 py-3",
-          hasMeta && "@2xl:grid-cols-[minmax(0,1fr)_auto_auto]",
+          "grid items-center gap-x-2.5 gap-y-2 px-4 py-3",
+          hasMeta && hasActions
+            ? "grid-cols-[minmax(0,1fr)_auto] @2xl:grid-cols-[minmax(0,1fr)_auto_auto]"
+            : hasActions
+              ? "grid-cols-[minmax(0,1fr)_auto]"
+              : hasMeta
+                ? "grid-cols-1 @2xl:grid-cols-[minmax(0,1fr)_auto]"
+                : "grid-cols-1",
         )}
       >
         <button
@@ -490,7 +512,8 @@ export function ModelRow({
           aria-expanded={expanded}
           aria-label={model.name}
           className={cn(
-            "col-span-2 col-start-1 row-start-1 flex min-w-0 items-center gap-3 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring @md:col-span-1",
+            "col-start-1 row-start-1 flex min-w-0 items-center gap-3 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            hasActions && "col-span-2 @md:col-span-1",
             status === "unavailable" && "opacity-60",
           )}
           onClick={handlers.onToggle}
@@ -519,6 +542,19 @@ export function ModelRow({
               tag={tag}
             />
           </span>
+          <span
+            aria-hidden="true"
+            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground"
+          >
+            <Icon
+              className={cn(
+                "transition-transform duration-200 motion-reduce:transition-none",
+                !expanded && "-rotate-90",
+              )}
+              icon={ArrowDown01Icon}
+              size={14}
+            />
+          </span>
         </button>
         {hasMeta ? (
           <RowMetadataPills
@@ -529,98 +565,79 @@ export function ModelRow({
             usedByTitle={usedByTitle}
           />
         ) : null}
-        <div
-          className={cn(
-            "col-span-2 flex flex-wrap items-center justify-end gap-1.5 pl-13 @md:col-span-1 @md:col-start-2 @md:row-start-1 @md:flex-nowrap @md:pl-0",
-            hasMeta ? "row-start-3 @2xl:col-start-3" : "row-start-2",
-          )}
-        >
-          {status === "loaded" && handlers.onUseForAgents ? (
-            <Button
-              aria-label={`Use ${model.name} for Agents`}
-              className="px-2.5"
-              disabled={disabled}
-              loading={switchingForAgents}
-              onClick={(event) => {
-                stopRowClick(event);
-                handlers.onUseForAgents?.();
-              }}
-              size="compact"
-              tone="primary"
-            >
-              Use for Agents
-            </Button>
-          ) : showsPrimaryAssignButton && primaryAgent && onAssignAgent ? (
-            <Button
-              aria-label={`Use ${model.name} with ${primaryAgent.name}`}
-              className="px-2.5"
-              disabled={
-                disabled || primaryAgent.busy || Boolean(assigningAgentId)
-              }
-              loading={assigningAgentId === primaryAgent.actorId}
-              onClick={(event) => {
-                stopRowClick(event);
-                onAssignAgent(primaryAgent);
-              }}
-              size="compact"
-              title={
-                primaryAgent.busy
-                  ? `Wait for ${primaryAgent.name} to finish the current turn`
-                  : undefined
-              }
-              tone="primary"
-            >
-              Use with {primaryAgent.name}
-            </Button>
-          ) : !handlers.onUseForAgents &&
-            canUsePrimary &&
-            primaryAgent?.isAnotherMe &&
-            primaryUsing &&
-            anotherMeChatHref ? (
-            <OpenChatLink href={anotherMeChatHref} onClick={stopRowClick} />
-          ) : null}
-          {action ? (
-            <Button
-              aria-label={`${action[0]} ${model.name}`}
-              className="px-2.5"
-              disabled={disabled}
-              loading={requested === action[2]}
-              onClick={(event) => {
-                stopRowClick(event);
-                action[1]();
-              }}
-              size="compact"
-              tone={
-                status === "downloading"
-                  ? "ghost"
-                  : damagedFiles
-                    ? "danger"
-                    : recommended
-                      ? "primary"
-                      : "secondary"
-              }
-            >
-              {action[0]}
-            </Button>
-          ) : null}
-          <Button
-            aria-hidden
-            className="text-muted-foreground"
-            onClick={handlers.onToggle}
-            size="compactIcon"
-            tabIndex={-1}
-            tone="ghost"
+        {hasActions ? (
+          <div
+            className={cn(
+              "col-span-2 flex flex-wrap items-center justify-end gap-1.5 pl-13 @md:col-span-1 @md:col-start-2 @md:row-start-1 @md:flex-nowrap @md:pl-0",
+              hasMeta ? "row-start-3 @2xl:col-start-3" : "row-start-2",
+            )}
           >
-            <Icon
-              className={cn(
-                "transition-transform duration-200 motion-reduce:transition-none",
-                !expanded && "-rotate-90",
-              )}
-              icon={ArrowDown01Icon}
-              size={14}
-            />
-          </Button>
-        </div>
+            {showsUseForAgents ? (
+              <Button
+                aria-label={`Use ${model.name} for Agents`}
+                className="px-2.5"
+                disabled={disabled}
+                loading={switchingForAgents}
+                onClick={(event) => {
+                  stopRowClick(event);
+                  handlers.onUseForAgents?.();
+                }}
+                size="compact"
+                tone="primary"
+              >
+                Use for Agents
+              </Button>
+            ) : showsPrimaryAssignButton && primaryAgent && onAssignAgent ? (
+              <Button
+                aria-label={`Use ${model.name} with ${primaryAgent.name}`}
+                className="px-2.5"
+                disabled={
+                  disabled || primaryAgent.busy || Boolean(assigningAgentId)
+                }
+                loading={assigningAgentId === primaryAgent.actorId}
+                onClick={(event) => {
+                  stopRowClick(event);
+                  onAssignAgent(primaryAgent);
+                }}
+                size="compact"
+                title={
+                  primaryAgent.busy
+                    ? `Wait for ${primaryAgent.name} to finish the current turn`
+                    : undefined
+                }
+                tone="primary"
+              >
+                Use with {primaryAgent.name}
+              </Button>
+            ) : showsOpenChat && anotherMeChatHref ? (
+              <OpenChatLink href={anotherMeChatHref} onClick={stopRowClick} />
+            ) : null}
+            {action ? (
+              <Button
+                aria-label={`${action[0]} ${model.name}`}
+                className="px-2.5"
+                disabled={disabled}
+                loading={requested === action[2]}
+                onClick={(event) => {
+                  stopRowClick(event);
+                  action[1]();
+                }}
+                size="compact"
+                tone={
+                  status === "downloading"
+                    ? "ghost"
+                    : damagedFiles
+                      ? "danger"
+                      : recommended
+                        ? "primary"
+                        : "secondary"
+                }
+              >
+                {action[0]}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       {entry.status === "downloading" ? (
         <DownloadProgress model={model} progress={progress} />

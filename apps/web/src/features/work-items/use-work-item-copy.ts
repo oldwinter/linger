@@ -12,6 +12,8 @@ import {
 export type WorkItemCopyState = "idle" | "copied" | "failed";
 
 export interface WorkItemClipboardCopy {
+  /** Dismisses any visible copy feedback immediately. */
+  clear: () => void;
   /** What the last successful copy wrote; undefined until something is copied. */
   copiedLabel: string | undefined;
   copy: (text: string, label?: string) => void;
@@ -55,7 +57,13 @@ export function useWorkItemClipboardCopy(): WorkItemClipboardCopy {
       });
   }
 
+  function clear() {
+    window.clearTimeout(resetTimer.current);
+    setFeedback(undefined);
+  }
+
   return {
+    clear,
     copiedLabel: feedback?.label,
     copy,
     state: feedback?.state ?? "idle",
@@ -70,9 +78,10 @@ export function useWorkItemCopy(
   tenantId: string,
   item: TeamHubWorkItem,
 ): WorkItemCopy {
-  const { copy, copiedLabel, state } = useWorkItemClipboardCopy();
+  const { clear, copy, copiedLabel, state } = useWorkItemClipboardCopy();
 
   return {
+    clear,
     copiedLabel,
     copy,
     copyLink: () =>

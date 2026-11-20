@@ -7,6 +7,7 @@ import {
 import { Icon } from "@/components/ui/icon";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { ModalDialog } from "@/components/ui/modal-dialog";
 import { Select, SelectItem } from "@/components/ui/select";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import { writeClipboardText } from "@/lib/clipboard";
@@ -29,6 +30,7 @@ export function DocumentLinkSharing({
     null,
   );
   const [pending, setPending] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef<number | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -110,7 +112,7 @@ export function DocumentLinkSharing({
             disabled={pending}
             size="compactIcon"
             tone="ghost"
-            onClick={() => void update(policy.data!.role, true)}
+            onClick={() => setResetConfirmOpen(true)}
           >
             <Icon icon={RefreshIcon} />
           </Button>
@@ -144,6 +146,42 @@ export function DocumentLinkSharing({
         <p role="alert" className="mt-2 text-sm text-app-danger">
           {error ?? "Link sharing is unavailable."}
         </p>
+      ) : null}
+      {resetConfirmOpen && active ? (
+        <ModalDialog
+          closeOnBackdrop={!pending}
+          description="Previously shared links will immediately stop working. A new link will be generated."
+          footer={
+            <>
+              <Button
+                disabled={pending}
+                onClick={() => setResetConfirmOpen(false)}
+                tone="secondary"
+              >
+                Cancel
+              </Button>
+              <Button
+                disabled={pending}
+                loading={pending}
+                onClick={() => {
+                  void update(policy.data!.role, true).finally(() =>
+                    setResetConfirmOpen(false),
+                  );
+                }}
+                tone="danger"
+              >
+                Reset link
+              </Button>
+            </>
+          }
+          onClose={() => {
+            if (!pending) setResetConfirmOpen(false);
+          }}
+          size="sm"
+          title="Reset shared link?"
+        >
+          {null}
+        </ModalDialog>
       ) : null}
     </section>
   );

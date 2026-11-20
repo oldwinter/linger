@@ -732,9 +732,12 @@ describe("Room Message delivery identity", () => {
     );
 
     expect(delivery.result.current.outgoing[0]).toMatchObject({
-      error: expect.stringContaining("may already have reached TeamHub"),
+      error: "Message could not be sent. Try sending it again.",
       status: "unknown",
     });
+    expect(delivery.result.current.outgoing[0]?.error).not.toMatch(
+      /idempotency|TeamHub/i,
+    );
     await expect(outbox.list(scope)).resolves.toMatchObject([
       { idempotencyKey: originalKey, status: "unknown" },
     ]);

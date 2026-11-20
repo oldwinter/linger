@@ -1,3 +1,4 @@
+import { Cancel01Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import { useQuery } from "@tanstack/react-query";
 import { DesktopBarTitle } from "@/app/desktop-frame";
 import { type MouseEvent, type ReactNode, useState } from "react";
@@ -5,6 +6,7 @@ import { useSearchParams } from "react-router";
 
 import { ActionMenu } from "@/components/ui/action-menu";
 import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
 import { Spinner } from "@/components/ui/spinner";
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
 import { cn } from "@/lib/cn";
@@ -38,15 +40,28 @@ function stopCardClick(event: MouseEvent) {
   event.stopPropagation();
 }
 
+function matchesConnectorQuery(
+  app: TeamHubExternalApp,
+  normalizedQuery: string,
+): boolean {
+  if (!normalizedQuery) return true;
+  return (
+    app.display_name.toLowerCase().includes(normalizedQuery) ||
+    appSummary(app).toLowerCase().includes(normalizedQuery) ||
+    app.description.toLowerCase().includes(normalizedQuery)
+  );
+}
+
 export function ConnectedAppsPage() {
   const { client } = useTeamHubRuntime();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedApp = searchParams.get("app");
+  const requestedTab = searchParams.get("tab");
+  const connectedParam = searchParams.get("connected");
+  const connectedOnly = connectedParam === "1" || connectedParam === "true";
+  const [searchQuery, setSearchQuery] = useState("");
   const apps = useQuery(externalAppsQueryOptions(client));
   const connections = useQuery(externalConnectionsQueryOptions(client));
-  // "all" shows every group; otherwise one group's id.
-  const [filter, setFilter] = useState("all");
-  const [connectedOnly, setConnectedOnly] = useState(false);
   // TeamHub lists only Connections that are not revoked.
   const visibleConnections = connections.data?.connections ?? [];
   const allApps = apps.data?.apps ?? [];
@@ -66,15 +81,77 @@ export function ConnectedAppsPage() {
       appConnections.some(externalConnectionNeedsAttention)
     );
   });
+  const activeGroupEntry = requestedTab
+    ? groups.find((entry) => entry.group.id === requestedTab)
+    : undefined;
+  const filter = activeGroupEntry ? activeGroupEntry.group.id : "all";
   const filters = [
     { id: "all", label: "All" },
     ...groups.map(({ group }) => ({ id: group.id, label: group.title })),
   ];
-  const groupApps = groups.find((entry) => entry.group.id === filter)?.apps;
-  // Connected only narrows whichever view is open; with All it is one grid.
-  const filteredApps = connectedOnly
+  const trimmedQuery = searchQuery.trim();
+  const normalizedQuery = trimmedQuery.toLowerCase();
+  const hasSearch = normalizedQuery.length > 0;
+  const hasAnyFilter = hasSearch || connectedOnly || filter !== "all";
+  const groupApps = activeGroupEntry?.apps;
+  // Connected only and search narrow whichever view is open; with All and no search,
+  // sections keep their category headings.
+  const baseFlatApps = connectedOnly
     ? (groupApps ?? connectedApps).filter((app) => connectedApps.includes(app))
-    : groupApps;
+    : hasSearch
+      ? (groupApps ?? catalogApps)
+      : groupApps;
+  const filteredApps = baseFlatApps
+    ? baseFlatApps.filter((app) => matchesConnectorQuery(app, normalizedQuery))
+    : undefined;
+  const emptyMessage = hasSearch
+    ? filter !== "all" || connectedOnly
+      ? `No connectors match “${trimmedQuery}” in this view.`
+      : `No connectors match “${trimmedQuery}”.`
+    : connectedOnly
+      ? activeGroupEntry
+        ? `No connected apps in ${activeGroupEntry.group.title} yet.`
+        : "No connected apps yet."
+      : activeGroupEntry
+        ? `No connectors in ${activeGroupEntry.group.title} yet.`
+        : "No connectors available yet.";
+
+  function setFilter(nextTab: string) {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (nextTab === "all") next.delete("tab");
+        else next.set("tab", nextTab);
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
+  function toggleConnectedOnly() {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (connectedOnly) next.delete("connected");
+        else next.set("connected", "1");
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
+  function resetFilters() {
+    setSearchQuery("");
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("tab");
+        next.delete("connected");
+        return next;
+      },
+      { replace: true },
+    );
+  }
 
   function renderApp(app: TeamHubExternalApp) {
     return (
@@ -143,25 +220,59 @@ export function ConnectedAppsPage() {
           </div>
         ) : (
           <>
-            {/* The toggle is as tall as the tabs and lines up with them; the
-                tab row keeps its own bottom margin. */}
-            <div className="flex items-start gap-3">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <label className="select-pill min-w-0 flex-1 cursor-text pr-1.5 focus-within:ring-2 focus-within:ring-app-focus sm:max-w-xs">
+                <Icon icon={Search01Icon} size={14} />
+                <input
+                  aria-label="Search connectors"
+                  className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-app-placeholder"
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape" && searchQuery) {
+                      event.preventDefault();
+                      setSearchQuery("");
+                    }
+                  }}
+                  placeholder="Search connectors..."
+                  role="searchbox"
+                  type="text"
+                  value={searchQuery}
+                />
+                {searchQuery ? (
+                  <button
+                    aria-label="Clear search"
+                    className="flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                    onClick={() => setSearchQuery("")}
+                    type="button"
+                  >
+                    <Icon icon={Cancel01Icon} size={12} />
+                  </button>
+                ) : null}
+              </label>
+              <Button
+                aria-pressed={connectedOnly}
+                className="shrink-0"
+                onClick={toggleConnectedOnly}
+                size="default"
+                tone={connectedOnly ? "primary" : "secondary"}
+              >
+                Connected only
+              </Button>
+            </div>
+            {/* On narrow phones, the right fade cue signals additional category tabs off-screen. */}
+            <div className="relative min-w-0">
               <UnderlineTabs
-                className="min-w-0 flex-1"
+                className="pr-8"
                 items={filters}
                 label="Connector categories"
                 onChange={setFilter}
                 value={filter}
               />
-              <Button
-                aria-pressed={connectedOnly}
-                className="shrink-0"
-                onClick={() => setConnectedOnly((value) => !value)}
-                size="large"
-                tone={connectedOnly ? "primary" : "secondary"}
-              >
-                Connected only
-              </Button>
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute top-0 right-0 h-9 w-10 bg-gradient-to-l from-background to-transparent lg:hidden"
+                data-scroll-cue="tabs"
+              />
             </div>
             {filteredApps ? (
               filteredApps.length ? (
@@ -172,9 +283,23 @@ export function ConnectedAppsPage() {
                   {filteredApps.map(renderApp)}
                 </section>
               ) : (
-                <PageMessage>No connected apps yet.</PageMessage>
+                <div className="flex flex-col items-center py-12 text-center">
+                  <p className="text-sm text-muted-foreground" role="status">
+                    {emptyMessage}
+                  </p>
+                  {hasAnyFilter ? (
+                    <Button
+                      className="mt-4"
+                      onClick={resetFilters}
+                      size="compact"
+                      tone="secondary"
+                    >
+                      Show all connectors
+                    </Button>
+                  ) : null}
+                </div>
               )
-            ) : (
+            ) : groups.length ? (
               <div aria-label="Application connections" role="region">
                 {groups.map(({ group, apps: groupApps }) => (
                   <section
@@ -194,6 +319,8 @@ export function ConnectedAppsPage() {
                   </section>
                 ))}
               </div>
+            ) : (
+              <PageMessage>{emptyMessage}</PageMessage>
             )}
           </>
         )}

@@ -219,7 +219,7 @@ describe("Dashboard page", () => {
     expect(within(card).queryByText(/Assignees:/)).not.toBeInTheDocument();
     expect(within(card).getByText("#all")).toBeVisible();
     expect(within(card).getByText("Jul 30, 2026")).toBeVisible();
-    expect(within(card).getByText("Todo")).toBeVisible();
+    expect(within(card).queryByText("Todo")).not.toBeInTheDocument();
   });
 
   it("wraps an unbroken Work Item title inside its card", async () => {
@@ -1209,7 +1209,8 @@ describe("Dashboard page", () => {
       expect(screen.queryByText("Unrelated work")).not.toBeInTheDocument(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+    fireEvent.click(screen.getByRole("button", { name: "Export & share" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Export CSV" }));
 
     expect(download.triggerArtifactDownload).toHaveBeenCalledOnce();
     const [blob] = download.triggerArtifactDownload.mock.calls[0] as [
@@ -1235,18 +1236,25 @@ describe("Dashboard page", () => {
     renderPage(runtime);
 
     expect(await screen.findByText("No Work Items yet")).toBeVisible();
-    const exportButton = screen.getByRole("button", { name: "Export CSV" });
-    expect(exportButton).toBeDisabled();
-    fireEvent.click(exportButton);
+    fireEvent.click(screen.getByRole("button", { name: "Export & share" }));
+    const exportItem = screen.getByRole("menuitem", { name: "Export CSV" });
+    expect(exportItem).toBeDisabled();
+    fireEvent.click(exportItem);
     expect(download.triggerArtifactDownload).not.toHaveBeenCalled();
   });
 
-  it("uses a 4-column board grid matching the four Work Item columns", async () => {
+  it("uses a responsive 1-column mobile and 4-column desktop board with a mobile column switcher", async () => {
     const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
     seedWorkItems(runtime, [
-      workItem(runtime.seed.identity.actors[0]!, {
+      workItem(human, {
         id: "workitem-grid-1",
         title: "Check board grid",
+      }),
+      workItem(human, {
+        id: "workitem-grid-2",
+        state: "in_progress",
+        title: "Active item",
       }),
     ]);
 
@@ -1254,8 +1262,94 @@ describe("Dashboard page", () => {
 
     expect(await screen.findByText("Check board grid")).toBeVisible();
     const grid = document.querySelector(".work-items-board > div");
-    expect(grid?.className.split(/\s+/)).toContain("grid-cols-4");
-    expect(grid?.className.split(/\s+/)).not.toContain("grid-cols-5");
+    const gridClasses = grid?.className.split(/\s+/) ?? [];
+    expect(gridClasses).toContain("grid-cols-1");
+    expect(gridClasses).toContain("md:grid-cols-4");
+    expect(gridClasses).toContain("md:min-w-[960px]");
+    expect(gridClasses).not.toContain("grid-cols-5");
+    expect(gridClasses).not.toContain("min-w-[960px]");
+
+    const columnTabs = screen.getByRole("tablist", { name: "Board columns" });
+    const todoTab = within(columnTabs).getByRole("tab", {
+      name: /Todo.*\(1\)/u,
+    });
+    const inProgressTab = within(columnTabs).getByRole("tab", {
+      name: /In progress.*\(1\)/u,
+    });
+    expect(todoTab).toHaveAttribute("aria-selected", "true");
+    expect(inProgressTab).toHaveAttribute("aria-selected", "false");
+
+    const todoColumn = screen.getByRole("region", { name: "Todo" });
+    const inProgressColumn = screen.getByRole("region", {
+      name: "In progress",
+    });
+    expect(todoColumn.className.split(/\s+/)).toContain("flex");
+    expect(todoColumn.className.split(/\s+/)).not.toContain("hidden");
+    expect(inProgressColumn.className.split(/\s+/)).toContain("hidden");
+    expect(inProgressColumn.className.split(/\s+/)).toContain("md:flex");
+    expect(inProgressColumn.className.split(/\s+/)).not.toContain("flex");
+
+    fireEvent.click(inProgressTab);
+    expect(inProgressTab).toHaveAttribute("aria-selected", "true");
+    expect(inProgressColumn.className.split(/\s+/)).toContain("flex");
+    expect(inProgressColumn.className.split(/\s+/)).not.toContain("hidden");
+    expect(todoColumn.className.split(/\s+/)).toContain("hidden");
+  });
+
+  it("differentiates Urgent and High priority badges semantically and styles Read side by side as a compact button", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        id: "workitem-urgent",
+        priority: "urgent",
+        title: "Outage fix",
+      }),
+      workItem(human, {
+        id: "workitem-high",
+        priority: "high",
+        title: "Release blocker",
+      }),
+      workItem(human, {
+        id: "workitem-low",
+        priority: "low",
+        title: "Backlog cleanup",
+      }),
+    ]);
+
+    renderPage(runtime);
+
+    const urgentCard = await screen.findByRole("link", { name: /Outage fix/ });
+    const urgentBadge = within(urgentCard).getByText("Urgent");
+    expect(urgentBadge).toHaveAttribute("data-priority", "urgent");
+    expect(urgentBadge).toHaveClass(
+      "bg-(--app-status-danger-surface)",
+      "text-(--app-status-danger-text)",
+    );
+    expect(urgentBadge).not.toHaveClass("work-item-priority");
+
+    const highCard = screen.getByRole("link", { name: /Release blocker/ });
+    const highBadge = within(highCard).getByText("High");
+    expect(highBadge).toHaveAttribute("data-priority", "high");
+    expect(highBadge).toHaveClass(
+      "bg-(--app-status-warning-surface)",
+      "text-(--app-status-warning-text)",
+    );
+    expect(highBadge).not.toHaveClass("work-item-priority");
+
+    const lowCard = screen.getByRole("link", { name: /Backlog cleanup/ });
+    const lowBadge = within(lowCard).getByText("Low");
+    expect(lowBadge).toHaveAttribute("data-priority", "low");
+    expect(lowBadge).toHaveClass("text-app-muted");
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select Outage fix" }),
+    );
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select Release blocker" }),
+    );
+    const compareLink = screen.getByRole("link", { name: "Read side by side" });
+    expect(compareLink).toHaveClass("ui-button-compact");
   });
 });
 

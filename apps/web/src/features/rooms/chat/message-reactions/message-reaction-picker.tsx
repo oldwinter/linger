@@ -153,12 +153,16 @@ export function MessageReactionPicker({
     const buttonRect = button.getBoundingClientRect();
     // offsetHeight ignores the entrance scale.
     const height = panelRef.current?.offsetHeight ?? 0;
+    const clampedWidth = Math.min(
+      width,
+      Math.max(0, window.innerWidth - VIEWPORT_MARGIN * 2),
+    );
     setPosition({
       left: Math.max(
         VIEWPORT_MARGIN,
         Math.min(
           buttonRect.left,
-          window.innerWidth - width - VIEWPORT_MARGIN * 2,
+          window.innerWidth - clampedWidth - VIEWPORT_MARGIN,
         ),
       ),
       top: Math.max(
@@ -221,15 +225,20 @@ export function MessageReactionPicker({
       ?.scrollIntoView?.({ block: "nearest" });
   }, [activeIndex, listId]);
 
+  const dismissRef = useRef(dismiss);
+  useEffect(() => {
+    dismissRef.current = dismiss;
+  });
+
   useEffect(() => {
     const closeOutside = (event: PointerEvent) => {
       const target = event.target as Node;
       if (!panelRef.current?.contains(target) && !anchor.contains(target))
-        dismiss(false);
+        dismissRef.current(false);
     };
     document.addEventListener("pointerdown", closeOutside);
     return () => document.removeEventListener("pointerdown", closeOutside);
-  });
+  }, [anchor]);
 
   /** Plays the entrance backwards, then unmounts the picker. */
   function dismiss(restoreFocus: boolean) {
@@ -291,6 +300,13 @@ export function MessageReactionPicker({
       ?.scrollIntoView?.({ block: "start" });
   }
 
+  function handleDialogKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    close();
+  }
+
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     const moves: Record<string, number> = {
       ArrowRight: 1,
@@ -329,15 +345,10 @@ export function MessageReactionPicker({
       <div
         ref={panelRef}
         aria-label="Add reaction"
-        className="app-floating-enter fixed z-[110] flex origin-left items-center rounded-lg bg-popover p-1.5 shadow-lg"
-        onKeyDown={(event) => {
-          if (event.key !== "Escape") return;
-          event.preventDefault();
-          event.stopPropagation();
-          close();
-        }}
+        className="app-floating-enter fixed z-[110] flex w-[min(264px,calc(100vw-16px))] origin-left items-center rounded-lg bg-popover p-1.5 shadow-lg"
+        onKeyDown={handleDialogKeyDown}
         role="dialog"
-        style={{ ...position, width }}
+        style={position}
       >
         {catalog ? (
           <>
@@ -378,12 +389,14 @@ export function MessageReactionPicker({
   }
 
   return createPortal(
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape closes this dialog regardless of which inner control holds focus
     <div
       ref={panelRef}
       aria-label="Add reaction"
-      className="fixed z-[110] origin-top-left rounded-xl bg-popover p-2 font-(family-name:--app-room-font) shadow-lg"
+      className="fixed z-[110] w-[min(352px,calc(100vw-16px))] origin-top-left rounded-xl bg-popover p-2 font-(family-name:--app-room-font) shadow-lg"
+      onKeyDown={handleDialogKeyDown}
       role="dialog"
-      style={{ ...position, width: PANEL_WIDTH }}
+      style={position}
     >
       <input
         ref={searchRef}

@@ -151,7 +151,7 @@ describe("Copy Work Item comments as Markdown", () => {
       within(dialog).getByRole("button", { name: COPY_COMMENTS }),
     );
 
-    expect(await screen.findByRole("status")).toHaveTextContent("Copy failed");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
   });
 });
 

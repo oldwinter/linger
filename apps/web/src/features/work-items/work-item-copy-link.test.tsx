@@ -54,7 +54,7 @@ describe("Copy Work Item link", () => {
     );
     fireEvent.click(screen.getByRole("menuitem", { name: "Copy link" }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("Copy failed");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
   });
 
   it("copies the same link from the peek header", async () => {

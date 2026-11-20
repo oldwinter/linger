@@ -1413,6 +1413,93 @@ describe("ThreadPanel", () => {
     );
     expect(await screen.findByRole("status")).toHaveTextContent("Copied");
   });
+
+  it("shows an inline alert when opening a Thread message file fails", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMessages(runtime);
+    const root: TeamHubMessage = {
+      ...message("message-file-root", "See the attached report"),
+      segments: [
+        { content: "See the attached report", type: "text" },
+        {
+          content: "missing-report.pdf",
+          document_id: "document-missing",
+          document_version_id: "version-missing",
+          type: "file",
+        },
+      ],
+      thread: { reply_count: 0, room_id: "room-thread-file" },
+    };
+    runtime.server.on("GET", "/v0/rooms/{roomId}/messages", () => ({
+      items: [],
+      page: { has_more: false },
+    }));
+    openPanelTab.mockImplementationOnce(() => {
+      throw new Error("Panel unavailable");
+    });
+
+    render(
+      wrap(
+        runtime,
+        <ThreadPanel
+          accountId="account-1"
+          rootMessage={root}
+          tenantId="tenant-northstar"
+        />,
+      ),
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Preview missing-report.pdf" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "File preview is unavailable",
+    );
+  });
+
+  it("enables message attachments in the Thread composer once the Thread room is ready", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMessages(runtime);
+    const root: TeamHubMessage = {
+      ...message("message-attach-root", "Attach logs here"),
+      thread: { reply_count: 0, room_id: "room-thread-attach" },
+    };
+    runtime.server.on("GET", "/v0/rooms/{roomId}/messages", () => ({
+      items: [],
+      page: { has_more: false },
+    }));
+    const stageAttachment = vi
+      .spyOn(roomMessageSender(runtime.client), "stageAttachment")
+      .mockResolvedValue(undefined);
+
+    render(
+      wrap(
+        runtime,
+        <ThreadPanel
+          accountId="account-1"
+          rootMessage={root}
+          tenantId="tenant-northstar"
+        />,
+      ),
+    );
+
+    const fileInput = await screen.findByLabelText(
+      "Choose message attachments",
+    );
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(["trace"], "trace.txt", { type: "text/plain" })],
+      },
+    });
+
+    await waitFor(() =>
+      expect(stageAttachment).toHaveBeenCalledWith(
+        expect.objectContaining({ roomId: "room-thread-attach" }),
+      ),
+    );
+    expect(await screen.findByText("trace.txt")).toBeVisible();
+  });
 });
 
 const codex: TeamHubActorRef = {

@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { defineGlobalProperty } from "@/test/global-properties";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TeamHubMessage } from "@/features/teamhub/teamhub-types";
 
@@ -11,9 +12,14 @@ const tenantId = "tenant-1";
 
 describe("Copy message link", () => {
   beforeEach(() => {
-    Object.assign(navigator, {
-      clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
+    defineGlobalProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
     });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("copies a link that opens the Message in its Room", async () => {
@@ -31,8 +37,33 @@ describe("Copy message link", () => {
     );
     await waitFor(() =>
       expect(
-        screen.getAllByRole("tooltip").map((tooltip) => tooltip.textContent),
+        screen.getAllByRole("status").map((status) => status.textContent),
       ).toContain("Copied"),
+    );
+  });
+
+  it("reports copy failure when copying a link fails", async () => {
+    defineGlobalProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: vi.fn().mockRejectedValue(new Error("Clipboard denied")),
+      },
+    });
+    defineGlobalProperty(document, "execCommand", {
+      configurable: true,
+      value: vi.fn(() => false),
+    });
+    renderTimeline(conversationMessage("message-alpha", "room-all"));
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "More message actions" }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy link" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("status").map((status) => status.textContent),
+      ).toContain("Copy failed"),
     );
   });
 

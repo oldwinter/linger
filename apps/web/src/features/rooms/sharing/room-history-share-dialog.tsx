@@ -1,4 +1,5 @@
 import { formatDateTime } from "@/lib/date-format";
+import { writeClipboardText } from "@/lib/clipboard";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Clock01Icon,
@@ -11,7 +12,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { Spinner } from "@/components/ui/spinner";
 import { Icon } from "@/components/ui/icon";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ModalDialog } from "@/components/ui/modal-dialog";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
@@ -38,12 +39,21 @@ export function RoomHistoryShareDialog({
   );
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
+  const [confirmingRevokeId, setConfirmingRevokeId] = useState<string | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 2000);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
   async function copy(value: string) {
     try {
-      await navigator.clipboard.writeText(value);
+      await writeClipboardText(value);
       setCopied(true);
       setCopyError(false);
     } catch {
+      setCopied(false);
       setCopyError(true);
     }
   }
@@ -62,7 +72,10 @@ export function RoomHistoryShareDialog({
   });
   const revoke = useMutation({
     mutationFn: (id: string) => client.roomHistory.revoke(roomId, id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onSuccess: () => {
+      setConfirmingRevokeId(null);
+      return queryClient.invalidateQueries({ queryKey });
+    },
   });
   // Opening a snapshot whose token this session already holds must not issue a
   // new one; the server keeps a single token per snapshot, so reissuing would
@@ -86,7 +99,7 @@ export function RoomHistoryShareDialog({
     <ModalDialog
       description="Create a read-only snapshot for sharing or debugging."
       onClose={() => {
-        if (!create.isPending) onClose();
+        if (!create.isPending && !revoke.isPending) onClose();
       }}
       size="md"
       title="Share conversation"
@@ -115,7 +128,10 @@ export function RoomHistoryShareDialog({
                 Conversation link
               </label>
               {copied ? (
-                <span className="flex items-center gap-1 text-xs text-app-info">
+                <span
+                  className="flex items-center gap-1 text-xs text-app-info"
+                  role="status"
+                >
                   <Icon icon={Tick02Icon} size={14} /> Copied
                 </span>
               ) : null}
@@ -189,73 +205,117 @@ export function RoomHistoryShareDialog({
             </div>
           ) : null}
           {history.error ? (
-            <p
+            <div
               role="alert"
-              className="mt-4 rounded-lg border border-app-danger/30 bg-app-danger/5 px-3 py-2 text-sm text-app-danger"
+              className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-app-danger/30 bg-app-danger/5 px-3 py-2 text-sm text-app-danger"
             >
-              Shared snapshots could not be loaded.
-            </p>
+              <span>Shared snapshots could not be loaded.</span>
+              <Button
+                loading={history.isFetching}
+                onClick={() => void history.refetch()}
+                size="compact"
+                tone="secondary"
+              >
+                Retry
+              </Button>
+            </div>
           ) : null}
           <ul className="mt-4 max-h-72 space-y-2 overflow-y-auto">
-            {history.data?.items.map((item) => (
-              <li
-                key={item.id}
-                className="rounded-lg border border-app-border bg-card p-3 text-sm transition-colors hover:bg-accent/50"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-1.5 text-sm font-medium text-app-ink">
-                      <Icon
-                        icon={Clock01Icon}
-                        size={14}
-                        className="text-app-muted"
-                      />
-                      {formatDateTime(item.created_at)}
+            {history.data?.items.map((item) => {
+              const isConfirming = confirmingRevokeId === item.id;
+              const isRevokingRow =
+                revoke.isPending && revoke.variables === item.id;
+              const isIssuingRow =
+                issueLink.isPending && issueLink.variables === item.id;
+              return (
+                <li
+                  key={item.id}
+                  className="rounded-lg border border-app-border bg-card p-3 text-sm transition-colors hover:bg-accent/50"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5 text-sm font-medium text-app-ink">
+                        <Icon
+                          icon={Clock01Icon}
+                          size={14}
+                          className="text-app-muted"
+                        />
+                        {formatDateTime(item.created_at)}
+                      </span>
+                      <small className="mt-1 flex items-center gap-1.5 text-xs text-app-muted">
+                        <Icon icon={Comment01Icon} size={14} />
+                        {item.message_count} messages
+                      </small>
+                      {!item.revoked ? (
+                        <Button
+                          aria-label={`Open shared link from ${formatDateTime(item.created_at)}`}
+                          className="mt-2 self-start"
+                          disabled={issueLink.isPending}
+                          loading={isIssuingRow}
+                          size="compactIcon"
+                          title="Open shared link"
+                          tone="ghost"
+                          onClick={() => {
+                            const known = snapshotLinks[item.id];
+                            if (known) {
+                              openShare(known);
+                              return;
+                            }
+                            // Reserve the tab inside the click so the browser does
+                            // not treat the post-request open as a popup.
+                            setPendingOpen(reserveShareTab());
+                            issueLink.mutate(item.id);
+                          }}
+                        >
+                          <Icon icon={LinkSquare02Icon} size={14} />
+                        </Button>
+                      ) : null}
                     </span>
-                    <small className="mt-1 flex items-center gap-1.5 text-xs text-app-muted">
-                      <Icon icon={Comment01Icon} size={14} />
-                      {item.message_count} messages
-                    </small>
-                    {!item.revoked ? (
+                    {item.revoked ? (
+                      <span className="rounded-sm bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                        Revoked
+                      </span>
+                    ) : isConfirming ? null : (
                       <Button
-                        aria-label={`Open shared link from ${formatDateTime(item.created_at)}`}
-                        className="mt-2 self-start"
-                        disabled={issueLink.isPending}
-                        size="compactIcon"
-                        title="Open shared link"
-                        tone="ghost"
-                        onClick={() => {
-                          const known = snapshotLinks[item.id];
-                          if (known) {
-                            openShare(known);
-                            return;
-                          }
-                          // Reserve the tab inside the click so the browser does
-                          // not treat the post-request open as a popup.
-                          setPendingOpen(reserveShareTab());
-                          issueLink.mutate(item.id);
-                        }}
+                        disabled={revoke.isPending}
+                        loading={isRevokingRow}
+                        onClick={() => setConfirmingRevokeId(item.id)}
+                        size="compact"
+                        tone="danger"
                       >
-                        <Icon icon={LinkSquare02Icon} size={14} />
+                        Revoke
                       </Button>
-                    ) : null}
-                  </span>
-                  {item.revoked ? (
-                    <span className="rounded-sm bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                      Revoked
-                    </span>
-                  ) : (
-                    <Button
-                      size="compact"
-                      disabled={revoke.isPending}
-                      onClick={() => revoke.mutate(item.id)}
-                    >
-                      Revoke
-                    </Button>
-                  )}
-                </div>
-              </li>
-            ))}
+                    )}
+                  </div>
+                  {!item.revoked && isConfirming ? (
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-app-danger/30 bg-app-danger/5 px-2.5 py-2">
+                      <p className="text-xs text-app-danger">
+                        Revoking permanently disables this shared link.
+                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          disabled={revoke.isPending}
+                          onClick={() => setConfirmingRevokeId(null)}
+                          size="compact"
+                          tone="ghost"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          disabled={revoke.isPending && !isRevokingRow}
+                          loading={isRevokingRow}
+                          onClick={() => revoke.mutate(item.id)}
+                          size="compact"
+                          tone="danger"
+                        >
+                          Confirm revoke
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         </section>
       </div>

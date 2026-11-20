@@ -8,6 +8,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Icon } from "@/components/ui/icon";
 import {
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useRef,
   useState,
@@ -96,6 +97,7 @@ export function PdfPreviewAdapter({
 }: PdfPreviewAdapterProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const onErrorRef = useRef(onError);
+  const sectionRef = useRef<HTMLElement>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
   const textLayerTask = useRef<TextLayer | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -104,6 +106,7 @@ export function PdfPreviewAdapter({
   const [pageNumber, setPageNumber] = useState(
     readingPosition?.pageNumber ?? 1,
   );
+  const [pageInput, setPageInput] = useState<string | null>(null);
   const [rendering, setRendering] = useState(true);
   const [scale, setScale] = useState(readingPosition?.scale ?? 1);
   const [selectable, setSelectable] = useState(false);
@@ -302,6 +305,7 @@ export function PdfPreviewAdapter({
   }
 
   function changePage(next: number) {
+    setPageInput(null);
     if (readingPosition) {
       readingPosition.pageNumber = next;
       readingPosition.scrollTop = 0;
@@ -311,18 +315,78 @@ export function PdfPreviewAdapter({
   }
 
   function changeScale(next: number) {
-    if (readingPosition) readingPosition.scale = next;
-    setScale(next);
+    const rounded = Math.round(next * 100) / 100;
+    if (readingPosition) readingPosition.scale = rounded;
+    setScale(rounded);
   }
+
+  function commitPageInput() {
+    if (pageInput === null || !document) {
+      setPageInput(null);
+      return;
+    }
+    const parsed = Number.parseInt(pageInput.trim(), 10);
+    setPageInput(null);
+    if (!Number.isFinite(parsed)) return;
+    const clamped = Math.min(document.numPages, Math.max(1, parsed));
+    if (clamped !== pageNumber) changePage(clamped);
+  }
+
+  const onViewerKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    if (!document) return;
+    if (
+      event.defaultPrevented ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      event.isComposing ||
+      event.keyCode === 229
+    ) {
+      return;
+    }
+    const target = event.target;
+    if (
+      target instanceof HTMLElement &&
+      (target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT" ||
+        target.isContentEditable)
+    ) {
+      return;
+    }
+    if (event.key === "ArrowLeft" || event.key === "PageUp") {
+      if (pageNumber <= 1) return;
+      event.preventDefault();
+      changePage(Math.max(1, pageNumber - 1));
+    } else if (event.key === "ArrowRight" || event.key === "PageDown") {
+      if (pageNumber >= document.numPages) return;
+      event.preventDefault();
+      changePage(Math.min(document.numPages, pageNumber + 1));
+    }
+  });
+
+  useEffect(() => {
+    const section = sectionRef.current;
+    if (!section) return;
+    const listener = (event: KeyboardEvent) => onViewerKeyDown(event);
+    section.addEventListener("keydown", listener);
+    return () => section.removeEventListener("keydown", listener);
+  }, []);
+
+  const displayedPageInput = pageInput ?? String(pageNumber);
+  const zoomPercent = Math.round(scale * 100);
+  const atDefaultZoom = Math.abs(scale - 1) < 0.001;
 
   return (
     <section
       aria-label={`PDF preview ${filename}`}
       className="flex h-full min-h-[420px] flex-col bg-app-surface-soft"
+      ref={sectionRef}
       role="document"
     >
       <style>{pdfTextLayerStyle}</style>
-      <div className="flex h-11 shrink-0 items-center justify-center gap-1 border-b border-app-border bg-app-surface px-2">
+      <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-center gap-1 border-b border-app-border bg-app-surface px-2 py-1">
         <Button
           aria-label="Previous PDF page"
           disabled={!document || pageNumber <= 1}
@@ -332,9 +396,38 @@ export function PdfPreviewAdapter({
         >
           <Icon icon={ArrowLeft01Icon} />
         </Button>
-        <span className="min-w-24 text-center text-xs text-app-muted">
-          {document ? `${pageNumber} / ${document.numPages}` : "Loading"}
-        </span>
+        {document ? (
+          <form
+            className="flex items-center gap-1 text-xs text-app-muted"
+            onSubmit={(event) => {
+              event.preventDefault();
+              commitPageInput();
+            }}
+          >
+            <span>Page</span>
+            <input
+              aria-label="PDF page number"
+              className="h-7 w-12 rounded-md border border-input bg-card px-1.5 text-center text-xs tabular-nums text-app-ink outline-none transition-colors hover:border-border-hover focus:border-foreground focus:ring-2 focus:ring-ring"
+              inputMode="numeric"
+              onBlur={commitPageInput}
+              onChange={(event) => setPageInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setPageInput(null);
+                  event.currentTarget.blur();
+                }
+              }}
+              type="text"
+              value={displayedPageInput}
+            />
+            <span className="whitespace-nowrap">of {document.numPages}</span>
+          </form>
+        ) : (
+          <span className="min-w-24 text-center text-xs text-app-muted">
+            Loading
+          </span>
+        )}
         <Button
           aria-label="Next PDF page"
           disabled={!document || pageNumber >= document.numPages}
@@ -358,6 +451,12 @@ export function PdfPreviewAdapter({
         >
           <Icon icon={ZoomOutAreaIcon} />
         </Button>
+        <span
+          aria-label="PDF zoom level"
+          className="min-w-11 text-center text-xs tabular-nums text-app-muted"
+        >
+          {zoomPercent}%
+        </span>
         <Button
           aria-label="Zoom PDF in"
           disabled={scale >= 2}
@@ -367,15 +466,28 @@ export function PdfPreviewAdapter({
         >
           <Icon icon={ZoomInAreaIcon} />
         </Button>
+        <Button
+          disabled={atDefaultZoom}
+          onClick={() => changeScale(1)}
+          size="compact"
+          title="Reset zoom"
+          tone="ghost"
+        >
+          Fit width
+        </Button>
       </div>
       <div
-        className="relative min-h-0 flex-1 overflow-auto p-6"
+        aria-label="PDF page viewport"
+        className="relative min-h-0 flex-1 overflow-auto p-6 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-focus"
         onScroll={(event) => {
           if (!readingPosition || rendering) return;
           readingPosition.scrollTop = event.currentTarget.scrollTop;
           readingPosition.scrollLeft = event.currentTarget.scrollLeft;
         }}
         ref={viewportRef}
+        role="region"
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- keyboard-focusable scroll region so keyboard users can scroll and page through it
+        tabIndex={0}
       >
         {error ? (
           <p

@@ -9,11 +9,12 @@ import {
 } from "@testing-library/react";
 import { Suspense } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TeamHubEventSync } from "@/features/rooms/event-sync";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubLocalComputerPage } from "@/features/teamhub/teamhub-types";
+import { defineGlobalProperty } from "@/test/global-properties";
 import {
   acceptTenantAgentUpdates,
   createTestTeamHubRuntime,
@@ -1377,11 +1378,13 @@ describe("LocalModelsPage", () => {
     expect(within(coderCard).getByText("2 Agents")).toBeVisible();
     expect(within(coderCard).getByText("3B active")).toBeVisible();
     expect(within(coderCard).getByText("Tool use")).toBeVisible();
-    expect(within(coderCard).getByText("Reasoning")).toBeVisible();
-    expect(within(coderCard).getByText("+1")).toHaveAttribute(
+    expect(within(coderCard).queryByText("Reasoning")).not.toBeInTheDocument();
+    expect(within(coderCard).getByText("+2")).toHaveAttribute(
       "title",
-      "Coding",
+      "Reasoning, Coding",
     );
+    expect(coderCard.querySelector('button[aria-hidden="true"]')).toBeNull();
+    expect(coderCard.querySelector("button[aria-hidden]")).toBeNull();
 
     const gemmaCard = card("Gemma 3 4B");
     expect(gemmaCard).toHaveAttribute("data-status", "available");
@@ -2837,6 +2840,11 @@ describe("Model source", () => {
     expect(
       screen.queryByText(/A key is saved on this computer/u),
     ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "For security, saved keys are only reused for the original endpoint host. Enter a key for the new host.",
+      ),
+    ).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
     await waitFor(() => expect(tests).toHaveLength(2));
@@ -3377,5 +3385,121 @@ describe("Model source", () => {
       await screen.findByRole("dialog", { name: "End running tasks?" }),
     ).toBeVisible();
     await waitFor(() => expect(picker).toBeEnabled());
+  });
+
+  it("warns on both Local model and BYOK tabs when switching away from Subscription, and uses uniform BYOK button sizes", async () => {
+    const fixture = setup([labView()]);
+    withSource(fixture, {
+      ...byokStatus,
+      mode: "subscription",
+      runtime: "claude",
+      runtime_model: "claude-sonnet",
+    });
+    await renderPage(fixture);
+
+    expect(
+      await screen.findByText(
+        /Switching away from Subscription cannot be reversed from this page\./u,
+      ),
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByRole("tab", { name: "BYOK" }));
+    expect(
+      screen.getByText(
+        /Switching away from Subscription cannot be reversed from this page\./u,
+      ),
+    ).toBeVisible();
+    for (const label of [
+      "List models",
+      "Test connection",
+      "Save & Switch to BYOK",
+    ]) {
+      const btn = screen.getByRole("button", { name: label });
+      expect(btn).toHaveClass("ui-button-default");
+      expect(btn).not.toHaveClass("ui-button-large");
+    }
+  });
+
+  it("renders skeleton rows while loading models, uses FormFeedback for model diagnostics, and reports endpoint copy results", async () => {
+    const writeText = vi
+      .fn<() => Promise<void>>()
+      .mockResolvedValueOnce()
+      .mockRejectedValueOnce(new Error("denied"));
+    defineGlobalProperty(navigator, "clipboard", {
+      value: { writeText },
+    });
+    defineGlobalProperty(document, "execCommand", {
+      value: vi.fn(() => false),
+    });
+
+    const pendingView = withModel(
+      withModel(labView(), "gemma3-27b:Q4_K_M", {
+        error: { code: "ENGINE_START_FAILED" },
+        note: { code: "NO_ROOM_TO_LOAD" },
+        state: "failed",
+      }),
+      "qwen3-coder-30b:Q4_K_M",
+      {
+        endpoint: { base_url: "http://127.0.0.1:18100/v1" },
+        state: "loaded",
+      },
+    );
+    const fixture = setup([pendingView]);
+    let releaseModels!: () => void;
+    fixture.runtime.server.on(
+      "GET",
+      viewPath,
+      () =>
+        new Promise((resolve) => {
+          releaseModels = () => resolve(Response.json(pendingView));
+        }),
+    );
+
+    await renderPage(fixture);
+    const loadingRegion = await screen.findByRole("status", {
+      name: "Loading models",
+    });
+    expect(loadingRegion).toHaveAttribute("aria-busy", "true");
+    expect(
+      loadingRegion.querySelectorAll(".town-skeleton").length,
+    ).toBeGreaterThanOrEqual(6);
+
+    releaseModels();
+    await findModels();
+
+    // ModelFacts danger/warning diagnostics use FormFeedback roles.
+    fireEvent.click(screen.getByRole("button", { name: "Gemma 3 27B" }));
+    const failedDetails = screen.getByRole("region", {
+      name: "Gemma 3 27B details",
+    });
+    expect(within(failedDetails).getByRole("alert")).toHaveTextContent(
+      "Last load:",
+    );
+    expect(within(failedDetails).getByRole("status")).toHaveTextContent(
+      "Note:",
+    );
+
+    // CopyEndpoint reports Copied and Copy failed through writeClipboardText.
+    fireEvent.click(screen.getByRole("button", { name: "Qwen3 Coder 30B" }));
+    const loadedDetails = screen.getByRole("region", {
+      name: "Qwen3 Coder 30B details",
+    });
+    const copyButton = within(loadedDetails).getByRole("button", {
+      name: "Copy Qwen3 Coder 30B endpoint",
+    });
+    fireEvent.click(copyButton);
+    expect(await within(loadedDetails).findByRole("status")).toHaveTextContent(
+      "Copied",
+    );
+    expect(writeText).toHaveBeenCalledWith("http://127.0.0.1:18100/v1");
+
+    fireEvent.click(
+      within(loadedDetails).getByRole("button", {
+        name: "Copied Qwen3 Coder 30B endpoint",
+      }),
+    );
+    expect(await within(loadedDetails).findByRole("alert")).toHaveTextContent(
+      "Copy failed",
+    );
   });
 });

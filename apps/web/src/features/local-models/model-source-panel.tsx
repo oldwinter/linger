@@ -293,10 +293,12 @@ export function ModelSourceTabs({
 /** Offered above the library while the Agents use another source. */
 export function SwitchToLocalNotice({
   disabled,
+  fromSubscription = false,
   models,
   switcher,
 }: {
   disabled: boolean;
+  fromSubscription?: boolean;
   models: readonly LocalModel[];
   switcher: ModelSourceSwitcher;
 }) {
@@ -308,49 +310,57 @@ export function SwitchToLocalNotice({
   const single = models.length === 1 ? models[0] : undefined;
 
   return (
-    <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-muted px-4 py-3">
-      <p className="min-w-0 flex-1 text-sm text-muted-foreground">
-        {single ? (
-          <>
-            <span className="text-foreground">{single.name}</span> is on this
-            computer and can run your Agents locally.
-          </>
-        ) : models.length > 1 ? (
-          "Choose a model on this computer to run your Agents locally."
-        ) : (
-          "Download a model below to run your Agents locally."
-        )}
-      </p>
-      <div className="flex shrink-0 flex-wrap items-center gap-2">
-        {models.length > 1 && chosen ? (
-          <Select
-            aria-label="Local model"
-            onValueChange={setSelectedId}
-            value={chosen.id}
-            variant="pill"
+    <div className="mt-6 flex flex-col gap-3 rounded-xl bg-muted px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+          {single ? (
+            <>
+              <span className="text-foreground">{single.name}</span> is on this
+              computer and can run your Agents locally.
+            </>
+          ) : models.length > 1 ? (
+            "Choose a model on this computer to run your Agents locally."
+          ) : (
+            "Download a model below to run your Agents locally."
+          )}
+        </p>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {models.length > 1 && chosen ? (
+            <Select
+              aria-label="Local model"
+              onValueChange={setSelectedId}
+              value={chosen.id}
+              variant="pill"
+            >
+              {models.map((model) => (
+                <SelectItem key={model.id} value={model.id}>
+                  {model.name} ·{" "}
+                  {model.state === "loaded" ? "Loaded" : "Downloaded"} ·{" "}
+                  {formatGigabytes(model.memory_bytes)}
+                </SelectItem>
+              ))}
+            </Select>
+          ) : null}
+          <Button
+            disabled={disabled || !chosen}
+            loading={switcher.pending?.mode === "local"}
+            onClick={() =>
+              chosen &&
+              switcher.request({ local_model_id: chosen.id, mode: "local" })
+            }
+            size="compact"
+            tone="primary"
           >
-            {models.map((model) => (
-              <SelectItem key={model.id} value={model.id}>
-                {model.name} ·{" "}
-                {model.state === "loaded" ? "Loaded" : "Downloaded"} ·{" "}
-                {formatGigabytes(model.memory_bytes)}
-              </SelectItem>
-            ))}
-          </Select>
-        ) : null}
-        <Button
-          disabled={disabled || !chosen}
-          loading={switcher.pending?.mode === "local"}
-          onClick={() =>
-            chosen &&
-            switcher.request({ local_model_id: chosen.id, mode: "local" })
-          }
-          size="compact"
-          tone="primary"
-        >
-          Switch to Local model
-        </Button>
+            Switch to Local model
+          </Button>
+        </div>
       </div>
+      {fromSubscription ? (
+        <FormFeedback tone="info">
+          This computer currently uses Subscription. Switching away from
+          Subscription cannot be reversed from this page.
+        </FormFeedback>
+      ) : null}
     </div>
   );
 }
@@ -460,6 +470,11 @@ export function ByokPanel({
   const canReuseSavedKey =
     saved.key_saved &&
     (!saved.base_url || sameEndpointOrigin(saved.base_url, trimmedBaseUrl));
+  const originChangedWithSavedKey =
+    saved.key_saved &&
+    Boolean(saved.base_url) &&
+    trimmedBaseUrl !== "" &&
+    !sameEndpointOrigin(saved.base_url, trimmedBaseUrl);
   const credentials = apiKey
     ? { api_key: apiKey }
     : canReuseSavedKey
@@ -539,6 +554,12 @@ export function ByokPanel({
       onSubmit={save}
     >
       <div className="grid grid-cols-1 gap-4 px-4 py-4">
+        {status.mode === "subscription" ? (
+          <FormFeedback tone="info">
+            This computer currently uses Subscription. Switching away from
+            Subscription cannot be reversed from this page.
+          </FormFeedback>
+        ) : null}
         {active && saved.protocol ? (
           <p className="text-xs text-muted-foreground">
             In use, through {byokProtocolLabels[saved.protocol]}.
@@ -594,7 +615,9 @@ export function ByokPanel({
           hint={
             canReuseSavedKey
               ? "A key is saved on this computer. Leave blank to keep it."
-              : "Optional for an endpoint on this computer or your local network."
+              : originChangedWithSavedKey
+                ? "For security, saved keys are only reused for the original endpoint host. Enter a key for the new host."
+                : "Optional for an endpoint on this computer or your local network."
           }
           label="API key"
           onBlur={() => {
@@ -666,7 +689,7 @@ export function ByokPanel({
               loading={models.isFetching}
               onClick={listModels}
               onMouseDown={(event) => event.preventDefault()}
-              size="large"
+              size="default"
             >
               {models.isFetching ? null : <Icon icon={RefreshIcon} size={16} />}
               List models
@@ -715,14 +738,14 @@ export function ByokPanel({
           disabled={disabled || !complete}
           loading={test.isPending}
           onClick={() => test.mutate({ byok: input, runtime })}
-          size="large"
+          size="default"
         >
           Test connection
         </Button>
         <Button
           disabled={disabled || !complete}
           loading={switcher.pending?.mode === "byok"}
-          size="large"
+          size="default"
           tone="primary"
           type="submit"
         >

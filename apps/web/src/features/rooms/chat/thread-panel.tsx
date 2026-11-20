@@ -25,8 +25,6 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubActorRef,
   TeamHubMessage,
-  TeamHubMessageDocumentSegment,
-  TeamHubMessageFileSegment,
   TeamHubRoom,
 } from "@/features/teamhub/teamhub-types";
 
@@ -60,6 +58,7 @@ import {
   replaceLoadedRoomMessage,
 } from "./room-projection";
 import { SharedStreamingStatus } from "./shared-streaming-status";
+import { useMessageFilePreview } from "./use-message-file-preview";
 import { useRoomChatNavigation } from "./use-room-chat-navigation";
 import {
   orderRoomMessages,
@@ -155,6 +154,9 @@ function ThreadPanelContent({
     mentionOptions,
   );
   const navigation = useRoomChatNavigation(client, tenantId, parentRoomId);
+  const { filePreviewError, previewMessageFile } = useMessageFilePreview(
+    navigation.openMessageFile,
+  );
   const draftScope = {
     accountId,
     roomId: parentRoomId,
@@ -341,7 +343,7 @@ function ThreadPanelContent({
               : undefined
           }
           onOpenArtifact={navigation.previewArtifact}
-          onOpenMessageFile={(segment) => openMessageFile(navigation, segment)}
+          onOpenMessageFile={previewMessageFile}
           onOpenProfile={onOpenProfile}
           onToggleReaction={
             reply && threadRoomId && participating
@@ -435,24 +437,44 @@ function ThreadPanelContent({
           messages={conversation.pendingMessages}
           onCancel={conversation.delivery.cancelMessage}
           onOpenProfile={onOpenProfile}
+          onRestoreToDraft={async (clientId) => {
+            const pending = conversation.pendingMessages.find(
+              (item) => item.clientId === clientId,
+            );
+            if (!pending || !composerRef.current) return;
+            composerRef.current.restoreDraft({
+              body: pending.body,
+              mentions: pending.mentions,
+            });
+            await conversation.delivery.cancelMessage(clientId);
+          }}
           onRetry={conversation.delivery.retryMessage}
         />
       </ThreadTimeline>
       <ThreadReplyDock
         dock={threadRoomId ? conversation.dock : undefined}
+        filePreviewError={filePreviewError}
         outboxError={conversation.delivery.outboxError}
         parentRoom={parentRoom.data}
       >
         <MessageComposer
           ariaLabel="Reply in Thread"
+          attachmentDraftKey={
+            threadRoomId
+              ? `${accountId}:${tenantId}:${threadRoomId}`
+              : undefined
+          }
+          attachmentEnabled={Boolean(threadRoomId)}
           disabled={!threadRoomId}
           initialMentions={initialDraft.mentions}
           initialValue={initialDraft.body}
           mentionOptions={mentionOptions}
+          onCancelAttachment={conversation.delivery.cancelAttachment}
           onDraftStateChange={(draft) =>
             writeRoomComposerDraft(draftScope, draft)
           }
           onSend={sendReply}
+          onStageAttachment={conversation.delivery.stageAttachment}
           placeholder={
             threadRoomId
               ? "Reply in this Thread"
@@ -470,20 +492,36 @@ function ThreadPanelContent({
 function ThreadReplyDock({
   children,
   dock,
+  filePreviewError,
   outboxError,
   parentRoom,
 }: PropsWithChildren<{
   /** Present once the Thread Room exists. */
   dock?: ComponentProps<typeof AgentStreamingStatusDock>;
+  filePreviewError?: string;
   outboxError?: string;
   parentRoom?: TeamHubRoom;
 }>) {
   if (parentRoom?.participation === "left") {
-    return <RoomRejoinBanner room={parentRoom} />;
+    return (
+      <>
+        {filePreviewError ? (
+          <p className="px-3 pb-2 text-xs text-app-danger" role="alert">
+            {filePreviewError}
+          </p>
+        ) : null}
+        <RoomRejoinBanner room={parentRoom} />
+      </>
+    );
   }
   const hasThreadDock = Boolean(dock && hasAgentStreamingDockEntries(dock));
   return (
     <div className="room-composer-dock shrink-0 px-3">
+      {filePreviewError ? (
+        <p className="mb-2 text-xs text-app-danger" role="alert">
+          {filePreviewError}
+        </p>
+      ) : null}
       {outboxError ? (
         <p className="mb-2 text-sm text-app-danger" role="alert">
           {outboxError}
@@ -617,6 +655,7 @@ function ThreadPendingReplies({
   messages,
   onCancel,
   onOpenProfile,
+  onRestoreToDraft,
   onRetry,
 }: {
   actorId?: string;
@@ -625,6 +664,7 @@ function ThreadPendingReplies({
   messages: PendingRoomMessage[];
   onCancel: (clientId: string) => Promise<void> | void;
   onOpenProfile: (actorId: string) => void;
+  onRestoreToDraft?: (clientId: string) => Promise<void> | void;
   onRetry: (clientId: string) => void;
 }) {
   return messages.map((message, index) => (
@@ -635,6 +675,7 @@ function ThreadPendingReplies({
       message={message}
       onCancel={onCancel}
       onOpenProfile={onOpenProfile}
+      onRestoreToDraft={onRestoreToDraft}
       onRetry={onRetry}
       startsGroup={index === 0 && lastAuthorId !== actorId}
     />
@@ -672,11 +713,4 @@ function useThreadRowContext(
     }),
     [actors, agents, members, mentionOptions],
   );
-}
-
-function openMessageFile(
-  navigation: ReturnType<typeof useRoomChatNavigation>,
-  segment: TeamHubMessageFileSegment | TeamHubMessageDocumentSegment,
-) {
-  void navigation.openMessageFile(segment);
 }

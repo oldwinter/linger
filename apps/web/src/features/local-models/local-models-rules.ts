@@ -469,7 +469,7 @@ function allModelBadges(model: LocalModel): string[] {
   return badges;
 }
 
-const visibleBadgeCount = 3;
+const visibleBadgeCount = 2;
 
 export interface CollapsedRowBadges {
   badges: string[];

@@ -1914,6 +1914,45 @@ describe("Work Item peek", () => {
     const closed = await screen.findByRole("region", { name: "Closed" });
     expect(await within(closed).findByText("Fix login failure")).toBeVisible();
   });
+
+  it("applies consistent danger and warning priority tokens inside the peek", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        id: "workitem-urgent",
+        priority: "urgent",
+        title: "Urgent outage",
+      }),
+      workItem(human, {
+        id: "workitem-high",
+        priority: "high",
+        title: "High priority item",
+      }),
+    ]);
+    seedConversation(runtime, human, {});
+
+    renderPage(runtime);
+
+    const urgentDialog = await openPeek("Urgent outage");
+    const urgentBadge = within(urgentDialog).getByText("urgent");
+    expect(urgentBadge).toHaveAttribute("data-priority", "urgent");
+    expect(urgentBadge).toHaveClass(
+      "bg-(--app-status-danger-surface)",
+      "text-(--app-status-danger-text)",
+    );
+    fireEvent.click(
+      within(urgentDialog).getByRole("button", { name: "Close" }),
+    );
+
+    const highDialog = await openPeek("High priority item");
+    const highBadge = within(highDialog).getByText("high");
+    expect(highBadge).toHaveAttribute("data-priority", "high");
+    expect(highBadge).toHaveClass(
+      "bg-(--app-status-warning-surface)",
+      "text-(--app-status-warning-text)",
+    );
+  });
 });
 
 async function testRuntime() {

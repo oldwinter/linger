@@ -738,10 +738,7 @@ describe("Room Message timeline cards", () => {
       onReply,
     });
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "More message actions" }),
-    );
-    fireEvent.click(screen.getByRole("menuitem", { name: "Reply to message" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reply to message" }));
 
     const authorButton = screen.getByRole("button", { name: "Codex" });
     fireEvent.click(authorButton);
@@ -752,32 +749,31 @@ describe("Room Message timeline cards", () => {
     expect(authorButton.firstElementChild?.tagName).toBe("svg");
     expect(
       screen.getAllByRole("tooltip").map((tooltip) => tooltip.textContent),
-    ).toEqual(["Copy message", "Copy as quote"]);
+    ).toEqual(["Reply to message", "Copy message"]);
     fireEvent.click(
       screen.getByRole("button", { name: "More message actions" }),
     );
-    expect(
-      screen.getByRole("menuitem", { name: "Reply to message" }),
-    ).toBeVisible();
     fireEvent.click(screen.getByRole("menuitem", { name: "Forward message" }));
     expect(onForwardMessage).toHaveBeenCalledWith(message);
   });
 
-  it("stages a quoted reply beside the structured reply option", () => {
+  it("stages a quoted reply alongside the inline structured reply action", () => {
     const message = ordinaryAgentMessage();
     const onReply = vi.fn();
     const onReplyWithQuote = vi.fn();
 
     renderTimeline(message, { onReply, onReplyWithQuote });
 
+    expect(
+      screen.getByRole("button", { name: "Reply to message" }),
+    ).toBeVisible();
     fireEvent.click(
       screen.getByRole("button", { name: "More message actions" }),
     );
     const labels = screen
       .getAllByRole("menuitem")
       .map((item) => item.textContent);
-    expect(labels.slice(labels.indexOf("Reply to message"))).toEqual([
-      "Reply to message",
+    expect(labels.slice(labels.indexOf("Reply with quote"))).toEqual([
       "Reply with quote",
       "Reply to thread",
     ]);
@@ -797,6 +793,9 @@ describe("Room Message timeline cards", () => {
   it("offers no quoted reply without a composer to stage it in", () => {
     renderTimeline(ordinaryAgentMessage(), { onReply: vi.fn() });
 
+    expect(
+      screen.getByRole("button", { name: "Reply to message" }),
+    ).toBeVisible();
     fireEvent.click(
       screen.getByRole("button", { name: "More message actions" }),
     );
@@ -804,9 +803,6 @@ describe("Room Message timeline cards", () => {
     expect(
       screen.queryByRole("menuitem", { name: "Reply with quote" }),
     ).toBeNull();
-    expect(
-      screen.getByRole("menuitem", { name: "Reply to message" }),
-    ).toBeVisible();
   });
 
   it.each(["timeline", "linked source"] as const)(
@@ -905,8 +901,10 @@ describe("Room Message timeline cards", () => {
       ...ordinaryAgentMessage(),
       created_at: "2026-11-14T09:12:00",
     });
-    const button = screen.getByRole("button", { name: "Copy as quote" });
-    fireEvent.click(button);
+    fireEvent.click(
+      screen.getByRole("button", { name: "More message actions" }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy as quote" }));
 
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith(
@@ -916,9 +914,11 @@ describe("Room Message timeline cards", () => {
       ),
     );
     expect(writeText).toHaveBeenCalledTimes(1);
-    expect(
-      within(button.parentElement as HTMLElement).getByRole("tooltip"),
-    ).toHaveTextContent("Copied");
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("status").map((status) => status.textContent),
+      ).toContain("Copied"),
+    );
   });
 
   it("says a quote copy failed instead of claiming it was copied", async () => {
@@ -929,15 +929,16 @@ describe("Room Message timeline cards", () => {
     });
     document.execCommand = vi.fn(() => false);
     renderTimeline(ordinaryAgentMessage());
-    const button = screen.getByRole("button", { name: "Copy as quote" });
-    fireEvent.click(button);
+    fireEvent.click(
+      screen.getByRole("button", { name: "More message actions" }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy as quote" }));
 
     await waitFor(() =>
       expect(
-        within(button.parentElement as HTMLElement).getByRole("tooltip"),
-      ).toHaveTextContent("Copy failed"),
+        screen.getAllByRole("status").map((status) => status.textContent),
+      ).toContain("Copy failed"),
     );
-    expect(screen.getByRole("button", { name: "Copy as quote" })).toBeVisible();
   });
 
   it("shows a parent reply record after Thread replies exist", () => {
@@ -2699,13 +2700,26 @@ describe("Room Message timeline cards", () => {
     expect(screen.queryByText("Live activities")).toBeNull();
   });
 
-  it("keeps Copy text, Copy link, Forward, Reply, and Reply to thread in the More message menu", () => {
+  it("promotes Reply inline and keeps secondary copy, Forward, and Thread actions in the More message menu", () => {
     const message = ordinaryAgentMessage();
     renderTimeline(message, {
       onForwardMessage: vi.fn(),
       onOpenThread: vi.fn(),
       onReply: vi.fn(),
+      onToggleReaction: vi.fn(),
     });
+
+    const actions = messageRow(message).querySelector(".message-row-actions")!;
+    expect(
+      within(actions as HTMLElement)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual([
+      "Add reaction",
+      "Reply to message",
+      "Copy message",
+      "More message actions",
+    ]);
 
     fireEvent.click(
       within(messageRow(message)).getByRole("button", {
@@ -2717,8 +2731,8 @@ describe("Room Message timeline cards", () => {
     ).toEqual([
       "Copy link",
       "Copy text",
+      "Copy as quote",
       "Forward message",
-      "Reply to message",
       "Reply to thread",
     ]);
   });
@@ -2986,10 +3000,7 @@ describe("Room Message timeline cards", () => {
     expect(
       screen.queryByRole("button", { name: "Reply to thread" }),
     ).toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", { name: "More message actions" }),
-    );
-    fireEvent.click(screen.getByRole("menuitem", { name: "Reply to message" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reply to message" }));
     expect(screen.getByRole("button", { name: "Copy message" })).toBeVisible();
     expect(onReply).toHaveBeenCalledWith(message);
     expect(screen.queryByRole("button", { name: "Helpful" })).toBeNull();
@@ -3005,10 +3016,7 @@ describe("Room Message timeline cards", () => {
     expect(
       screen.queryByRole("button", { name: "Reply to thread" }),
     ).toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", { name: "More message actions" }),
-    );
-    fireEvent.click(screen.getByRole("menuitem", { name: "Reply to message" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reply to message" }));
     expect(onReply).toHaveBeenCalledWith(message);
   });
 
@@ -3165,6 +3173,9 @@ function renderTimeline(
     onReplyWithQuote?: ComponentProps<
       typeof MessageTimeline
     >["onReplyWithQuote"];
+    onToggleReaction?: ComponentProps<
+      typeof MessageTimeline
+    >["onToggleReaction"];
     presentations?: ComponentProps<typeof MessageTimeline>["presentations"];
     unreadDividerIndex?: ComponentProps<
       typeof MessageTimeline

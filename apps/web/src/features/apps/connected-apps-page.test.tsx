@@ -6,7 +6,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
@@ -179,7 +179,12 @@ describe("Connected apps", () => {
 
     expect(await screen.findByRole("button", { name: "Gmail" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "Connectors" })).toBeVisible();
-    expect(screen.queryByRole("searchbox")).toBeNull();
+    const searchInput = screen.getByRole("searchbox", {
+      name: "Search connectors",
+    });
+    expect(searchInput).toBeVisible();
+    expect(searchInput).toHaveAttribute("placeholder", "Search connectors...");
+    expect(searchInput).toHaveClass("placeholder:text-app-placeholder");
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
     ).toEqual(["Mail & Calendar", "Meetings", "Productivity", "Messaging"]);
@@ -992,7 +997,171 @@ describe("Connected apps", () => {
       ).toBeNull(),
     );
   });
+
+  it("filters connectors by name and description with inline Clear and Escape clear", async () => {
+    const runtime = await testRuntime();
+    renderPage(runtime);
+
+    const search = await screen.findByRole("searchbox", {
+      name: "Search connectors",
+    });
+
+    // Matches by connector name across all categories.
+    fireEvent.change(search, { target: { value: "notion" } });
+    expect(
+      within(screen.getByRole("region", { name: "Application connections" }))
+        .getAllByRole("article")
+        .map((card) => within(card).getAllByRole("button")[0]!.ariaLabel),
+    ).toEqual(["Notion"]);
+
+    // Inline Clear button resets the search.
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(search).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Gmail" })).toBeVisible();
+
+    // Matches by description/summary and clears on Escape.
+    fireEvent.change(search, { target: { value: "repositories" } });
+    expect(
+      within(screen.getByRole("region", { name: "Application connections" }))
+        .getAllByRole("article")
+        .map((card) => within(card).getAllByRole("button")[0]!.ariaLabel),
+    ).toEqual(["GitHub"]);
+
+    fireEvent.keyDown(search, { key: "Escape" });
+    expect(search).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Slack" })).toBeVisible();
+  });
+
+  it("persists category tab and connected filter in URL search params alongside app", async () => {
+    const runtime = await testRuntime();
+    renderPage(runtime, "/apps?tab=mail-calendar&connected=1");
+
+    const categories = await screen.findByRole("tablist", {
+      name: "Connector categories",
+    });
+    expect(
+      within(categories).getByRole("tab", { name: "Mail & Calendar" }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(
+      screen.getByRole("button", { name: "Connected only" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      within(screen.getByRole("region", { name: "Application connections" }))
+        .getAllByRole("article")
+        .map((card) => within(card).getAllByRole("button")[0]!.ariaLabel),
+    ).toEqual(["Gmail"]);
+    expect(
+      document.querySelector('[data-scroll-cue="tabs"]'),
+    ).toBeInTheDocument();
+
+    // Opening an app keeps tab and connected in the URL.
+    fireEvent.click(screen.getByRole("button", { name: "Gmail" }));
+    expect(await screen.findByRole("dialog", { name: "Gmail" })).toBeVisible();
+    const params = new URLSearchParams(
+      screen.getByTestId("location").textContent ?? "",
+    );
+    expect(params.get("tab")).toBe("mail-calendar");
+    expect(params.get("connected")).toBe("1");
+    expect(params.get("app")).toBe("gmail");
+
+    // Switching tab and toggling Connected only updates the URL cleanly.
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(within(categories).getByRole("tab", { name: "Messaging" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connected only" }));
+    const updatedParams = new URLSearchParams(
+      screen.getByTestId("location").textContent ?? "",
+    );
+    expect(updatedParams.get("tab")).toBe("messaging");
+    expect(updatedParams.get("connected")).toBeNull();
+    expect(updatedParams.get("app")).toBeNull();
+  });
+
+  it("shows context-aware empty states for search and connected filters with Show all connectors reset", async () => {
+    const runtime = await testRuntime();
+    renderPage(runtime);
+
+    const search = await screen.findByRole("searchbox", {
+      name: "Search connectors",
+    });
+
+    // Search no-match empty state.
+    fireEvent.change(search, { target: { value: "nonexistent-tool" } });
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "No connectors match “nonexistent-tool”.",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show all connectors" }),
+    );
+    expect(search).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Gmail" })).toBeVisible();
+
+    // Category + Connected only empty state.
+    const categories = screen.getByRole("tablist", {
+      name: "Connector categories",
+    });
+    fireEvent.click(within(categories).getByRole("tab", { name: "Messaging" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connected only" }));
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "No connected apps in Messaging yet.",
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show all connectors" }),
+    );
+    expect(
+      within(categories).getByRole("tab", { name: "All" }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(
+      screen.getByRole("button", { name: "Connected only" }),
+    ).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "Gmail" })).toBeVisible();
+  });
+
+  it("loads connector logos eagerly with a fallback placeholder while loading and on error", async () => {
+    const runtime = await testRuntime();
+    const catalog = await runtime.client.listExternalApps();
+    vi.spyOn(runtime.client, "listExternalApps").mockResolvedValue({
+      ...catalog,
+      apps: catalog.apps.map((app) =>
+        app.key === "gmail"
+          ? { ...app, logo_url: "https://cdn.example.test/gmail.svg" }
+          : app.key === "slack"
+            ? { ...app, logo_url: "https://cdn.example.test/broken.svg" }
+            : app,
+      ),
+    });
+
+    renderPage(runtime);
+
+    const gmailCard = await screen.findByRole("button", { name: "Gmail" });
+    const gmailImg = gmailCard.querySelector("img");
+    expect(gmailImg).not.toBeNull();
+    expect(gmailImg).not.toHaveAttribute("loading", "lazy");
+    expect(
+      gmailCard.querySelector('[data-logo-fallback="loading"]'),
+    ).not.toBeNull();
+
+    fireEvent.load(gmailImg!);
+    expect(
+      gmailCard.querySelector('[data-logo-fallback="loading"]'),
+    ).toBeNull();
+    expect(gmailImg).toHaveClass("opacity-100");
+
+    const slackCard = screen.getByRole("button", { name: "Slack" });
+    const slackImg = slackCard.querySelector("img");
+    expect(slackImg).not.toBeNull();
+    fireEvent.error(slackImg!);
+    expect(slackCard.querySelector("img")).toBeNull();
+    expect(
+      within(slackCard).getByRole("img", { name: "Slack icon" }),
+    ).toBeVisible();
+  });
 });
+
+function LocationProbe() {
+  const location = useLocation();
+  return <span data-testid="location">{location.search}</span>;
+}
 
 /** The curated catalog TeamHub lists without a Composio key. */
 async function unconfiguredCatalog(
@@ -1028,6 +1197,7 @@ function renderPage(
       <QueryClientProvider client={queryClient}>
         <TeamHubRuntimeProvider runtime={runtime}>
           <ConnectedAppsPage />
+          <LocationProbe />
         </TeamHubRuntimeProvider>
       </QueryClientProvider>
     </MemoryRouter>,
