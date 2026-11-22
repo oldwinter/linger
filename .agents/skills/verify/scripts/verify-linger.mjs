@@ -33,7 +33,7 @@ function printUsage() {
       "      and wait until Another Me is provisioned and the UI gate is cleared.",
       "  doctor --run-id <id>",
       "      Run read-only checks on PIDs, port ownership, HTTP probes, owner login, Another Me, and Gateway.",
-      "  sign-in --run-id <id> [--return-to <path>]",
+      "  sign-in --run-id <id> [--return-to /connect-computer?<query>]",
       "      Sign into the isolated Web UI through /login inside the run's agent-browser session.",
       "  browser --run-id <id> -- <agent-browser args...>",
       "      Run agent-browser scoped to this run's --session.",
@@ -1403,6 +1403,28 @@ async function cmdSignIn(flags) {
   const state = await loadState(runId);
   const owner = JSON.parse(await readFile(state.paths.ownerFile, "utf8"));
   const returnTo = flags["return-to"];
+  if (returnTo !== undefined) {
+    let parsedReturnTo;
+    try {
+      parsedReturnTo = new URL(returnTo, "http://localhost");
+    } catch {
+      fail(
+        `Invalid --return-to "${returnTo}". /login only accepts /connect-computer?<query> return_to targets.`,
+        2,
+      );
+    }
+    if (
+      parsedReturnTo.origin !== "http://localhost" ||
+      parsedReturnTo.hash !== "" ||
+      parsedReturnTo.pathname !== "/connect-computer" ||
+      parsedReturnTo.search.length <= 1
+    ) {
+      fail(
+        `Unsupported --return-to "${returnTo}". Linger /login only allowlists /connect-computer?<query>; navigate to workspace routes after sign-in.`,
+        2,
+      );
+    }
+  }
   const loginUrl = returnTo
     ? `${state.web_url}/login?return_to=${encodeURIComponent(returnTo)}`
     : `${state.web_url}/login`;
@@ -1422,7 +1444,7 @@ async function cmdSignIn(flags) {
       ["wait", "--text", "Log in"],
       ["find", "label", "Email", "fill", owner.owner_email],
       ["find", "label", "Password", "fill", owner.owner_password],
-      ["find", "role", "button", "click", "--name", "Sign in"],
+      ["find", "role", "button", "click", "--name", "Log in"],
     ]) {
       const step = runBrowserCommand(state.browser_session, args);
       if (step.status !== 0) {
