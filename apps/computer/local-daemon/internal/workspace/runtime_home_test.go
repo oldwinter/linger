@@ -42,6 +42,9 @@ func TestCodexRuntimeHomeIsStableIsolatedAndExclusivelyClaimed(t *testing.T) {
 		t.Fatalf("Runtime auth link = %+v err=%v", auth, err)
 	}
 	if runtime.GOOS == "windows" {
+		if !auth.Mode().IsRegular() {
+			t.Fatalf("Runtime auth mode = %v, want regular file", auth.Mode())
+		}
 		data, err := os.ReadFile(filepath.Join(home.Path, "auth.json"))
 		if err != nil || string(data) != `{"token":"secret"}` {
 			t.Fatalf("Runtime auth copy = %q err=%v", data, err)

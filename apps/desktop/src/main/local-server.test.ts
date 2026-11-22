@@ -128,8 +128,14 @@ if (args.includes("--inspect")) {
   fs.writeFileSync(path.join(home, "runtime", "inspect-args.json"), JSON.stringify(args));
   const hardware = { totalMemoryBytes: 64 * 1024 ** 3, diskFreeBytes: 200 * 1024 ** 3, gpus: [{ name: "RTX 4090" }] };
   const eligible = !fs.existsSync(path.join(target, "small-computer"));
+  const modelFile = path.join(target, "inspect-model");
+  const modelName = fs.existsSync(path.join(target, "unnamed-model"))
+    ? ""
+    : fs.existsSync(modelFile)
+      ? fs.readFileSync(modelFile, "utf8").trim()
+      : "qwen3-8b";
   const estimate = eligible
-    ? { model: fs.existsSync(path.join(target, "unnamed-model")) ? "" : "qwen3-8b", downloadBytes: 6 * 1024 ** 3, diskBytes: 8 * 1024 ** 3, memoryBytes: 12 * 1024 ** 3 }
+    ? { model: modelName, downloadBytes: 6 * 1024 ** 3, diskBytes: 8 * 1024 ** 3, memoryBytes: 12 * 1024 ** 3 }
     : { model: "", downloadBytes: null, diskBytes: null, memoryBytes: null };
   if (fs.existsSync(path.join(home, "tool-download"))) {
     // The first check downloads the localmodels tool, counted before the report.
@@ -1820,6 +1826,28 @@ describe("LocalServerModule", () => {
     info.mockRestore();
   });
 
+  it("marks checked Inkling 2 Mini models with featuredInkling using the shared matcher", async () => {
+    const f = fixture({ checkout: "/src" }, {}, (home) => {
+      mkdirSync(home, { recursive: true });
+      writeFileSync(
+        path.join(home, "inspect-model"),
+        "thinkingmachines/Inkling-2-Mini",
+      );
+    });
+    await f.host.start();
+    f.module.inspect();
+    await waitForInstaller(() =>
+      expect(f.module.status().localModels).toMatchObject({
+        state: "checked",
+        eligible: true,
+        model: {
+          name: "thinkingmachines/Inkling-2-Mini",
+          featuredInkling: true,
+        },
+      }),
+    );
+  });
+
   it("forwards validated CUDA driver versions without leaking tool prose", async () => {
     const info = vi.spyOn(silentLog, "info");
     const f = fixture({ checkout: "/src" }, {}, (home) => {
@@ -1947,6 +1975,27 @@ describe("LocalServerModule", () => {
     await f.module.begin({ runtime: "local" });
     expect(f.api.retried).toEqual([{ localModelsReplan: true }]);
     expect(f.module.status().phase).toBe("ready");
+    await f.host.stop("quit");
+  });
+
+  it("does not replan on binding-unavailable and reports the structured reason", async () => {
+    const f = fixture(
+      withCheckout,
+      {},
+      checkout,
+      installerApi([], {
+        state: "waiting_user",
+        errorCode: "LOCAL_MODELS_RECOVERY_REQUIRED",
+        errorReasons: ["binding-unavailable"],
+        message:
+          "The upstream tool could not verify the local stack binding: Restore the existing install and try again.",
+      }),
+    );
+    await f.host.start();
+    await expect(f.module.begin({ runtime: "local" })).rejects.toThrow(
+      "The local model stack couldn't be checked. This computer can't run the local model right now. Choose another AI runtime and try again.",
+    );
+    expect(f.api.retried).toEqual([]);
     await f.host.stop("quit");
   });
 
@@ -3271,6 +3320,152 @@ describe("LocalServerModule after a restart", () => {
     expect(f.showStartFailed).toHaveBeenCalledWith(
       "The local model's Pi can't load extensions, which every Linger run needs. The upstream tool could not verify the local stack binding. Try Again to apply the approved local model plan again, or Set Up Again to review a new plan or choose another AI runtime.",
     );
+    await f.host.stop("quit");
+  });
+
+  it.each([
+    "STACK_REPLAN_FAILED",
+    "STACK_PLAN_CHANGED",
+    "STACK_APPROVAL_MISMATCH",
+    "STACK_PLAN_INVALID",
+  ])(
+    "guides to Set Up Again when an upgraded client cannot re-apply the saved plan (%s)",
+    async (causeCode) => {
+      const root = tempDirectory();
+      const archive = sourceArchive(root);
+      const f = installedBy(archive);
+      const previous = path.join(f.home, "desktop", "source", "previous");
+      writeFileSync(
+        path.join(f.home, "resume-fails"),
+        JSON.stringify({
+          message:
+            "Local model installation or verification did not finish: The saved local model plan no longer fits this computer's current memory or model catalog. Existing resources were preserved.",
+          details: {
+            code: "LOCAL_MODELS_RECOVERY_REQUIRED",
+            causeCode,
+            reasons: ["deployment-unavailable"],
+          },
+        }),
+      );
+      await f.host.start();
+      await vi.waitFor(() => expect(f.module.status().phase).toBe("failed"));
+      expect(f.showStartFailed).toHaveBeenCalledWith(
+        "The local model service isn't running. Local model installation or verification did not finish: The saved local model plan no longer fits this computer's current memory or model catalog. Existing resources were preserved. Set Up Again to review a new plan or choose another AI runtime.",
+      );
+      // The older source record stays in place until the upgrade succeeds.
+      expect(
+        JSON.parse(
+          readFileSync(
+            path.join(f.home, "desktop", "local-server.json"),
+            "utf8",
+          ),
+        ),
+      ).toMatchObject({ repo: previous });
+      await f.host.stop("quit");
+    },
+  );
+
+  it("still offers Try Again when a local model resume failure is transient (STACK_APPLY_LOCKED)", async () => {
+    const f = fixture({}, enrolled, (home) => {
+      record(home);
+      writeFileSync(
+        path.join(home, "resume-fails"),
+        JSON.stringify({
+          message:
+            "Local model installation or verification did not finish: Another local model operation is already running. Existing resources were preserved.",
+          details: {
+            code: "LOCAL_MODELS_RECOVERY_REQUIRED",
+            causeCode: "STACK_APPLY_LOCKED",
+            reasons: ["deployment-unavailable"],
+          },
+        }),
+      );
+    });
+    await f.host.start();
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("failed"));
+    expect(f.showStartFailed).toHaveBeenCalledWith(
+      "The local model service isn't running. Local model installation or verification did not finish: Another local model operation is already running. Existing resources were preserved. Try Again to apply the approved local model plan again, or Set Up Again to review a new plan or choose another AI runtime.",
+    );
+    await f.host.stop("quit");
+  });
+
+  it("recovers from an upgrade replan failure through Set Up Again by replanning automatically", async () => {
+    const root = tempDirectory();
+    const archive = sourceArchive(root);
+    const api = installerApi([], {
+      state: "waiting_user",
+      errorCode: "LOCAL_MODELS_RECOVERY_REQUIRED",
+      message: "The saved local model plan no longer fits.",
+    });
+    api.runtime.setupChoice = "local-models";
+    const f = fixture(
+      {
+        sourceArchive: {
+          url: "https://cdn.example/linger.tar.gz",
+          sha256: archive.sha256,
+        },
+        fetch: (async (url: string | URL | Request) => {
+          if (String(url).startsWith("https://cdn.example/"))
+            return new Response(archive.bytes);
+          return new Response(null, { status: 200 });
+        }) as typeof fetch,
+      },
+      enrolled,
+      (home) => {
+        const sources = path.join(home, "desktop", "source");
+        unpackedSource(path.join(sources, "previous"));
+        writeFileSync(
+          path.join(home, "desktop", "local-server.json"),
+          JSON.stringify({
+            home,
+            repo: path.join(sources, "previous"),
+            origin: "http://localhost:3000",
+            version: "0.1.4",
+          }),
+        );
+        writeFileSync(
+          path.join(home, "resume-fails"),
+          JSON.stringify({
+            message:
+              "Local model installation or verification did not finish: The saved local model plan no longer fits this computer's current memory or model catalog. Existing resources were preserved.",
+            details: {
+              code: "LOCAL_MODELS_RECOVERY_REQUIRED",
+              causeCode: "STACK_REPLAN_FAILED",
+              reasons: ["deployment-unavailable"],
+            },
+          }),
+        );
+      },
+      api,
+    );
+    await f.host.start();
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("failed"));
+    expect(f.showStartFailed).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Set Up Again to review a new plan or choose another AI runtime.",
+      ),
+    );
+    // Set Up Again forgets the stale local-server record and opens setup.
+    const opened = vi.fn();
+    f.bus.on("setup.open", opened);
+    f.bus.emit("local-server.reset");
+    await vi.waitFor(() => expect(opened).toHaveBeenCalledOnce());
+    expect(existsSync(path.join(f.home, "desktop", "local-server.json"))).toBe(
+      false,
+    );
+    // Re-installing with local models replans automatically and finishes on
+    // the upgraded client's source package.
+    await f.module.begin({ runtime: "local" });
+    expect(f.api.retried).toEqual([{ localModelsReplan: true }]);
+    expect(f.module.status().phase).toBe("ready");
+    expect(
+      JSON.parse(
+        readFileSync(path.join(f.home, "desktop", "local-server.json"), "utf8"),
+      ),
+    ).toMatchObject({
+      repo: path.join(f.home, "desktop", "source", archive.sha256.slice(0, 16)),
+      version: APP_VERSION,
+    });
     await f.host.stop("quit");
   });
 

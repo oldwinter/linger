@@ -234,12 +234,23 @@ Gateway and runs Agents. The daemon exits with the app.
   from their folder, the record keeps naming it, and the start failure page's
   Retry moves them again. An app older than the recorded version
   (a downgrade) leaves the services on their newer source and logs
-  `local_server.source_newer_than_app`. When the local model stops a resume,
-  the start failure names the stack's first known binding reason code
+  `local_server.source_newer_than_app`. When local models fail to come back on a
+  resume, the installer still brings up the services and reports
+  `details.localModelsDegraded`, which the desktop logs as
+  `local_server.local_models_unavailable` and exposes on
+  `LocalServerStatus.localModelsDegraded` so the person can still reach the
+  workspace and the Models page. If an older installer still fails a resume for
+  the local model, the start failure names the stack's first known binding reason code
   (`details.reasons`, such as `pi-extensions-unavailable`) in its own words
-  and, by `details.code`, the action that works: Try Again for
-  `LOCAL_MODELS_RECOVERY_REQUIRED` (the resume applies the approved plan
-  again), Set Up Again to review a new plan or choose another runtime. A Quick Install that stopped
+  and, by `details.code` and `details.causeCode`, the action that works:
+  Set Up Again for `LOCAL_MODELS_APPROVAL_REQUIRED` and for
+  `LOCAL_MODELS_RECOVERY_REQUIRED` when `details.causeCode` indicates the saved
+  plan cannot be re-applied without replanning (`STACK_REPLAN_FAILED`,
+  `STACK_PLAN_CHANGED`, `STACK_APPROVAL_MISMATCH`, `STACK_PLAN_INVALID`), and
+  Try Again or Set Up Again for transient `LOCAL_MODELS_RECOVERY_REQUIRED`
+  failures (the resume applies the approved plan again). During Quick Install,
+  `LOCAL_MODELS_RECOVERY_REQUIRED` with `binding-unavailable` in
+  `errorReasons` skips blind replanning and surfaces the structured reason copy. A Quick Install that stopped
   before the computer enrolled is not resumed: setup shows again and Install
   finishes it, reusing a finished job only while its origin answers (a stopped
   server gets a new job, which starts the services again). The start failure
@@ -376,6 +387,13 @@ Gateway and runs Agents. The daemon exits with the app.
   and the small runtime in `src/shell/messages.html` (`t`, `tSpans`, and
   `data-t` / `data-t-<attribute>` fill-in). Markup carries message names, never
   English or translated text.
+  The setup page stays sandboxed with `window.open` and navigation blocked;
+  the main process flags checked Inkling 2 Mini models with `featuredInkling`
+  via `@linger/service-kit/featured-models`, preload exposes
+  `featuredAnnouncementUrl`, and external partner links call
+  `setup.run({ op: "external.open", url })`, which accepts only the exact
+  HTTPS URLs listed in `SETUP_EXTERNAL_URLS` (`src/shared/setup.ts`) and opens
+  them through `shell.openExternal`.
 - `src/i18n`: the shell's languages (English and Simplified Chinese) on the
   shared core `@linger/service-kit/messages`. `language.ts` matches a language
   and formats messages; `locales/zh-CN.json` is the shell's Chinese catalog,

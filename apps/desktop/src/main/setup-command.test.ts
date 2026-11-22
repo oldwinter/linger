@@ -1,5 +1,10 @@
+import { INKLING_2_MINI_HF_URL } from "@linger/service-kit/featured-models";
 import { describe, expect, it } from "vitest";
 
+import {
+  INKLING_2_MINI_ANNOUNCEMENT_URL,
+  SETUP_EXTERNAL_URLS,
+} from "../shared/setup.js";
 import { parseSetupCommand } from "./setup-command.js";
 
 describe("parseSetupCommand", () => {
@@ -258,6 +263,36 @@ describe("parseSetupCommand", () => {
     // Full Disk Access has no prompt; only System Settings grants it.
     expect(() =>
       parseSetupCommand({ op: "permission.request", id: "full-disk" }),
+    ).toThrow();
+  });
+
+  it("accepts only exact allowlisted HTTPS URLs for external.open", () => {
+    for (const url of SETUP_EXTERNAL_URLS)
+      expect(parseSetupCommand({ op: "external.open", url })).toEqual({
+        op: "external.open",
+        url,
+      });
+
+    for (const url of [
+      INKLING_2_MINI_HF_URL,
+      "https://evil.example.com/",
+      "http://thinkingmachines.ai/news/inkling-2-mini/",
+      `${INKLING_2_MINI_ANNOUNCEMENT_URL}?ref=test`,
+      `${INKLING_2_MINI_ANNOUNCEMENT_URL}#top`,
+      `${INKLING_2_MINI_ANNOUNCEMENT_URL}extra`,
+      "javascript:alert(1)",
+      "file:///etc/passwd",
+      "",
+    ])
+      expect(() => parseSetupCommand({ op: "external.open", url })).toThrow();
+
+    expect(() => parseSetupCommand({ op: "external.open" })).toThrow();
+    expect(() =>
+      parseSetupCommand({
+        op: "external.open",
+        url: INKLING_2_MINI_ANNOUNCEMENT_URL,
+        extra: true,
+      }),
     ).toThrow();
   });
 });

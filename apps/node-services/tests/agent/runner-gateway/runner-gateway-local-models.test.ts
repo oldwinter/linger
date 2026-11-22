@@ -190,7 +190,9 @@ describe("Runner Gateway local models", () => {
   // is welcomed without it and keeps receiving its target_release. BYOK
   // paths are named only to a release that decodes them.
   it.each([
-    ["dev", ["local_models", "byok_endpoint"]],
+    ["dev", ["local_models", "byok_endpoint", "local_models_diagnostics"]],
+    ["0.58.0", ["local_models", "byok_endpoint", "local_models_diagnostics"]],
+    ["0.57.0", ["local_models", "byok_endpoint"]],
     ["0.56.0", ["local_models", "byok_endpoint"]],
     ["0.55.0", ["local_models"]],
     ["0.52.0", ["local_models"]],

@@ -4,7 +4,12 @@ import type { Translate } from "@/i18n/language";
 import type { Message } from "@/i18n/messages";
 
 import { localModelsMessages as m } from "./local-models.messages";
-import { formatGigabytes, type MemoryGuidance } from "./local-models-rules";
+import {
+  formatGigabytes,
+  joinList,
+  type HostBlockerReason,
+  type MemoryGuidance,
+} from "./local-models-rules";
 
 type Schemas = components["schemas"];
 
@@ -25,11 +30,14 @@ const actionRefusals: Record<
   LOCAL_MODEL_ACTION_UNCONFIRMED: m.refusalUnconfirmed,
   LOCAL_MODEL_ACTION_FORBIDDEN: m.refusalForbidden,
   LOCAL_MODEL_DISK_INSUFFICIENT: m.refusalDiskInsufficient,
+  LOCAL_MODEL_DRIVER_UPDATE_REQUIRED: m.refusalDriverUpdateRequired,
+  LOCAL_MODEL_GPU_UNSUPPORTED: m.refusalGpuUnsupported,
   LOCAL_MODEL_INVALID_STATE: m.refusalInvalidState,
   LOCAL_MODEL_JOB_RUNNING: m.refusalJobRunning,
   LOCAL_MODEL_MEMORY_INSUFFICIENT: m.refusalMemoryInsufficient,
   LOCAL_MODEL_NO_ROOM: m.refusalNoRoom,
   LOCAL_MODEL_PLATFORM_UNSUPPORTED: m.refusalPlatformUnsupported,
+  LOCAL_MODEL_RUNTIME_DEPENDENCY_MISSING: m.refusalRuntimeDependencyMissing,
   LOCAL_MODEL_UNKNOWN: m.refusalModelUnknown,
   LOCAL_MODELS_SERVICE_UNAVAILABLE: m.refusalServiceUnavailable,
   LOCAL_MODELS_UNAVAILABLE: m.refusalToolsUnavailable,
@@ -52,8 +60,10 @@ const modelErrors: Record<Schemas["LocalModelErrorCode"], Message<string>> = {
   CHECKSUM_MISMATCH: m.errorChecksumMismatch,
   DISK_INSUFFICIENT: m.errorDiskInsufficient,
   DOWNLOAD_FAILED: m.errorDownloadFailed,
+  DRIVER_UPDATE_REQUIRED: m.errorDriverUpdateRequired,
   ENGINE_START_FAILED: m.errorEngineStartFailed,
   GATEWAY_REGISTRATION_FAILED: m.errorGatewayRegistrationFailed,
+  GPU_UNSUPPORTED: m.errorGpuUnsupported,
   HEALTH_CHECK_FAILED: m.errorHealthCheckFailed,
   INVALID_STATE: m.errorInvalidState,
   JOB_RUNNING: m.errorJobRunning,
@@ -64,6 +74,8 @@ const modelErrors: Record<Schemas["LocalModelErrorCode"], Message<string>> = {
   NETWORK_UNAVAILABLE: m.errorNetworkUnavailable,
   OUT_OF_MEMORY: m.errorOutOfMemory,
   PLATFORM_UNSUPPORTED: m.refusalPlatformUnsupported,
+  RUNTIME_DEPENDENCY_MISSING: m.errorRuntimeDependencyMissing,
+  UNKNOWN_ERROR: m.errorUnknownError,
 };
 
 const modelErrorCauses = {
@@ -84,8 +96,10 @@ const modelErrorsShort: Record<
   CHECKSUM_MISMATCH: m.shortChecksumMismatch,
   DISK_INSUFFICIENT: m.shortDiskInsufficient,
   DOWNLOAD_FAILED: undefined,
+  DRIVER_UPDATE_REQUIRED: m.shortDriverUpdateRequired,
   ENGINE_START_FAILED: m.shortEngineStartFailed,
   GATEWAY_REGISTRATION_FAILED: m.shortGatewayRegistrationFailed,
+  GPU_UNSUPPORTED: m.shortGpuUnsupported,
   HEALTH_CHECK_FAILED: m.shortHealthCheckFailed,
   INVALID_STATE: m.shortBusy,
   JOB_RUNNING: m.shortBusy,
@@ -96,6 +110,8 @@ const modelErrorsShort: Record<
   NETWORK_UNAVAILABLE: m.shortNetworkUnavailable,
   OUT_OF_MEMORY: m.shortOutOfMemory,
   PLATFORM_UNSUPPORTED: m.shortNotForComputer,
+  RUNTIME_DEPENDENCY_MISSING: m.shortRuntimeDependencyMissing,
+  UNKNOWN_ERROR: m.shortUnknownError,
 };
 
 /** Short failure summary for a collapsed model row; undefined when the status label suffices. */
@@ -103,7 +119,10 @@ export function modelErrorShortCopy(
   error: Schemas["LocalModelError"] | undefined,
   t: Translate,
 ) {
-  const message = error ? modelErrorsShort[error.code] : undefined;
+  if (!error) return undefined;
+  const message = Object.hasOwn(modelErrorsShort, error.code)
+    ? modelErrorsShort[error.code]
+    : m.shortUnknownError;
   return message ? t(message) : undefined;
 }
 
@@ -115,11 +134,17 @@ export function modelErrorCopy(
   error: Schemas["LocalModelError"],
   t: Translate,
 ) {
-  if (!error.cause) return t(modelErrors[error.code]);
-  const cause = modelErrorCauses[error.cause];
-  return error.path
-    ? t(cause.withPath, { path: error.path })
-    : t(cause.withoutPath);
+  if (error.cause && Object.hasOwn(modelErrorCauses, error.cause)) {
+    const cause = modelErrorCauses[error.cause];
+    return error.path
+      ? t(cause.withPath, { path: error.path })
+      : t(cause.withoutPath);
+  }
+  return t(
+    Object.hasOwn(modelErrors, error.code)
+      ? modelErrors[error.code]
+      : m.errorUnknownError,
+  );
 }
 
 const notes = {
@@ -132,6 +157,7 @@ export function modelNoteCopy(
   place: string | undefined,
   t: Translate,
 ) {
+  if (!Object.hasOwn(notes, code)) return t(m.somethingWentWrong);
   return t(notes[code], { place: place ?? t(m.placeMemory) });
 }
 
@@ -142,18 +168,37 @@ export function unavailableShortCopy(
   reason: AvailabilityReason | undefined,
   t: Translate,
 ) {
-  if (reason?.code === "PLATFORM_UNSUPPORTED" || !reason)
+  if (!reason || reason.code === "PLATFORM_UNSUPPORTED")
     return t(m.shortNotForComputer);
-  if (reason.need_bytes === undefined)
-    return t(
-      reason.code === "DISK_INSUFFICIENT"
-        ? m.shortNeedsDisk
-        : m.shortNeedsMemory,
-    );
-  const need = formatGigabytes(reason.need_bytes, t);
-  return reason.code === "DISK_INSUFFICIENT"
-    ? t(m.shortNeedsDiskSize, { need })
-    : t(m.shortNeedsSize, { need });
+  switch (reason.code) {
+    case "GPU_UNSUPPORTED":
+      return t(m.shortGpuUnsupported);
+    case "DRIVER_UPDATE_REQUIRED":
+      return t(m.shortDriverUpdateRequired);
+    case "RUNTIME_DEPENDENCY_MISSING":
+      return t(m.shortRuntimeDependencyMissing);
+    case "UNAVAILABLE":
+      return t(m.shortUnavailable);
+    case "DISK_INSUFFICIENT":
+      return reason.need_bytes === undefined
+        ? t(m.shortNeedsDisk)
+        : t(m.shortNeedsDiskSize, {
+            need: formatGigabytes(reason.need_bytes, t),
+          });
+    case "MEMORY_INSUFFICIENT":
+      if (reason.memory_kind === "ram") {
+        return reason.need_bytes === undefined
+          ? t(m.shortNeedsSystemMemory)
+          : t(m.shortNeedsSystemMemorySize, {
+              need: formatGigabytes(reason.need_bytes, t),
+            });
+      }
+      return reason.need_bytes === undefined
+        ? t(m.shortNeedsMemory)
+        : t(m.shortNeedsSize, { need: formatGigabytes(reason.need_bytes, t) });
+    default:
+      return t(m.shortUnavailable);
+  }
 }
 
 /** The full reason a model can't be downloaded, shown in its details. */
@@ -171,6 +216,20 @@ export function unavailableCopy(
         };
   switch (reason?.code) {
     case "MEMORY_INSUFFICIENT":
+      if (reason.memory_kind === "ram") {
+        if (sizes)
+          return t(
+            reclaimable
+              ? m.unavailableSystemMemorySizesReclaimable
+              : m.unavailableSystemMemorySizes,
+            sizes,
+          );
+        return t(
+          reclaimable
+            ? m.unavailableSystemMemoryReclaimable
+            : m.unavailableSystemMemory,
+        );
+      }
       if (sizes)
         return t(
           reclaimable
@@ -183,9 +242,111 @@ export function unavailableCopy(
       );
     case "DISK_INSUFFICIENT":
       return sizes ? t(m.unavailableDiskSizes, sizes) : t(m.unavailableDisk);
-    default:
+    case "GPU_UNSUPPORTED":
+      if (reason.gpu_vendor === "amd") return t(m.unavailableGpuAmd);
+      if (reason.gpu_vendor === "intel") return t(m.unavailableGpuIntel);
+      return t(m.unavailableGpuNone);
+    case "DRIVER_UPDATE_REQUIRED":
+      if (reason.detected_cuda && reason.required_cuda) {
+        return t(m.unavailableDriverUpdateVersions, {
+          detected: reason.detected_cuda,
+          required: reason.required_cuda,
+        });
+      }
+      if (reason.required_cuda) {
+        return t(m.unavailableDriverUpdateRequiredOnly, {
+          required: reason.required_cuda,
+        });
+      }
+      return t(m.unavailableDriverUpdateUnknown);
+    case "RUNTIME_DEPENDENCY_MISSING":
+      if (reason.missing_libraries?.length) {
+        return t(m.unavailableMissingLibraries, {
+          libraries: joinList(reason.missing_libraries, t),
+        });
+      }
+      if (reason.detected_glibc && reason.required_glibc) {
+        return t(m.unavailableGlibcVersions, {
+          detected: reason.detected_glibc,
+          required: reason.required_glibc,
+        });
+      }
+      return t(m.unavailableRuntimeDependency);
+    case "UNAVAILABLE":
+      return t(m.unavailableGeneric);
+    case "PLATFORM_UNSUPPORTED":
+    case undefined:
       return t(m.refusalPlatformUnsupported);
+    default:
+      return t(m.unavailableGeneric);
   }
+}
+
+/** Banner explaining a host-wide requirement blocking local model downloads. */
+export function hostBlockerCopy(blocker: HostBlockerReason, t: Translate) {
+  switch (blocker.code) {
+    case "GPU_UNSUPPORTED":
+      return {
+        body: t(
+          blocker.gpu_vendor === "amd"
+            ? m.hostBlockerGpuAmdBody
+            : blocker.gpu_vendor === "intel"
+              ? m.hostBlockerGpuIntelBody
+              : m.hostBlockerGpuNoneBody,
+        ),
+        title: t(m.hostBlockerGpuTitle),
+      };
+    case "DRIVER_UPDATE_REQUIRED":
+      return {
+        body:
+          blocker.detected_cuda && blocker.required_cuda
+            ? t(m.hostBlockerDriverBody, {
+                detected: blocker.detected_cuda,
+                required: blocker.required_cuda,
+              })
+            : blocker.required_cuda
+              ? t(m.hostBlockerDriverRequiredOnlyBody, {
+                  required: blocker.required_cuda,
+                })
+              : t(m.hostBlockerDriverUnknownBody),
+        title: t(m.hostBlockerDriverTitle),
+      };
+    case "RUNTIME_DEPENDENCY_MISSING":
+      return {
+        body: blocker.missing_libraries?.length
+          ? t(m.hostBlockerRuntimeLibrariesBody, {
+              libraries: joinList(blocker.missing_libraries, t),
+            })
+          : blocker.detected_glibc && blocker.required_glibc
+            ? t(m.hostBlockerRuntimeGlibcBody, {
+                detected: blocker.detected_glibc,
+                required: blocker.required_glibc,
+              })
+            : t(m.hostBlockerRuntimeGenericBody),
+        title: t(m.hostBlockerRuntimeTitle),
+      };
+  }
+}
+
+/** Warning banner explaining that localmodels debug mode is overriding the catalog. */
+export function debugBannerCopy(
+  debug: Schemas["LocalModelsDebugInfo"],
+  t: Translate,
+) {
+  const title = t(
+    debug.mode === "simulate"
+      ? m.debugBannerSimulateTitle
+      : m.debugBannerTinyTitle,
+  );
+  if (debug.source === "env") {
+    return { body: t(m.debugBannerEnvBody), title };
+  }
+  return {
+    body: debug.config_path
+      ? t(m.debugBannerConfigBody, { path: debug.config_path })
+      : t(m.debugBannerConfigBodyHidden),
+    title,
+  };
 }
 
 const libraryUnavailable = {
@@ -212,7 +373,10 @@ export function libraryUnavailableCopy(
   computer: string,
   t: Translate,
 ) {
-  const copy = libraryUnavailable[code ?? "NOT_REPORTED"];
+  const copy =
+    code && Object.hasOwn(libraryUnavailable, code)
+      ? libraryUnavailable[code]
+      : libraryUnavailable.NOT_REPORTED;
   return { body: t(copy.body), title: t(copy.title, { computer }) };
 }
 
@@ -232,7 +396,9 @@ export function capabilityCopy(
   capability: Schemas["LocalModelCapability"],
   t: Translate,
 ) {
-  return t(capabilityLabels[capability]);
+  return Object.hasOwn(capabilityLabels, capability)
+    ? t(capabilityLabels[capability])
+    : capability;
 }
 
 const architectureLabels: Record<
@@ -248,7 +414,9 @@ export function architectureCopy(
   architecture: Schemas["LocalModelArchitecture"],
   t: Translate,
 ) {
-  return t(architectureLabels[architecture]);
+  return Object.hasOwn(architectureLabels, architecture)
+    ? t(architectureLabels[architecture])
+    : architecture;
 }
 
 const modelSourceRefusals: Record<

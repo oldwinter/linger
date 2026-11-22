@@ -61,7 +61,12 @@ build:assets` to check the initial JS budget.
   memory or unified memory is constrained), shows an explicit `Memory guidance`
   banner and `Recheck memory` button (`POST .../local-models`), lets owners
   pick among installed local models in `SwitchToLocalNotice` or click
-  `Use for Agents` on a loaded row, renders tinted family icon tiles, Agent
+  `Use for Agents` on a loaded row, highlights Thinking Machines' Inkling 2
+  Mini in a featured spotlight frame (`featured-model-spotlight.tsx`) wrapping
+  the matching `ModelRow` so status and actions stay in one place (matched via
+  `@linger/service-kit/featured-models`, degrading to a partner highlight with
+  external links when absent from the catalog),
+  renders tinted family icon tiles, Agent
   usage counts, structured capability/parameter badges (never matched against
   `name` or `description`), state-distinct cards (`loaded`, `recommended`,
   `failed` with short failure reasons and direct `Remove` for damaged/missing
@@ -72,8 +77,13 @@ build:assets` to check the initial JS budget.
   `local-model-agents.ts` (`Use with <Another Me>`, `Open chat`,
   `Switch Agent…` in `Used by`, and `Make room` automatic Agent handoff once
   the replacement model loads when `Pi` is ready), and maps every code and enum
-  label to English in `local-models-copy.ts`. Without `?computer=` the desktop
-  app opens its own Computer and a browser prefers an online Computer. Only the
+  label to English in `local-models-copy.ts`. Without `?computer=` the page
+  reopens the last owned Computer chosen in this browser
+  (`last-models-computer.ts`, cleared on logout), else the desktop app opens its
+  own Computer and a browser prefers an online Computer. The header
+  `ComputerPicker` (`computer-picker.tsx`) shows connection dots and orders
+  online Computers first, and once more than 10 Computers exist it adds
+  in-popover search plus `All` / `Online` / `Offline` status filtering. Only the
   Computer's owner can act; actions return at once and progress arrives as
   `local-models` invalidation hints (while `directory` hints and model-source
   switches keep `Used by` and Agent registrations synchronized). From the click

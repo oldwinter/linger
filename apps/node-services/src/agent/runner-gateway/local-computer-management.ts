@@ -52,6 +52,10 @@ export const FIRST_BYOK_ENDPOINT_COMPUTER_VERSION = "0.56.0";
 // `operation.prepare`, and `operation.start`. An older Computer rejects the
 // unknown field and closes the connection, so the field is omitted for it.
 export const FIRST_STOP_HOOK_COMPUTER_VERSION = "0.57.0";
+// The first release that understands the `local_models_diagnostics` welcome
+// feature and gates extended local-model availability reasons, refusal codes,
+// and debug-mode metadata behind it.
+export const FIRST_LOCAL_MODELS_DIAGNOSTICS_COMPUTER_VERSION = "0.58.0";
 
 const COMPUTER_RELEASE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 

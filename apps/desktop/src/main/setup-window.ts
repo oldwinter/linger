@@ -247,6 +247,9 @@ export class SetupWindowModule implements Module {
           throw new Error(this.#t(offlineMessages.invalidServer));
         await this.#refreshSignedIn();
         return;
+      case "external.open":
+        await shell.openExternal(command.url);
+        return;
       case "local.start": {
         const local = ctx.get<LocalServerModule>("LocalServer");
         const plan = {

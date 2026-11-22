@@ -133,24 +133,57 @@ func TestRefreshRejectsStatusOutsideTheContract(t *testing.T) {
 	// An Agent stores pi_model whole, so one longer than the contract is not cut.
 	long := model("other:Q4_K_M", "idle")
 	long["pi_model"] = "localmodels-library/" + strings.Repeat("x", 200)
-	badFamily := model("bad-family:Q4_K_M", "absent")
-	badFamily["family"] = "unknown_vendor"
-	badArch := model("bad-arch:Q4_K_M", "absent")
-	badArch["architecture"] = "ssm"
-	dupCap := model("dup-cap:Q4_K_M", "absent")
-	dupCap["capabilities"] = []string{"vision", "vision"}
-	badCap := model("bad-cap:Q4_K_M", "absent")
-	badCap["capabilities"] = []string{"audio"}
 	badURL := model("bad-url:Q4_K_M", "absent")
 	badURL["source_url"] = "http://huggingface.co/Qwen/Qwen3-4B"
 	badPromptSpeed := model("bad-speed:Q4_K_M", "loaded")
 	badPromptSpeed["prompt_tokens_per_second"] = -5.0
-	for _, entry := range []map[string]any{broken, long, badFamily, badArch, dupCap, badCap, badURL, badPromptSpeed} {
+	for _, entry := range []map[string]any{broken, long, badURL, badPromptSpeed} {
 		fake.write("status.json", status(entry))
 		snapshot := newLibrary(t, fake, &recorder{}, time.Second).Refresh(context.Background())
 		if snapshot.Available || snapshot.Reason.Code != CodeToolFailed || strings.Contains(snapshot.Reason.Detail, "warming") {
 			t.Fatalf("snapshot = %+v", snapshot)
 		}
+	}
+}
+
+func TestRefreshDegradesUnknownDisplayAndDiagnosticEnumsForwardCompatibly(t *testing.T) {
+	fake := newFakeTool(t)
+	future := model("future-model:Q4_K_M", "absent")
+	future["family"] = "unknown_vendor"
+	future["architecture"] = "ssm"
+	future["capabilities"] = []string{"vision", "vision", "audio"}
+	future["availability"] = map[string]any{
+		"downloadable": false,
+		"reason":       map[string]any{"code": "FUTURE_REASON", "need_bytes": 100},
+	}
+	failed := model("future-fail:Q4_K_M", "failed")
+	failed["error"] = map[string]any{"code": "FUTURE_ERROR", "detail": "new failure"}
+	idle := model("future-note:Q4_K_M", "idle")
+	idle["note"] = map[string]any{"code": "FUTURE_NOTE"}
+	doc := status(future, failed, idle)
+	doc["debug"] = map[string]any{"mode": "tiny", "source": "user_config", "config_path": "/tmp/debug.json"}
+	fake.write("status.json", doc)
+
+	snapshot := newLibrary(t, fake, &recorder{}, time.Second).Refresh(context.Background())
+	if !snapshot.Available {
+		t.Fatalf("snapshot should degrade forward-compatibly, got %+v", snapshot)
+	}
+	if snapshot.Debug == nil || snapshot.Debug.Mode != "tiny" || snapshot.Debug.Source != "user_config" || snapshot.Debug.ConfigPath != "/tmp/debug.json" {
+		t.Fatalf("debug = %+v", snapshot.Debug)
+	}
+	gotFuture := modelState(snapshot, "future-model:Q4_K_M")
+	if gotFuture == nil || gotFuture.Family != "other" || gotFuture.Architecture != "" ||
+		!slices.Equal(gotFuture.Capabilities, []string{"vision"}) ||
+		gotFuture.Availability.Reason == nil || gotFuture.Availability.Reason.Code != "UNAVAILABLE" {
+		t.Fatalf("future model = %+v", gotFuture)
+	}
+	gotFailed := modelState(snapshot, "future-fail:Q4_K_M")
+	if gotFailed == nil || gotFailed.Error == nil || gotFailed.Error.Code != "UNKNOWN_ERROR" {
+		t.Fatalf("failed model = %+v", gotFailed)
+	}
+	gotIdle := modelState(snapshot, "future-note:Q4_K_M")
+	if gotIdle == nil || gotIdle.Note != nil {
+		t.Fatalf("idle model = %+v", gotIdle)
 	}
 }
 

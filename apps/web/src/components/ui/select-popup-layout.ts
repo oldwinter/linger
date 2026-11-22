@@ -60,17 +60,34 @@ export function selectPopupContainingBlock(root: Element | null): {
   };
 }
 
+export interface SelectPopupPositionOptions {
+  /**
+   * "left" anchors to the trigger's left edge (default); "right" to its right
+   * edge; "auto" picks the right edge when the trigger sits in the right half
+   * of the viewport and the left edge otherwise.
+   */
+  readonly align?: "auto" | "left" | "right";
+  /** Explicit popup width; defaults to the trigger's width. */
+  readonly width?: number;
+}
+
 export function selectPopupPosition(
   trigger: PopupRect,
   viewport: { width: number; height: number },
   menuHeight?: number,
+  options?: SelectPopupPositionOptions,
 ): { left: number; top: number; width: number } {
-  const width = trigger.width;
+  const width = options?.width ?? trigger.width;
+  const alignRight =
+    options?.align === "right" ||
+    (options?.align === "auto" &&
+      trigger.left + trigger.width / 2 > viewport.width / 2);
+  const preferredLeft = alignRight ? trigger.right - width : trigger.left;
   const maxLeft = Math.max(
     VIEWPORT_GUTTER_PX,
     viewport.width - width - VIEWPORT_GUTTER_PX,
   );
-  const left = Math.min(Math.max(VIEWPORT_GUTTER_PX, trigger.left), maxLeft);
+  const left = Math.min(Math.max(VIEWPORT_GUTTER_PX, preferredLeft), maxLeft);
   const below = trigger.bottom + 4;
   const height = menuHeight ?? 0;
   const fitsBelow =

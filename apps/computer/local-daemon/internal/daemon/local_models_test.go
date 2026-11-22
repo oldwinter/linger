@@ -295,3 +295,79 @@ func TestLocalModelsFramesFollowTheWelcomeServiceFeatures(t *testing.T) {
 		})
 	}
 }
+
+func TestPublishLocalModelsDowngradesDiagnosticsForOlderServices(t *testing.T) {
+	need, have := uint64(16<<30), uint64(8<<30)
+	rich := wire.LocalModelsSnapshot{
+		Available:  true,
+		ObservedAt: "2026-11-22T00:00:00Z",
+		Debug:      &wire.LocalModelsDebugInfo{Mode: "tiny", Source: "env"},
+		Pools:      []wire.LocalModelPool{},
+		Models: []wire.LocalModel{
+			{
+				ID: "m1:Q4", Name: "M1", Quant: "Q4", Fit: "none", State: "absent",
+				Availability: wire.LocalModelAvailability{
+					Downloadable: false,
+					Reason: &wire.LocalModelAvailabilityReason{
+						Code:          "DRIVER_UPDATE_REQUIRED",
+						RequiredCuda:  "12.8",
+						DetectedCuda:  "11.8",
+						DriverVersion: "525.60",
+					},
+				},
+			},
+			{
+				ID: "m2:Q4", Name: "M2", Quant: "Q4", Fit: "none", State: "absent",
+				Availability: wire.LocalModelAvailability{
+					Downloadable: false,
+					Reason: &wire.LocalModelAvailabilityReason{
+						Code: "MEMORY_INSUFFICIENT", NeedBytes: &need, HaveBytes: &have, MemoryKind: "ram",
+					},
+				},
+			},
+			{
+				ID: "m3:Q4", Name: "M3", Quant: "Q4", Fit: "gpu", Pool: "gpu:0", State: "failed",
+				Error: &wire.LocalModelError{Code: "UNKNOWN_ERROR", Detail: "future"},
+			},
+		},
+	}
+
+	// Without local_models_diagnostics, new fields and codes are downgraded cleanly.
+	streamOld := &browserEventStream{}
+	dOld := &Daemon{computerID: "computer", protocolVersion: protocol.Version, localModelsStream: streamOld}
+	dOld.PublishLocalModels(rich)
+	var oldFrame wire.RunnerLocalModels
+	if err := json.Unmarshal(streamOld.events[0].Payload, &oldFrame); err != nil {
+		t.Fatal(err)
+	}
+	if oldFrame.LocalModels.Debug != nil {
+		t.Fatalf("legacy service received debug: %+v", oldFrame.LocalModels.Debug)
+	}
+	r0 := oldFrame.LocalModels.Models[0].Availability.Reason
+	if r0 == nil || r0.Code != "PLATFORM_UNSUPPORTED" || r0.RequiredCuda != "" || r0.DetectedCuda != "" {
+		t.Fatalf("legacy reason 0 = %+v", r0)
+	}
+	r1 := oldFrame.LocalModels.Models[1].Availability.Reason
+	if r1 == nil || r1.Code != "MEMORY_INSUFFICIENT" || r1.MemoryKind != "" || r1.NeedBytes == nil || *r1.NeedBytes != need {
+		t.Fatalf("legacy reason 1 = %+v", r1)
+	}
+	if oldFrame.LocalModels.Models[2].Error == nil || oldFrame.LocalModels.Models[2].Error.Code != "ENGINE_START_FAILED" {
+		t.Fatalf("legacy error = %+v", oldFrame.LocalModels.Models[2].Error)
+	}
+
+	// With local_models_diagnostics, all diagnostic fields pass through intact.
+	streamNew := &browserEventStream{}
+	dNew := &Daemon{computerID: "computer", protocolVersion: protocol.Version, localModelsStream: streamNew}
+	dNew.localModelsDiagnostics.Store(true)
+	dNew.PublishLocalModels(rich)
+	var newFrame wire.RunnerLocalModels
+	if err := json.Unmarshal(streamNew.events[0].Payload, &newFrame); err != nil {
+		t.Fatal(err)
+	}
+	if newFrame.LocalModels.Debug == nil || newFrame.LocalModels.Debug.Mode != "tiny" ||
+		newFrame.LocalModels.Models[0].Availability.Reason.Code != "DRIVER_UPDATE_REQUIRED" ||
+		newFrame.LocalModels.Models[1].Availability.Reason.MemoryKind != "ram" ||
+		newFrame.LocalModels.Models[2].Error.Code != "UNKNOWN_ERROR" {
+		t.Fatalf("modern frame lost diagnostic fields: %+v", newFrame.LocalModels)
+	}
+}

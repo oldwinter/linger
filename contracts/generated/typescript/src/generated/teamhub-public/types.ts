@@ -4886,11 +4886,37 @@ export interface components {
       code:
         | "MEMORY_INSUFFICIENT"
         | "DISK_INSUFFICIENT"
-        | "PLATFORM_UNSUPPORTED";
+        | "PLATFORM_UNSUPPORTED"
+        | "GPU_UNSUPPORTED"
+        | "DRIVER_UPDATE_REQUIRED"
+        | "RUNTIME_DEPENDENCY_MISSING"
+        | "UNAVAILABLE";
       /** Format: int64 */
       need_bytes?: number;
       /** Format: int64 */
       have_bytes?: number;
+      /**
+       * @description With MEMORY_INSUFFICIENT: which memory space was short.
+       * @enum {string}
+       */
+      memory_kind?: "vram" | "ram" | "unified";
+      /**
+       * @description With GPU_UNSUPPORTED: detected GPU vendor class on this Computer.
+       * @enum {string}
+       */
+      gpu_vendor?: "amd" | "intel" | "none" | "unknown";
+      /** @description With DRIVER_UPDATE_REQUIRED: minimum CUDA version required by the pinned engine. */
+      required_cuda?: string;
+      /** @description With DRIVER_UPDATE_REQUIRED: CUDA version reported by the installed driver. */
+      detected_cuda?: string;
+      /** @description With DRIVER_UPDATE_REQUIRED: installed NVIDIA driver version. */
+      driver_version?: string;
+      /** @description With RUNTIME_DEPENDENCY_MISSING: missing shared libraries such as libgomp.so.1. */
+      missing_libraries?: string[];
+      /** @description With RUNTIME_DEPENDENCY_MISSING: minimum glibc version required by the engine. */
+      required_glibc?: string;
+      /** @description With RUNTIME_DEPENDENCY_MISSING: glibc version detected on this Computer. */
+      detected_glibc?: string;
     };
     LocalModelAvailability: {
       downloadable: boolean;
@@ -4922,7 +4948,7 @@ export interface components {
       base_url: string;
     };
     /**
-     * @description Closed localmodels library error set. It is extended only together with the localmodels library contract.
+     * @description Closed localmodels library error set. It is extended only together with the localmodels library contract; UNKNOWN_ERROR preserves forward compatibility with newer localmodels releases.
      * @enum {string}
      */
     LocalModelErrorCode:
@@ -4932,6 +4958,9 @@ export interface components {
       | "MEMORY_INSUFFICIENT"
       | "DISK_INSUFFICIENT"
       | "PLATFORM_UNSUPPORTED"
+      | "GPU_UNSUPPORTED"
+      | "DRIVER_UPDATE_REQUIRED"
+      | "RUNTIME_DEPENDENCY_MISSING"
       | "LOAD_NO_ROOM"
       | "DOWNLOAD_FAILED"
       | "CHECKSUM_MISMATCH"
@@ -4941,7 +4970,8 @@ export interface components {
       | "OUT_OF_MEMORY"
       | "MODEL_FILES_MISSING"
       | "GATEWAY_REGISTRATION_FAILED"
-      | "CANCELLED";
+      | "CANCELLED"
+      | "UNKNOWN_ERROR";
     LocalModelError: {
       code: components["schemas"]["LocalModelErrorCode"];
       /** @description Diagnostic text for display; never matched on. */
@@ -5052,6 +5082,15 @@ export interface components {
       /** @description Active Agents placed on this Computer with runtime pi whose runtime model is this model's gateway model. */
       used_by: components["schemas"]["LocalModelUser"][];
     };
+    /** @description Present only when localmodels debug mode (tiny or simulate) is active on the Computer. config_path is shown only to the Computer owner. */
+    LocalModelsDebugInfo: {
+      /** @enum {string} */
+      mode: "tiny" | "simulate";
+      /** @enum {string} */
+      source: "env" | "state_config" | "user_config";
+      /** @description Local debug.json path when source is state_config or user_config; owner-only in the public view. */
+      config_path?: string;
+    };
     /** @description One Computer's model library as last reported. Only the Computer owner can act (viewer_is_owner); other Tenant members who can see the Computer read it. */
     LocalModelsView: {
       computer: components["schemas"]["LocalModelsComputer"];
@@ -5064,6 +5103,8 @@ export interface components {
       tool_version?: string;
       pools: components["schemas"]["LocalModelPool"][];
       models: components["schemas"]["LocalModelView"][];
+      /** @description Present only when localmodels debug mode is active on the Computer; config_path is omitted for non-owners. */
+      debug?: components["schemas"]["LocalModelsDebugInfo"];
     };
     LocalModelsRefreshAccepted: {
       computer_id: components["schemas"]["Id"];
@@ -5085,6 +5126,9 @@ export interface components {
       | "LOCAL_MODEL_MEMORY_INSUFFICIENT"
       | "LOCAL_MODEL_DISK_INSUFFICIENT"
       | "LOCAL_MODEL_PLATFORM_UNSUPPORTED"
+      | "LOCAL_MODEL_GPU_UNSUPPORTED"
+      | "LOCAL_MODEL_DRIVER_UPDATE_REQUIRED"
+      | "LOCAL_MODEL_RUNTIME_DEPENDENCY_MISSING"
       | "LOCAL_MODEL_ACTION_FAILED"
       | "LOCAL_MODEL_ACTION_UNCONFIRMED"
       | "LOCAL_MODELS_SERVICE_UNAVAILABLE";

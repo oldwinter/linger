@@ -7,10 +7,111 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+const testAgyProtocolHelperEnv = "LINGER_TEST_AGY_PROTOCOL_HELPER"
+
+func init() {
+	metaPath := os.Getenv(testAgyProtocolHelperEnv)
+	if metaPath == "" {
+		return
+	}
+	os.Exit(runAgyProtocolHelper(metaPath, os.Args[1:]))
+}
+
+func runAgyProtocolHelper(metaPath string, args []string) int {
+	if len(args) == 0 || args[0] != "acp" {
+		return 2
+	}
+	var geminiDir, logFile string
+	for i := 1; i < len(args); i += 2 {
+		if i+1 >= len(args) {
+			return 2
+		}
+		switch args[i] {
+		case "--gemini-dir":
+			geminiDir = args[i+1]
+		case "--log-file":
+			logFile = args[i+1]
+		default:
+			return 2
+		}
+	}
+	if !filepath.IsAbs(geminiDir) || !filepath.IsAbs(logFile) {
+		return 3
+	}
+	_ = os.WriteFile(logFile, []byte("init\n"), 0o600)
+	var appDataEntries []string
+	if entries, err := os.ReadDir(filepath.Join(geminiDir, "antigravity-cli")); err == nil {
+		for _, entry := range entries {
+			appDataEntries = append(appDataEntries, entry.Name())
+		}
+	}
+	meta, _ := json.Marshal(map[string]any{
+		"geminiDir":      geminiDir,
+		"logFile":        logFile,
+		"appDataEntries": appDataEntries,
+	})
+	_ = os.WriteFile(metaPath, meta, 0o600)
+	decoder := json.NewDecoder(os.Stdin)
+	var request map[string]any
+	if decoder.Decode(&request) != nil {
+		return 4
+	}
+	fmt.Println(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}`)
+	return 0
+}
+
+func TestAntigravityProtocolProbeIsolatesGeminiDirAndLogFile(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	userAppData := filepath.Join(home, ".gemini", "antigravity-cli")
+	if err := os.MkdirAll(filepath.Join(userAppData, "antigravity-oauth-token"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userAppData, "settings.json"), []byte(`{"theme":"dark"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	metaFile := filepath.Join(t.TempDir(), "protocol-meta.json")
+	env := map[string]string{
+		"HOME":                   home,
+		testAgyProtocolHelperEnv: metaFile,
+	}
+	if err := probeRuntimeProtocol(context.Background(), "antigravity", executable, env, 5*time.Second, "1.5.13"); err != nil {
+		t.Fatalf("antigravity protocol probe failed: %v", err)
+	}
+	rawMeta, err := os.ReadFile(metaFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var meta struct {
+		GeminiDir      string   `json:"geminiDir"`
+		LogFile        string   `json:"logFile"`
+		AppDataEntries []string `json:"appDataEntries"`
+	}
+	if err := json.Unmarshal(rawMeta, &meta); err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(meta.GeminiDir) || !filepath.IsAbs(meta.LogFile) {
+		t.Fatalf("expected absolute isolated paths, got %+v", meta)
+	}
+	if len(meta.AppDataEntries) != 0 {
+		t.Fatalf("protocol probe must not copy user credentials or settings: %v", meta.AppDataEntries)
+	}
+	if _, err := os.Stat(filepath.Dir(meta.GeminiDir)); !os.IsNotExist(err) {
+		t.Fatalf("temporary probe root was not cleaned up: %q (err=%v)", filepath.Dir(meta.GeminiDir), err)
+	}
+	if _, err := os.Stat(filepath.Join(userAppData, "log")); !os.IsNotExist(err) {
+		t.Fatalf("protocol probe created log dir under HOME: err=%v", err)
+	}
+}
 
 func TestProtocolProbeWaitsForInitializeBeforeClosingInput(t *testing.T) {
 	executable, err := os.Executable()

@@ -140,6 +140,7 @@ describe("LocalServerModule resume coordination", () => {
 
     await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
     expect(f.showStartFailed).not.toHaveBeenCalled();
+    expect(f.module.status().localModelsDegraded).toBeUndefined();
     expect(
       f.logs.find(
         (entry) => entry.event === "local_server.byok_gateway_unavailable",
@@ -148,6 +149,36 @@ describe("LocalServerModule resume coordination", () => {
       level: "warn",
       event: "local_server.byok_gateway_unavailable",
       fields: { code: "BYOK_UNREACHABLE", message: "Endpoint did not answer." },
+    });
+    await f.host.stop("quit");
+  });
+
+  it("logs degraded local models and still resumes the workspace", async () => {
+    const f = setupResumeFixture(`
+      process.stdout.write(JSON.stringify({ code: 0, details: { origin: "http://localhost:3000", localModelsDegraded: { code: "LOCAL_MODELS_RECOVERY_REQUIRED", message: "The upstream tool could not verify the local stack binding.", reasons: ["binding-unavailable"] } } }) + "\\n");
+    `);
+
+    await f.host.start();
+
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
+    expect(f.showStartFailed).not.toHaveBeenCalled();
+    expect(f.module.status().localModelsDegraded).toEqual({
+      code: "LOCAL_MODELS_RECOVERY_REQUIRED",
+      message: "The upstream tool could not verify the local stack binding.",
+      reasons: ["binding-unavailable"],
+    });
+    expect(
+      f.logs.find(
+        (entry) => entry.event === "local_server.local_models_unavailable",
+      ),
+    ).toEqual({
+      level: "warn",
+      event: "local_server.local_models_unavailable",
+      fields: {
+        code: "LOCAL_MODELS_RECOVERY_REQUIRED",
+        message: "The upstream tool could not verify the local stack binding.",
+        reasons: ["binding-unavailable"],
+      },
     });
     await f.host.stop("quit");
   });

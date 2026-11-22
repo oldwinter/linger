@@ -1,5 +1,6 @@
 import {
   AiChipIcon,
+  AiSparklesIcon,
   ArrowDown01Icon,
   ChatGptIcon,
   ClaudeIcon,
@@ -12,6 +13,7 @@ import {
   MistralIcon,
   QwenIcon,
 } from "@hugeicons/core-free-icons";
+import { isInkling2MiniModelId } from "@linger/service-kit/featured-models";
 import { useId, type MouseEvent } from "react";
 import { Link } from "react-router";
 
@@ -61,6 +63,11 @@ const defaultBrand: FamilyBrand = {
   tone: "bg-muted text-muted-foreground",
 };
 
+const featuredInklingBrand: FamilyBrand = {
+  icon: AiSparklesIcon,
+  tone: "bg-[var(--app-mention-surface)] text-app-info",
+};
+
 const familyBrands: Record<NonNullable<LocalModel["family"]>, FamilyBrand> = {
   claude: { icon: ClaudeIcon, tone: "bg-acorn-500/15 text-acorn-700" },
   deepseek: {
@@ -82,13 +89,17 @@ const familyBrands: Record<NonNullable<LocalModel["family"]>, FamilyBrand> = {
   qwen: { icon: QwenIcon, tone: "bg-lavender-500/15 text-lavender-700" },
 };
 
-function familyBrand(family: LocalModel["family"]): FamilyBrand {
-  return family ? familyBrands[family] : defaultBrand;
+function modelBrand(model: LocalModel): FamilyBrand {
+  if (isInkling2MiniModelId(model.id)) return featuredInklingBrand;
+  return model.family && Object.hasOwn(familyBrands, model.family)
+    ? familyBrands[model.family]
+    : defaultBrand;
 }
 
 function cardTone(
   status: ModelStatus,
   recommended: boolean,
+  featured: boolean,
   expanded: boolean,
 ): string {
   if (status === "loaded") {
@@ -125,6 +136,14 @@ function cardTone(
     return cn(
       "bg-muted/35",
       expanded ? "border-border-hover" : "border-border/70 hover:bg-muted/55",
+    );
+  }
+  if (featured) {
+    return cn(
+      "bg-card",
+      expanded
+        ? "border-app-info/45"
+        : "border-[var(--app-card-info-border)] hover:border-app-info/45",
     );
   }
   return cn(
@@ -271,17 +290,20 @@ function RowStatusLine({
 
 function RowMetadataPills({
   badges,
+  featured,
   overflowTitle,
   status,
   usedBy,
   usedByTitle,
 }: {
   badges: string[];
+  featured: boolean;
   overflowTitle?: string;
   status: ModelStatus;
   usedBy?: string;
   usedByTitle?: string;
 }) {
+  const t = useT();
   return (
     <div
       className={cn(
@@ -289,6 +311,11 @@ function RowMetadataPills({
         status === "unavailable" && "opacity-60",
       )}
     >
+      {featured ? (
+        <span className="rounded-full bg-[var(--app-mention-surface)] px-2 py-0.5 text-xs font-medium text-app-info">
+          {t(m.featured)}
+        </span>
+      ) : null}
       {usedBy ? (
         <span
           className={cn(
@@ -362,6 +389,7 @@ export function ModelRow({
   disabled,
   entry,
   expanded,
+  inSpotlight = false,
   onAssignAgent,
   requested,
   switchingForAgents = false,
@@ -376,6 +404,8 @@ export function ModelRow({
   disabled: boolean;
   entry: ModelEntry;
   expanded: boolean;
+  /** Rendered inside `FeaturedModelSpotlight`, which already carries the partner header. */
+  inSpotlight?: boolean;
   onAssignAgent?: (agent: AssignableLocalModelAgent) => void;
   /** An action asked for and not yet in a snapshot. */
   requested?: LocalModelAction;
@@ -411,9 +441,11 @@ export function ModelRow({
   const progress = downloadPercent(model);
   const download = formatGigabytes(model.download_bytes, t);
   const recommended = status === "available" && model.recommended;
+  const featured = isInkling2MiniModelId(model.id);
+  const showFeaturedPill = featured && !inSpotlight;
   const slower =
     status === "available" && !model.recommended && model.fit === "system";
-  const brand = familyBrand(model.family);
+  const brand = modelBrand(model);
   const computerId = view.computer.computer_id;
   const usedNames = usedByAgentNames(entry, assignableAgents, computerId);
   const usedBy = usedByBadge({ ...entry, status }, t, usedNames);
@@ -430,7 +462,7 @@ export function ModelRow({
     Boolean(primaryAgent) &&
     Boolean(onAssignAgent);
   const { badges, overflowTitle } = collapsedRowBadges(model, t);
-  const hasMeta = Boolean(usedBy) || badges.length > 0;
+  const hasMeta = showFeaturedPill || Boolean(usedBy) || badges.length > 0;
   const damagedFiles =
     status === "failed" &&
     (model.error?.code === "CHECKSUM_MISMATCH" ||
@@ -529,8 +561,9 @@ export function ModelRow({
     <article
       className={cn(
         "@container rounded-xl border transition-[background-color,border-color,box-shadow] duration-150 motion-reduce:transition-none",
-        cardTone(status, recommended, expanded),
+        cardTone(status, recommended, featured, expanded),
       )}
+      data-featured={featured || undefined}
       data-recommended={recommended || undefined}
       data-status={status}
     >
@@ -598,6 +631,7 @@ export function ModelRow({
         {hasMeta ? (
           <RowMetadataPills
             badges={badges}
+            featured={showFeaturedPill}
             overflowTitle={overflowTitle}
             status={status}
             usedBy={usedBy}

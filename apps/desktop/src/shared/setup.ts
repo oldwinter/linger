@@ -2,6 +2,7 @@
 // The setup window walks a new install through server, sign-in, connecting
 // this computer and the system permissions it needs.
 
+import { INKLING_2_MINI_ANNOUNCEMENT_URL } from "@linger/service-kit/featured-models";
 import type {
   SetupChoice,
   SetupMemory,
@@ -201,6 +202,7 @@ export type SetupLocalModelsCheck =
         readonly downloadBytes: number | null;
         readonly diskBytes: number | null;
         readonly memoryBytes: number | null;
+        readonly featuredInkling?: true;
       };
       // The localmodels tool's code for why not, or, when eligible, for
       // what could still stop the install, with the counts it carries. The
@@ -272,8 +274,17 @@ export interface SetupState {
   >;
 }
 
+// Exact HTTPS URLs that the sandboxed setup page may ask the main process to
+// open in the system browser. Any other URL is rejected at the IPC boundary.
+export const SETUP_EXTERNAL_URLS = [INKLING_2_MINI_ANNOUNCEMENT_URL] as const;
+
+export type SetupExternalUrl = (typeof SETUP_EXTERNAL_URLS)[number];
+
+export { INKLING_2_MINI_ANNOUNCEMENT_URL };
+
 export type SetupCommand =
   | { readonly op: "server.set"; readonly serverUrl: string }
+  | { readonly op: "external.open"; readonly url: SetupExternalUrl }
   | {
       readonly op: "local.start";
       readonly runtime?: SetupLocalRuntime;
@@ -343,6 +354,7 @@ export type SetupCommand =
     };
 
 export interface LingerSetupApi {
+  readonly featuredAnnouncementUrl: SetupExternalUrl;
   getState(): Promise<SetupState>;
   onState(callback: (state: SetupState) => void): () => void;
   run(command: SetupCommand): Promise<SetupState>;

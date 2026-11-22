@@ -481,11 +481,12 @@ func projectAuthentication(root *os.Root, source string) error {
 	if err := removeProjectionFile(root, "auth.json"); err != nil {
 		return err
 	}
-	if err := root.Symlink(path, "auth.json"); err == nil {
-		return nil
-	} else if runtime.GOOS != "windows" {
-		return err
+	if runtime.GOOS != "windows" {
+		return root.Symlink(path, "auth.json")
 	}
+	// Go's Windows (*os.Root).Symlink writes non-relative targets without the
+	// \??\ NT prefix, producing unreadable symlinks when symlink privilege is
+	// available. Project a confined copy through *os.Root instead.
 	data, err := readProjectionSource(path)
 	if err != nil {
 		return err

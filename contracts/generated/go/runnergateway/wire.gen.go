@@ -1270,9 +1270,17 @@ func (LocalModelPool) RequiredFields() []string {
 
 // LocalModelAvailabilityReason mirrors the LocalModelAvailabilityReason schema shape.
 type LocalModelAvailabilityReason struct {
-	Code      string  `json:"code"`
-	NeedBytes *uint64 `json:"need_bytes,omitempty"`
-	HaveBytes *uint64 `json:"have_bytes,omitempty"`
+	Code             string   `json:"code"`
+	NeedBytes        *uint64  `json:"need_bytes,omitempty"`
+	HaveBytes        *uint64  `json:"have_bytes,omitempty"`
+	MemoryKind       string   `json:"memory_kind,omitempty"`
+	GpuVendor        string   `json:"gpu_vendor,omitempty"`
+	RequiredCuda     string   `json:"required_cuda,omitempty"`
+	DetectedCuda     string   `json:"detected_cuda,omitempty"`
+	DriverVersion    string   `json:"driver_version,omitempty"`
+	MissingLibraries []string `json:"missing_libraries,omitempty"`
+	RequiredGlibc    string   `json:"required_glibc,omitempty"`
+	DetectedGlibc    string   `json:"detected_glibc,omitempty"`
 }
 
 // FixedFields lists the keys whose value the schema fixes for a LocalModelAvailabilityReason.
@@ -1280,6 +1288,19 @@ func (LocalModelAvailabilityReason) FixedFields() map[string]string { return nil
 
 // RequiredFields lists the keys a LocalModelAvailabilityReason must carry.
 func (LocalModelAvailabilityReason) RequiredFields() []string { return []string{"code"} }
+
+// LocalModelsDebugInfo mirrors the LocalModelsDebugInfo schema shape.
+type LocalModelsDebugInfo struct {
+	Mode       string `json:"mode"`
+	Source     string `json:"source"`
+	ConfigPath string `json:"config_path,omitempty"`
+}
+
+// FixedFields lists the keys whose value the schema fixes for a LocalModelsDebugInfo.
+func (LocalModelsDebugInfo) FixedFields() map[string]string { return nil }
+
+// RequiredFields lists the keys a LocalModelsDebugInfo must carry.
+func (LocalModelsDebugInfo) RequiredFields() []string { return []string{"mode", "source"} }
 
 // LocalModelAvailability mirrors the LocalModelAvailability schema shape.
 type LocalModelAvailability struct {
@@ -1406,6 +1427,7 @@ type LocalModelsSnapshot struct {
 	Host        *LocalModelHost               `json:"host,omitempty"`
 	Pools       []LocalModelPool              `json:"pools"`
 	Models      []LocalModel                  `json:"models"`
+	Debug       *LocalModelsDebugInfo         `json:"debug,omitempty"`
 }
 
 // FixedFields lists the keys whose value the schema fixes for a LocalModelsSnapshot.

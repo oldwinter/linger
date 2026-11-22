@@ -28,18 +28,28 @@ const (
 	CodeModelSourceUnsupported = "MODEL_SOURCE_UNSUPPORTED"
 )
 
-// errorCodes is the tool's closed error set (LocalModelErrorCode).
+// errorCodes is the tool's closed error set (LocalModelErrorCode), plus
+// UNKNOWN_ERROR for forward-compatible degradation of newer tool codes.
 var errorCodes = []string{
 	"MODEL_UNKNOWN", "INVALID_STATE", "JOB_RUNNING", "MEMORY_INSUFFICIENT", "DISK_INSUFFICIENT",
-	"PLATFORM_UNSUPPORTED", "LOAD_NO_ROOM", "DOWNLOAD_FAILED", "CHECKSUM_MISMATCH", "NETWORK_UNAVAILABLE",
+	"PLATFORM_UNSUPPORTED", "GPU_UNSUPPORTED", "DRIVER_UPDATE_REQUIRED", "RUNTIME_DEPENDENCY_MISSING",
+	"LOAD_NO_ROOM", "DOWNLOAD_FAILED", "CHECKSUM_MISMATCH", "NETWORK_UNAVAILABLE",
 	"ENGINE_START_FAILED", "HEALTH_CHECK_FAILED", "OUT_OF_MEMORY", "MODEL_FILES_MISSING",
-	"GATEWAY_REGISTRATION_FAILED", "CANCELLED",
+	"GATEWAY_REGISTRATION_FAILED", "CANCELLED", "UNKNOWN_ERROR",
 }
 
 var (
-	families      = []string{"qwen", "gemma", "llama", "openai", "deepseek", "mistral", "phi", "glm", "kimi", "claude", "grok", "other"}
-	architectures = []string{"dense", "moe"}
-	capabilities  = []string{"vision", "tool_use", "reasoning", "coding", "multilingual"}
+	families          = []string{"qwen", "gemma", "llama", "openai", "deepseek", "mistral", "phi", "glm", "kimi", "claude", "grok", "other"}
+	architectures     = []string{"dense", "moe"}
+	capabilities      = []string{"vision", "tool_use", "reasoning", "coding", "multilingual"}
+	availabilityCodes = []string{
+		"MEMORY_INSUFFICIENT", "DISK_INSUFFICIENT", "PLATFORM_UNSUPPORTED",
+		"GPU_UNSUPPORTED", "DRIVER_UPDATE_REQUIRED", "RUNTIME_DEPENDENCY_MISSING", "UNAVAILABLE",
+	}
+	memoryKinds  = []string{"vram", "ram", "unified"}
+	gpuVendors   = []string{"amd", "intel", "none", "unknown"}
+	debugModes   = []string{"tiny", "simulate"}
+	debugSources = []string{"env", "state_config", "user_config"}
 )
 
 var (
@@ -74,12 +84,14 @@ type libraryStatus struct {
 		UsedBytes  uint64                      `json:"used_bytes"`
 		Holders    []wire.LocalModelPoolHolder `json:"holders"`
 	} `json:"pools"`
-	Models []wire.LocalModel `json:"models"`
+	Models []wire.LocalModel          `json:"models"`
+	Debug  *wire.LocalModelsDebugInfo `json:"debug,omitempty"`
 }
 
-// mapStatus turns one library-status/v1 document into the wire snapshot. A
-// value outside the contract's closed sets makes the whole document invalid:
-// the reader would otherwise show a state nobody defined.
+// mapStatus turns one library-status/v1 document into the wire snapshot.
+// Structural and security invariants still reject an invalid document, while
+// extensible display/diagnostic enums degrade forward-compatibly so a newer
+// localmodels catalog or diagnostic release never bricks the entire library.
 func mapStatus(encoded []byte, now time.Time) (wire.LocalModelsSnapshot, error) {
 	var status libraryStatus
 	if err := json.Unmarshal(encoded, &status); err != nil {
@@ -113,6 +125,7 @@ func mapStatus(encoded []byte, now time.Time) (wire.LocalModelsSnapshot, error) 
 	snapshot := wire.LocalModelsSnapshot{
 		Available: true, ObservedAt: observedAt, ToolVersion: clip(status.ToolVersion, 64), Host: &host,
 		Pools: make([]wire.LocalModelPool, 0, len(status.Pools)), Models: make([]wire.LocalModel, 0, len(status.Models)),
+		Debug: sanitizeDebugInfo(status.Debug),
 	}
 	for _, pool := range status.Pools {
 		kind, index, err := poolKind(pool.ID)
@@ -123,9 +136,9 @@ func mapStatus(encoded []byte, now time.Time) (wire.LocalModelsSnapshot, error) 
 		if holders == nil {
 			holders = []wire.LocalModelPoolHolder{}
 		}
-		for _, holder := range holders {
-			if holder.Kind != "model" && holder.Kind != "component" {
-				return wire.LocalModelsSnapshot{}, fmt.Errorf("pool holder kind %q is outside the contract", holder.Kind)
+		for i := range holders {
+			if holders[i].Kind != "model" && holders[i].Kind != "component" {
+				holders[i].Kind = "component"
 			}
 		}
 		snapshot.Pools = append(snapshot.Pools, wire.LocalModelPool{
@@ -133,14 +146,7 @@ func mapStatus(encoded []byte, now time.Time) (wire.LocalModelsSnapshot, error) 
 		})
 	}
 	for _, model := range status.Models {
-		model.Publisher = clip(strings.TrimSpace(model.Publisher), 120)
-		model.Parameters = clip(strings.TrimSpace(model.Parameters), 32)
-		model.ActiveParameters = clip(strings.TrimSpace(model.ActiveParameters), 32)
-		model.License = clip(strings.TrimSpace(model.License), 120)
-		model.SourceURL = strings.TrimSpace(model.SourceURL)
-		if len(model.Capabilities) == 0 {
-			model.Capabilities = nil
-		}
+		sanitizeModel(&model)
 		if err := checkModel(model); err != nil {
 			return wire.LocalModelsSnapshot{}, err
 		}
@@ -156,6 +162,109 @@ func mapStatus(encoded []byte, now time.Time) (wire.LocalModelsSnapshot, error) 
 		snapshot.Models = append(snapshot.Models, model)
 	}
 	return snapshot, nil
+}
+
+func sanitizeDebugInfo(raw *wire.LocalModelsDebugInfo) *wire.LocalModelsDebugInfo {
+	if raw == nil || !slices.Contains(debugModes, raw.Mode) || !slices.Contains(debugSources, raw.Source) {
+		return nil
+	}
+	info := &wire.LocalModelsDebugInfo{Mode: raw.Mode, Source: raw.Source}
+	if raw.Source != "env" {
+		if path := clip(strings.TrimSpace(raw.ConfigPath), 4096); path != "" {
+			info.ConfigPath = path
+		}
+	}
+	return info
+}
+
+func sanitizeReason(reason *wire.LocalModelAvailabilityReason) *wire.LocalModelAvailabilityReason {
+	if reason == nil {
+		return nil
+	}
+	if !slices.Contains(availabilityCodes, reason.Code) {
+		return &wire.LocalModelAvailabilityReason{Code: "UNAVAILABLE"}
+	}
+	cleaned := &wire.LocalModelAvailabilityReason{
+		Code:          reason.Code,
+		NeedBytes:     reason.NeedBytes,
+		HaveBytes:     reason.HaveBytes,
+		RequiredCuda:  clip(strings.TrimSpace(reason.RequiredCuda), 32),
+		DetectedCuda:  clip(strings.TrimSpace(reason.DetectedCuda), 32),
+		DriverVersion: clip(strings.TrimSpace(reason.DriverVersion), 64),
+		RequiredGlibc: clip(strings.TrimSpace(reason.RequiredGlibc), 32),
+		DetectedGlibc: clip(strings.TrimSpace(reason.DetectedGlibc), 32),
+	}
+	if slices.Contains(memoryKinds, reason.MemoryKind) {
+		cleaned.MemoryKind = reason.MemoryKind
+	}
+	if slices.Contains(gpuVendors, reason.GpuVendor) {
+		cleaned.GpuVendor = reason.GpuVendor
+	}
+	if len(reason.MissingLibraries) > 0 {
+		libs := make([]string, 0, min(len(reason.MissingLibraries), 16))
+		for _, lib := range reason.MissingLibraries {
+			trimmed := clip(strings.TrimSpace(lib), 64)
+			if trimmed == "" || slices.Contains(libs, trimmed) {
+				continue
+			}
+			libs = append(libs, trimmed)
+			if len(libs) == 16 {
+				break
+			}
+		}
+		if len(libs) > 0 {
+			cleaned.MissingLibraries = libs
+		}
+	}
+	return cleaned
+}
+
+func sanitizeModel(model *wire.LocalModel) {
+	model.Publisher = clip(strings.TrimSpace(model.Publisher), 120)
+	model.Parameters = clip(strings.TrimSpace(model.Parameters), 32)
+	model.ActiveParameters = clip(strings.TrimSpace(model.ActiveParameters), 32)
+	model.License = clip(strings.TrimSpace(model.License), 120)
+	model.SourceURL = strings.TrimSpace(model.SourceURL)
+	if model.Family != "" && !slices.Contains(families, model.Family) {
+		model.Family = "other"
+	}
+	if model.Architecture != "" && !slices.Contains(architectures, model.Architecture) {
+		model.Architecture = ""
+	}
+	if len(model.Capabilities) > 0 {
+		filtered := make([]string, 0, len(model.Capabilities))
+		for _, capability := range model.Capabilities {
+			if slices.Contains(capabilities, capability) && !slices.Contains(filtered, capability) {
+				filtered = append(filtered, capability)
+			}
+		}
+		if len(filtered) > 0 {
+			model.Capabilities = filtered
+		} else {
+			model.Capabilities = nil
+		}
+	} else {
+		model.Capabilities = nil
+	}
+	if model.Availability.Downloadable {
+		model.Availability.Reason = nil
+	} else {
+		model.Availability.Reason = sanitizeReason(model.Availability.Reason)
+	}
+	if model.Download != nil && model.Download.Step != "download" && model.Download.Step != "verify" {
+		model.Download.Step = "download"
+	}
+	if model.Error != nil {
+		if !slices.Contains(errorCodes, model.Error.Code) {
+			model.Error.Code = "UNKNOWN_ERROR"
+			model.Error.Cause, model.Error.Path = "", ""
+		} else if model.Error.Cause != "" && !slices.Contains(errorCauses, model.Error.Cause) {
+			model.Error.Cause, model.Error.Path = "", ""
+		}
+	}
+	if model.Note != nil && model.Note.Code != "NO_ROOM_TO_LOAD" {
+		model.Note = nil
+	}
 }
 
 // poolKind splits a pool id so no reader parses "gpu:1".
@@ -189,36 +298,12 @@ func checkModel(model wire.LocalModel) error {
 	if _, _, err := poolKind(model.Pool); err != nil && (model.Pool != "" || model.Fit != "none") {
 		return invalid("pool", model.Pool)
 	}
-	if reason := model.Availability.Reason; reason != nil &&
-		!slices.Contains([]string{"MEMORY_INSUFFICIENT", "DISK_INSUFFICIENT", "PLATFORM_UNSUPPORTED"}, reason.Code) {
-		return invalid("availability reason", reason.Code)
-	}
-	if model.Download != nil && model.Download.Step != "download" && model.Download.Step != "verify" {
-		return invalid("download step", model.Download.Step)
-	}
-	if model.Error != nil && !slices.Contains(errorCodes, model.Error.Code) {
-		return invalid("error code", model.Error.Code)
-	}
-	if model.Note != nil && model.Note.Code != "NO_ROOM_TO_LOAD" {
-		return invalid("note", model.Note.Code)
-	}
 	// An Agent stores pi_model as its runtime_model, so it is never cut.
 	if len(model.PiModel) > 200 {
 		return invalid("pi_model", model.PiModel)
 	}
 	if model.TokensPerSecond != nil && (math.IsNaN(*model.TokensPerSecond) || math.IsInf(*model.TokensPerSecond, 0) || *model.TokensPerSecond < 0) {
 		return errors.New("model tokens_per_second is outside the contract")
-	}
-	if model.Family != "" && !slices.Contains(families, model.Family) {
-		return invalid("family", model.Family)
-	}
-	if model.Architecture != "" && !slices.Contains(architectures, model.Architecture) {
-		return invalid("architecture", model.Architecture)
-	}
-	for index, capability := range model.Capabilities {
-		if !slices.Contains(capabilities, capability) || slices.Contains(model.Capabilities[:index], capability) {
-			return invalid("capabilities", capability)
-		}
 	}
 	if model.SourceURL != "" && (len(model.SourceURL) > 2048 || !sourceURLPattern.MatchString(model.SourceURL)) {
 		return invalid("source_url", model.SourceURL)
@@ -272,13 +357,14 @@ func (e libraryEvent) modelID() string {
 	return ""
 }
 
-// refusal turns the tool's error into the wire refusal. A code outside the
-// closed set means the tool broke its contract.
+// refusal turns the tool's error into the wire refusal. Unknown future codes
+// degrade to UNKNOWN_ERROR instead of breaking the whole action path.
 func (e libraryEvent) refusal() *wire.LocalModelActionRefusal {
-	if !slices.Contains(errorCodes, e.Code) {
-		return &wire.LocalModelActionRefusal{Code: CodeToolFailed, Detail: "localmodels reported an error outside its contract"}
+	code := e.Code
+	if !slices.Contains(errorCodes, code) {
+		code = "UNKNOWN_ERROR"
 	}
-	refusal := &wire.LocalModelActionRefusal{Code: e.Code, Detail: clip(e.Detail, 4000)}
+	refusal := &wire.LocalModelActionRefusal{Code: code, Detail: clip(e.Detail, 4000)}
 	if _, _, err := poolKind(e.Pool); err == nil {
 		refusal.Pool = e.Pool
 	}

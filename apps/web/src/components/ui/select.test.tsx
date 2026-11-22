@@ -116,6 +116,28 @@ describe("Select", () => {
     ).toEqual({ left: 80, top: 196, width: 200 });
   });
 
+  it("supports custom widths and auto right-edge alignment clamped inside narrow viewports", () => {
+    // Trigger in right half of desktop viewport: aligns right edge to trigger.right.
+    expect(
+      selectPopupPosition(
+        { left: 960, top: 64, right: 1080, bottom: 92, width: 120 },
+        { width: 1280, height: 800 },
+        360,
+        { align: "auto", width: 320 },
+      ),
+    ).toEqual({ left: 760, top: 96, width: 320 });
+
+    // Trigger in left half of 375px mobile viewport: aligns left and stays inside 8px gutters.
+    const mobile = selectPopupPosition(
+      { left: 16, top: 232, right: 136, bottom: 260, width: 120 },
+      { width: 375, height: 812 },
+      360,
+      { align: "auto", width: 320 },
+    );
+    expect(mobile.left).toBe(16);
+    expect(mobile.left + mobile.width).toBeLessThanOrEqual(375 - 8);
+  });
+
   it("converts trigger coordinates into a dialog containing block", () => {
     expect(
       selectPopupFrame(
