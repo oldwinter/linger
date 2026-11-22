@@ -6,6 +6,8 @@ import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { readVisibleQuote } from "../../documents/document-voice-selection-control";
 import { useOptionalVoiceMaterials } from "./voice-materials-context";
+import { useT } from "@/i18n/use-translation";
+import { voiceChatMessages as m } from "./voice-chat.messages";
 
 const controlSelector = "[data-message-voice-selection-control]";
 // Mentions and Document links are part of a Message body and may be quoted.
@@ -33,6 +35,7 @@ export function MessageVoiceSelectionControl({
 }: {
   root: HTMLElement | null;
 }) {
+  const t = useT();
   const materials = useOptionalVoiceMaterials();
   const enabled = materials?.voiceModeEntered === true;
   const [selection, setSelection] = useState<SelectedMessageQuote | null>(null);
@@ -150,7 +153,7 @@ export function MessageVoiceSelectionControl({
       className="fixed z-50 flex flex-col items-start gap-1"
       data-message-voice-selection-control
       role="group"
-      aria-label="Selected message voice context"
+      aria-label={t(m.messageSelection)}
       style={{ top: placement.top, left: placement.left }}
     >
       <Button
@@ -162,15 +165,14 @@ export function MessageVoiceSelectionControl({
         type="button"
       >
         <Icon icon={QuoteDownIcon} size={14} />
-        Add to voice
+        {t(m.addToVoice)}
       </Button>
       {failed ? (
         <p
           className="max-w-64 rounded bg-app-surface px-2 py-1 text-xs text-app-danger shadow"
           role="alert"
         >
-          {materials.error ||
-            "This selection could not be added. Please try again."}
+          {materials.error || t(m.addFailed)}
         </p>
       ) : null}
     </div>,

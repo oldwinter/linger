@@ -2,6 +2,9 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 import { ActorAvatar } from "@/features/rooms/members/actor-avatar";
 import type { TeamHubRoomMember } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
+
+import { documentPageMessages as m } from "./document-page.messages";
 
 import type { RoomDocumentCollaborationSession } from "./room-document-collaboration";
 import {
@@ -21,6 +24,7 @@ export function RoomDocumentPresence({
   members: readonly TeamHubRoomMember[] | undefined;
   showSelf?: boolean;
 }) {
+  const t = useT();
   const subscribe = useCallback(
     (listener: () => void) => {
       if (awareness === null) return () => undefined;
@@ -78,26 +82,37 @@ export function RoomDocumentPresence({
   if (participants.length < 2 && !showSelf) return null;
 
   const visibleParticipants = participants.slice(0, 5);
-  const names = participants.map((participant) => participant.name).join(", ");
+  const names = participants
+    .map((participant) => participant.name)
+    .join(t(m.listSeparator));
   const membersByActorId = new Map(
     members?.map((member) => [member.actor.id, member.actor]),
   );
 
   return (
     <span
-      aria-label={`${participants.length} people in this document: ${names}`}
+      aria-label={t(m.peopleInDocument, {
+        count: participants.length,
+        names,
+      })}
       aria-live="polite"
       className="inline-flex min-w-0 shrink-0 items-center"
       role="status"
     >
-      <span className="sr-only">{participants.length} people viewing</span>
+      <span className="sr-only">
+        {t(m.peopleViewing, { count: participants.length })}
+      </span>
       <span className="flex -space-x-[5px] rounded-full p-1">
         {visibleParticipants.map((participant) => (
           <span
             className="relative rounded-full border bg-app-surface p-px"
             key={participant.actorId}
             style={{ borderColor: participant.color }}
-            title={`${participant.name}${participant.isCurrent ? " (you)" : ""}`}
+            title={
+              participant.isCurrent
+                ? t(m.nameYou, { name: participant.name })
+                : participant.name
+            }
           >
             <ActorAvatar
               actorId={participant.actorId}

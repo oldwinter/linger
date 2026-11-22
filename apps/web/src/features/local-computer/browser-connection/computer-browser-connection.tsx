@@ -5,7 +5,10 @@ import { lazy, Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import type { Translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 
+import { computersMessages } from "../computers.messages";
 import { ComputerRow, ProgressChip, RowMark, StatusDot } from "../computer-row";
 import { browserConnectionQueryOptions } from "./browser-connection-api";
 import {
@@ -32,6 +35,7 @@ export function ComputerBrowserConnection({
   tenantId: string;
   variant: "chip" | "row";
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const [open, setOpen] = useState(false);
   const status = useQuery({
@@ -45,15 +49,15 @@ export function ComputerBrowserConnection({
   if (variant === "chip" && online && status.isPending) return null;
   const connected = state === "connected";
   const copy = status.data
-    ? browserConnectionStateCopy(status.data.state)
+    ? browserConnectionStateCopy(status.data.state, t)
     : null;
   const explanation = !online
-    ? "Unavailable while this computer is offline."
+    ? t(computersMessages.browserUnavailableOffline)
     : status.data
-      ? browserExplanation(status.data.state)
+      ? browserExplanation(status.data.state, t)
       : status.isError
-        ? browserConnectionErrorMessage(status.error)
-        : "Checking browser status…";
+        ? browserConnectionErrorMessage(status.error, t)
+        : t(computersMessages.checkingBrowserStatus);
   const dialog = open ? (
     <Suspense fallback={null}>
       <BrowserConnectionDialog
@@ -70,11 +74,11 @@ export function ComputerBrowserConnection({
         <ProgressChip
           hint={
             connected
-              ? "Agents can use your Chrome"
-              : "Optional · let Agents use your Chrome"
+              ? t(computersMessages.agentsCanUseChrome)
+              : t(computersMessages.chromeOptional)
           }
           icon={ChromeIcon}
-          label={connected ? "Chrome" : "Connect Chrome"}
+          label={connected ? "Chrome" : t(computersMessages.connectChrome)}
           onClick={connected || !online ? undefined : () => setOpen(true)}
           state={connected ? "done" : "optional"}
         />
@@ -92,7 +96,9 @@ export function ComputerBrowserConnection({
               size="compact"
               tone={connected ? "ghost" : "secondary"}
             >
-              {connected ? "Manage" : "Connect"}
+              {connected
+                ? t(computersMessages.manage)
+                : t(computersMessages.connect)}
             </Button>
           ) : null
         }
@@ -131,15 +137,18 @@ export function ComputerBrowserConnection({
  * The second line of the Chrome row. Browser tools work without a connection;
  * connecting only decides whose Chrome, and so whose sign-ins, they use.
  */
-function browserExplanation(state: TeamHubBrowserConnectionStatus["state"]) {
+function browserExplanation(
+  state: TeamHubBrowserConnectionStatus["state"],
+  t: Translate,
+) {
   switch (state) {
     case "connected":
-      return "Agents use your sign-ins.";
+      return t(computersMessages.agentsUseSignIns);
     case "isolated":
-      return "Agents browse without your sign-ins.";
+      return t(computersMessages.agentsBrowseWithoutSignIns);
     case "not_connected":
-      return "Agents ask before browsing.";
+      return t(computersMessages.agentsAskBeforeBrowsing);
     default:
-      return browserConnectionStateCopy(state).label;
+      return browserConnectionStateCopy(state, t).label;
   }
 }

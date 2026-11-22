@@ -1,5 +1,10 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
+import type { Translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
+
+import { navigationMessages } from "./room-navigation.messages";
+import { roomSurfaceMessages } from "./room-surface.messages";
 
 /**
  * The Room list inside the secondary navigation while it first loads. Mirrors
@@ -34,17 +39,20 @@ export function RoomNavigationLoading() {
  * reads as pending with message skeletons instead of a bare line of text.
  */
 export function RoomChatLoading() {
+  const t = useT();
   // Covers the whole Room surface, header included, so the real header does
   // not show its title and actions while the conversation is still loading;
   // everything appears together once the chat is ready.
   return (
     <div
       aria-busy="true"
-      aria-label="Loading conversation"
+      aria-label={t(roomSurfaceMessages.loadingConversation)}
       className="absolute inset-0 z-[12] flex min-h-0 flex-col bg-app-surface"
       role="status"
     >
-      <span className="sr-only">Loading conversation…</span>
+      <span className="sr-only">
+        {t(roomSurfaceMessages.loadingConversationStatus)}
+      </span>
       <RoomHeaderLoading />
       <ChatLoading />
     </div>
@@ -58,17 +66,20 @@ export function AuthenticatedRouteLoading({
   pathname: string;
   rooms: TeamHubRoomListItem[];
 }) {
-  const route = classifyRoute(pathname, rooms);
+  const t = useT();
+  const route = classifyRoute(pathname, rooms, t);
 
   return (
     <div
       aria-busy="true"
-      aria-label={`Loading ${route.label}`}
+      aria-label={t(roomSurfaceMessages.loadingRoute, { name: route.label })}
       className="route-loading-surface flex min-h-0 flex-1 overflow-hidden bg-app-surface"
       data-loading-route={route.kind}
       role="status"
     >
-      <span className="sr-only">Loading {route.label}...</span>
+      <span className="sr-only">
+        {t(roomSurfaceMessages.loadingRouteStatus, { name: route.label })}
+      </span>
       {route.kind === "room" ? (
         <RoomLoading />
       ) : route.kind === "dashboard" ? (
@@ -94,12 +105,13 @@ type LoadingRoute =
 function classifyRoute(
   pathname: string,
   rooms: TeamHubRoomListItem[],
+  t: Translate,
 ): LoadingRoute {
   const segments = pathname.split("/").filter(Boolean);
   const roomsIndex = segments.indexOf("rooms");
   const documentsIndex = segments.indexOf("documents");
   if (documentsIndex >= 0 && segments[documentsIndex + 1]) {
-    return { kind: "document", label: "Document" };
+    return { kind: "document", label: t(roomSurfaceMessages.routeDocument) };
   }
   if (roomsIndex >= 0 && segments[roomsIndex + 1] === "catch-up") {
     return { kind: "page", label: "Catch up" };
@@ -107,22 +119,25 @@ function classifyRoute(
   if (roomsIndex >= 0 && segments[roomsIndex + 1]) {
     const roomId = decodeURIComponent(segments[roomsIndex + 1]!);
     const room = rooms.find((candidate) => candidate.id === roomId);
-    return { kind: "room", label: room?.name ?? "Room" };
+    return {
+      kind: "room",
+      label: room?.name ?? t(roomSurfaceMessages.routeRoom),
+    };
   }
   if (roomsIndex >= 0) {
-    return { kind: "page", label: "Rooms" };
+    return { kind: "page", label: t(roomSurfaceMessages.routeRooms) };
   }
   if (segments.includes("computers")) {
-    return { kind: "page", label: "Local computers" };
+    return { kind: "page", label: t(roomSurfaceMessages.routeLocalComputers) };
   }
   if (segments.includes("settings")) {
     return { kind: "page", label: "Settings" };
   }
   if (segments.includes("apps")) {
-    return { kind: "page", label: "Connectors" };
+    return { kind: "page", label: t(navigationMessages.connectors) };
   }
   if (segments.includes("dashboard")) {
-    return { kind: "dashboard", label: "Dashboard" };
+    return { kind: "dashboard", label: t(roomSurfaceMessages.routeDashboard) };
   }
   if (segments.includes("work-items")) {
     return { kind: "page", label: "Work Item" };
@@ -148,7 +163,9 @@ function classifyRoute(
   if (segments.includes("library")) {
     return {
       kind: "library",
-      label: segments.includes("wiki") ? "Wiki" : "Library",
+      label: segments.includes("wiki")
+        ? t(navigationMessages.wiki)
+        : t(navigationMessages.library),
     };
   }
   return { kind: "page", label: "page" };
@@ -283,6 +300,7 @@ function LibraryLoading() {
 }
 
 function DocumentLoading() {
+  const t = useT();
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
       <aside
@@ -309,10 +327,12 @@ function DocumentLoading() {
           aria-hidden="true"
           className="flex h-(--app-header-height) shrink-0 items-center gap-2 border-b border-border/60 px-3 sm:px-5"
         >
-          <span className="text-sm font-medium text-foreground">Document</span>
+          <span className="text-sm font-medium text-foreground">
+            {t(roomSurfaceMessages.routeDocument)}
+          </span>
         </header>
         <div
-          aria-label="Loading Document body"
+          aria-label={t(roomSurfaceMessages.loadingDocumentBody)}
           className="workspace-content px-5 py-12 sm:px-0"
           role="status"
         >

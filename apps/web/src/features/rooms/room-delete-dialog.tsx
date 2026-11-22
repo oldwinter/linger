@@ -6,14 +6,17 @@ import { useNavigate } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { ModalDialog } from "@/components/ui/modal-dialog";
-import { classifyTeamHubCommandFailure } from "@/features/teamhub/teamhub-command-outcome";
 import { teamHubDone } from "@/features/teamhub/teamhub-api";
+import { TeamHubError } from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubRoom,
   TeamHubRoomPage,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { RichMessage, useT } from "@/i18n/use-translation";
 
+import { roomDialogMessages as m } from "./room-dialogs.messages";
 import { roomQueryKey, tenantRoomsQueryKey } from "./room-queries";
 
 export function RoomDeleteDialog({
@@ -26,6 +29,7 @@ export function RoomDeleteDialog({
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const confirmationInputRef = useRef<HTMLInputElement>(null);
@@ -77,13 +81,12 @@ export function RoomDeleteDialog({
       await navigate(`/t/${tenantId}/rooms`, { replace: true });
     },
   });
+  // TeamHub's own message is shown as it is; an unknown outcome is worded here.
   const failure = deleteRoom.error
-    ? classifyTeamHubCommandFailure(
-        deleteRoom.error,
-        "this Room was deleted",
-        "Check your Rooms before you retry.",
-      )
-    : null;
+    ? deleteRoom.error instanceof TeamHubError
+      ? deleteRoom.error.message
+      : t(m.deleteUnconfirmed)
+    : undefined;
 
   useEffect(() => {
     confirmationInputRef.current?.focus();
@@ -99,20 +102,21 @@ export function RoomDeleteDialog({
 
   return (
     <ModalDialog
-      description="Every member will lose access to this Room. Its messages, files, and history will no longer be available."
+      description={t(m.deleteRoomDescription)}
       onClose={() => {
         if (!deleteRoom.isPending) {
           onClose();
         }
       }}
       size="sm"
-      title="Delete Room"
+      title={t(m.deleteRoom)}
       footer={
         <>
           <Button disabled={deleteRoom.isPending} onClick={onClose}>
-            Cancel
+            {t(commonMessages.cancel)}
           </Button>
           <Button
+            data-voice-risk="never"
             disabled={confirmation !== room.name}
             form={formId}
             loading={deleteRoom.isPending}
@@ -120,7 +124,7 @@ export function RoomDeleteDialog({
             type="submit"
           >
             <Icon icon={Delete02Icon} size={16} />
-            Delete Room
+            {t(m.deleteRoom)}
           </Button>
         </>
       }
@@ -128,10 +132,14 @@ export function RoomDeleteDialog({
       <form className="px-5 py-4" id={formId} onSubmit={handleSubmit}>
         <label className="block">
           <span className="mb-1.5 block text-sm font-medium text-app-ink">
-            Type <strong>{room.name}</strong> to confirm
+            <RichMessage
+              message={m.typeToConfirm}
+              tags={{ name: (text) => <strong>{text}</strong> }}
+              values={{ name: room.name }}
+            />
           </span>
           <input
-            aria-label="Room name confirmation"
+            aria-label={t(m.confirmationLabel)}
             autoComplete="off"
             className="ui-field-control w-full"
             disabled={deleteRoom.isPending}
@@ -143,7 +151,7 @@ export function RoomDeleteDialog({
 
         {failure ? (
           <p className="mt-3 text-sm text-app-danger" role="alert">
-            {failure.message}
+            {failure}
           </p>
         ) : null}
       </form>

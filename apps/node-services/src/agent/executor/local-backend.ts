@@ -512,6 +512,7 @@ async function activateLocalContextRuntime(
     };
     const provider = new RemoteCodexProvider({
       ...(request.compactInstructions ? { compactInstructions: true } : {}),
+      ...(request.stopHook ? { stopHook: true } : {}),
       ...(cliRuntimeConfiguration
         ? { beforePresencePrepare: cliRuntimeConfiguration.refresh }
         : {}),

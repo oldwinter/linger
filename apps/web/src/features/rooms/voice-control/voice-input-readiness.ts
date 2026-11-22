@@ -3,6 +3,8 @@ import {
   TeamHubError,
   TeamHubTransportError,
 } from "@/features/teamhub/teamhub-error";
+import { translate } from "@/i18n/language";
+import { recordingMessages as m } from "./recording.messages";
 
 export async function waitForVoiceInputReady(
   read: (
@@ -47,5 +49,5 @@ export async function waitForVoiceInputReady(
         setTimeout(resolve, Math.min(200, remaining)),
       );
   }
-  throw new Error("Voice input did not become ready");
+  throw new Error(translate(m.inputNotReady));
 }

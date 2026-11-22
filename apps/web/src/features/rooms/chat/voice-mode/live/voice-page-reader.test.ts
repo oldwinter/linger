@@ -21,7 +21,7 @@ beforeEach(() => {
   });
   document.title = "Apollo launch";
   document.body.innerHTML = `
-    <nav aria-label="Primary navigation"><a href="/m">Message</a></nav>
+    <nav aria-label="Primary navigation" data-voice-area="navigation"><a href="/m">Message</a></nav>
     <main>
       <h1>Apollo launch</h1>
       <ul>
@@ -29,9 +29,9 @@ beforeEach(() => {
         <li>Codex 10:21 <p>Build passed</p></li>
       </ul>
       <p>The release plan is still in review.</p>
-      <textarea aria-label="Message Room">Unsent draft</textarea>
+      <textarea aria-label="Message Room" data-chat-composer>Unsent draft</textarea>
     </main>
-    <section aria-label="Voice Mode window"><p>Text in the voice window</p></section>`;
+    <section aria-label="Voice Mode window" data-voice-window><p>Text in the voice window</p></section>`;
 });
 afterEach(() => {
   vi.restoreAllMocks();

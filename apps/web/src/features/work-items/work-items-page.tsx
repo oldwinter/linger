@@ -9,6 +9,10 @@ import {
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
+import { commonMessages } from "@/i18n/common.messages";
+import { formatLocale } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+import { useT, useTranslation } from "@/i18n/use-translation";
 import {
   useCallback,
   useEffect,
@@ -93,17 +97,18 @@ import {
 } from "./work-item-sort";
 import { leadUnmetPromises } from "./work-item-unmet-promise";
 import { useWorkItemSelection } from "./use-work-item-selection";
+import { workItemsMessages as m } from "./work-items.messages";
 
 interface DashboardColumn {
   id: "todo" | "in-progress" | "done" | "closed";
-  label: "Todo" | "In progress" | "Done" | "Closed";
+  label: Message<string>;
 }
 
 const dashboardColumns: readonly DashboardColumn[] = [
-  { id: "todo", label: "Todo" },
-  { id: "in-progress", label: "In progress" },
-  { id: "done", label: "Done" },
-  { id: "closed", label: "Closed" },
+  { id: "todo", label: m.columnTodo },
+  { id: "in-progress", label: m.columnInProgress },
+  { id: "done", label: m.columnDone },
+  { id: "closed", label: m.columnClosed },
 ];
 
 /** One column's cards in the order the board shows them. */
@@ -111,13 +116,6 @@ interface BoardSection {
   column: DashboardColumn;
   items: TeamHubWorkItem[];
 }
-
-const dashboardDateFormatter = dateTimeFormat({
-  day: "numeric",
-  month: "short",
-  timeZone: "UTC",
-  year: "numeric",
-});
 
 const executionLabels: Record<WorkItemDashboardExecutionStatus, string> = {
   canceled: "Agent canceled",
@@ -313,8 +311,9 @@ function WorkItemsLoadedView({
   sort: WorkItemDashboardSort;
   tenantId: string;
 }) {
+  const t = useT();
   const [closedExpanded, setClosedExpanded] = useState(true);
-  const roomFilter = createWorkItemRoomFilterModel(rooms, items);
+  const roomFilter = createWorkItemRoomFilterModel(rooms, items, t);
   const filteredItems = items.filter(
     (item) =>
       matchesWorkItemText(item, filters.text) &&
@@ -356,7 +355,7 @@ function WorkItemsLoadedView({
   const exportSections = boardSections.map(
     ({ column, items: columnItems }) => ({
       items: columnItems,
-      label: column.label,
+      label: t(column.label),
     }),
   );
   const boardMarkdown = workItemBoardMarkdown({
@@ -378,11 +377,14 @@ function WorkItemsLoadedView({
       <header className="work-items-header shrink-0 border-b border-app-border px-5 py-3 sm:px-8">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl text-foreground">Dashboard</h1>
+            <h1 className="text-2xl text-foreground">{t(m.dashboard)}</h1>
             <p className="mt-0.5 text-sm text-muted-foreground">
               {filteredItems.length === items.length
-                ? itemCount(items.length)
-                : `${filteredItems.length} of ${items.length} items`}
+                ? t(m.itemCount, { count: items.length })
+                : t(m.filteredCount, {
+                    count: items.length,
+                    shown: filteredItems.length,
+                  })}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -399,7 +401,7 @@ function WorkItemsLoadedView({
         </div>
         {showFilterBar ? (
           <div
-            aria-label="Work Item filters"
+            aria-label={t(m.filters)}
             className="mt-3 flex flex-wrap items-center gap-2"
             role="group"
           >
@@ -428,12 +430,12 @@ function WorkItemsLoadedView({
               ) : null}
             </label>
             <Select
-              aria-label="Room"
+              aria-label={t(m.room)}
               onValueChange={(room) => onUpdateFilters({ ...filters, room })}
               value={filters.room}
               variant="pill"
             >
-              <SelectItem value="">All rooms</SelectItem>
+              <SelectItem value="">{t(m.allRooms)}</SelectItem>
               {roomFilter.options.map((option) => (
                 <SelectItem key={option.id} value={option.id}>
                   {option.label}
@@ -591,7 +593,7 @@ function WorkItemsLoadedView({
               <Icon icon={CheckListIcon} size={16} />
             </span>
             <h2 className="mt-3 text-sm font-semibold text-app-ink">
-              No Work Items yet
+              {t(m.noWorkItems)}
             </h2>
             <p className="mt-1 max-w-sm text-sm text-muted-foreground">
               Track issues and Agent tasks across your Rooms. Create your first
@@ -670,6 +672,7 @@ function WorkItemBoard({
   shownItems: TeamHubWorkItem[];
   tenantId: string;
 }) {
+  const t = useT();
   const [selectedMobileColumn, setSelectedMobileColumn] =
     useState<DashboardColumn["id"]>();
   const columnTabRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -885,7 +888,7 @@ function WorkItemBoard({
               tabIndex={selected ? 0 : -1}
               type="button"
             >
-              <span>{column.label}</span>
+              <span>{t(column.label)}</span>
               <span className="tabular-nums opacity-75">({items.length})</span>
             </button>
           );
@@ -962,10 +965,6 @@ function activeFilterLabels(
   return labels;
 }
 
-function itemCount(count: number) {
-  return `${count} ${count === 1 ? "item" : "items"}`;
-}
-
 function WorkItemsLoading() {
   return <AuthenticatedRouteLoading pathname="/dashboard" rooms={[]} />;
 }
@@ -979,22 +978,23 @@ function WorkItemsError({
   isRetrying: boolean;
   onRetry: () => void;
 }) {
+  const t = useT();
   const forbidden = error instanceof TeamHubError && error.status === 403;
   return (
     <main
-      aria-label="Dashboard error"
+      aria-label={t(m.dashboardError)}
       className="work-items-surface flex min-h-0 flex-1 items-center justify-center bg-app-surface px-6 py-12 text-center"
       role="alert"
     >
       <div className="max-w-md">
         <h1 className="text-lg text-app-ink">
-          {forbidden ? "Access denied" : "Dashboard unavailable"}
+          {t(forbidden ? m.accessDenied : m.dashboardUnavailable)}
         </h1>
         <p className="mt-2 text-sm leading-6 text-app-muted">
-          {error.message || "TeamHub could not load Work Items."}
+          {error.message || t(m.loadFailed)}
         </p>
         <Button className="mt-5" disabled={isRetrying} onClick={onRetry}>
-          {isRetrying ? "Trying again…" : "Try again"}
+          {isRetrying ? t(m.tryingAgain) : t(commonMessages.tryAgain)}
         </Button>
       </div>
     </main>
@@ -1039,11 +1039,13 @@ function WorkItemColumn({
   selectionActive: boolean;
   tenantId: string;
 }) {
+  const { language, t } = useTranslation();
+  const locale = formatLocale(language);
   const isClosed = column.id === "closed";
 
   return (
     <section
-      aria-label={column.label}
+      aria-label={t(column.label)}
       className={cn(
         "work-item-column min-h-0 min-w-0 flex-col",
         mobileActive ? "flex" : "hidden md:flex",
@@ -1062,10 +1064,10 @@ function WorkItemColumn({
           <Button
             aria-controls="work-item-column-closed-items"
             aria-expanded={closedExpanded}
-            aria-label={closedExpanded ? "Collapse closed" : "Expand closed"}
+            aria-label={t(closedExpanded ? m.collapseClosed : m.expandClosed)}
             onClick={onToggleClosed}
             size="compactIcon"
-            title={closedExpanded ? "Collapse closed" : "Expand closed"}
+            title={t(closedExpanded ? m.collapseClosed : m.expandClosed)}
             tone="ghost"
           >
             {closedExpanded ? (
@@ -1140,7 +1142,11 @@ function WorkItemColumn({
                   </span>
                   {item.assignees.length ? (
                     <span
-                      aria-label={`Assigned to ${item.assignees.map(({ actor }) => actor.display_name).join(", ")}`}
+                      aria-label={t(m.assignedTo, {
+                        names: item.assignees
+                          .map(({ actor }) => actor.display_name)
+                          .join(", "),
+                      })}
                       className="flex shrink-0 -space-x-1"
                       role="group"
                     >
@@ -1170,11 +1176,13 @@ function WorkItemColumn({
                     </span>
                     <span aria-hidden="true">·</span>
                     <span className="shrink-0">
-                      {item.kind === "issue" ? "Issue" : "Task"} #{item.number}
+                      {t(item.kind === "issue" ? m.issueNumber : m.taskNumber, {
+                        number: String(item.number),
+                      })}
                     </span>
                   </span>
                   <time className="shrink-0" dateTime={item.updated_at}>
-                    {formatDashboardDate(item.updated_at)}
+                    {formatDashboardDate(item.updated_at, locale)}
                   </time>
                 </span>
               </Link>
@@ -1236,11 +1244,12 @@ function WorkItemMandateNote({
 }
 
 function WorkItemStatus({ status }: { status: DashboardColumn["id"] }) {
+  const t = useT();
   const column = dashboardColumns.find((candidate) => candidate.id === status)!;
 
   return (
     <span className="work-item-status" data-status={status}>
-      <span>{column.label}</span>
+      <span>{t(column.label)}</span>
     </span>
   );
 }
@@ -1266,6 +1275,9 @@ function dashboardColumnFor(item: TeamHubWorkItem): DashboardColumn["id"] {
   return item.resolution === "completed" ? "done" : "closed";
 }
 
-function formatDashboardDate(value: string) {
-  return dashboardDateFormatter.format(new Date(value));
+function formatDashboardDate(value: string, locale: string) {
+  return dateTimeFormat(
+    { day: "numeric", month: "short", timeZone: "UTC", year: "numeric" },
+    locale,
+  ).format(new Date(value));
 }

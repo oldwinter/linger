@@ -17,11 +17,16 @@ import {
 } from "@hugeicons/core-free-icons";
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
 import { Icon } from "@/components/ui/icon";
+import { useT } from "@/i18n/use-translation";
+
+import { roomSurfaceMessages } from "../room-surface.messages";
 import { ActorAvatar } from "../members/actor-avatar";
 
 import type { PanelCreateChoice } from "./panel-create-items";
 import { panelCreateItems } from "./panel-create-items";
+import { panelTabText } from "./panel-tab-label";
 import type { PanelTab } from "./panel-tab-types";
+import { sidePanelMessages as m } from "./side-panel.messages";
 
 const kindIcons = {
   agentActivity: Activity01Icon,
@@ -68,15 +73,17 @@ export function PanelTabStrip({
   >;
   tabs: PanelTab[];
 }) {
+  const t = useT();
   const { scrollRef, preview, clearDrag, onDragOver, onDrop, onDragStart } =
     usePanelTabDrag({ activeTabId, launcherOpen, onReorder, tabs });
-  const resizeLabel = maximized ? "Restore sidebar" : "Maximize sidebar";
+  const resizeLabel = t(maximized ? m.restoreSidebar : m.maximizeSidebar);
+  const hideLabel = t(roomSurfaceMessages.hideSidebar);
   const resizeIcon = maximized ? ArrowShrink01Icon : ArrowExpand01Icon;
   const createItems: ActionMenuItem[] = panelCreateItems(includeAgentInfo).map(
     (item) => {
       return {
         icon: <Icon icon={kindIcons[item.kind] ?? File01Icon} size={14} />,
-        label: item.label,
+        label: t(item.label),
         onSelect: () => onCreate(item.kind),
       };
     },
@@ -91,7 +98,7 @@ export function PanelTabStrip({
         <ActionMenu
           buttonClassName="flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           items={createItems}
-          label="Add panel view"
+          label={t(m.addPanelView)}
           trigger={<Icon icon={PlusSignIcon} size={16} />}
         />
 
@@ -107,10 +114,11 @@ export function PanelTabStrip({
             <Icon icon={resizeIcon} size={16} />
           </button>
           <button
-            aria-label="Hide sidebar"
+            data-voice-close
+            aria-label={hideLabel}
             className="flex size-7 items-center justify-center rounded-lg bg-card text-foreground shadow-outline transition-colors hover:bg-muted"
             onClick={onCollapse}
-            title="Hide sidebar"
+            title={hideLabel}
             type="button"
           >
             <SidebarVisibilityIcon />
@@ -128,7 +136,7 @@ export function PanelTabStrip({
       <div className="flex min-w-0 flex-1 items-center gap-0.5 pl-1">
         {/* eslint-disable-next-line jsx-a11y/interactive-supports-focus -- composite widget: focus is managed on its child items */}
         <div
-          aria-label="Panel tabs"
+          aria-label={t(m.panelTabs)}
           className="panel-tab-scroll flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden"
           ref={scrollRef}
           role="tablist"
@@ -156,14 +164,8 @@ export function PanelTabStrip({
             const selected = tab.id === activeTabId;
             const tabIcon = kindIcons[tab.kind] ?? File01Icon;
             const status = statusByTabId[tab.id];
-            const label = tab.title;
             // The icons identify Agent and Activity tabs; show just the name.
-            const visibleLabel =
-              tab.kind === "agentInfo"
-                ? label.replace(/^Agent · /, "")
-                : tab.kind === "agentActivity"
-                  ? label.replace(/^Activity · /, "")
-                  : label;
+            const { label, name: visibleLabel } = panelTabText(tab, t);
             return (
               <div
                 className={`panel-tab-item group relative flex h-7 min-w-[96px] max-w-[200px] flex-1 items-stretch rounded-full motion-safe:transition-transform motion-safe:duration-150 motion-safe:ease-out ${isGhost ? "outline outline-1 outline-dashed outline-app-focus bg-app-hover [&>button]:opacity-25" : ""} ${
@@ -265,7 +267,8 @@ export function PanelTabStrip({
                   </span>
                 </button>
                 <button
-                  aria-label={`Close ${label}`}
+                  data-voice-close
+                  aria-label={t(m.closeTab, { title: label })}
                   className={`panel-tab-close mr-1 flex size-5 shrink-0 self-center items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground ${
                     selected
                       ? "opacity-100"
@@ -283,7 +286,7 @@ export function PanelTabStrip({
         <ActionMenu
           buttonClassName="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           items={createItems}
-          label="Add panel view"
+          label={t(m.addPanelView)}
           trigger={<Icon icon={PlusSignIcon} size={16} />}
         />
       </div>
@@ -300,10 +303,11 @@ export function PanelTabStrip({
           <Icon icon={resizeIcon} size={16} />
         </button>
         <button
-          aria-label="Hide sidebar"
+          data-voice-close
+          aria-label={hideLabel}
           className="flex size-7 items-center justify-center rounded-lg bg-card text-foreground shadow-outline transition-colors hover:bg-muted"
           onClick={onCollapse}
-          title="Hide sidebar"
+          title={hideLabel}
           type="button"
         >
           <SidebarVisibilityIcon />

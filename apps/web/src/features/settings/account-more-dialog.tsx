@@ -53,6 +53,11 @@ import type {
   TeamHubPersonalProfileSourceSelection,
   TeamHubPersonalProfileGenerationSourceInput,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
+import { accountSettingsMessages } from "./account-settings.messages";
 import {
   PROFILE_FILE_ACCEPT,
   PROFILE_FILE_MAX_COUNT,
@@ -67,27 +72,32 @@ import {
 
 type SourcePane = "accounts" | "files" | "ai";
 
-const SOURCE_PANES: { id: SourcePane; icon: ReactNode; label: string }[] = [
+const SOURCE_PANES: {
+  id: SourcePane;
+  icon: ReactNode;
+  label: Message<string>;
+}[] = [
   {
     id: "accounts",
     icon: <Icon icon={Link01Icon} size={16} />,
-    label: "Accounts",
+    label: accountSettingsMessages.accounts,
   },
   {
     id: "files",
     icon: <Icon icon={Attachment01Icon} size={16} />,
-    label: "Files",
+    label: accountSettingsMessages.files,
   },
-  { id: "ai", icon: <Icon icon={BotIcon} size={16} />, label: "Another AI" },
+  {
+    id: "ai",
+    icon: <Icon icon={BotIcon} size={16} />,
+    label: accountSettingsMessages.anotherAI,
+  },
 ];
 
-const EXTERNAL_AI_PROFILE_PROMPT =
-  "Based on our previous conversations and what you know about me, write a concise personal profile and list the key memories that would help another AI understand me. Include my current roles, projects, goals, working style, preferences, tools, and important constraints. Clearly separate facts I explicitly shared from your inferences, flag anything uncertain or possibly outdated, and exclude secrets or other people's sensitive information.";
-const SOURCE_PRIVACY_COPY: Record<SourcePane, string> = {
-  accounts:
-    "Only the account and content you choose are used for this profile update. Connections remain available in Apps.",
-  ai: "The pasted summary updates your Profile. It is not added to Personal Wiki or used as Personal Insight evidence.",
-  files: "Files stay in your library.",
+const SOURCE_PRIVACY_COPY: Record<SourcePane, Message<string>> = {
+  accounts: accountSettingsMessages.privacyAccounts,
+  ai: accountSettingsMessages.privacyAI,
+  files: accountSettingsMessages.privacyFiles,
 };
 
 function collectManualSources({
@@ -105,10 +115,10 @@ function collectManualSources({
     const summary = externalAISummary.trim();
     return summary
       ? { sources: [{ kind: "external_ai_summary", summary }] }
-      : { error: "Paste an AI summary first." };
+      : { error: translate(accountSettingsMessages.pasteSummaryFirst) };
   }
   if (uploadedFiles.length === 0) {
-    return { error: "Add a file first." };
+    return { error: translate(accountSettingsMessages.addFileFirst) };
   }
   return {
     sources: uploadedFiles.slice(0, PROFILE_FILE_MAX_COUNT).map((file) => ({
@@ -124,9 +134,14 @@ function useExternalAISummary(onError: (message: string) => void) {
 
   return {
     copyPrompt: () => {
-      void writeClipboardText(EXTERNAL_AI_PROFILE_PROMPT)
+      // The prompt is copied in the language it is shown in.
+      void writeClipboardText(
+        translate(accountSettingsMessages.externalAIPrompt),
+      )
         .then(() => setPromptCopied(true))
-        .catch(() => onError("Copy is unavailable."));
+        .catch(() =>
+          onError(translate(accountSettingsMessages.copyUnavailable)),
+        );
     },
     promptCopied,
     setSummary: (value: string) => {
@@ -151,6 +166,7 @@ export function AccountMoreDialog({
   startWith,
   tenantId,
 }: AccountMoreDialogProps) {
+  const t = useT();
   const queryClient = useQueryClient();
   const apps = useQuery(externalAppsQueryOptions(client));
   const connections = useQuery(externalConnectionsQueryOptions(client));
@@ -284,7 +300,7 @@ export function AccountMoreDialog({
 
   return (
     <ModalDialog
-      ariaLabel="Add profile sources"
+      ariaLabel={t(accountSettingsMessages.addProfileSources)}
       className="overflow-hidden"
       onClose={onClose}
       size="lg"
@@ -365,7 +381,7 @@ export function AccountMoreDialog({
                     setError(
                       uploadError instanceof Error
                         ? uploadError.message
-                        : "File upload failed.",
+                        : translate(accountSettingsMessages.fileUploadFailed),
                     );
                   })
                   .finally(() => setUploadingFiles(false));
@@ -387,7 +403,7 @@ export function AccountMoreDialog({
         busy={busy}
         generatePending={generate.isPending}
         addDisabled={pane === "ai" && !externalAI.summary.trim()}
-        privacyCopy={SOURCE_PRIVACY_COPY[pane]}
+        privacyCopy={t(SOURCE_PRIVACY_COPY[pane])}
         showAddButton={pane !== "accounts" || uploadedFiles.length > 0}
         uploadingFiles={uploadingFiles}
         onAdd={() => void generateManualSources()}
@@ -410,16 +426,20 @@ export function AccountMoreDialog({
 }
 
 function AccountMoreHeader({ onClose }: { onClose: () => void }) {
+  const t = useT();
   return (
     <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
       <div>
-        <h2 className="text-base font-semibold">Add to your profile</h2>
+        <h2 className="text-base font-semibold">
+          {t(accountSettingsMessages.addToProfile)}
+        </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Choose an account, file, or AI summary to add.
+          {t(accountSettingsMessages.addToProfileHint)}
         </p>
       </div>
       <Button
-        aria-label="Close"
+        data-voice-close
+        aria-label={t(commonMessages.close)}
         onClick={onClose}
         size="compactIcon"
         tone="ghost"
@@ -437,9 +457,10 @@ function AccountMorePaneNav({
   onPaneChange: (pane: SourcePane) => void;
   pane: SourcePane;
 }) {
+  const t = useT();
   return (
     <nav
-      aria-label="Profile sources"
+      aria-label={t(accountSettingsMessages.profileSources)}
       className="grid shrink-0 grid-cols-2 gap-1 border-b border-border bg-sidebar p-2 sm:flex sm:w-[168px] sm:flex-col sm:border-b-0 sm:border-r"
     >
       {SOURCE_PANES.map((item) => (
@@ -455,7 +476,7 @@ function AccountMorePaneNav({
           type="button"
         >
           {item.icon}
-          {item.label}
+          {t(item.label)}
         </button>
       ))}
     </nav>
@@ -503,6 +524,7 @@ function AccountMoreAccountsPane({
   visibleConnections: TeamHubExternalConnection[];
   waiting: boolean;
 }) {
+  const t = useT();
   if (pickerConnection) {
     return (
       <AccountMoreSelectionStep
@@ -521,17 +543,17 @@ function AccountMoreAccountsPane({
     <section>
       <ColumnHeading
         icon={<Icon icon={Link01Icon} size={14} />}
-        title="Accounts"
+        title={t(accountSettingsMessages.accounts)}
       />
       <div className="mt-3 divide-y divide-border">
         {appsPending ? (
           <p className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
             <Spinner size={15} />
-            Loading accounts…
+            {t(accountSettingsMessages.loadingAccounts)}
           </p>
         ) : profileApps.length === 0 ? (
           <p className="py-3 text-sm text-muted-foreground">
-            Profile apps are unavailable right now.
+            {t(accountSettingsMessages.profileAppsUnavailable)}
           </p>
         ) : (
           profileApps.map((app) => (
@@ -557,7 +579,9 @@ function AccountMoreAccountsPane({
           role="status"
         >
           <Icon icon={Loading03Icon} className="animate-spin" size={14} />
-          <span className="town-shimmer-text">Waiting for authorization</span>
+          <span className="town-shimmer-text">
+            {t(accountSettingsMessages.waitingForAuthorization)}
+          </span>
         </p>
       ) : null}
     </section>
@@ -586,32 +610,36 @@ function AccountMoreSelectionStep({
   ) => void;
   selections: TeamHubPersonalProfileSourceSelection[];
 }) {
+  const t = useT();
   const policy = profileSourcePolicy(connection.provider);
   const submitLabel = profileSourceSubmitLabel(
     connection.provider,
     selections.length,
+    t,
   );
   return (
     <section>
       <Button
-        aria-label="Back to accounts"
+        aria-label={t(accountSettingsMessages.backToAccounts)}
         className="mb-4"
         onClick={onBack}
         size="compact"
         tone="ghost"
       >
         <Icon icon={ArrowLeft01Icon} size={14} />
-        Accounts
+        {t(accountSettingsMessages.accounts)}
       </Button>
       <div className="mb-4">
         <h3 className="text-sm font-semibold text-foreground">
-          Choose {providerDisplayName(connection.provider)} content
+          {t(accountSettingsMessages.chooseProviderContent, {
+            provider: providerDisplayName(connection.provider),
+          })}
         </h3>
         <p className="mt-1 text-xs text-muted-foreground">
           {accountIdentityText(
             connection.provider,
             connection.identity_label,
-          ) ?? "Connected account"}
+          ) ?? t(accountSettingsMessages.connectedAccount)}
         </p>
       </div>
       <ProviderSelectionPicker
@@ -658,18 +686,19 @@ function AccountMoreFilesPane({
   uploadedFiles: UploadedProfileFile[];
   uploadingFiles: boolean;
 }) {
+  const t = useT();
   return (
     <section>
       <ColumnHeading
         icon={<Icon icon={Attachment01Icon} size={14} />}
-        title="Files"
+        title={t(accountSettingsMessages.files)}
       />
       <p className="mt-2 text-xs leading-5 text-muted-foreground">
-        PDF, Word, or text. Up to five files.
+        {t(accountSettingsMessages.filesHint)}
       </p>
       <input
         accept={PROFILE_FILE_ACCEPT}
-        aria-label="Profile files"
+        aria-label={t(accountSettingsMessages.profileFiles)}
         className="hidden"
         multiple
         onChange={(event) => {
@@ -694,7 +723,7 @@ function AccountMoreFilesPane({
         {uploadingFiles ? (
           <Icon icon={Loading03Icon} className="animate-spin" size={14} />
         ) : null}
-        Choose files
+        {t(accountSettingsMessages.chooseFiles)}
       </Button>
       <ul className="mt-3 space-y-1.5">
         {uploadedFiles.map((file) => (
@@ -704,7 +733,10 @@ function AccountMoreFilesPane({
           >
             <span className="truncate">{file.name}</span>
             <Button
-              aria-label={`Remove ${file.name}`}
+              data-voice-risk="never"
+              aria-label={t(accountSettingsMessages.removeFile, {
+                name: file.name,
+              })}
               onClick={() => onRemove(file.inputVersionId)}
               size="compactIcon"
               tone="ghost"
@@ -729,11 +761,17 @@ function AccountMoreExternalAIPane({
   promptCopied: boolean;
   summary: string;
 }) {
+  const t = useT();
+  const copyLabel = t(
+    promptCopied
+      ? accountSettingsMessages.promptCopied
+      : accountSettingsMessages.copyPrompt,
+  );
   return (
     <section>
       <ColumnHeading
         icon={<Icon icon={BotIcon} size={14} />}
-        title="Another AI"
+        title={t(accountSettingsMessages.anotherAI)}
       />
       <div className="mt-3">
         <div className="mb-1.5 flex items-center justify-between gap-2">
@@ -741,13 +779,13 @@ function AccountMoreExternalAIPane({
             className="text-sm font-medium text-foreground"
             id="external-ai-prompt-label"
           >
-            Prompt to use
+            {t(accountSettingsMessages.promptToUse)}
           </span>
           <Button
-            aria-label={promptCopied ? "Prompt copied" : "Copy prompt"}
+            aria-label={copyLabel}
             onClick={onCopyPrompt}
             size="compactIcon"
-            title={promptCopied ? "Prompt copied" : "Copy prompt"}
+            title={copyLabel}
             tone="ghost"
           >
             {promptCopied ? (
@@ -764,18 +802,18 @@ function AccountMoreExternalAIPane({
           className="ui-field-control w-full bg-app-surface-soft py-2 text-sm whitespace-pre-wrap text-foreground select-text"
           id="external-ai-prompt"
         >
-          {EXTERNAL_AI_PROFILE_PROMPT}
+          {t(accountSettingsMessages.externalAIPrompt)}
         </p>
       </div>
       <label className="mt-4 block">
         <span className="mb-1.5 block text-sm font-medium text-foreground">
-          AI summary
+          {t(accountSettingsMessages.aiSummary)}
         </span>
         <textarea
           className="ui-field-control min-h-32 w-full resize-y py-2"
           maxLength={65_536}
           onChange={(event) => onSummaryChange(event.target.value)}
-          placeholder="Paste the summary from ChatGPT, Claude, or another AI"
+          placeholder={t(accountSettingsMessages.aiSummaryPlaceholder)}
           value={summary}
         />
       </label>
@@ -806,17 +844,18 @@ function AccountMoreFooter({
   showAddButton: boolean;
   uploadingFiles: boolean;
 }) {
+  const t = useT();
   return (
     <div className="flex flex-col gap-3 border-t border-border px-5 py-4">
       <p className="text-xs text-muted-foreground">{privacyCopy}</p>
       <div className="flex flex-wrap items-center justify-end gap-2">
         {blockedConnectUrl ? (
           <Button onClick={onContinueInBrowser} size="compact" tone="primary">
-            Continue in browser
+            {t(accountSettingsMessages.continueInBrowser)}
           </Button>
         ) : null}
         <Button disabled={busy} onClick={onClose} size="compact">
-          Cancel
+          {t(commonMessages.cancel)}
         </Button>
         {showAddButton ? (
           <Button
@@ -828,7 +867,7 @@ function AccountMoreFooter({
             {generatePending ? (
               <Icon icon={Loading03Icon} className="animate-spin" size={14} />
             ) : null}
-            Add
+            {t(accountSettingsMessages.add)}
           </Button>
         ) : null}
       </div>
@@ -858,6 +897,7 @@ function AppConnectRow({
   onUse: (connection: TeamHubExternalConnection) => void;
   tenantId: string;
 }) {
+  const t = useT();
   const active = activeExternalConnections(connections);
   const needsAttention = connections.some(externalConnectionNeedsAttention);
   // A pending authorization whose Connect Link expired is over; connect again.
@@ -874,9 +914,15 @@ function AppConnectRow({
   const unavailable = app.availability !== "available";
   const configurable = profileSourcePolicy(app.key).selection !== "fixed";
   const singleActive = active.length === 1 ? active[0] : undefined;
-  const actionLabel = configurable
-    ? `Choose ${app.display_name}`
-    : `Add ${app.display_name}`;
+  const actionLabel = t(
+    configurable
+      ? accountSettingsMessages.chooseApp
+      : accountSettingsMessages.addApp,
+    { app: app.display_name },
+  );
+  const actionText = t(
+    configurable ? accountSettingsMessages.choose : accountSettingsMessages.add,
+  );
   return (
     <div className="py-2">
       <div className="flex min-h-10 items-center gap-3">
@@ -887,21 +933,26 @@ function AppConnectRow({
           <p className="truncate text-sm font-medium">{app.display_name}</p>
           <p className="truncate text-xs text-muted-foreground">
             {singleActive
-              ? `Connected: ${
-                  accountIdentityText(
-                    singleActive.provider,
-                    singleActive.identity_label,
-                  ) ?? "account"
-                }`
+              ? t(accountSettingsMessages.connectedAs, {
+                  account:
+                    accountIdentityText(
+                      singleActive.provider,
+                      singleActive.identity_label,
+                    ) ?? t(accountSettingsMessages.unnamedAccount),
+                })
               : active.length
-                ? `${active.length} connected accounts`
-                : unavailable
-                  ? "Unavailable"
-                  : needsAttention
-                    ? "Connection needs attention in Apps"
-                    : authorizationPending
-                      ? "Authorization in progress"
-                      : "Not connected"}
+                ? t(accountSettingsMessages.connectedAccountsCount, {
+                    count: active.length,
+                  })
+                : t(
+                    unavailable
+                      ? accountSettingsMessages.unavailable
+                      : needsAttention
+                        ? accountSettingsMessages.connectionNeedsAttention
+                        : authorizationPending
+                          ? accountSettingsMessages.authorizationInProgress
+                          : accountSettingsMessages.notConnected,
+                  )}
           </p>
         </div>
         {singleActive ? (
@@ -911,26 +962,28 @@ function AppConnectRow({
             onClick={() => onUse(singleActive)}
             size="compact"
           >
-            {configurable ? "Choose" : "Add"}
+            {actionText}
           </Button>
         ) : active.length === 0 && pendingConnection ? (
           pendingConnectUrl ? (
             <Button
-              aria-label={`Continue ${app.display_name} authorization`}
+              aria-label={t(accountSettingsMessages.continueAppAuthorization, {
+                app: app.display_name,
+              })}
               disabled={busy}
               onClick={() =>
                 onContinueAuthorization(pendingConnection, pendingConnectUrl)
               }
               size="compact"
             >
-              Continue
+              {t(accountSettingsMessages.continue)}
             </Button>
           ) : (
             <Link
               className="text-xs font-medium text-app-link hover:underline"
               to={`/t/${tenantId}/apps?app=${app.key}`}
             >
-              Open Apps
+              {t(accountSettingsMessages.openApps)}
             </Link>
           )
         ) : active.length === 0 && needsAttention ? (
@@ -938,7 +991,7 @@ function AppConnectRow({
             className="text-xs font-medium text-app-link hover:underline"
             to={`/t/${tenantId}/apps?app=${app.key}`}
           >
-            Open Apps
+            {t(accountSettingsMessages.openApps)}
           </Link>
         ) : active.length === 0 ? (
           <Button
@@ -947,7 +1000,7 @@ function AppConnectRow({
             onClick={onConnect}
             size="compact"
           >
-            {configurable ? "Choose" : "Add"}
+            {actionText}
           </Button>
         ) : null}
       </div>
@@ -958,7 +1011,7 @@ function AppConnectRow({
               accountIdentityText(
                 connection.provider,
                 connection.identity_label,
-              ) ?? "Connected account";
+              ) ?? t(accountSettingsMessages.connectedAccount);
             return (
               <div className="py-1.5" key={connection.id}>
                 <div className="flex min-h-10 items-center justify-between gap-3">
@@ -966,12 +1019,17 @@ function AppConnectRow({
                     {identity}
                   </span>
                   <Button
-                    aria-label={`${actionLabel} from ${identity}`}
+                    aria-label={t(
+                      configurable
+                        ? accountSettingsMessages.chooseAppFromAccount
+                        : accountSettingsMessages.addAppFromAccount,
+                      { app: app.display_name, account: identity },
+                    )}
                     disabled={busy}
                     onClick={() => onUse(connection)}
                     size="compact"
                   >
-                    {configurable ? "Choose" : "Add"}
+                    {actionText}
                   </Button>
                 </div>
               </div>
@@ -990,18 +1048,19 @@ function AppConnectRow({
                 key={connection.id}
               >
                 <span className="min-w-0 truncate text-xs text-muted-foreground">
-                  {`Needs attention in Apps: ${
-                    accountIdentityText(
-                      connection.provider,
-                      connection.identity_label,
-                    ) ?? "account"
-                  }`}
+                  {t(accountSettingsMessages.needsAttentionAccount, {
+                    account:
+                      accountIdentityText(
+                        connection.provider,
+                        connection.identity_label,
+                      ) ?? t(accountSettingsMessages.unnamedAccount),
+                  })}
                 </span>
                 <Link
                   className="text-xs font-medium text-app-link hover:underline"
                   to={`/t/${tenantId}/apps?app=${app.key}`}
                 >
-                  Open Apps
+                  {t(accountSettingsMessages.openApps)}
                 </Link>
               </div>
             ))}

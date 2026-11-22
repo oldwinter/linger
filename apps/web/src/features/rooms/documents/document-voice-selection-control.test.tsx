@@ -82,7 +82,10 @@ function createSurface({
   const content = children ?? (
     <>
       <h1>Document title</h1>
-      <section aria-label="Room Document editor">
+      <section
+        aria-label="Room Document editor"
+        className="room-document-blocknote"
+      >
         <div className="bn-editor">
           <p>Review this sentence</p>
           <p>And the next paragraph</p>
@@ -213,7 +216,10 @@ describe("Document voice material selection", () => {
   it("rejects a range with either endpoint outside its panel or in another document", () => {
     const first = createSurface();
     render(
-      <section aria-label="Room Document editor">
+      <section
+        aria-label="Room Document editor"
+        className="room-document-blocknote"
+      >
         <div className="bn-editor">
           <p>Other document</p>
         </div>
@@ -226,6 +232,7 @@ describe("Document voice material selection", () => {
     expect(screen.queryByRole("button", { name: actionName })).toBeNull();
     const secondBody = document.createElement("section");
     secondBody.setAttribute("aria-label", "Room Document editor");
+    secondBody.className = "room-document-blocknote";
     const editor = document.createElement("div");
     editor.className = "bn-editor";
     editor.textContent = "Nested other document";
@@ -252,7 +259,10 @@ describe("Document voice material selection", () => {
   it("rejects selections crossing hidden content or a control inside the body", () => {
     createSurface({
       children: (
-        <section aria-label="Room Document editor">
+        <section
+          aria-label="Room Document editor"
+          className="room-document-blocknote"
+        >
           <div className="bn-editor">
             <p>Start here</p>
             <span hidden>Hidden data</span>
@@ -272,7 +282,10 @@ describe("Document voice material selection", () => {
       const text = "a".repeat(length);
       createSurface({
         children: (
-          <section aria-label="Room Document editor">
+          <section
+            aria-label="Room Document editor"
+            className="room-document-blocknote"
+          >
             <div className="bn-editor">
               <p>{text}</p>
             </div>

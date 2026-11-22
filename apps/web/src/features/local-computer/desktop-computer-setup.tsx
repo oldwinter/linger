@@ -1,6 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 
+import { computerSetupMessages } from "./computer-setup.messages";
 import type {
   DesktopComputer,
   DesktopComputerStatus,
@@ -13,20 +16,24 @@ export function DesktopComputerSetup({
 }: {
   desktop: DesktopComputer;
 }) {
+  const t = useT();
   if (!desktop.status) return null;
   if (!desktop.status.computerId) {
     return (
       <div className="space-y-2">
         <p className="text-xs text-app-muted">
-          Connect this computer to run Agents with the Codex or Claude Code
-          installed on it.
+          {t(computerSetupMessages.desktopConnectIntro)}
         </p>
         <Button
           tone="primary"
           disabled={desktop.connecting}
           onClick={desktop.connect}
         >
-          {desktop.connecting ? "Connecting…" : "Connect this computer"}
+          {t(
+            desktop.connecting
+              ? computerSetupMessages.connecting
+              : computerSetupMessages.connectThisComputer,
+          )}
         </Button>
         {desktop.error ? (
           <p role="alert" className="text-xs text-app-danger">
@@ -42,7 +49,7 @@ export function DesktopComputerSetup({
   if (problem) {
     return (
       <p role="alert" className="text-xs text-app-danger">
-        {problem}
+        {t(problem)}
       </p>
     );
   }
@@ -52,24 +59,26 @@ export function DesktopComputerSetup({
       role="status"
     >
       <Spinner size={13} />
-      Looking for Codex and Claude Code on this computer…
+      {t(computerSetupMessages.lookingForApps)}
     </p>
   );
 }
 
 // Same states as the desktop tray summary (apps/desktop/src/main/status.ts).
-function desktopSetupProblem(status: DesktopComputerStatus) {
+function desktopSetupProblem(
+  status: DesktopComputerStatus,
+): Message<string> | undefined {
   switch (status.bridge) {
     case "auth_failed":
-      return "This computer's sign-in expired. Choose Reconnect This Computer in the Linger menu bar menu.";
+      return computerSetupMessages.desktopAuthFailed;
     case "identity_conflict":
-      return "This computer is already registered under another Computer entry. Choose Reconnect This Computer in the Linger menu bar menu.";
+      return computerSetupMessages.desktopIdentityConflict;
     case "upgrade_required":
-      return "Update the Linger app to connect this computer.";
+      return computerSetupMessages.desktopUpgradeRequired;
     case "disconnected":
-      return "The Linger background service is not running. Quit and reopen the app.";
+      return computerSetupMessages.desktopDisconnected;
   }
   if (status.runtime === "crashed")
-    return "Codex and Claude Code could not be checked because the local runtime stopped. Linger is restarting it.";
+    return computerSetupMessages.desktopRuntimeCrashed;
   return undefined;
 }

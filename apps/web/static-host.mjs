@@ -33,12 +33,7 @@ export function createStaticHost({ root } = {}) {
       if (pathname.startsWith("/assets/")) {
         response.setHeader("access-control-allow-origin", "*");
       }
-      response.setHeader(
-        "cache-control",
-        pathname.startsWith("/assets/")
-          ? "public, max-age=31536000, immutable"
-          : "no-cache",
-      );
+      response.setHeader("cache-control", cacheControlFor(pathname));
     },
   });
 
@@ -49,15 +44,13 @@ export function createStaticHost({ root } = {}) {
         new URL(request.url ?? "/", "http://localhost").pathname,
       );
     } catch {
-      response.statusCode = 404;
-      response.end();
+      respondNotFound(response);
       return;
     }
     setBrowserSecurityHeaders(response, pathname);
 
     if (request.method !== "GET" && request.method !== "HEAD") {
-      response.statusCode = 404;
-      response.end();
+      respondNotFound(response);
       return;
     }
 
@@ -77,20 +70,44 @@ export function createStaticHost({ root } = {}) {
     serveNegotiatedFile(serveFiles, request, response, () => {
       const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
       if (!isBrowserNavigation(request, pathname)) {
-        response.statusCode = 404;
-        response.end();
+        respondNotFound(response);
         return;
       }
 
       const requestUrl = request.url;
       request.url = "/index.html";
       serveNegotiatedFile(serveFiles, request, response, () => {
-        response.statusCode = 404;
-        response.end();
+        respondNotFound(response);
       });
       request.url = requestUrl;
     });
   };
+}
+
+// A release ships only its own fingerprinted assets, so a page from another
+// release asks for files this one lacks. The page must never be replayed from
+// the HTTP cache (history navigation and restored tabs skip no-cache
+// revalidation). no-store also keeps the page out of Chrome's back/forward
+// cache, so back and forward reload the app; that is intended, since a fresh
+// load always gets the current release.
+function cacheControlFor(pathname) {
+  if (pathname.startsWith("/assets/")) {
+    return "public, max-age=31536000, immutable";
+  }
+  return extname(pathname) === ".html" ? "no-store" : "no-cache";
+}
+
+// A miss must not be cached, or a rollout's 404 outlives the rollout. The
+// Cloudflare zone in front of the hosted Web rewrites a shorter origin policy
+// on cacheable extensions (`no-cache` on /favicon.ico leaves as
+// `max-age=14400`); with Origin Cache Control it keeps `private`, and browsers
+// never store a `no-store` response. Check a missing /assets file after a
+// deploy; if the CDN still rewrites it, set its Browser Cache TTL to "Respect
+// Existing Headers".
+function respondNotFound(response) {
+  response.statusCode = 404;
+  response.setHeader("cache-control", "private, no-store");
+  response.end();
 }
 
 function serveNegotiatedFile(serveFiles, request, response, onNoMatch) {

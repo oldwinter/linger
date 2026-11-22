@@ -102,4 +102,23 @@ describe("Runner Gateway model source", () => {
     ).rejects.toBeInstanceOf(LocalComputerCapabilityError);
     expect(sent.some(isModelSourceCommand)).toBe(false);
   });
+
+  // A Computer before 0.56.0 closes the connection on a BYOK path, endpoint
+  // or protocol, so it gets only commands without a BYOK input.
+  it("refuses a BYOK input to a Computer that predates BYOK paths", async () => {
+    const { gateway, sent } = await connect("0.55.0");
+    await expect(
+      gateway.modelSource({
+        ...target,
+        action: "models",
+        byok: {
+          base_url: "https://open.bigmodel.cn",
+          path: "/api/paas/v4",
+          endpoint: "/chat/completions",
+          protocol: "openai-chat",
+        },
+      }),
+    ).rejects.toBeInstanceOf(LocalComputerCapabilityError);
+    expect(sent.some(isModelSourceCommand)).toBe(false);
+  });
 });

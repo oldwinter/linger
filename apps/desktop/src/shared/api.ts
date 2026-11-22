@@ -110,6 +110,26 @@ export interface LingerDesktopApi {
     prepare(): Promise<string>;
     onReturn(callback: (connectedAccountId?: string) => void): () => void;
   };
+  // The link preview panel's frame, named PREVIEW_FRAME_PREFIX + an id,
+  // refused to be framed; url is the page that refused.
+  readonly preview: {
+    onFrameRefused(
+      callback: (frameName: string, url: string) => void,
+    ): () => void;
+  };
+  // The page floats its Voice Mode and Recording windows in a window of their
+  // own opened with `window.open("")`; present only when this app allows that,
+  // so an older app keeps them in the page.
+  readonly voiceWindow: {
+    // Brings the main window to the front, from the floating window.
+    showMainWindow(): Promise<void>;
+  };
+  // The page reports the language the person chose in Settings › Language,
+  // and again on every change, so the app's menus, tray, notifications and
+  // own windows follow it. No report means no choice yet.
+  readonly language: {
+    set(language: string): Promise<void>;
+  };
   // macOS only.
   readonly permissions?: {
     act(step: DesktopPermissionStep): Promise<void>;
@@ -136,4 +156,7 @@ export const IPC = {
   updateCheck: "update.check",
   connectorOAuthPrepare: "connector-oauth.prepare",
   connectorOAuthReturn: "connector-oauth.return",
+  previewFrameRefused: "preview.frame-refused",
+  voiceWindowShowMain: "voice-window.show-main",
+  languageSet: "language.set",
 } as const;

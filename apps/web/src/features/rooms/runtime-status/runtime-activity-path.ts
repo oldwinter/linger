@@ -1,10 +1,11 @@
 import type { TeamHubRuntimePresentationEventRecord } from "@/features/teamhub/teamhub-types";
 
-import { runtimeFailureMessage } from "./runtime-failure-message";
+import { isRunInterruption } from "./runtime-failure-message";
 import {
   projectRuntimeChatPresentation,
   type RuntimeActivityEntry,
   type RuntimeActivityPresentation,
+  type RuntimeExecutionFailure,
   type RuntimePlanPresentation,
 } from "./runtime-presentation-events";
 import {
@@ -78,7 +79,8 @@ export type RuntimeActivityPathItem =
   | {
       kind: "outcome";
       key: string;
-      text: string;
+      /** Why the Run failed, for the words the view shows. */
+      failure?: RuntimeExecutionFailure;
       tone: "canceled" | "failed";
     };
 
@@ -170,11 +172,13 @@ export function projectRuntimeActivityPath(
         items.push({
           kind: "outcome",
           key: `outcome:${record.segment_id}:${record.event_ordinal}`,
-          text:
-            event.outcome === "failed"
-              ? runtimeFailureMessage(event.failure)
-              : "Run canceled",
-          tone: event.outcome,
+          ...(event.outcome === "failed" && event.failure
+            ? { failure: event.failure }
+            : {}),
+          tone:
+            event.outcome === "failed" && !isRunInterruption(event.failure)
+              ? "failed"
+              : "canceled",
         });
       }
       continue;

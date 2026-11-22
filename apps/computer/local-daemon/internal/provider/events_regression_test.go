@@ -19,6 +19,16 @@ func TestFailedToolRemainsFailed(t *testing.T) {
 	}
 }
 
+func TestToolNameFitsTheGatewayLimit(t *testing.T) {
+	name := strings.Repeat("\u00e9", 211)
+	for _, kind := range []native.EventKind{native.EventToolCall, native.EventToolOutput} {
+		event := normalizeMessage(native.Event{Kind: kind, InvocationID: "call-1", ToolName: name}, "operation-1").(map[string]any)
+		if got := utf8.RuneCountInString(event["tool_name"].(string)); got > 200 {
+			t.Fatalf("%s tool_name has %d characters", kind, got)
+		}
+	}
+}
+
 func TestFirstTurnPublishesNativeSessionBeforeExecution(t *testing.T) {
 	event := normalizeMessage(native.Event{Kind: native.EventStatus, TurnID: "turn-first", SessionID: "thread-created"}, "operation-first").(map[string]any)
 	session, ok := event["session"].(map[string]any)

@@ -39,6 +39,12 @@ export interface SetupReason {
   freeBytes?: number;
   /** The memory the install needs free, for the same resource. */
   requiredBytes?: number;
+  /** On cuda-driver-update-required: the CUDA version the installed driver supports. */
+  detectedCudaVersion?: string;
+  /** On CUDA driver reasons: the minimum CUDA version the pinned engine needs. */
+  requiredCudaVersion?: string;
+  /** On CUDA driver reasons: the installed NVIDIA driver version when known. */
+  driverVersion?: string;
 }
 /** Whether local models can install now, as the localmodels tool says. */
 export type LocalModelsState = "ready" | "blocked-now" | "unavailable";
@@ -107,6 +113,7 @@ export interface SetupReport {
 export interface SetupOptions {
   shareGpu?: boolean;
   home?: string;
+  targetHome?: string;
   userHome?: string;
   signal?: AbortSignal;
   localmodels?: typeof runLocalmodels;
@@ -175,15 +182,16 @@ export async function inspectSetup(
   const home = path.resolve(
     options.home ?? path.join(options.userHome ?? homedir(), ".simplexai"),
   );
+  const targetHome = path.resolve(options.targetHome ?? home);
   let failure: string | undefined;
   try {
     const args = [
       "setup",
       "inspect",
       "--root",
-      path.join(home, "runtime", "harness"),
+      path.join(targetHome, "runtime", "harness"),
       "--model-base-dir",
-      path.join(home, "runtime", "localmodels", "models"),
+      path.join(targetHome, "runtime", "localmodels", "models"),
       "--decision",
       "none",
       "--offline",
@@ -253,6 +261,8 @@ export async function inspectSetup(
             : "unavailable";
     const ok = (bytes: unknown): bytes is number =>
       typeof bytes === "number" && Number.isFinite(bytes) && bytes >= 0;
+    const version = (text: unknown): text is string =>
+      typeof text === "string" && /^\d+(?:\.\d+){0,2}$/.test(text);
     const counts = (memory: SetupMemory) => {
       if (!ok(memory.ramAvailableBytes) || !ok(memory.ramRequiredBytes))
         return undefined;
@@ -306,12 +316,24 @@ export async function inspectSetup(
           : {}),
         ...(memory ? { memory } : {}),
         reasons: value.stack.reasons.map(
-          ({ code, message, gpuIndex, freeBytes, requiredBytes }) => ({
+          ({
+            code,
+            message,
+            gpuIndex,
+            freeBytes,
+            requiredBytes,
+            detectedCudaVersion,
+            requiredCudaVersion,
+            driverVersion,
+          }) => ({
             code,
             message,
             ...(ok(gpuIndex) ? { gpuIndex } : {}),
             ...(ok(freeBytes) ? { freeBytes } : {}),
             ...(ok(requiredBytes) ? { requiredBytes } : {}),
+            ...(version(detectedCudaVersion) ? { detectedCudaVersion } : {}),
+            ...(version(requiredCudaVersion) ? { requiredCudaVersion } : {}),
+            ...(version(driverVersion) ? { driverVersion } : {}),
           }),
         ),
         ...(capacity ? { basis: "capacity" as const } : {}),

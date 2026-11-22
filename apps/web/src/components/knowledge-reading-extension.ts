@@ -3,6 +3,9 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 
+import { documentEditorMessages } from "@/features/rooms/documents/document-editor.messages";
+import { translate } from "@/i18n/language";
+
 import {
   isKnowledgeChangeLogHeading,
   isKnowledgeHistoryHeading,
@@ -176,7 +179,11 @@ function sectionToggle(view: EditorView, expanded: boolean) {
   wrapper.contentEditable = "false";
   const button = document.createElement("button");
   button.type = "button";
-  button.textContent = expanded ? "Show less" : "View more";
+  button.textContent = translate(
+    expanded
+      ? documentEditorMessages.showLess
+      : documentEditorMessages.viewMore,
+  );
   button.setAttribute("aria-expanded", String(expanded));
   button.addEventListener("mousedown", (event) => event.preventDefault());
   button.addEventListener("click", (event) => {

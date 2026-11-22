@@ -11,6 +11,20 @@ stop unrelated processes, pull mutable images, or delete volumes as recovery.
 Every installation runs natively from a Linger source checkout; Docker is not
 used.
 
+On Windows `windowsPrivatePath` makes a private path owner-only and refuses it
+when another account could put a different folder in its place: an ancestor
+that is a link, that another account owns, or that grants another account the
+right to replace a child, change permissions, or take ownership. Delete on an
+ancestor counts as well, because its holder can rename that folder, except on
+a volume root, which can be neither renamed nor removed. A folder directly on
+a data drive with the stock root ACL therefore passes, and a folder nested in
+one that inherits Modify for Authenticated Users does not. The Daemon's
+`privatefs` treats the volume root the same way. A refusal leaves the
+installer as its code and reason (`windowsPrivateRefusal`), never as its
+words: in the `startFailure` line on stdout when the installer manager cannot
+start, and in the `--user-keys` outcome. The Desktop setup page branches on
+`UNSAFE_PARENT_ACCESS` to say where to install instead.
+
 `atomicPrivate` closes and removes its temporary file on failed writes or
 syncs as well as failed publication. A failed replacement keeps the previous
 private file available, without leaving partial configuration copies behind.
@@ -30,7 +44,7 @@ Each instance directory holds `user.env` (0600), the only file a person edits:
 (`user-environment.ts`). Every mode merges it into the generated
 `compose.env` / `native.env` over a developer checkout's `.env` and under the
 installer's own values; other names are ignored with a warning, and the file
-is created from a template once and never rewritten. The desktop source
+is created from a template once; ordinary reads never rewrite it. The desktop source
 package's `.env` is not read. Voice keys are normally saved in the app
 (TeamHub); a key in `user.env` overrides it. Whenever the distribution has
 voice tools for this computer, Native prepares them and runs LiveKit with
@@ -39,6 +53,14 @@ voice key; without them, or when they fail to prepare, TeamHub gets
 `TEAMHUB_VOICE_MEDIA=off` and the install continues. The services' `voice`
 setting tracks only the tools, so a key change never restarts them through
 it. A native process restarts when its generated environment changes.
+
+Adopting a legacy environment keeps nonempty values already set in `user.env`.
+Adoption and saved key updates recognize plain, exported and whitespace-formatted
+assignments through the same helper. Each changed key replaces its first assignment
+in place and removes later duplicates, or is appended once when absent. This keeps
+values beside their template comments without duplicate secret values. The legacy
+file is removed only after the private atomic write completes.
+
 Generated native values preserve quoted paths and literal backslashes by
 checking their complete dotenv file with the launcher's parser. Multiline,
 NUL-containing or otherwise unrepresentable values fail before publishing
@@ -68,9 +90,13 @@ Every update or recreate path stops node-services on its own, right before
 TeamHub restarts (natively: for a changed configuration) and while TeamHub is
 still up, so its graceful shutdown requeues in-flight Agent Runs.
 
+`inspectSetup` keeps tool downloads and state in `home`; `targetHome`, when
+provided, selects the installation paths to inspect independently of that cache.
+
 The home is `LINGER_HOME`, else `~/.simplexai` (`home.ts`). Installs from
 before the product was renamed Linger convert once in
-`legacy-migration.ts`, which the installer runs before it opens the home and
+`legacy-migration.ts`, which the installer runs before it opens the home (except
+inspection and stop modes) and
 the desktop runs through `installer.js --migrate`. Under each instance's lock
 it stops the instance's Computer and native services, renames `SIMPLEX_*`
 keys in the generated env files, and gives the instance its
@@ -98,6 +124,27 @@ it to `native/postgres-data` only once it succeeds, so a killed `initdb`
 never leaves a directory that later attempts treat as initialized. A `postgres-data` with
 `PG_VERSION` but no `postmaster.opts` (which only a started server writes)
 never served a connection, holds no data, and is initialized again.
+
+On Windows `postgres.exe` refuses a token with Administrators enabled. When
+the installer runs elevated (Run as administrator, the built-in
+Administrator), its supervisor starts `postgres` through a fixed PowerShell
+program (`windows-restricted-token.ts`) from a copy of its own token with
+Administrators and Power Users disabled, as `pg_ctl` does; `initdb` already
+does this itself. `postgres` stays the supervisor's descendant, so its lease
+tree, log and stop work as before. What an elevated process creates is owned
+by Administrators; `windowsPrivatePath` accepts that owner as well as the
+user when the user is an administrator (Administrators enabled in the token
+or in the elevated token UAC links to it, as Git for Windows decides), since
+the ancestor check already trusts that group. A standard user is refused.
+
+On Windows the installer stages UTF-8 application manifests beside the bundled
+PostgreSQL tools before recording their file hashes. This lets `initdb`
+relaunch itself and start `postgres` when the profile path contains characters
+outside the system code page. This copy uses the `<archive digest>-utf8`
+component directory so older installers can still verify their own cache.
+Both copies use the same instance data directory and the same executable path
+in the supervisor's configuration hash. A matching live server keeps its
+connections during the upgrade. Its next start uses the UTF-8 copy.
 
 The desktop's bundled TeamHub binaries (`teamhub-binaries.ts`) count as current
 only when their files still match the manifest's sizes and hashes. A missing
@@ -144,9 +191,23 @@ its approved plan applied again and the local source set again. Deployments,
 that check and the quit-time stop share one lock per home
 (`withLocalModelsLock`); the check waits up to 180 s for it, past the stop's
 150 s hard exit, then asks to try again.
+`restoreByokSource` (`local-models.ts`) brings back a saved BYOK source's
+Bifrost gateway on every resume (warm, or a restart from the saved choice,
+which then prepares the saved runtime and no other source). Under the same
+lock, waiting as the restore check does, it skips a loopback gateway whose
+`/health` answers, otherwise runs `source apply` from the kit's saved
+configuration, so the key never passes through Node. Each re-mount sends
+the kit's one small probe request to the person's endpoint and adds a few
+seconds to a launch after a quit. A failure (`LOCAL_MODELS_BUSY` when the
+lock never frees) is logged and returned as `details.byokGateway`
+(`{ code, message }`) of a successful resume, so Linger still opens; the
+Computer mounts the gateway again before the next Run on it
+(`EnsureGateway` in the Daemon's `internal/localmodels`).
 
 `runProcess` decodes stdout and stderr as separate UTF-8 streams before
 capture and output callbacks, preserving characters split across pipe reads.
+An output callback failure stops the owned command and rejects its promise
+after the process closes; later output is not delivered to a failed callback.
 
 Each native service runs under a detached supervisor
 (`native-process-worker.mjs`) whose record holds its PID, birth and an
@@ -164,11 +225,19 @@ supervisor whose job file is in this instance's process directory under a
 lease no serving record holds, and a process on one of this instance's
 ports whose command line runs from this installation's folders but belongs
 to no recorded service, with its wrappers up to its supervisor. Never by a
-program name alone, and never the installer or what started it. Readiness on
-Windows also needs each port's listener inside that service's tree: an
+program name alone, and never the installer or what started it. If the
+recorded PID and creation time still exist but the command line is missing,
+stop checks a fresh process listing: CIM can report that incomplete row once
+for an exiting process. If the same process remains without a matching lease,
+stop fails without signalling it and keeps the record. A start cannot replace
+it, and a PID reused by another process does not prevent discarding a stale
+record. Readiness on Windows also needs each
+port's listener inside that service's tree: an
 earlier release's TeamHub or web still on the port would otherwise pass the
 health check for a service that could not bind, and a port held by another
-program fails the start after 15 seconds instead of at the deadline.
+program fails the start after 15 seconds instead of at the deadline. The
+listener lookup streams IPv4 TCP rows from the Windows system netstat in
+parallel with the process listing; process-only inspections need no port lookup.
 
 On POSIX, a start that finds the recorded supervisor gone but processes
 still carrying its lease (the app was killed with it) ends them as a stop
@@ -214,6 +283,8 @@ for the idle timeout or moves on to another mirror.
 Rebuilding the checksum of a saved resumable partial also uses the caller's
 signal, so cancellation stops local reads before another request starts and
 leaves the partial file intact for the next attempt.
+If that saved file already matches the trusted checksum, publish it without
+another network request; the usual cancellation and atomic-rename checks still apply.
 
 Move a freshly downloaded or unpacked file or folder into place with
 `renameRetrying` from `fs-retry.ts`: on Windows antivirus and indexing hold
@@ -221,11 +292,92 @@ new files for a moment, and a plain rename then fails with EPERM.
 Cancellation is checked before every rename attempt, including after a
 retry wait, so a cancelled installation cannot publish the waiting file.
 
+Verified Windows kit files carry the read-only attribute before publication or
+reuse so Python children cannot replace their checked bytecode. The separate
+model data and tool state remain writable. Setup can replace a damaged kit
+from its pinned archive; quit and uninstall do not download or execute a kit
+that fails verification.
+
 Setting `LINGER_LOCALMODELS_DEV_PYTHON` and `LINGER_LOCALMODELS_DEV_MODULE_DIR`
 to absolute paths runs a local `localmodels` checkout instead of fetching the
 published kit, and `LOCALMODELS_DEBUG` (`simulate` or `tiny`, or
 `~/.config/localmodels/debug.json`) passes straight through to `localmodels`.
 
+`installNativeSource` records wall-clock stage seconds (`timings`) in the job's
+`details` and logs `Native install timings (s): ...` in the installer event log
+without adding contract fields. Each wall-clock second counts toward exactly one
+stage on the critical path, so stage durations sum to the total job duration:
+`runtime` runs alongside `release`, `images`, and (on overlapped installs)
+`migrate`, `services`, and `account`, and counts only the wait beyond that
+parallel work, appearing only when the runtime finishes last. LiveKit binds its
+saved port before `prepareFoundationServices` on both paths (before the fork
+when overlapped), because the model controller asks the OS for a free port. On
+fresh installs (`!switchingCheckout`, no
+provisioned account unless a legacy backup was set aside, and no running
+services) and cold resumes (`resume: true`, `!switchingCheckout`, and no running
+services), `migrate`, `services`, and `account` run concurrently with `runtime`,
+`prepareFoundationServices`, and `prepareModelGateway`, holding
+`services`/`account` `succeeded` events and `saveSourceBinding` until both
+branches succeed and aborting and draining both before rollback on failure;
+upgrades and live re-runs keep `migrate` sequential after `runtime`. When
+`resume: true`, `prepareRuntime` inspects the selected runtime (or a saved BYOK
+source's runtime) once and skips
+`harness plan` and `harness apply` when it is already installed (falling back to
+a full install if missing or unreadable), and passes the inspected descriptor
+through `onRuntimeDescriptors` so callers avoid a second status probe. Within
+`release`, binary and native-runtime bundle checks run in parallel, while
+dependency and voice tool preparations stay sequential on the shared
+native-tools lock; collaboration services start concurrently when `node-services`
+is not pre-stopped for a TeamHub config restart. `runLocalmodels`
+reads the kit's JSON event lines from stdout and stderr alike and forwards
+byte progress (`total: null` without a total) and the download
+`connecting`, `switching` and `retrying` stages of every command, labeled per
+command; a host is shown only when it is a plain hostname, and unknown states
+are ignored. `harness apply` also forwards its extract, verify and install
+stages. Setup's `source apply` (`prepareByokRuntime`, `applyNativeSource`) may
+download Bifrost first, so it forwards these events and has no wall-clock
+limit: `idleTimeoutMs` (240 s, above the kit's longest silent span, the BYOK
+endpoint probe of up to about 35 s followed by Bifrost's health wait of up to
+180 s) stops it only after that long with no output. The resume mount
+keeps its 90 s wall clock. `prepareByokRuntime` logs elapsed time every 10 s while mounting
+the BYOK gateway (a log line, since the job appends and persists every stage
+event).
+
 Run `pnpm --filter @linger/local-installation check` (`make check-packages`
 runs it too); `make check-installer` runs its consumer, the installer, and
 applies to changes that affect its public behavior.
+
+## Local acceptance
+
+Unit tests mock every process, so a change to install ordering, concurrency,
+rollback, resume, or checkout switching also gets one real run on a
+developer machine. Never touch the machine's own install (`~/.simplexai`,
+`~/Library/Application Support/Linger`) or stop processes the run did not
+start.
+
+- Isolate everything a run writes. `LINGER_HOME` alone is not enough: the
+  localmodels kit defaults to `~/.local/share/localmodels` and Pi to the one
+  on `PATH`, so also set `HOME` to a scratch directory and
+  `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, plus `LINGER_DESKTOP_USER_DATA` and
+  `LINGER_BRIDGE_STATE_DIR` (otherwise the desktop removes the real bridge
+  state). Use real paths: on macOS `/tmp` is a symlink and localmodels
+  refuses it (`Unsafe runtime root`), so use `/private/tmp/...`.
+- Run the desktop from source with `LINGER_CHECKOUT` naming the checkout under
+  test (`apps/desktop/AGENTS.md`); add `--remote-debugging-port` to Electron to
+  drive `app://setup/` over CDP. From source there are no bundled TeamHub
+  binaries, so the installer prepares Go and compiles TeamHub, and its
+  timings are not comparable with a packaged build.
+- `LOCALMODELS_DEBUG=simulate:vram_gb=24` simulates the hardware, but a
+  simulated local model echoes the prompt and fails `stack apply`'s answer
+  check. Exercise a full install through BYOK instead, against the kit's
+  stub endpoint once the installer has unpacked the kit:
+  `PYTHONPATH=$K/modules $K/python/bin/python3.12 -P -s -m localmodels.debug_stub_server --bind 127.0.0.1 --port 18950 --model stub-model`
+  with `K=$LINGER_HOME/tools/localmodels/<kit hash>`, then enter
+  `http://127.0.0.1:18950/v1` and any key in setup. `--stop` leaves the
+  simulated stub servers running; stop them yourself.
+- Scenarios: a fresh install (runtime overlaps services and account in the
+  job's stage timings); `--stop` then `--resume` on the same checkout (logs
+  `Reusing the installed <runtime> runtime.` and overlaps); `--resume` while
+  services run (returns `Services are already running.` with unchanged
+  process IDs); and `--resume --source-repo` on another checkout (full
+  `harness plan`/`apply`, migrations only after runtime preparation).

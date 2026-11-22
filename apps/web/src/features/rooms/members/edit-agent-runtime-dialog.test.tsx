@@ -16,8 +16,8 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 
 import { OFFLINE_COMPUTER_HINT } from "./agent-move-target";
+import { agentRuntimeMessages } from "./agent-runtime.messages";
 import {
-  agentMoveHint,
   type AgentRuntimeField,
   EditAgentRuntimeDialog,
   type AgentRuntimeUpdateInput,
@@ -316,7 +316,7 @@ describe("EditAgentRuntimeDialog", () => {
       name: "Agent computer",
     });
     await waitFor(() => expect(computer).toHaveTextContent("Old Mac · Online"));
-    expect(screen.queryByText(agentMoveHint)).toBeNull();
+    expect(screen.queryByText(agentRuntimeMessages.moveHint.source)).toBeNull();
     fireEvent.click(computer);
     fireEvent.click(
       await screen.findByRole("option", { name: "New Mac · Online" }),
@@ -330,7 +330,9 @@ describe("EditAgentRuntimeDialog", () => {
     expect(
       screen.getByRole("combobox", { name: "Agent reasoning effort" }),
     ).toHaveTextContent("High");
-    expect(screen.getByText(agentMoveHint)).toBeVisible();
+    expect(
+      screen.getByText(agentRuntimeMessages.moveHint.source),
+    ).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Move Agent" }));
     expect(onSave).toHaveBeenCalledWith({
       runtime: {

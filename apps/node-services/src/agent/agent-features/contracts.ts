@@ -193,6 +193,25 @@ export interface RunTerminalEvent {
   readonly terminal: LocalTurnTerminal;
 }
 
+/** Facts passed to context features when a Runtime is about to end a turn. */
+export interface RunStopHookInput {
+  readonly runId: string;
+  /** Number of prior stop-hook blocks in this Run (0 on first stop attempt). */
+  readonly attempt: number;
+  /** True when the Runtime reports it is returning from a prior stop block. */
+  readonly stopHookActive: boolean;
+  /** Original inputs this Run took up so far (initial messages and applied steers). */
+  readonly inputs: readonly Message[];
+}
+
+export type RunStopHookDecision =
+  | {
+      readonly action: "allow";
+      /** True when the handler positively confirmed a visible reply landed. */
+      readonly replyConfirmed?: boolean;
+    }
+  | { readonly action: "block"; readonly reason: string };
+
 /** One maintenance action the core may run on an idle Context. */
 export interface CompactMaintenanceAction {
   readonly kind: "compact";
@@ -303,6 +322,16 @@ export interface ContextFeatureHandlers {
     view: FeatureContextView,
     event: RunEvent,
   ): RuntimeStatusUpdate | null;
+  /**
+   * Called before a Runtime finishes a turn when stop interception is active.
+   * Handlers run sequentially in declared order; the first `block` decision
+   * wins. Throwing handlers are isolated and treated as `allow` (fail-open).
+   */
+  onRunBeforeStop?(
+    context: BoundFeatureContext,
+    input: RunStopHookInput,
+    signal: AbortSignal,
+  ): MaybePromise<RunStopHookDecision | null>;
   /**
    * Pure, synchronous maintenance decision; the first non-null decision in
    * declared order wins. A feature answers a timer trigger only for timer

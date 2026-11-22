@@ -1,3 +1,4 @@
+import { formatLocale } from "@/i18n/language";
 import { dayKey, formatDateTime } from "@/lib/date-format";
 
 export interface WikiGraphNode {
@@ -129,6 +130,7 @@ export function buildTimeline(
   moments: Map<string, NodeMoment[]>,
   granularity: TimeGranularity,
   today = dayKey(new Date()),
+  locale: string = formatLocale(),
 ): WikiTimeline {
   const days = [...moments.values()]
     .flat()
@@ -152,7 +154,7 @@ export function buildTimeline(
     buckets.push({
       start,
       ...(previous === undefined || previous.slice(0, 7) !== start.slice(0, 7)
-        ? { monthLabel: monthLabel(start) }
+        ? { monthLabel: monthLabel(start, locale) }
         : {}),
       ...(previous === undefined || previous.slice(0, 4) !== start.slice(0, 4)
         ? { yearLabel: start.slice(0, 4) }
@@ -183,11 +185,12 @@ export function bucketStart(day: string, granularity: TimeGranularity): string {
   return dayString(time - weekday * DAY_MS);
 }
 
-function monthLabel(start: string): string {
-  return formatDateTime(dayTime(start), {
-    month: "short",
-    timeZone: "UTC",
-  });
+function monthLabel(start: string, locale: string): string {
+  return formatDateTime(
+    dayTime(start),
+    { month: "short", timeZone: "UTC" },
+    locale,
+  );
 }
 
 function isCalendarDay(day: string): boolean {

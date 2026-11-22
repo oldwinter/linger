@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act as reactAct,
   cleanup,
   fireEvent,
   render,
@@ -14,6 +15,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TeamHubEventSync } from "@/features/rooms/event-sync";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubLocalComputerPage } from "@/features/teamhub/teamhub-types";
+import { resetLanguageForTest, setLanguage } from "@/i18n/language";
+import zhCN from "@/i18n/locales/zh-CN.json";
 import { defineGlobalProperty } from "@/test/global-properties";
 import {
   acceptTenantAgentUpdates,
@@ -1917,15 +1920,23 @@ describe("Model source", () => {
     "/v0/tenants/{tenantId}/local-computers/{computerId}/model-source/models";
   const byokStatus = {
     byok: {
-      base_url: "https://api.example.com/v1",
+      base_url: "https://api.example.com",
       configured: true,
+      endpoint: "/chat/completions",
       key_saved: true,
       model_id: "vendor/model",
+      path: "/v1",
       protocol: "openai-chat",
     },
     mode: "byok",
     runtime: "codex",
     runtime_model: "localmodels-byok",
+  };
+  const unconfigured = {
+    byok: { configured: false, key_saved: false },
+    mode: "subscription",
+    runtime: "claude",
+    runtime_model: "",
   };
 
   function withSource(fixture: Fixture, status: object) {
@@ -1936,11 +1947,11 @@ describe("Model source", () => {
       .on("POST", modelsPath, ({ body }) => {
         listings.push(body);
         return Response.json({
-          base_url: "https://api.example.com",
           models: [
             { context_window: 131_072, id: "vendor/model", name: "Vendor" },
             { id: "vendor/other" },
           ],
+          url: "https://api.example.com/v1/models",
         });
       })
       .on("GET", switchPath, ({ params }) =>
@@ -1953,12 +1964,15 @@ describe("Model source", () => {
       )
       .on("POST", testPath, ({ body }) => {
         tests.push(body);
+        const { byok } = body as {
+          byok: { base_url: string; endpoint: string; path: string };
+        };
         return Response.json({
-          base_url: "https://api.example.com",
           context_window: 131_072,
           model_id: "vendor/model",
           ok: true,
           protocol: "openai-chat",
+          url: byok.base_url + byok.path + byok.endpoint,
         });
       });
     return { listings, switches, tests };
@@ -1980,14 +1994,21 @@ describe("Model source", () => {
     expect(
       screen.getByText("Agents on lab-118 use BYOK · vendor/model"),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText("In use, through OpenAI Chat Completions."),
-    ).toBeInTheDocument();
     expect(screen.queryByText(/Stored privately/u)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("API format")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Base URL")).toHaveValue(
-      "https://api.example.com/v1",
+      "https://api.example.com",
     );
+    expect(screen.getByRole("combobox", { name: "Path" })).toHaveValue("/v1");
+    expect(screen.getByRole("combobox", { name: "Endpoint" })).toHaveValue(
+      "/chat/completions",
+    );
+    expect(
+      screen.getByText(/^Sends OpenAI Chat Completions requests to/u),
+    ).toHaveTextContent("https://api.example.com/v1/chat/completions");
+    expect(
+      screen.queryByRole("button", { name: "Test connection" }),
+    ).not.toBeInTheDocument();
   });
 
   it("asks before ending running tasks and switches only once confirmed", async () => {
@@ -2114,19 +2135,23 @@ describe("Model source", () => {
     await renderPage(fixture);
 
     fireEvent.click(await screen.findByRole("tab", { name: /BYOK/u }));
-    expect(
-      await screen.findByRole("combobox", { name: "Model" }),
-    ).toHaveTextContent("vendor/model Vendor · 128K tokens");
-    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
-    expect(
-      await screen.findByText(
-        "Connected to https://api.example.com through OpenAI Chat Completions. vendor/model has 128K tokens of context.",
-      ),
-    ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("combobox", { name: "Model" }));
+    expect(await screen.findByLabelText("Model")).toHaveValue("vendor/model");
+    fireEvent.click(screen.getByRole("button", { name: "Test" }));
+    const connected = (await screen.findByText("Connected")).closest(
+      '[role="status"]',
+    );
+    expect(connected).toHaveTextContent(
+      "vendor/model · 128K context · OpenAI Chat Completions",
+    );
+    expect(connected).toHaveTextContent(
+      "https://api.example.com/v1/chat/completions",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "List models" }));
     fireEvent.click(
       await screen.findByRole("option", { name: "vendor/other" }),
     );
+    expect(screen.getByLabelText("Model")).toHaveValue("vendor/other");
     fireEvent.change(screen.getByLabelText("API key"), {
       target: { value: "sk-new" },
     });
@@ -2137,159 +2162,262 @@ describe("Model source", () => {
     await waitFor(() => expect(switches).toHaveLength(1));
     fireEvent.click(await screen.findByRole("tab", { name: "Local model" }));
     fireEvent.click(screen.getByRole("tab", { name: /BYOK/u }));
-    expect(
-      await screen.findByRole("combobox", { name: "Model" }),
-    ).toHaveTextContent("vendor/other");
+    expect(await screen.findByLabelText("Model")).toHaveValue("vendor/other");
+    const address = {
+      base_url: "https://api.example.com",
+      endpoint: "/chat/completions",
+      path: "/v1",
+      protocol: "openai-chat",
+    };
     expect(tests).toEqual([
       {
-        byok: {
-          base_url: "https://api.example.com/v1",
-          model_id: "vendor/model",
-          reuse_saved_key: true,
-        },
-        runtime: "claude",
+        byok: { ...address, model_id: "vendor/model", reuse_saved_key: true },
       },
     ]);
     expect(switches).toEqual([
       {
-        byok: {
-          api_key: "sk-new",
-          base_url: "https://api.example.com/v1",
-          model_id: "vendor/other",
-        },
+        byok: { ...address, api_key: "sk-new", model_id: "vendor/other" },
         mode: "byok",
         runtime: "claude",
       },
     ]);
   });
 
-  it("lists the endpoint's models once its address and key are entered", async () => {
+  it("sends requests to the base URL, path and endpoint as entered", async () => {
     const fixture = setup([labView()]);
-    const { listings, tests } = withSource(fixture, {
-      byok: { configured: false, key_saved: false },
-      mode: "subscription",
-      runtime: "claude",
-      runtime_model: "",
-    });
+    const { listings, tests } = withSource(fixture, unconfigured);
     await renderPage(fixture);
 
     fireEvent.click(await screen.findByRole("tab", { name: /BYOK/u }));
+    const path = screen.getByRole("combobox", { name: "Path" });
+    const endpoint = screen.getByRole("combobox", { name: "Endpoint" });
+    expect(path).toHaveValue("/v1");
+    expect(path).toHaveClass("text-muted-foreground");
+    expect(endpoint).toHaveValue("/messages");
+
     const baseUrl = screen.getByLabelText("Base URL");
     fireEvent.change(baseUrl, {
-      target: { value: "https://api.example.com/v1" },
+      target: { value: " https://open.bigmodel.cn/ " },
     });
-    expect(listings).toEqual([]);
     fireEvent.blur(baseUrl);
-    const model = await screen.findByRole("combobox", { name: "Model" });
-    expect(model).toHaveTextContent("Choose a model");
-    fireEvent.click(model);
+    expect(baseUrl).toHaveValue("https://open.bigmodel.cn");
     expect(
-      await screen.findByRole("option", {
-        name: "vendor/model Vendor · 128K tokens",
-      }),
-    ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("option", { name: "vendor/other" }));
-    expect(screen.getByRole("combobox", { name: "Model" })).toHaveTextContent(
-      "vendor/other",
+      screen.getByText(/^Sends Anthropic Messages requests to/u),
+    ).toHaveTextContent("https://open.bigmodel.cn/v1/messages");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show Path suggestions" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("option", { name: /^\/api\/paas\/v4 /u }),
+    );
+    expect(path).toHaveValue("/api/paas/v4");
+    expect(path).toHaveClass("text-foreground");
+
+    // An endpoint left at its default follows the Runtime.
+    fireEvent.click(screen.getByRole("combobox", { name: "AI runtime" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Pi" }));
+    expect(endpoint).toHaveValue("/chat/completions");
+    expect(
+      screen.getByText(/^Sends OpenAI Chat Completions requests to/u),
+    ).toHaveTextContent(
+      "https://open.bigmodel.cn/api/paas/v4/chat/completions",
     );
 
-    const apiKey = screen.getByLabelText("API key");
-    fireEvent.change(apiKey, { target: { value: "sk-listed" } });
-    fireEvent.blur(apiKey);
-    await waitFor(() => expect(listings).toHaveLength(2));
-    expect(listings).toEqual([
-      { base_url: "https://api.example.com/v1" },
-      { api_key: "sk-listed", base_url: "https://api.example.com/v1" },
-    ]);
-    fireEvent.blur(apiKey);
+    // Without an endpoint the address names no format, so Pi's own applies.
     fireEvent.click(
-      await screen.findByRole("button", { name: "Test connection" }),
+      screen.getByRole("button", { name: "Show Endpoint suggestions" }),
     );
+    fireEvent.click(
+      await screen.findByRole("option", {
+        name: "- No endpoint. The base URL is the full address.",
+      }),
+    );
+    expect(endpoint).toHaveValue("");
+    expect(
+      screen.getByText(
+        /^Sends OpenAI Chat Completions \(the Pi format\) requests to/u,
+      ),
+    ).toHaveTextContent("https://open.bigmodel.cn/api/paas/v4");
+
+    fireEvent.click(screen.getByRole("button", { name: "List models" }));
+    await waitFor(() => expect(listings).toHaveLength(1));
+    expect(listings[0]).toEqual({
+      base_url: "https://open.bigmodel.cn",
+      endpoint: "",
+      path: "/api/paas/v4",
+      protocol: "openai-chat",
+    });
+
+    fireEvent.change(screen.getByLabelText("Model"), {
+      target: { value: " glm-5 " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Test" }));
     await waitFor(() => expect(tests).toHaveLength(1));
     expect(tests[0]).toEqual({
       byok: {
-        api_key: "sk-listed",
-        base_url: "https://api.example.com/v1",
-        model_id: "vendor/other",
+        base_url: "https://open.bigmodel.cn",
+        endpoint: "",
+        model_id: "glm-5",
+        path: "/api/paas/v4",
+        protocol: "openai-chat",
       },
-      runtime: "claude",
     });
-    expect(listings).toHaveLength(2);
+
+    // A path carries only segments, never a query.
+    fireEvent.change(path, { target: { value: "/v4?beta=1" } });
+    expect(
+      screen.getByText(/Path and endpoint take segments like \/v1/u),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Test" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "List models" })).toBeDisabled();
   });
 
-  it("lists the models again on request with the key as typed", async () => {
+  it("lists the models only on request, with the key as typed", async () => {
     const fixture = setup([labView()]);
     const { listings } = withSource(fixture, byokStatus);
     await renderPage(fixture);
 
-    expect(await screen.findByText("2 models listed.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("List the endpoint's models, or type an ID."),
+    ).toBeInTheDocument();
+    expect(listings).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "List models" }));
+    expect(
+      await screen.findByText(
+        "2 models listed from https://api.example.com/v1/models.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", {
+        name: "vendor/model Vendor · 128K context",
+      }),
+    ).toBeInTheDocument();
     expect(listings).toEqual([
-      { base_url: "https://api.example.com/v1", reuse_saved_key: true },
+      {
+        base_url: "https://api.example.com",
+        endpoint: "/chat/completions",
+        path: "/v1",
+        protocol: "openai-chat",
+        reuse_saved_key: true,
+      },
     ]);
+
     fireEvent.change(screen.getByLabelText("API key"), {
       target: { value: "sk-typed" },
     });
+    expect(screen.queryByText(/models listed from/u)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "List models" }));
-
     await waitFor(() => expect(listings).toHaveLength(2));
-    expect(listings[1]).toEqual({
-      api_key: "sk-typed",
-      base_url: "https://api.example.com/v1",
-    });
-    expect(screen.getByRole("combobox", { name: "Model" })).toHaveTextContent(
-      "vendor/model Vendor · 128K tokens",
-    );
+    expect(listings[1]).toMatchObject({ api_key: "sk-typed" });
+    expect(listings[1]).not.toHaveProperty("reuse_saved_key");
   });
 
   it("falls back to typing the model ID when the endpoint lists none", async () => {
     const fixture = setup([labView()]);
     withSource(fixture, byokStatus);
     fixture.runtime.server.on("POST", modelsPath, () =>
-      Response.json(
-        {
-          error: {
-            code: "BYOK_MODEL_NOT_FOUND",
-            message: "not found",
-            request_id: "test-models",
-          },
-        },
-        { status: 409 },
+      teamHubErrorResponse(
+        409,
+        "BYOK_NOT_FOUND",
+        "https://api.example.com/v1/models returned HTTP 404: the address or the model was not found.",
       ),
     );
     await renderPage(fixture);
 
+    fireEvent.click(await screen.findByRole("button", { name: "List models" }));
     expect(
       await screen.findByText(
-        "The endpoint didn't list its models. Type the model ID.",
+        "https://api.example.com/v1/models returned HTTP 404: the address or the model was not found.",
       ),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Model")).toHaveValue("vendor/model");
   });
 
-  it("tests an endpoint on this computer without an API key", async () => {
+  it("keeps a failed test in view until dismissed and lets a success fade", async () => {
     const fixture = setup([labView()]);
-    const { tests } = withSource(fixture, {
-      byok: { configured: false, key_saved: false },
-      mode: "subscription",
-      runtime: "claude",
-      runtime_model: "",
+    const { tests } = withSource(fixture, byokStatus);
+    fixture.runtime.server.on("POST", testPath, ({ body }) => {
+      tests.push(body);
+      return tests.length === 1
+        ? teamHubErrorResponse(
+            409,
+            "BYOK_NOT_FOUND",
+            "https://api.example.com/v1/chat/completions returned HTTP 404: the address or the model was not found.",
+          )
+        : teamHubErrorResponse(
+            409,
+            "BYOK_AUTH_FAILED",
+            "https://api.example.com/v1/chat/completions rejected the API key (HTTP 401).",
+          );
     });
     await renderPage(fixture);
+    // Only the toast's own timers run fake, between requests to the server.
+    function afterFakeTime(act: () => void, ...steps: number[]) {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        act();
+        for (const step of steps)
+          reactAct(() => {
+            vi.advanceTimersByTime(step);
+          });
+      } finally {
+        vi.useRealTimers();
+      }
+    }
 
-    fireEvent.click(await screen.findByRole("tab", { name: /BYOK/u }));
-    fireEvent.change(screen.getByLabelText("Base URL"), {
-      target: { value: "http://127.0.0.1:18486/v1" },
-    });
-    fireEvent.change(screen.getByLabelText("Model"), {
-      target: { value: "vendor/model" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Test" }));
+    const failed = await screen.findByRole("alert");
+    expect(failed).toHaveTextContent("Couldn't connect");
+    expect(failed).toHaveTextContent(
+      "https://api.example.com/v1/chat/completions returned HTTP 404: the address or the model was not found.",
+    );
+    afterFakeTime(() => undefined, 10_000);
+    expect(failed).toBeInTheDocument();
+    afterFakeTime(
+      () =>
+        fireEvent.click(
+          within(failed).getByRole("button", { name: "Dismiss" }),
+        ),
+      200,
+    );
+    expect(screen.queryByText("Couldn't connect")).not.toBeInTheDocument();
 
-    await waitFor(() => expect(tests).toHaveLength(1));
-    expect(tests[0]).toEqual({
-      byok: { base_url: "http://127.0.0.1:18486/v1", model_id: "vendor/model" },
-      runtime: "claude",
+    fireEvent.click(screen.getByRole("button", { name: "Test" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "https://api.example.com/v1/chat/completions rejected the API key (HTTP 401).",
+    );
+    afterFakeTime(() => fireEvent.pointerDown(document.body), 200);
+    expect(screen.queryByText("Couldn't connect")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Test" }));
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    // Editing the address withdraws the result it no longer describes.
+    fireEvent.change(screen.getByRole("combobox", { name: "Path" }), {
+      target: { value: "/v2" },
     });
+    expect(screen.queryByText("Couldn't connect")).not.toBeInTheDocument();
+
+    fixture.runtime.server.on("POST", testPath, () =>
+      Response.json({
+        context_window: 2048,
+        model_id: "vendor/model",
+        ok: true,
+        protocol: "openai-chat",
+        url: "https://api.example.com/v2/chat/completions",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Test" }));
+    const connected = (await screen.findByText("Connected")).closest(
+      '[role="status"]',
+    )!;
+    expect(connected).toHaveTextContent("vendor/model · 2K context");
+    // Resting the pointer on a success keeps it; leaving lets it fade.
+    fireEvent.mouseEnter(connected);
+    afterFakeTime(() => undefined, 10_000);
+    expect(connected).toBeInTheDocument();
+    afterFakeTime(() => fireEvent.mouseLeave(connected), 1_500, 200);
+    expect(screen.queryByText("Connected")).not.toBeInTheDocument();
   });
 
   it("switches back to a model already on the computer", async () => {
@@ -2773,9 +2901,6 @@ describe("Model source", () => {
         viewer_is_owner: true,
       }),
     );
-    fixture.runtime.server.on("POST", modelsPath, () =>
-      Response.json({ base_url: "https://api.example.com", models: [] }),
-    );
     await renderPage(fixture);
     await findModels();
 
@@ -2798,7 +2923,7 @@ describe("Model source", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
-  it("resets stale BYOK test feedback, protects saved keys across origins, clears models on empty URL, and allows manual model IDs", async () => {
+  it("resets stale BYOK test feedback, protects saved keys across origins, clears models on a new address, and takes typed model IDs", async () => {
     const fixture = setup([labView()]);
     const { listings, switches, tests } = withSource(fixture, byokStatus);
     fixture.runtime.server.on("POST", switchPath, ({ body }) => {
@@ -2812,31 +2937,30 @@ describe("Model source", () => {
     });
     await renderPage(fixture);
 
-    expect(await screen.findByText("2 models listed.")).toBeInTheDocument();
-    const tabs = screen.getByRole("tablist", { name: "Model source" });
+    const tabs = await screen.findByRole("tablist", { name: "Model source" });
     expect(tabs).toHaveClass("self-start");
-
-    // Manual model ID toggle lets owners type custom IDs even when models were listed.
-    fireEvent.click(
-      screen.getByRole("button", { name: "Enter model ID manually" }),
-    );
-    const manualInput = screen.getByLabelText("Model");
-    expect(manualInput).toHaveValue("vendor/model");
-    fireEvent.change(manualInput, { target: { value: "custom/alias" } });
-
-    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+    fireEvent.click(await screen.findByRole("button", { name: "List models" }));
     expect(
-      await screen.findByText(/Connected to https:\/\/api\.example\.com/u),
+      await screen.findByText(
+        "2 models listed from https://api.example.com/v1/models.",
+      ),
     ).toBeInTheDocument();
 
-    // Changing Base URL to a different origin resets test feedback and stops reusing the saved key.
+    // Any model ID can be typed even when the endpoint listed models.
+    const model = screen.getByLabelText("Model");
+    fireEvent.change(model, { target: { value: "custom/alias" } });
+    fireEvent.click(screen.getByRole("button", { name: "Test" }));
+    expect(await screen.findByText("Connected")).toBeInTheDocument();
+
+    // Another origin withdraws the result, the listed models and the saved key.
     const baseUrl = screen.getByLabelText("Base URL");
     fireEvent.change(baseUrl, {
-      target: { value: "https://other.example.net/v1" },
+      target: { value: "https://other.example.net" },
     });
+    expect(screen.queryByText("Connected")).not.toBeInTheDocument();
     expect(
-      screen.queryByText(/Connected to https:\/\/api\.example\.com/u),
-    ).not.toBeInTheDocument();
+      screen.getByText("List the endpoint's models, or type an ID."),
+    ).toBeInTheDocument();
     expect(
       screen.queryByText(/A key is saved on this computer/u),
     ).not.toBeInTheDocument();
@@ -2846,28 +2970,20 @@ describe("Model source", () => {
       ),
     ).toBeVisible();
 
-    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+    fireEvent.click(screen.getByRole("button", { name: "Test" }));
     await waitFor(() => expect(tests).toHaveLength(2));
     expect(tests[1]).toEqual({
       byok: {
-        base_url: "https://other.example.net/v1",
+        base_url: "https://other.example.net",
+        endpoint: "/chat/completions",
         model_id: "custom/alias",
+        path: "/v1",
+        protocol: "openai-chat",
       },
-      runtime: "codex",
     });
-
-    // Clearing Base URL clears stale listed models instead of keeping previous endpoint choices.
-    fireEvent.change(baseUrl, { target: { value: "" } });
-    fireEvent.blur(baseUrl);
-    expect(screen.queryByText("2 models listed.")).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Choose from list" }),
-    ).not.toBeInTheDocument();
 
     // Saving while already on BYOK clears the typed API key input cleanly.
-    fireEvent.change(baseUrl, {
-      target: { value: "https://api.example.com/v1" },
-    });
+    fireEvent.change(baseUrl, { target: { value: "https://api.example.com" } });
     fireEvent.change(screen.getByLabelText("API key"), {
       target: { value: "sk-rotate" },
     });
@@ -2876,7 +2992,7 @@ describe("Model source", () => {
     await waitFor(() =>
       expect(screen.getByLabelText("API key")).toHaveValue(""),
     );
-    expect(listings.length).toBeGreaterThanOrEqual(1);
+    expect(listings).toHaveLength(1);
   });
 
   it("refreshes Tenant Agents after Use for Agents and lets SwitchToLocalNotice prefer a newly loaded model", async () => {
@@ -3247,7 +3363,10 @@ describe("Model source", () => {
     });
     fixture.runtime.server
       .on("POST", modelsPath, () =>
-        Response.json({ base_url: "https://draft.example.com/v1", models: [] }),
+        Response.json({
+          models: [],
+          url: "https://draft.example.com/v1/models",
+        }),
       )
       .on("POST", switchPath, ({ body }) => {
         switches.push(body);
@@ -3409,14 +3528,9 @@ describe("Model source", () => {
         /Switching away from Subscription cannot be reversed from this page\./u,
       ),
     ).toBeVisible();
-    for (const label of [
-      "List models",
-      "Test connection",
-      "Save & Switch to BYOK",
-    ]) {
+    for (const label of ["List models", "Test", "Save & Switch to BYOK"]) {
       const btn = screen.getByRole("button", { name: label });
-      expect(btn).toHaveClass("ui-button-default");
-      expect(btn).not.toHaveClass("ui-button-large");
+      expect(btn).toHaveClass("ui-button-large");
     }
   });
 
@@ -3501,5 +3615,140 @@ describe("Model source", () => {
     expect(await within(loadedDetails).findByRole("alert")).toHaveTextContent(
       "Copy failed",
     );
+  });
+
+  it("surfaces BYOK gateway and endpoint failure details when switching fails", async () => {
+    const fixture = setup([labView()]);
+    withSource(fixture, { ...byokStatus, mode: "local", runtime: "pi" });
+    const gatewayDetail =
+      "cannot record Bifrost process identity ([Errno 1] Operation not permitted: '/bin/ps'); stopped it";
+    const responses = [
+      Response.json(
+        {
+          error: {
+            code: "BYOK_GATEWAY_FAILED",
+            details: [{ field: "gateway", reason: gatewayDetail }],
+            message: gatewayDetail,
+            request_id: "test-byok-gateway-detail",
+          },
+        },
+        { status: 502 },
+      ),
+      Response.json(
+        {
+          error: {
+            code: "BYOK_GATEWAY_FAILED",
+            message: "The Computer could not configure its local BYOK gateway",
+            request_id: "test-byok-gateway-plain",
+          },
+        },
+        { status: 502 },
+      ),
+      teamHubErrorResponse(
+        409,
+        "BYOK_AUTH_FAILED",
+        "https://api.kimi.com/coding/v1/chat/completions rejected the API key (HTTP 401).",
+      ),
+    ];
+    let attempt = 0;
+    fixture.runtime.server.on(
+      "POST",
+      switchPath,
+      () => responses[attempt++] ?? responses[responses.length - 1]!,
+    );
+    await renderPage(fixture);
+
+    fireEvent.click(await screen.findByRole("tab", { name: /BYOK/u }));
+    const submit = await screen.findByRole("button", {
+      name: "Save & Switch to BYOK",
+    });
+
+    fireEvent.click(submit);
+    const gatewayAlert = await screen.findByRole("alert");
+    expect(gatewayAlert).toHaveTextContent(
+      `The computer couldn't configure its local BYOK gateway: ${gatewayDetail}`,
+    );
+    expect(gatewayAlert).not.toHaveTextContent(
+      "The computer couldn't switch. Try again.",
+    );
+
+    fireEvent.click(submit);
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        /^The computer couldn't configure its local BYOK gateway\.$/u,
+      ),
+    );
+
+    fireEvent.click(submit);
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "https://api.kimi.com/coding/v1/chat/completions rejected the API key (HTTP 401).",
+      ),
+    );
+  });
+
+  it("localizes BYOK gateway failure copy in Simplified Chinese while keeping Computer detail", async () => {
+    try {
+      await setLanguage("zh-CN");
+      const fixture = setup([labView()]);
+      withSource(fixture, { ...byokStatus, mode: "local", runtime: "pi" });
+      const gatewayDetail =
+        "cannot record Bifrost process identity ([Errno 1] Operation not permitted: '/bin/ps'); stopped it";
+      const responses = [
+        Response.json(
+          {
+            error: {
+              code: "BYOK_GATEWAY_FAILED",
+              details: [{ field: "gateway", reason: gatewayDetail }],
+              message: gatewayDetail,
+              request_id: "test-byok-gateway-zh-detail",
+            },
+          },
+          { status: 502 },
+        ),
+        Response.json(
+          {
+            error: {
+              code: "BYOK_GATEWAY_FAILED",
+              message:
+                "The Computer could not configure its local BYOK gateway",
+              request_id: "test-byok-gateway-zh-plain",
+            },
+          },
+          { status: 502 },
+        ),
+      ];
+      let attempt = 0;
+      fixture.runtime.server.on(
+        "POST",
+        switchPath,
+        () => responses[attempt++] ?? responses[responses.length - 1]!,
+      );
+      await renderPage(fixture);
+
+      fireEvent.click(await screen.findByRole("tab", { name: /BYOK/u }));
+      const submit = await screen.findByRole("button", {
+        name: zhCN.localModels.saveAndSwitch,
+      });
+
+      fireEvent.click(submit);
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent(
+        zhCN.localModels.sourceByokGatewayFailedDetail.replace(
+          "{detail}",
+          gatewayDetail,
+        ),
+      );
+      expect(alert).not.toHaveTextContent(zhCN.localModels.sourceSwitchFailed);
+
+      fireEvent.click(submit);
+      await waitFor(() =>
+        expect(screen.getByRole("alert")).toHaveTextContent(
+          zhCN.localModels.sourceByokGatewayFailed,
+        ),
+      );
+    } finally {
+      resetLanguageForTest();
+    }
   });
 });

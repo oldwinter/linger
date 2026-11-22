@@ -18,6 +18,8 @@ it prevents execution after those writes, and shutdown drains that initial save
 before returning, just as it waits for an executing job. An initial input-save
 failure is reported by start without interrupting shutdown's remaining cleanup;
 storage failures for retained jobs still propagate.
+A closed native sign-in input reports failure without stopping the installer;
+retry starts a new owned login process.
 A start returns the instance's running or queued job; a job that finished its
 run and waits for the person (`waiting_user`, e.g. `LOCAL_MODELS_UNAVAILABLE`)
 is canceled and replaced, so Try Again checks the computer again.
@@ -28,11 +30,23 @@ on stderr for the desktop to show.
 Native sign-in sessions belong to an instance and its selected runtime. A changed
 setup choice must not reuse another runtime's URL or accept a code for its process;
 starting sign-in for the new runtime stops the previous runtime's pending login.
+A Codex start may name its login method: `browser` (localhost callback; on
+Linux it runs with `BROWSER=true` so only the caller opens the link, elsewhere
+the CLI opens its own page) or `device` (device code).
+Without one, macOS and Windows use the browser login, which opens its own
+page, and other platforms the device code. A start with another method replaces
+the running login. A failed login carries its `reason`; a timeout stays
+`timed_out` after the process exits.
 
 `--resume` (native source with `--instance`) starts an installed instance's
 stopped services headless, reusing its saved choices; the desktop client runs it
-after a reboot and reads the outcome from the single JSON line on stdout. It
-also restarts running services when the instance's `user.env` no longer
+after a reboot and reads the outcome from the single JSON line on stdout. Cold
+resumes on the same checkout pass `resume: true` (a resume onto another
+checkout omits it and prepares the runtime in full, sequentially) so an already-installed runtime
+is reused after one status check, runtime/foundation preparation overlaps
+service startup, and inspected runtime descriptors are passed directly to
+`instanceRuntime` without a second status probe. It also restarts running
+services when the instance's `user.env` no longer
 matches the configuration they started with, or when `--source-repo` names
 another checkout than the instance's. An instance follows a new checkout only
 once its services are ready on it: until then `instance.json` keeps naming the
@@ -53,7 +67,15 @@ whose Computer still uses the local model source (`model-source.json` says
 `local` or does not exist yet) has its stack checked once
 (`restoreLocalModels`), since a quit stops the models but not the services: a
 stack that is not ready gets the same restore, then becomes the model source
-again. A source switched to a subscription or BYOK leaves the stack stopped.
+again. A source switched to a subscription or BYOK leaves the stack stopped;
+a saved BYOK source gets its Bifrost gateway mounted again from the saved
+configuration unless it already answers (`restoreByokSource`), and a failure
+is logged and reported in the ready outcome's `details.byokGateway`
+without failing the resume; the Computer mounts it again before the next Run
+on it.
+A failed installation records the stage that caused it, even when native
+checkout preparation and runtime setup ran in parallel. A BYOK mount failure
+belongs to runtime and keeps the redacted provider error in the job.
 A failed job's `errorCode` is the runtime's cause when it
 has one (`RUNTIME_PLAN_REFUSED`, a harness plan refused before anything
 changed, such as an unusable `SIMPLEX_PI_PATH` or a Windows runtime root too
@@ -78,7 +100,17 @@ loaded models and stops the stack with the gateway the localmodels tool
 started, and keeps the services and the model controller running. It
 holds each home's local model lock (`withLocalModelsLock`) while it stops,
 so the next launch's restore waits for it; a home whose lock a deployment
-holds is skipped with a log line. It prints one JSON line with what failed.
+holds is skipped with a log line. A kit that is present but fails verification
+is a stop failure, so the helper logs the repair guidance, prints a JSON
+failure and exits nonzero without running or downloading that tool. This
+helper is detached: Linger quits and its log records that the models may
+still be running. The full `--stop` command reports the same failure. Windows
+uninstall aborts on that failure; replacement setup reports it and proceeds.
+A missing pinned kit has nothing to stop.
+
+`--inspect` checks without migrating installations. Its optional
+`--inspect-target` selects the home whose disk and runtimes are checked;
+`--home` still owns the inspection tool cache and state.
 
 Every other mode first converts an install from before the rename to Linger
 (`migrateLegacyInstallation`); `--migrate` does only that and exits, for the
@@ -87,7 +119,10 @@ installer, and the next start tries again. Only `--migrate` reports them: a
 warning naming each and why on stderr, and one JSON line
 `{"skipped":[{instance,reason}]}` on stdout. Other modes stay silent, so a
 warning is never taken for the reason a start failed, and refuse a skipped
-instance when they open it.
+instance when they open it. Fresh native installs overlap `migrate`,
+`services`, and `account` with `runtime` while holding `services`/`account`
+completion until both branches succeed; upgrades and live re-runs keep `migrate`
+sequential after `runtime`.
 
 Run `make check-installer`; verify UI process behavior with an isolated
 browser context and retain masked evidence. Never stop a user's existing stack

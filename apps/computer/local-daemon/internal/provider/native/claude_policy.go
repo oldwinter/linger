@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -34,12 +35,28 @@ type ClaudeToolPolicy struct {
 // Without it every request carries every MCP tool definition.
 var claudeBuiltinTools = []string{"Read", "Glob", "Grep", "Write", "Edit", "Bash", "TodoWrite", "Skill", "Agent", "WebSearch", "WebFetch", "ToolSearch"}
 
+// claudeWebTools are left out of --tools for a model served through the
+// localmodels gateway, which cannot run Anthropic's server-side web search.
+var claudeWebTools = []string{"WebSearch", "WebFetch"}
+
+// claudeLaunchTools is the --tools list of one launch.
+func claudeLaunchTools(withoutWebTools bool) []string {
+	if !withoutWebTools {
+		return claudeBuiltinTools
+	}
+	return slices.DeleteFunc(slices.Clone(claudeBuiltinTools), func(name string) bool {
+		return slices.Contains(claudeWebTools, name)
+	})
+}
+
 const (
 	claudeInitializeRequestID = "linger-session-restore"
 	claudeHookCallbackID      = "hook_0"
 	// claudeSteerHookID answers the main agent's tool results, which carry
 	// steered input.
 	claudeSteerHookID = "hook_steer"
+	// claudeStopHookID answers Claude's Stop hook before a turn ends.
+	claudeStopHookID = "hook_stop"
 )
 
 // authorizedTools is the built-in list followed by qualifying MCP tools in
@@ -76,6 +93,9 @@ func (p *ClaudeToolPolicy) denyReason(tool string, input map[string]any, agentID
 	}
 	if (tool == "Agent" || tool == "Bash") && (input["run_in_background"] == true || input["background"] == true) {
 		return "background execution disabled"
+	}
+	if command, _ := input["command"].(string); tool == "Bash" && permission.ShellTextRewritten(command) {
+		return permission.ShellTextMessage
 	}
 	if tool == "Skill" {
 		name, _ := input["skill"].(string)
@@ -176,7 +196,7 @@ func claudeBuildArgv(logger *slog.Logger, spec RunSpec) (shaped, launch []string
 		"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 		"--permission-mode", "acceptEdits", "--disallowedTools", "AskUserQuestion", "--replay-user-messages",
 		"--permission-prompt-tool", "stdio",
-		"--tools", strings.Join(claudeBuiltinTools, ","),
+		"--tools", strings.Join(claudeLaunchTools(spec.WithoutNativeWebTools), ","),
 		"--strict-mcp-config",
 		"--setting-sources", "project,user",
 		"--managed-settings", claudeManagedSettings(policy),
@@ -219,6 +239,7 @@ func claudeInitializeFrame(spec RunSpec) []byte {
 				"PreToolUse":         []any{map[string]any{"hookCallbackIds": []string{claudeHookCallbackID}}},
 				"PostToolUse":        []any{map[string]any{"hookCallbackIds": []string{claudeSteerHookID}}},
 				"PostToolUseFailure": []any{map[string]any{"hookCallbackIds": []string{claudeSteerHookID}}},
+				"Stop":               []any{map[string]any{"hookCallbackIds": []string{claudeStopHookID}}},
 			},
 			"appendSystemPrompt":   spec.AppendPrompt,
 			"systemPromptSnapshot": false,
@@ -264,10 +285,11 @@ type claudeControlRequest struct {
 }
 
 type claudeHookInput struct {
-	HookEventName string          `json:"hook_event_name"`
-	ToolName      string          `json:"tool_name"`
-	ToolInput     json.RawMessage `json:"tool_input"`
-	AgentID       string          `json:"agent_id"`
+	HookEventName  string          `json:"hook_event_name"`
+	ToolName       string          `json:"tool_name"`
+	ToolInput      json.RawMessage `json:"tool_input"`
+	AgentID        string          `json:"agent_id"`
+	StopHookActive bool            `json:"stop_hook_active"`
 }
 
 // claudeObject decodes a JSON object; null, absent and non-objects fail.

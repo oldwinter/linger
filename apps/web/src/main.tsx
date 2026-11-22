@@ -20,6 +20,10 @@ import { DesktopConnectorReturn } from "@/features/apps/desktop-connector-return
 import { createBrowserTeamHubRuntime } from "@/features/teamhub/browser-teamhub-runtime";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
+import { commonMessages } from "@/i18n/common.messages";
+import { reportLanguageToDesktop } from "@/i18n/desktop-language";
+import { restoreLanguage } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 
 installVitePreloadRecovery({ buildId: import.meta.url });
 markDesktopShell();
@@ -32,36 +36,47 @@ if (!rootElement) {
 }
 
 const root = createRoot(rootElement);
-root.render(
-  <StrictMode>
-    <InitialAppLoading />
-  </StrictMode>,
-);
-
-void startBrowserApp().catch(() => {
+// The remembered language is loaded before the first paint, so its reader
+// never sees the interface flash by in English. English loads nothing.
+void restoreLanguage().then(() => {
+  reportLanguageToDesktop();
   root.render(
     <StrictMode>
-      <main
-        className="flex min-h-dvh items-center justify-center bg-app-canvas px-6 text-center text-app-ink"
-        role="alert"
-      >
-        <div>
-          <h1 className="text-lg">Web client unavailable</h1>
-          <p className="mt-2 text-sm text-app-muted">
-            The application could not finish loading.
-          </p>
-          <button
-            className="mt-5 min-h-10 bg-app-action px-3 text-[14px] font-medium text-app-action-foreground hover:bg-app-action-hover [border-radius:var(--app-button-radius-large)]"
-            onClick={() => globalThis.location.reload()}
-            type="button"
-          >
-            Try again
-          </button>
-        </div>
-      </main>
+      <InitialAppLoading />
     </StrictMode>,
   );
+  startBrowserApp().catch(() => {
+    root.render(
+      <StrictMode>
+        <AppUnavailable />
+      </StrictMode>,
+    );
+  });
 });
+
+function AppUnavailable() {
+  const t = useT();
+  return (
+    <main
+      className="flex min-h-dvh items-center justify-center bg-app-canvas px-6 text-center text-app-ink"
+      role="alert"
+    >
+      <div>
+        <h1 className="text-lg">{t(commonMessages.unavailableTitle)}</h1>
+        <p className="mt-2 text-sm text-app-muted">
+          {t(commonMessages.unavailableBody)}
+        </p>
+        <button
+          className="mt-5 min-h-10 bg-app-action px-3 text-[14px] font-medium text-app-action-foreground hover:bg-app-action-hover [border-radius:var(--app-button-radius-large)]"
+          onClick={() => globalThis.location.reload()}
+          type="button"
+        >
+          {t(commonMessages.tryAgain)}
+        </button>
+      </div>
+    </main>
+  );
+}
 
 async function startBrowserApp() {
   const queryClient = createAppQueryClient();

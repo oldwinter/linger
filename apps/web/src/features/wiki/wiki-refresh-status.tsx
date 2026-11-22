@@ -1,18 +1,20 @@
 import { AlertCircleIcon } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 
 import type {
   WikiRefreshFailureReason,
   WikiRefreshStatus,
 } from "./wiki-refresh";
 import { WikiWorkingLine } from "./wiki-working-card";
+import { wikiMessages as m } from "./wiki.messages";
 
-const failureMessages: Record<WikiRefreshFailureReason, string> = {
-  computer_offline: "Wiki update failed — Your Computer was offline.",
-  runtime_auth_required: "Wiki update failed — Runtime sign-in required.",
-  runtime_incompatible:
-    "Wiki update failed — Runtime incompatible. Update your local CLI or Linger.",
-  runtime_unavailable: "Wiki update failed — Local Runtime is unavailable.",
+const failureMessages: Record<WikiRefreshFailureReason, Message<string>> = {
+  computer_offline: m.updateFailedComputerOffline,
+  runtime_auth_required: m.updateFailedSignIn,
+  runtime_incompatible: m.updateFailedIncompatible,
+  runtime_unavailable: m.updateFailedRuntimeUnavailable,
 };
 
 /** What the Wiki home says while a refresh writes pages, or after one failed.
@@ -25,19 +27,21 @@ export function WikiRefreshBanner({
 }: Pick<WikiRefreshStatus, "failed" | "failureReason" | "refreshing"> & {
   agentActorId?: string;
 }) {
+  const t = useT();
   if (refreshing)
     return (
       <WikiWorkingLine
         actorId={agentActorId}
         className="mb-6"
-        text="Another Me is writing your Wiki"
+        text={t(m.writingWiki)}
       />
     );
   if (!failed) return null;
-  const message =
+  const message = t(
     failureReason && Object.hasOwn(failureMessages, failureReason)
       ? failureMessages[failureReason]
-      : "Wiki update failed";
+      : m.updateFailed,
+  );
   return (
     <div
       className="mb-6 flex min-h-9 items-center gap-2 rounded-lg border border-[var(--app-status-danger-border)] bg-[var(--app-status-danger-surface)] px-4 py-2 text-xs font-medium text-[var(--app-status-danger-text)]"

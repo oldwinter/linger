@@ -24,9 +24,14 @@ import { createPortal } from "react-dom";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
 import { Spinner } from "@/components/ui/spinner";
 import type { TeamHubMessageReactionId } from "@/features/teamhub/teamhub-types";
+import { useTranslation } from "@/i18n/use-translation";
+
+import { chatMessages } from "../chat.messages";
 
 import {
+  reactionCategoryLabel,
   type ReactionCatalogEntry,
+  reactionName,
   searchReactionCatalog,
   useReactionCatalog,
 } from "./reaction-catalog";
@@ -90,6 +95,7 @@ export function MessageReactionPicker({
   onClose: () => void;
   onSelect: (id: TeamHubMessageReactionId) => void;
 }) {
+  const { language, t } = useTranslation();
   const catalog = useReactionCatalog();
   const [expanded, setExpanded] = useState(false);
   const [query, setQuery] = useState("");
@@ -111,16 +117,23 @@ export function MessageReactionPicker({
       return [
         {
           id: "search",
-          label: "Search results",
+          label: t(chatMessages.searchResults),
           entries: searchReactionCatalog(catalog, query),
         },
       ];
     }
     return [
-      { id: "recommended", label: "Recommended", entries: catalog.recommended },
-      ...catalog.categories,
+      {
+        id: "recommended",
+        label: t(chatMessages.recommended),
+        entries: catalog.recommended,
+      },
+      ...catalog.categories.map((category) => ({
+        ...category,
+        label: reactionCategoryLabel(category.id, t),
+      })),
     ];
-  }, [catalog, query]);
+  }, [catalog, query, t]);
   const visible = useMemo(
     () => sections.flatMap((section) => section.entries),
     [sections],
@@ -148,8 +161,7 @@ export function MessageReactionPicker({
   // Above the Add reaction button, left aligned with it.
   useLayoutEffect(() => {
     const button =
-      anchor.querySelector<HTMLElement>('button[aria-label="Add reaction"]') ??
-      anchor;
+      anchor.querySelector<HTMLElement>("button[aria-pressed]") ?? anchor;
     const buttonRect = button.getBoundingClientRect();
     // offsetHeight ignores the entrance scale.
     const height = panelRef.current?.offsetHeight ?? 0;
@@ -344,7 +356,7 @@ export function MessageReactionPicker({
       // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape closes this dialog; its controls are keyboard-accessible buttons
       <div
         ref={panelRef}
-        aria-label="Add reaction"
+        aria-label={t(chatMessages.addReaction)}
         className="app-floating-enter fixed z-[110] flex w-[min(264px,calc(100vw-16px))] origin-left items-center rounded-lg bg-popover p-1.5 shadow-lg"
         onKeyDown={handleDialogKeyDown}
         role="dialog"
@@ -354,25 +366,25 @@ export function MessageReactionPicker({
           <>
             {quick.map((entry) => (
               <button
-                aria-label={entry.name}
+                aria-label={reactionName(entry, language)}
                 className="flex size-9 items-center justify-center rounded-full text-[22px] leading-none hover:bg-accent focus-visible:outline-2 focus-visible:outline-app-focus"
                 key={entry.id}
                 onClick={() => pick(entry)}
-                title={entry.name}
+                title={reactionName(entry, language)}
                 type="button"
               >
                 {entry.glyph}
               </button>
             ))}
             <button
-              aria-label="Search all emoji"
+              aria-label={t(chatMessages.searchAllEmoji)}
               className="flex size-9 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-app-focus"
               onClick={() => {
                 expandFromRef.current =
                   panelRef.current?.getBoundingClientRect() ?? null;
                 setExpanded(true);
               }}
-              title="Search all emoji"
+              title={t(chatMessages.searchAllEmoji)}
               type="button"
             >
               <Icon icon={Search01Icon} size={20} />
@@ -392,7 +404,7 @@ export function MessageReactionPicker({
     // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape closes this dialog regardless of which inner control holds focus
     <div
       ref={panelRef}
-      aria-label="Add reaction"
+      aria-label={t(chatMessages.addReaction)}
       className="fixed z-[110] w-[min(352px,calc(100vw-16px))] origin-top-left rounded-xl bg-popover p-2 font-(family-name:--app-room-font) shadow-lg"
       onKeyDown={handleDialogKeyDown}
       role="dialog"
@@ -404,27 +416,30 @@ export function MessageReactionPicker({
         aria-autocomplete="list"
         aria-controls={listId}
         aria-expanded="true"
-        aria-label="Search emoji"
+        aria-label={t(chatMessages.searchEmoji)}
         className="h-8 w-full rounded-md border border-input bg-card px-2 text-sm text-foreground outline-none placeholder:text-app-placeholder hover:border-border-hover focus-visible:border-foreground/40"
         onChange={(event) => {
           setQuery(event.target.value);
           setActiveIndex(0);
         }}
         onKeyDown={onKeyDown}
-        placeholder="Search emoji"
+        placeholder={t(chatMessages.searchEmoji)}
         role="combobox"
         type="text"
         value={query}
       />
       <div
-        aria-label="Emoji categories"
+        aria-label={t(chatMessages.emojiCategories)}
         className="my-1.5 flex items-center justify-between px-0.5"
         role="toolbar"
       >
         {catalog
           ? [
-              { id: "recommended", label: "Recommended" },
-              ...catalog.categories,
+              { id: "recommended", label: t(chatMessages.recommended) },
+              ...catalog.categories.map((category) => ({
+                id: category.id,
+                label: reactionCategoryLabel(category.id, t),
+              })),
             ].map((section) => {
               const sectionIcon = SECTION_ICONS[section.id] ?? SmileIcon;
               return (
@@ -445,7 +460,7 @@ export function MessageReactionPicker({
       </div>
       <div
         ref={gridRef}
-        aria-label="Emoji"
+        aria-label={t(chatMessages.emoji)}
         className="workspace-scrollbar h-72 overflow-y-auto"
         id={listId}
         role="listbox"
@@ -453,11 +468,11 @@ export function MessageReactionPicker({
         {!catalog ? (
           <p className="flex items-center justify-center gap-2 px-1 py-6 text-center text-xs text-app-muted">
             <Spinner size={14} />
-            Loading emoji…
+            {t(chatMessages.loadingEmoji)}
           </p>
         ) : visible.length === 0 ? (
           <p className="px-1 py-6 text-center text-xs text-app-muted">
-            No matching emoji
+            {t(chatMessages.noMatchingEmoji)}
           </p>
         ) : (
           sections.map((section, sectionIndex) =>
@@ -477,7 +492,7 @@ export function MessageReactionPicker({
                     const isActive = flatIndex === activeIndex;
                     return (
                       <button
-                        aria-label={entry.name}
+                        aria-label={reactionName(entry, language)}
                         aria-selected={isActive}
                         className={`flex size-10 items-center justify-center rounded-md text-[22px] leading-none hover:bg-accent ${
                           isActive ? "bg-accent" : ""
@@ -488,7 +503,7 @@ export function MessageReactionPicker({
                         onMouseEnter={() => setActiveIndex(flatIndex)}
                         role="option"
                         tabIndex={-1}
-                        title={entry.name}
+                        title={reactionName(entry, language)}
                         type="button"
                       >
                         {entry.glyph}

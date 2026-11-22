@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { ActorAvatar } from "@/features/rooms/members/actor-avatar";
+import { useT } from "@/i18n/use-translation";
+
+import { chatMessages } from "./chat.messages";
 
 /** How long Another Me holds its greeting before it moves to the sidebar. */
 const GREETING_HOLD_MS = 2400;
@@ -28,6 +31,7 @@ export function AnotherMeIntro({
   humanName: string;
   onDone: () => void;
 }) {
+  const t = useT();
   const backdropRef = useRef<HTMLDivElement>(null);
   const avatarRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
@@ -108,10 +112,12 @@ export function AnotherMeIntro({
           role="status"
         >
           <p className="text-2xl text-foreground">
-            Hi{humanName ? `, ${humanName}` : ""}
+            {humanName
+              ? t(chatMessages.introGreetingNamed, { name: humanName })
+              : t(chatMessages.introGreeting)}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            {`I'm ${agent.display_name}.`}
+            {t(chatMessages.introSelf, { name: agent.display_name })}
           </p>
         </div>
       </div>

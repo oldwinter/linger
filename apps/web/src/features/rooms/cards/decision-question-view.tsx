@@ -7,10 +7,13 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 
 import { AutoHeight } from "@/components/ui/auto-height";
 
 import { CardBox, CardHeading } from "./card-shell";
+import { cardsMessages } from "./cards.messages";
 
 import type { DecisionMessageCard } from "./decision-card";
 import type { RoomCardDecision } from "./room-message-card-contract";
@@ -41,6 +44,7 @@ export function QuestionDecision({
   messageId: string;
   onDecision: (decision: RoomCardDecision) => Promise<void> | void;
 }) {
+  const t = useT();
   const [decisionError, setDecisionError] = useState<string | null>(null);
   const [answers, setAnswers] = useState<AnswerMap>({});
   const [stepIndex, setStepIndex] = useState(0);
@@ -72,7 +76,9 @@ export function QuestionDecision({
       });
     } catch (error) {
       setDecisionError(
-        error instanceof Error ? error.message : "Card decision failed.",
+        error instanceof Error
+          ? error.message
+          : translate(cardsMessages.cardDecisionFailed),
       );
     } finally {
       submittingRef.current = false;
@@ -136,7 +142,7 @@ export function QuestionDecision({
   const written = writtenAnswer(activeQuestion, value).trim() !== "";
 
   return (
-    <CardBox label="Human interaction requested">
+    <CardBox label={t(cardsMessages.labelHumanInteraction)}>
       <AutoHeight>
         <div className={stepped ? "card-step-in" : undefined} key={stepIndex}>
           <CardHeading>{activeQuestion.prompt}</CardHeading>
@@ -190,7 +196,7 @@ export function QuestionDecision({
               {questions.length > 1 ? (
                 <>
                   <button
-                    aria-label="Previous question"
+                    aria-label={t(cardsMessages.previousQuestion)}
                     className="inline-flex size-8 items-center justify-center rounded-md hover:bg-muted hover:text-app-ink disabled:opacity-35"
                     disabled={stepIndex === 0 || submitting}
                     onClick={() => goToStep(stepIndex - 1)}
@@ -202,7 +208,7 @@ export function QuestionDecision({
                     {stepIndex + 1} / {questions.length}
                   </span>
                   <button
-                    aria-label="Next question"
+                    aria-label={t(cardsMessages.nextQuestion)}
                     className="inline-flex size-8 items-center justify-center rounded-md hover:bg-muted hover:text-app-ink disabled:opacity-35"
                     disabled={
                       submitting ||
@@ -216,11 +222,12 @@ export function QuestionDecision({
                   </button>
                 </>
               ) : checkbox ? (
-                <span>Choose any</span>
+                <span>{t(cardsMessages.chooseAny)}</span>
               ) : null}
             </div>
             {checkbox || written ? (
               <Button
+                data-voice-risk={isFinalStep ? "never" : undefined}
                 disabled={submitting || !hasAnswer(activeQuestion, value)}
                 onClick={() => {
                   if (isFinalStep) {
@@ -232,7 +239,7 @@ export function QuestionDecision({
                 size="large"
                 tone="primary"
               >
-                {isFinalStep ? "Send" : "Next"}
+                {t(isFinalStep ? cardsMessages.send : cardsMessages.next)}
               </Button>
             ) : null}
           </div>
@@ -264,6 +271,7 @@ function OtherRow({
   question: InteractionQuestion;
   value: string;
 }) {
+  const t = useT();
   const [writing, setWriting] = useState(value !== "");
   const field = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -277,14 +285,16 @@ function OtherRow({
         onClick={() => setWriting(true)}
         type="button"
       >
-        Other…
+        {t(cardsMessages.other)}
       </button>
     );
   }
   return (
     <label className="question-choice question-choice-writing">
       <input
-        aria-label={`Your own answer to ${question.prompt}`}
+        aria-label={t(cardsMessages.ownAnswerTo, {
+          question: question.prompt,
+        })}
         className="min-w-0 flex-1 bg-transparent text-sm text-app-ink outline-none placeholder:text-app-placeholder"
         disabled={disabled}
         maxLength={question.input === "checkbox" ? 200 : 10000}
@@ -299,7 +309,7 @@ function OtherRow({
             onSubmit?.();
           }
         }}
-        placeholder="Your own answer"
+        placeholder={t(cardsMessages.ownAnswer)}
         ref={field}
         value={value}
       />

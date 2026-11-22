@@ -21,7 +21,11 @@ type ModelSourceTarget struct {
 
 // ModelSourceError is a refusal with the stable code the Computer or Agent
 // Service reported, such as BYOK_AUTH_FAILED or RUNTIME_NOT_ENABLED.
-type ModelSourceError struct{ Code string }
+type ModelSourceError struct {
+	Code string
+	// Message is the Computer's own display text for the refusal.
+	Message string
+}
 
 func (e *ModelSourceError) Error() string { return "model source refused: " + e.Code }
 
@@ -115,7 +119,7 @@ func modelSourceGatewayError(status int, body *nodeservicesinternal.ErrorRespons
 	case body != nil && body.Error.Code == "LOCAL_COMPUTER_OFFLINE":
 		return ErrLocalComputerOffline
 	case body != nil && body.Error.Code != "":
-		return &ModelSourceError{Code: body.Error.Code}
+		return &ModelSourceError{Code: body.Error.Code, Message: body.Error.Message}
 	}
 	return fmt.Errorf("AgentManagement returned status %d for a model source command", status)
 }

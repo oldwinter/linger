@@ -92,3 +92,21 @@ func (a *App) writeAgentAPIErrorWithIssues(
 	}
 	c.JSON(status, teamhubagentapi.AgentApiErrorEnvelope{Error: model})
 }
+
+// writeAgentAPIErrorWithDetails writes a failure with the machine-readable
+// facts the CLI acts on.
+func (a *App) writeAgentAPIErrorWithDetails(
+	c *gin.Context,
+	status int,
+	code teamhubagentapi.AgentApiErrorCode,
+	message string,
+	details *teamhubagentapi.AgentApiErrorDetails,
+) {
+	requestID := c.GetString("request_id")
+	if requestID == "" {
+		requestID = idgen.New("request")
+	}
+	c.JSON(status, teamhubagentapi.AgentApiErrorEnvelope{Error: teamhubagentapi.AgentApiError{
+		Code: code, Message: message, RequestId: requestID, Details: details,
+	}})
+}

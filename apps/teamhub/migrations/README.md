@@ -29,6 +29,9 @@ whitelist function that uses the resulting schema.
 | 00881            | 00885        | use_delegate_display_name_in_instructions |
 | 00882            | 00886        | routine_interval_minutes                  |
 | 00883            | 00887        | wiki_refresh_failure_codes                |
+| 00884            | 00888        | allow_antigravity_local_runtime           |
+| 00885            | 00889        | web_search                                |
+| 00886            | 00890        | outlook_calendar_listener                 |
 
 This sequence supports an empty database and an existing fork database,
 including one at version `00869`. Goose records numeric versions without a

@@ -1,7 +1,11 @@
 import { Spinner } from "@/components/ui/spinner";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 import type { ArtifactReadingPosition } from "./artifact-preview-cache";
+import { filePreviewMessages as m } from "./file-preview.messages";
 import { officePreviewLimits } from "./office-preview-limits";
 import {
   getOfficePreviewFrameUrl,
@@ -15,6 +19,7 @@ import {
   isOfficePreviewFrameMessage,
   officePreviewProtocol,
   type OfficePreviewErrorCode,
+  type OfficePreviewLimit,
   type OfficePreviewPreflightRequest,
   type OfficePreviewPreflightResponse,
   type OfficePreviewProbeMessage,
@@ -38,6 +43,7 @@ export function OfficePreviewAdapter({
   onError,
   readingPosition,
 }: OfficePreviewAdapterProps) {
+  const t = useT();
   const onErrorRef = useRef(onError);
   useLayoutEffect(() => {
     onErrorRef.current = onError;
@@ -77,15 +83,15 @@ export function OfficePreviewAdapter({
     // that stalled on the bytes need different follow-up, and a shared
     // message made the two indistinguishable in bug reports.
     const bootTimer = window.setTimeout(
-      () =>
-        fail(
-          "timeout",
-          "The basic Office preview sandbox did not start. Reload the page to retry.",
-        ),
+      () => fail("timeout", translate(m.officeSandboxDidNotStart)),
       officePreviewLimits.renderTimeoutMs,
     );
 
-    const fail = (code: OfficePreviewErrorCode, detail?: string) => {
+    const fail = (
+      code: OfficePreviewErrorCode,
+      detail?: string,
+      limit?: OfficePreviewLimit,
+    ) => {
       if (!active) {
         return;
       }
@@ -95,7 +101,7 @@ export function OfficePreviewAdapter({
       window.clearTimeout(preflightTimer);
       window.clearTimeout(renderTimer);
       window.clearTimeout(bootTimer);
-      const message = officePreviewErrorMessage(code, detail);
+      const message = officePreviewErrorMessage(code, detail, limit);
       setError(message);
       onErrorRef.current?.(message);
     };
@@ -130,7 +136,7 @@ export function OfficePreviewAdapter({
       stopPreflightWorker(true);
       window.clearTimeout(preflightTimer);
       if (event.data.kind === "failed") {
-        fail(event.data.code, event.data.detail);
+        fail(event.data.code, event.data.detail, event.data.limit);
         return;
       }
 
@@ -253,7 +259,7 @@ export function OfficePreviewAdapter({
         ref={frameRef}
         key={requestId}
         sandbox="allow-scripts"
-        title={`Basic preview ${filename}`}
+        title={t(m.basicPreview, { name: filename })}
       />
       {status === "loading" ? (
         <div
@@ -261,7 +267,7 @@ export function OfficePreviewAdapter({
           role="status"
         >
           <Spinner size={16} />
-          Preparing basic preview
+          {t(m.preparingBasicPreview)}
         </div>
       ) : null}
     </div>
@@ -292,24 +298,55 @@ function terminateOfficePreviewFrame(frame: HTMLIFrameElement) {
   frame.setAttribute("src", "about:blank");
 }
 
+const officePreviewErrorMessages: Record<
+  OfficePreviewErrorCode,
+  Message<string>
+> = {
+  "encrypted-file": m.officeEncrypted,
+  "invalid-container": m.officeInvalidContainer,
+  "invalid-file": m.officeInvalidFile,
+  "limit-exceeded": m.officeLimitExceeded,
+  "render-failed": m.officeRenderFailed,
+  timeout: m.officeTimedOut,
+  "unsupported-file": m.officeUnsupported,
+};
+
+/**
+ * Words the error when it is shown. The preflight worker reports which limit
+ * a file went over as a code; its English `detail` is for developers. The
+ * only `detail` shown is the boot timeout's, which this adapter translated.
+ */
 function officePreviewErrorMessage(
   code: OfficePreviewErrorCode,
   detail?: string,
+  limit?: OfficePreviewLimit,
 ) {
-  const messages: Record<OfficePreviewErrorCode, string> = {
-    "encrypted-file":
-      "This Office file is encrypted and cannot be shown in basic preview.",
-    "invalid-container":
-      "This Office file is damaged or has an invalid document structure.",
-    "invalid-file": "This Office file could not be read for basic preview.",
-    "limit-exceeded":
-      detail ?? "This Office file exceeds the safe basic preview limits.",
-    "render-failed": "Basic Office preview failed for this file.",
-    timeout: detail ?? "Basic Office preview took too long and was stopped.",
-    "unsupported-file":
-      "This Office format is not supported for basic preview.",
-  };
-  return messages[code];
+  if (code === "limit-exceeded" && limit) return officeLimitMessage(limit);
+  if (code === "timeout" && detail) return detail;
+  return translate(officePreviewErrorMessages[code]);
+}
+
+function officeLimitMessage(limit: OfficePreviewLimit) {
+  switch (limit.kind) {
+    case "cells":
+      return translate(m.officeTooManyCells, { max: limit.max });
+    case "compression":
+      return translate(m.officeUnsafeCompression);
+    case "entries":
+      return translate(m.officeTooManyEntries);
+    case "entrySize":
+      return translate(m.officeEntryTooLarge);
+    case "expandedSize":
+      return translate(m.officeExpandedTooLarge);
+    case "fileSize":
+      return translate(m.officeFileTooLarge, { mebibytes: limit.mebibytes });
+    case "sheetSize":
+      return translate(m.officeSheetTooLarge, { sheet: limit.sheet });
+    case "sheets":
+      return translate(m.officeTooManySheets, { max: limit.max });
+    case "slides":
+      return translate(m.officeTooManySlides, { max: limit.max });
+  }
 }
 
 function escapeHtml(value: string) {

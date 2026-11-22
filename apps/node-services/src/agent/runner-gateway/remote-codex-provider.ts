@@ -111,6 +111,8 @@ export interface RemoteRuntimeProviderOptions {
   readonly runtime: RuntimeConfig;
   /** Codex wraps the compact developer instructions in its compact rules. */
   readonly compactInstructions?: true;
+  /** Enables Runtime stop-hook checks on this Context's Runs and prepares. */
+  readonly stopHook?: true;
   readonly contextRunResources: RemoteContextRunResourceResolver;
   readonly debugInspector?: RunnerContextDebugInspector;
   readonly debugRunnerRevision?: number | (() => number);
@@ -143,6 +145,7 @@ export class RemoteRuntimeProvider implements AgentProvider {
   readonly #target: RemoteRuntimeTarget;
   readonly #runtime: RuntimeConfig;
   readonly #compactInstructions: boolean;
+  readonly #stopHook: boolean;
   readonly #contextRunResources: RemoteContextRunResourceResolver;
   readonly #debugInspector?: RunnerContextDebugInspector;
   readonly #debugRunnerRevision?: number | (() => number);
@@ -199,6 +202,7 @@ export class RemoteRuntimeProvider implements AgentProvider {
     this.#target = options.target;
     this.#runtime = options.runtime;
     this.#compactInstructions = options.compactInstructions === true;
+    this.#stopHook = options.stopHook === true;
     this.#contextRunResources = options.contextRunResources;
     this.#debugInspector = options.debugInspector;
     this.#debugRunnerRevision = options.debugRunnerRevision;
@@ -368,13 +372,15 @@ export class RemoteRuntimeProvider implements AgentProvider {
         : options,
     );
     // Every Runtime defers its native session to the first run.start. Codex's
-    // "" threadId, and Claude's and Pi's UUID, are the first-run markers, so
-    // activation needs no Daemon round trip. A retry after a failed first
+    // and Antigravity's "" threadId, and Claude's and Pi's UUID, are the
+    // first-run markers, so activation needs no Daemon round trip. A retry after a failed first
     // run.start reuses the same pending or UUID identity. CLI installation is
     // awaited by run.start (#start), off the activation path.
     this.#sessionOptions = sessionOptions;
+    // Antigravity, like Codex, names its own session, which the first
+    // run.start reports as its checkpoint.
     const session: RuntimeSession =
-      this.#runtime.type === "codex"
+      this.#runtime.type === "codex" || this.#runtime.type === "antigravity"
         ? { threadId: "" }
         : {
             provider: this.#runtime.type,
@@ -394,7 +400,8 @@ export class RemoteRuntimeProvider implements AgentProvider {
     options: ProviderSessionOptions,
   ): Promise<RuntimeSession> {
     if (
-      this.#runtime.type === "codex" &&
+      (this.#runtime.type === "codex" ||
+        this.#runtime.type === "antigravity") &&
       requireOpaqueObject(session, "session").threadId === ""
     ) {
       return this.createSession(options);
@@ -420,7 +427,10 @@ export class RemoteRuntimeProvider implements AgentProvider {
       this.#sessionOptions = sessionOptions;
       return retained;
     }
-    if (this.#runtime.type === "codex") {
+    if (
+      this.#runtime.type === "codex" ||
+      this.#runtime.type === "antigravity"
+    ) {
       const retained = requireOpaqueObject(session, "session");
       if (typeof retained.threadId !== "string") {
         throw new TypeError("Retained native session identity is invalid");
@@ -541,8 +551,64 @@ export class RemoteRuntimeProvider implements AgentProvider {
       replaceOpaqueObject(mutableSession, checkpoint);
     }
     const reviewPermission = this.#onPermissionReview;
+    const stopHook = spec.onStopHook;
     const executionRunRef = spec.runContext?.executionRunRef;
     const run: RemoteAgentRun = new RemoteAgentRun({
+      onStopHook: stopHook
+        ? (request) => {
+            const requestId = displayText(request.request_id);
+            const attempt =
+              typeof request.attempt === "number" &&
+              Number.isInteger(request.attempt) &&
+              request.attempt >= 0
+                ? request.attempt
+                : 0;
+            const stopHookActive = request.stop_hook_active === true;
+            const runtime =
+              typeof request.runtime === "string" ? request.runtime : undefined;
+            void stopHook(
+              {
+                ...(runtime !== undefined ? { runtime } : {}),
+                attempt,
+                stopHookActive,
+              },
+              signal ?? this.#closed.signal,
+            )
+              .catch((error: unknown): { readonly action: "allow" } => {
+                this.#logger?.log("warn", "runtime_hook.stop_failed", {
+                  ...(executionRunRef
+                    ? { execution_run_ref: executionRunRef }
+                    : {}),
+                  operation_id: operation.operationId,
+                  request_id: requestId,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+                return { action: "allow" };
+              })
+              .then((decision) =>
+                run.respond(
+                  operation.operationId,
+                  requestId,
+                  decision.action === "block"
+                    ? { action: "block", reason: decision.reason }
+                    : { action: "allow" },
+                ),
+              )
+              .catch((error: unknown) => {
+                this.#logger?.log("warn", "runtime_hook.stop_response_failed", {
+                  ...(executionRunRef
+                    ? { execution_run_ref: executionRunRef }
+                    : {}),
+                  operation_id: operation.operationId,
+                  request_id: requestId,
+                  error: error instanceof Error ? error.message : String(error),
+                  ...(error instanceof RunnerOperationInputError
+                    ? { effect: error.effect, reason: error.reason }
+                    : {}),
+                });
+              });
+          }
+        : undefined,
       onPermissionReview:
         reviewPermission && executionRunRef
           ? (request) => {
@@ -895,6 +961,7 @@ export class RemoteRuntimeProvider implements AgentProvider {
         ...toContextRunContext(context),
         ...(spec.beforeYieldResume ? { resume_after_yield: true } : {}),
         ...this.#runAuthorization(),
+        ...(spec.onStopHook ? { stop_hook: true } : {}),
       },
       run_resources: runResources,
     };
@@ -905,6 +972,7 @@ export class RemoteRuntimeProvider implements AgentProvider {
     return {
       ...(this.#onHumanInteraction ? { human_interactions: true } : {}),
       ...(this.#onPermissionReview ? { permission_review: true } : {}),
+      ...(this.#stopHook ? { stop_hook: true } : {}),
     };
   }
 }
@@ -936,6 +1004,7 @@ class RemoteAgentRun implements AgentRun {
     operation: RunnerOperation;
     onHumanInteraction?: (request: OpaqueObject) => Promise<void>;
     onPermissionReview?: (request: OpaqueObject) => void;
+    onStopHook?: (request: OpaqueObject) => void;
     iterator: AsyncIterator<WireRunEvent>;
     turnId: string;
     processReused?: boolean;
@@ -972,6 +1041,7 @@ class RemoteAgentRun implements AgentRun {
         options.iterator,
         options.onHumanInteraction,
         options.onPermissionReview,
+        options.onStopHook,
       ),
       this.#streamAbortController,
       this.steerTarget,
@@ -1108,12 +1178,23 @@ const mapRunEvents = async function* (
   iterator: AsyncIterator<WireRunEvent>,
   onHumanInteraction?: (request: OpaqueObject) => Promise<void>,
   onPermissionReview?: (request: OpaqueObject) => void,
+  onStopHook?: (request: OpaqueObject) => void,
 ): AsyncIterable<RunEvent> {
   yield { type: "run.started" };
   for (;;) {
     const next = await iterator.next();
     if (next.done) {
       return;
+    }
+    if (
+      next.value.type === "human_interaction.requested" &&
+      next.value.request.kind === "runtime_hook" &&
+      next.value.request.hook === "stop"
+    ) {
+      if (onStopHook) {
+        onStopHook(next.value.request);
+      }
+      continue;
     }
     if (
       next.value.type === "human_interaction.requested" &&

@@ -1,4 +1,6 @@
+import type { Translate } from "../i18n/language.js";
 import type { StatusSummary } from "./status.js";
+import { trayMessages as m } from "./tray.messages.js";
 import type { AnnouncedUpdate, UpdateState } from "./updater.js";
 
 export type TrayAction =
@@ -36,11 +38,14 @@ export interface TrayMenuState {
 
 // The tray menu. Items for features that do not exist yet
 // (pause, approvals) are added with those features.
-export const trayMenu = (state: TrayMenuState): TrayMenuItem[] => [
+export const trayMenu = (
+  state: TrayMenuState,
+  t: Translate,
+): TrayMenuItem[] => [
   { kind: "label", label: state.status.label },
-  ...updateItems(state.update),
+  ...updateItems(state.update, t),
   { kind: "separator" },
-  { kind: "action", action: "open", label: "Open Linger" },
+  { kind: "action", action: "open", label: t(m.open) },
   // Capture without opening the app.
   { kind: "action", action: "quick-note", label: "New Note" },
   // Reconnecting re-enrolls the same computer, e.g. after its credential
@@ -48,56 +53,64 @@ export const trayMenu = (state: TrayMenuState): TrayMenuItem[] => [
   {
     kind: "action",
     action: "enroll",
-    label: state.enrolled
-      ? "Reconnect This Computer"
-      : "Connect This Computer…",
+    label: state.enrolled ? t(m.reconnect) : t(m.connect),
   },
   {
     kind: "action",
     action: "toggle-prevent-sleep",
-    label: "Prevent Sleep",
+    label: t(m.preventSleep),
     checked: state.preventSleep,
   },
   { kind: "separator" },
   // What to send when something goes wrong.
-  { kind: "action", action: "show-logs", label: "Show Logs" },
-  { kind: "action", action: "save-diagnostics", label: "Save Diagnostics…" },
+  { kind: "action", action: "show-logs", label: t(m.showLogs) },
+  {
+    kind: "action",
+    action: "save-diagnostics",
+    label: t(m.saveDiagnostics),
+  },
   ...(state.canSendDiagnostics
     ? [
         {
           kind: "action" as const,
           action: "send-diagnostics" as const,
-          label: "Send Diagnostics…",
+          label: t(m.sendDiagnostics),
         },
       ]
     : []),
   { kind: "separator" },
   // Tasks run in the app, so quitting takes the computer offline.
-  { kind: "action", action: "quit", label: "Quit Linger" },
+  { kind: "action", action: "quit", label: t(m.quit) },
 ];
 
 // Long native errors would stretch the menu; the log has the full text.
 const REASON_LENGTH = 80;
 
-const updateItems = (update: TrayMenuState["update"]): TrayMenuItem[] => {
+const updateItems = (
+  update: TrayMenuState["update"],
+  t: Translate,
+): TrayMenuItem[] => {
   switch (update?.kind) {
     case "downloading":
       return [
-        { kind: "label", label: `Downloading Update ${update.version}…` },
+        {
+          kind: "label",
+          label: t(m.downloading, { version: update.version }),
+        },
       ];
     case "ready":
       return [
         {
           kind: "action",
           action: "install-update",
-          label: `Restart to Update (${update.version})`,
+          label: t(m.restartToUpdate, { version: update.version }),
         },
       ];
     case "waiting":
       return [
         {
           kind: "label",
-          label: `Updating to ${update.version} When Tasks Finish`,
+          label: t(m.waiting, { version: update.version }),
         },
       ];
     case "available":
@@ -105,7 +118,7 @@ const updateItems = (update: TrayMenuState["update"]): TrayMenuItem[] => {
         {
           kind: "action",
           action: "install-update",
-          label: `Download Linger ${update.version}…`,
+          label: t(m.download, { version: update.version }),
         },
       ];
     case "failed": {
@@ -114,11 +127,11 @@ const updateItems = (update: TrayMenuState["update"]): TrayMenuItem[] => {
           ? `${update.error.slice(0, REASON_LENGTH - 1)}…`
           : update.error;
       return [
-        { kind: "label", label: `Update Failed: ${reason}` },
+        { kind: "label", label: t(m.updateFailed, { reason }) },
         {
           kind: "action",
           action: "check-update",
-          label: "Try Updating Again",
+          label: t(m.tryUpdatingAgain),
         },
       ];
     }
@@ -129,17 +142,15 @@ const updateItems = (update: TrayMenuState["update"]): TrayMenuItem[] => {
 
 // The notification for an update once it is ready or available; clicking it
 // does what the tray's update item does.
-export function updateNotice(update: AnnouncedUpdate): {
+export function updateNotice(
+  update: AnnouncedUpdate,
+  t: Translate,
+): {
   title: string;
   body: string;
 } {
+  const values = { version: update.version };
   if (update.kind === "available")
-    return {
-      title: "Update available",
-      body: `Linger ${update.version} is available. Click to open its download page.`,
-    };
-  return {
-    title: "Update ready",
-    body: `Linger ${update.version} is downloaded. Click to restart Linger and update.`,
-  };
+    return { title: t(m.availableTitle), body: t(m.available, values) };
+  return { title: t(m.readyTitle), body: t(m.ready, values) };
 }

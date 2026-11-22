@@ -12,7 +12,9 @@ import { announceTeamHubAuthenticated } from "@/features/teamhub/teamhub-authent
 import { TeamHubError } from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubSession } from "@/features/teamhub/teamhub-types";
+import { translate } from "@/i18n/language";
 
+import { authMessages as m } from "./auth.messages";
 import { authenticationOperation } from "./authentication-operation";
 import type { DesktopLocalAccount } from "./desktop-local-account";
 import { takeInterruptedPage } from "./interrupted-page";
@@ -127,8 +129,7 @@ export function useTeamHubAuthentication(input: {
       if (error instanceof TeamHubError && error.status === 401) {
         throw new TeamHubError({
           code: "SESSION_NOT_ESTABLISHED",
-          message:
-            "Linger could not establish a browser session. Use the secure workspace address or contact your workspace administrator.",
+          message: translate(m.sessionNotEstablished),
           status: 401,
         });
       }
@@ -161,7 +162,7 @@ export function useTeamHubAuthentication(input: {
     if (activeSubmit.current) return;
     const email = state.email.trim().toLowerCase();
     if (!email) {
-      const message = "Enter a valid email address.";
+      const message = translate(m.invalidEmail);
       dispatch({
         error: message,
         fieldErrors: { email: message },
@@ -188,7 +189,7 @@ export function useTeamHubAuthentication(input: {
     await runAttempt("desktop", async (signal) => {
       const result = await authenticationOperation(signal, () =>
         account.signIn().catch(() => ({
-          message: DESKTOP_ACCOUNT_UNAVAILABLE,
+          message: translate(m.desktopAccountUnavailable),
           ok: false as const,
         })),
       );
@@ -233,10 +234,7 @@ export function useTeamHubAuthentication(input: {
   };
 }
 
-const DESKTOP_ACCOUNT_UNAVAILABLE =
-  "This computer's account could not be used. Log in with your email and password.";
-
 function readAuthenticationError(error: unknown) {
   if (error instanceof TeamHubError) return error.message;
-  return "TeamHub could not be reached. Try again.";
+  return translate(m.teamHubUnreachable);
 }

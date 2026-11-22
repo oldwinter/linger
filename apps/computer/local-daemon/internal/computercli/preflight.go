@@ -51,7 +51,7 @@ func resolveUsableRuntimePaths(diagnostics []runtimeDiagnostic, requested map[st
 		if slices.ContainsFunc(diagnostics, func(diagnostic runtimeDiagnostic) bool { return diagnostic.ExecutablePath != "" }) {
 			category = categoryCapabilityProbe
 		}
-		return nil, newError(category, "No supported Runtime passed capability probing (codex, claude, pi)")
+		return nil, newError(category, "No supported Runtime passed capability probing (codex, claude, pi, antigravity)")
 	}
 	return paths, nil
 }

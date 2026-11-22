@@ -1,8 +1,10 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
+import { translate } from "@/i18n/language";
 import { type TeamHubAuthenticationReason } from "./teamhub-authentication";
 import { readTeamHubError } from "./teamhub-error";
+import { fileTransferMessages } from "./teamhub-file-transfer.messages";
 import type {
   TeamHubArtifactContent,
   TeamHubArtifactDownloadOptions,
@@ -10,7 +12,9 @@ import type {
   TeamHubArtifactRangeOptions,
 } from "./teamhub-types";
 
-export const MAXIMUM_ARTIFACT_DOWNLOAD_BYTES = 100 * 1024 * 1024;
+const maximumArtifactDownloadMebibytes = 100;
+export const MAXIMUM_ARTIFACT_DOWNLOAD_BYTES =
+  maximumArtifactDownloadMebibytes * 1024 * 1024;
 const defaultDownloadTimeoutMs = 2 * 60 * 1_000;
 
 export function downloadTeamHubArtifactContent({
@@ -62,7 +66,7 @@ export function downloadTeamHubArtifactContent({
         : response.headers.get("etag")?.replace(/^W\//, "") ===
           `"${content.sha256}"`;
     if (verifyResponseSha256 && !digestMatches) {
-      throw new Error("The File download failed integrity verification.");
+      throw new Error(translate(fileTransferMessages.integrityFailed));
     }
     return content;
   });
@@ -121,12 +125,10 @@ export function downloadTeamHubArtifactRange({
       throw error;
     }
     if (response.status !== 206) {
-      throw new Error("The File preview server did not honor the byte range.");
+      throw new Error(translate(fileTransferMessages.rangeNotHonored));
     }
     if (response.headers.get("etag") !== expectedEtag) {
-      throw new Error(
-        "The File preview no longer matches its immutable Version.",
-      );
+      throw new Error(translate(fileTransferMessages.versionChanged));
     }
 
     const range = parseContentRange(response.headers.get("content-range"));
@@ -135,7 +137,7 @@ export function downloadTeamHubArtifactRange({
       range.endInclusive !== options.endInclusive ||
       range.totalSize !== options.expectedTotalSize
     ) {
-      throw new Error("The File preview returned an unexpected byte range.");
+      throw new Error(translate(fileTransferMessages.unexpectedRange));
     }
     const content = await readBoundedArtifactContent(response, {
       expectedSizeBytes: expectedLength,
@@ -185,7 +187,9 @@ export async function runBoundedArtifactDownload<T>(
     return await operation(controller.signal);
   } catch (error) {
     if (timedOut) {
-      throw new Error("File download timed out.", { cause: error });
+      throw new Error(translate(fileTransferMessages.downloadTimedOut), {
+        cause: error,
+      });
     }
     throw error;
   } finally {
@@ -223,9 +227,7 @@ export async function readBoundedArtifactContent(
 
   const reader = response.body?.getReader();
   if (!reader) {
-    throw new Error(
-      "The browser did not expose a bounded File download stream.",
-    );
+    throw new Error(translate(fileTransferMessages.noStream));
   }
 
   const chunks: BlobPart[] = [];
@@ -247,7 +249,11 @@ export async function readBoundedArtifactContent(
       receivedBytes += chunk.value.byteLength;
       if (receivedBytes > MAXIMUM_ARTIFACT_DOWNLOAD_BYTES) {
         await reader.cancel();
-        throw new Error("The File download exceeded the 100 MiB client limit.");
+        throw new Error(
+          translate(fileTransferMessages.downloadTooLarge, {
+            mebibytes: maximumArtifactDownloadMebibytes,
+          }),
+        );
       }
       if (
         expectedSizeBytes !== undefined &&
@@ -284,10 +290,14 @@ function validateExpectedSize(expectedSizeBytes: number | undefined) {
     return;
   }
   if (!Number.isSafeInteger(expectedSizeBytes) || expectedSizeBytes < 0) {
-    throw new Error("The immutable Version has no usable byte size.");
+    throw new Error(translate(fileTransferMessages.noVersionSize));
   }
   if (expectedSizeBytes > MAXIMUM_ARTIFACT_DOWNLOAD_BYTES) {
-    throw new Error("The File download exceeded the 100 MiB client limit.");
+    throw new Error(
+      translate(fileTransferMessages.downloadTooLarge, {
+        mebibytes: maximumArtifactDownloadMebibytes,
+      }),
+    );
   }
 }
 
@@ -304,17 +314,21 @@ function validateArtifactRangeOptions(
     options.expectedTotalSize <= options.endInclusive ||
     !/^[a-f0-9]{64}$/i.test(options.expectedSha256)
   ) {
-    throw new Error("The immutable Version has no usable byte range metadata.");
+    throw new Error(translate(fileTransferMessages.noRangeMetadata));
   }
   if (options.endInclusive - start + 1 > MAXIMUM_ARTIFACT_DOWNLOAD_BYTES) {
-    throw new Error("The File download exceeded the 100 MiB client limit.");
+    throw new Error(
+      translate(fileTransferMessages.downloadTooLarge, {
+        mebibytes: maximumArtifactDownloadMebibytes,
+      }),
+    );
   }
 }
 
 function parseContentRange(header: string | null) {
   const match = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(header?.trim() ?? "");
   if (!match) {
-    throw new Error("The File preview returned an invalid Content-Range.");
+    throw new Error(translate(fileTransferMessages.invalidContentRange));
   }
   const start = Number(match[1]);
   const endInclusive = Number(match[2]);
@@ -327,7 +341,7 @@ function parseContentRange(header: string | null) {
     endInclusive < start ||
     totalSize <= endInclusive
   ) {
-    throw new Error("The File preview returned an invalid Content-Range.");
+    throw new Error(translate(fileTransferMessages.invalidContentRange));
   }
   return { endInclusive, start, totalSize };
 }
@@ -340,7 +354,7 @@ function validateContentLength(
     return;
   }
   if (!/^\d+$/.test(header.trim())) {
-    throw new Error("The File download returned an invalid Content-Length.");
+    throw new Error(translate(fileTransferMessages.invalidContentLength));
   }
 
   const contentLength = Number(header);
@@ -348,7 +362,11 @@ function validateContentLength(
     !Number.isSafeInteger(contentLength) ||
     contentLength > MAXIMUM_ARTIFACT_DOWNLOAD_BYTES
   ) {
-    throw new Error("The File download exceeded the 100 MiB client limit.");
+    throw new Error(
+      translate(fileTransferMessages.downloadTooLarge, {
+        mebibytes: maximumArtifactDownloadMebibytes,
+      }),
+    );
   }
   if (expectedSizeBytes !== undefined && contentLength !== expectedSizeBytes) {
     throwVersionSizeMismatch();
@@ -356,9 +374,7 @@ function validateContentLength(
 }
 
 function throwVersionSizeMismatch(): never {
-  throw new Error(
-    "The downloaded bytes do not match its immutable Version metadata.",
-  );
+  throw new Error(translate(fileTransferMessages.sizeMismatch));
 }
 
 function throwIfAborted(signal: AbortSignal) {

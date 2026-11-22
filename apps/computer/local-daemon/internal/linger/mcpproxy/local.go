@@ -6,9 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/permission"
 )
+
+// LocalToolTimeout is the Runtime budget for one local tool response.
+const LocalToolTimeout = 180 * time.Second
 
 var ErrCleanupUnconfirmed = errors.New("local tool cleanup is unconfirmed")
 
@@ -27,6 +31,8 @@ type LocalBinding struct {
 	// Allowed reports whether one of the binding's tool calls follows from
 	// what the Agent has already seen and runs without review.
 	Allowed func(tool string, input json.RawMessage) bool
+	// Timeout bounds an orchestration call; zero uses the ordinary tool limit.
+	Timeout time.Duration
 }
 
 func (s *Set) AddLocal(binding LocalBinding) error {
@@ -45,7 +51,11 @@ func (s *Set) AddLocal(binding LocalBinding) error {
 	if _, exists := config.Servers[binding.Name]; exists {
 		return fmt.Errorf("MCP name is duplicated: %s", binding.Name)
 	}
-	server, err := json.Marshal(map[string]any{"type": "http", "url": binding.URL, "tool_timeout_sec": 180})
+	timeout := binding.Timeout
+	if timeout == 0 {
+		timeout = LocalToolTimeout
+	}
+	server, err := json.Marshal(map[string]any{"type": "http", "url": binding.URL, "tool_timeout_sec": int(timeout / time.Second)})
 	if err != nil {
 		return err
 	}
@@ -65,6 +75,9 @@ func (s *Set) LocalToolNames() []string {
 	}
 	var names []string
 	for _, binding := range s.local {
+		if s.hidden[binding.URL] {
+			continue
+		}
 		for _, name := range binding.ToolNames {
 			names = append(names, "mcp__"+binding.Name+"__"+name)
 		}
@@ -77,6 +90,10 @@ func (s *Set) LocalToolNames() []string {
 func (s *Set) LocalAllowed(tool, input string) bool {
 	if s == nil {
 		return false
+	}
+	if s.ui != nil && (tool == "mcp__computer__ui_exec" || tool == "mcp__computer__ui_reset") {
+		// Only orchestration is allowed here. Every nested action is reviewed.
+		return true
 	}
 	server, name, ok := strings.Cut(strings.TrimPrefix(tool, "mcp__"), "__")
 	if !ok {

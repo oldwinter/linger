@@ -19,6 +19,10 @@ export interface StopOptions {
   instanceName: string;
   signal: AbortSignal;
   log: (message: string) => void;
+  onFailure?: (
+    stage: "manager" | "services" | "localmodels",
+    error: unknown,
+  ) => void;
 }
 
 export interface StopOutcome {
@@ -55,19 +59,29 @@ export async function stopDesktopInstallation(
     fetch: fetcher = fetch,
   }: StopDependencies = {},
 ): Promise<StopOutcome> {
-  const { failed, attempt } = attempts(options.log);
+  const { failed, attempt } = attempts(
+    options.log,
+    "the installation",
+    options.onFailure,
+  );
   for (const home of await installationHomes(options.home)) {
     // The services stop even when the manager could not: an earlier release's
     // manager has no /api/stop, and a stale session may name another server.
-    await attempt(home, () => stopManager(home, options, fetcher));
-    await attempt(home, async () => {
-      const instance = await load({ name: options.instanceName, home });
-      if (!instance) return;
-      options.log(`Stopping the services in ${instance.root}.`);
-      await stopInstance(instance, options.signal);
-    });
-    await attempt(home, () =>
-      stopModels(home, { signal: options.signal, log: options.log }),
+    await attempt(home, () => stopManager(home, options, fetcher), "manager");
+    await attempt(
+      home,
+      async () => {
+        const instance = await load({ name: options.instanceName, home });
+        if (!instance) return;
+        options.log(`Stopping the services in ${instance.root}.`);
+        await stopInstance(instance, options.signal);
+      },
+      "services",
+    );
+    await attempt(
+      home,
+      () => stopModels(home, { signal: options.signal, log: options.log }),
+      "localmodels",
     );
   }
   return { failed };
@@ -85,7 +99,7 @@ export async function stopDesktopLocalModels(
   options: Pick<StopOptions, "home" | "signal" | "log">,
   { stopModels = stopLocalmodels }: Pick<StopDependencies, "stopModels"> = {},
 ): Promise<StopOutcome> {
-  const { failed, attempt } = attempts(options.log);
+  const { failed, attempt } = attempts(options.log, "the local models");
   for (const home of await installationHomes(options.home))
     await attempt(home, async () => {
       const stop = () =>
@@ -115,14 +129,23 @@ export async function stopDesktopLocalModels(
 }
 
 // Runs each step and records the ones that failed, so every home is tried.
-function attempts(log: (message: string) => void) {
+function attempts(
+  log: (message: string) => void,
+  target = "the installation",
+  onFailure?: StopOptions["onFailure"],
+) {
   const failed: StopOutcome["failed"] = [];
-  const attempt = async (home: string, step: () => Promise<void>) => {
+  const attempt = async (
+    home: string,
+    step: () => Promise<void>,
+    stage: "manager" | "services" | "localmodels" = "localmodels",
+  ) => {
     try {
       await step();
     } catch (error) {
+      onFailure?.(stage, error);
       const message = error instanceof Error ? error.message : String(error);
-      log(`Could not stop the installation in ${home}: ${message}`);
+      log(`Could not stop ${target} in ${home}: ${message}`);
       failed.push({ home, message });
     }
   };

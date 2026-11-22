@@ -24,6 +24,8 @@ import type {
   TeamHubRoutine,
   TeamHubScheduledRoutine,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 
 import { connectedAppDisplayName } from "../cards/connected-app-names";
 
@@ -47,6 +49,7 @@ import {
 } from "./routine-same-minute";
 import { deleteRoomRoutine, RoutineDialog } from "./routine-dialog";
 import { PanelLoading } from "./panel-loading";
+import { routinesMessages as m } from "./routines.messages";
 
 /** Routines in a Room (optionally scoped to one Agent), laid out by next run. */
 export function RemindersPanel({
@@ -66,6 +69,7 @@ export function RemindersPanel({
   roomId: string;
   tenantId: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const listQuery = useQuery(
@@ -89,7 +93,7 @@ export function RemindersPanel({
 
   return (
     <section
-      aria-label="Routines"
+      aria-label={t(m.routines)}
       className="workspace-scrollbar flex h-full min-h-0 flex-col overflow-y-auto [scrollbar-gutter:stable_both-edges]"
       data-testid="panel-routines"
       hidden={hidden || undefined}
@@ -167,6 +171,7 @@ function RoutineAgenda({
   routines: TeamHubRoutine[];
   tenantId: string;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [showDone, setShowDone] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -258,7 +263,7 @@ function RoutineAgenda({
     return () => window.clearTimeout(timer);
   }, [offer, undo.isPending]);
   if (loading) {
-    return <PanelLoading label="Loading routines" />;
+    return <PanelLoading label={t(m.loading)} />;
   }
   if (failed) {
     return (
@@ -266,11 +271,9 @@ function RoutineAgenda({
         className="flex items-center justify-between gap-3 px-4 py-6"
         role="alert"
       >
-        <p className="text-sm text-destructive">
-          Routines could not be loaded.
-        </p>
+        <p className="text-sm text-destructive">{t(m.loadFailed)}</p>
         <Button onClick={onRetry} size="compact" tone="secondary" type="button">
-          Retry
+          {t(commonMessages.retry)}
         </Button>
       </div>
     );
@@ -319,23 +322,22 @@ function RoutineAgenda({
         </p>
       ) : null}
       {scheduled.length === 0 && listeners.length === 0 ? (
-        <SettingsGroup ariaLabel="No routines">
+        <SettingsGroup ariaLabel={t(m.noRoutines)}>
           <SettingsRow icon={<Icon icon={Clock01Icon} size={16} />}>
             <span className="min-w-0 flex-1 py-1">
               <span className="block text-[14px] font-medium leading-[18px] text-foreground">
-                No routines in this room yet.
+                {t(m.emptyTitle)}
               </span>
               <span className="mt-0.5 block text-xs leading-[17px] text-muted-foreground">
-                Run something once at a set time, or daily, weekly, or every few
-                hours.
+                {t(m.emptyBody)}
               </span>
             </span>
           </SettingsRow>
         </SettingsGroup>
       ) : null}
       {listeners.length > 0 ? (
-        <SettingsGroup label="Watching">
-          <ul aria-label="App listeners">
+        <SettingsGroup label={t(m.watching)}>
+          <ul aria-label={t(m.appListeners)}>
             {listeners.map((routine) => (
               <ListenerRow
                 client={client}
@@ -350,17 +352,25 @@ function RoutineAgenda({
         </SettingsGroup>
       ) : null}
       {upcoming.length > 0 ? (
-        <SettingsGroup label="Upcoming" meta={upcoming.length}>
+        <SettingsGroup label={t(m.upcoming)} meta={upcoming.length}>
           <ul>
             {upcoming.map((routine) => {
-              const { day, distance } = dayHeading(new Date(runTime(routine)));
+              const { day, distance } = dayHeading(
+                new Date(runTime(routine)),
+                new Date(),
+                t,
+              );
               const time = formatTimeOfDay(
                 new Date(runTime(routine)).toISOString(),
               );
               return (
                 <RoutineRow
                   {...rowProps}
-                  detail={[day, time, distance].filter(Boolean).join(" · ")}
+                  detail={
+                    distance
+                      ? t(m.upcomingDetailDistance, { day, time, distance })
+                      : t(m.upcomingDetail, { day, time })
+                  }
                   key={routine.id}
                   laterAt={
                     routine.cadence.kind === "once"
@@ -379,12 +389,12 @@ function RoutineAgenda({
         </SettingsGroup>
       ) : null}
       {recurring.length > 0 ? (
-        <SettingsGroup label="Recurring" meta={recurring.length}>
+        <SettingsGroup label={t(m.recurring)} meta={recurring.length}>
           <ul>
             {recurring.map((routine) => (
               <RoutineRow
                 {...rowProps}
-                detail={cadenceLabel(routine.cadence)}
+                detail={cadenceLabel(routine.cadence, t)}
                 key={routine.id}
                 routine={routine}
                 onOpen={() => onOpen(routine.id)}
@@ -394,7 +404,7 @@ function RoutineAgenda({
         </SettingsGroup>
       ) : null}
       {paused.length > 0 ? (
-        <SettingsGroup label="Paused" meta={paused.length}>
+        <SettingsGroup label={t(m.paused)} meta={paused.length}>
           <ul>
             {paused.map((routine) => (
               <RoutineRow
@@ -402,7 +412,7 @@ function RoutineAgenda({
                 detail={
                   routine.cadence.kind === "once"
                     ? formatWhen(routine.cadence.run_at ?? "")
-                    : cadenceLabel(routine.cadence)
+                    : cadenceLabel(routine.cadence, t)
                 }
                 key={routine.id}
                 routine={routine}
@@ -413,7 +423,7 @@ function RoutineAgenda({
         </SettingsGroup>
       ) : null}
       {done.length > 0 ? (
-        <section aria-label="Done">
+        <section aria-label={t(m.done)}>
           <div className="px-1.5">
             <button
               aria-expanded={showDone}
@@ -421,7 +431,7 @@ function RoutineAgenda({
               onClick={() => setShowDone((current) => !current)}
               type="button"
             >
-              Done
+              {t(m.done)}
               <span className="tabular-nums text-muted-foreground/80">
                 {done.length}
               </span>
@@ -432,7 +442,7 @@ function RoutineAgenda({
             </button>
           </div>
           {showDone ? (
-            <SettingsGroup ariaLabel="Done routines">
+            <SettingsGroup ariaLabel={t(m.doneRoutines)}>
               <ul>
                 {done.map((routine) => (
                   <li key={routine.id}>
@@ -466,7 +476,7 @@ function RoutineAgenda({
         >
           <SettingsRow icon={<Icon icon={PlusSignIcon} size={16} />}>
             <span className="flex-1 text-[14px] font-medium text-foreground">
-              New routine
+              {t(m.newRoutine)}
             </span>
             <Icon
               className="text-muted-foreground/70"
@@ -521,6 +531,7 @@ function RoutineRow({
   onOpen: () => void;
   routine: TeamHubScheduledRoutine;
 }) {
+  const t = useT();
   const wakesOther = Boolean(
     routine.mention_actor_id && routine.mention_actor_id !== agentActorId,
   );
@@ -537,12 +548,13 @@ function RoutineRow({
       (item) => item.actor.id === routine.mention_actor_id,
     )?.actor.display_name;
   // The Agent whose Info this is goes without saying; say who else wakes.
-  const audience = !routine.mention_actor_id
-    ? "Message only"
-    : wakesOther
-      ? `Wakes ${targetName ?? "an Agent"}`
-      : undefined;
-  const description = [detail, audience].filter(Boolean).join(" · ");
+  const description = !routine.mention_actor_id
+    ? t(m.detailMessageOnly, { detail })
+    : !wakesOther
+      ? detail
+      : targetName
+        ? t(m.detailWakes, { detail, name: targetName })
+        : t(m.detailWakesAgent, { detail });
   if (!isEditableRoutine(routine)) {
     return (
       <li>
@@ -655,6 +667,7 @@ function RoutineDeleteButton({
   routine: TeamHubScheduledRoutine;
   tenantId: string;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [armed, setArmed] = useState(false);
   const remove = useMutation({
@@ -669,9 +682,7 @@ function RoutineDeleteButton({
     },
     onError: (cause) => {
       setArmed(false);
-      onError(
-        cause instanceof Error ? cause.message : "Could not delete routine.",
-      );
+      onError(cause instanceof Error ? cause.message : t(m.deleteFailed));
     },
   });
   if (armed) {
@@ -684,6 +695,7 @@ function RoutineDeleteButton({
         <span className="text-xs font-medium text-foreground">Delete?</span>
         <Button
           aria-label="Confirm delete routine"
+          data-voice-risk="never"
           disabled={remove.isPending}
           loading={remove.isPending}
           onClick={() => remove.mutate()}
@@ -700,21 +712,22 @@ function RoutineDeleteButton({
           tone="ghost"
           type="button"
         >
-          Cancel
+          {t(commonMessages.cancel)}
         </Button>
       </div>
     );
   }
   return (
     <button
-      aria-label="Delete routine"
+      data-voice-risk="never"
+      aria-label={t(m.deleteRoutine)}
       className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
       disabled={remove.isPending}
       onClick={() => {
         onError(null);
         setArmed(true);
       }}
-      title="Delete routine"
+      title={t(m.deleteRoutine)}
       type="button"
     >
       <Icon icon={Delete02Icon} size={14} />
@@ -726,6 +739,7 @@ function ListenerRow({
   routine,
   ...toggle
 }: ToggleProps & { routine: TeamHubRoutine }) {
+  const t = useT();
   const app = connectedAppDisplayName(routine.listener?.app);
   return (
     <li>
@@ -739,7 +753,7 @@ function ListenerRow({
         <SettingsRowText
           description={routine.name}
           muted={!routine.enabled}
-          title={routine.enabled ? `Watching ${app}` : `Not watching ${app}`}
+          title={t(routine.enabled ? m.watchingApp : m.notWatchingApp, { app })}
         />
         <RoutineSwitch routine={routine} {...toggle} />
       </SettingsRow>
@@ -754,6 +768,7 @@ function RoutineSwitch({
   routine,
   tenantId,
 }: ToggleProps & { routine: TeamHubRoutine }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const toggle = useMutation({
     mutationFn: (enabled: boolean) =>
@@ -783,7 +798,7 @@ function RoutineSwitch({
   return (
     <button
       aria-checked={routine.enabled}
-      aria-label={routine.enabled ? "Pause routine" : "Enable routine"}
+      aria-label={t(routine.enabled ? m.pauseRoutine : m.enableRoutine)}
       className={`relative h-4 w-7 shrink-0 rounded-full shadow-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${routine.enabled ? "bg-primary" : "bg-input"}`}
       disabled={toggle.isPending}
       onClick={() => toggle.mutate(!routine.enabled)}
@@ -810,6 +825,7 @@ function UndoToast({
   routine: TeamHubRoutine;
   secondsLeft: number;
 }) {
+  const t = useT();
   return (
     <div
       className="town-toast-enter flex items-center gap-3 rounded-xl bg-popover px-4 py-2.5 text-sm text-foreground shadow-lg"
@@ -817,8 +833,10 @@ function UndoToast({
     >
       <span className="min-w-0 flex-1 truncate">
         {failed
-          ? "Could not undo."
-          : `${routine.enabled ? "Enabled" : "Paused"} “${routine.name}”`}
+          ? t(m.undoFailed)
+          : t(routine.enabled ? m.enabledRoutine : m.pausedRoutine, {
+              name: routine.name,
+            })}
       </span>
       {failed ? null : (
         <>
@@ -855,7 +873,7 @@ function UndoToast({
             onClick={onUndo}
             type="button"
           >
-            Undo
+            {t(m.undo)}
           </button>
         </>
       )}

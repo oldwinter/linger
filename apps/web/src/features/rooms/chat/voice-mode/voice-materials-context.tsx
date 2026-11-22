@@ -13,6 +13,8 @@ import {
   type VoiceDocumentSelection,
 } from "../../room-drafts";
 import type { TeamHubRoom } from "@/features/teamhub/teamhub-types";
+import { translate } from "@/i18n/language";
+import { voiceChatMessages as m } from "./voice-chat.messages";
 
 export interface VoiceMaterials {
   /** Room whose next voice turn receives these materials. */
@@ -97,7 +99,7 @@ function ScopedVoiceMaterialsProvider({
     addSelection(input) {
       if (!enabled) return false;
       if (remote && input.documentId) {
-        setError("Only message text can be added from another Room.");
+        setError(translate(m.onlyMessageText));
         return false;
       }
       const selection = {
@@ -108,9 +110,7 @@ function ScopedVoiceMaterialsProvider({
           `voice-material-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       };
       if (!isVoiceDocumentSelection(selection)) {
-        setError(
-          "Select up to 10,000 characters from an available document or message.",
-        );
+        setError(translate(m.selectionTooLong, { characters: 10_000 }));
         return false;
       }
       const existing = current();
@@ -132,7 +132,7 @@ function ScopedVoiceMaterialsProvider({
         ) > 20_000
       ) {
         setError(
-          "Use up to 5 selections and 20,000 characters. Remove a selection first.",
+          translate(m.tooManySelections, { characters: 20_000, selections: 5 }),
         );
         return false;
       }

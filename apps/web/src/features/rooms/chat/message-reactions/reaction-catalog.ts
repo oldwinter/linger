@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
 
+import type { Language, Translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+
+import { chatMessages } from "../chat.messages";
+
 interface EmojiMartData {
   categories: readonly { id: string; emojis: readonly string[] }[];
   emojis: Readonly<
@@ -26,12 +31,13 @@ export interface ReactionCatalogEntry {
   readonly id: string;
   readonly glyph: string;
   readonly name: string;
+  /** The CLDR name in the annotation language, when the set has one. */
+  readonly annotationName?: string;
   readonly keywords: readonly string[];
 }
 
 export interface ReactionCatalogCategory {
   readonly id: string;
-  readonly label: string;
   readonly entries: readonly ReactionCatalogEntry[];
 }
 
@@ -54,22 +60,37 @@ export const RECOMMENDED_REACTION_IDS = [
   "joy",
 ] as const;
 
-const CATEGORY_LABELS: Readonly<Record<string, string>> = {
-  people: "Smileys & People",
-  nature: "Animals & Nature",
-  foods: "Food & Drink",
-  activity: "Activity",
-  places: "Travel & Places",
-  objects: "Objects",
-  symbols: "Symbols",
-  flags: "Flags",
+const CATEGORY_LABELS: Readonly<Record<string, Message<string>>> = {
+  people: chatMessages.emojiPeople,
+  nature: chatMessages.emojiNature,
+  foods: chatMessages.emojiFoods,
+  activity: chatMessages.emojiActivity,
+  places: chatMessages.emojiPlaces,
+  objects: chatMessages.emojiObjects,
+  symbols: chatMessages.emojiSymbols,
+  flags: chatMessages.emojiFlags,
 };
 
+/** A category's name; one this client does not know shows its id. */
+export function reactionCategoryLabel(categoryId: string, t: Translate) {
+  const label = CATEGORY_LABELS[categoryId];
+  return label ? t(label) : categoryId;
+}
+
 // The emoji-mart dataset is English-only; CLDR Chinese annotations let
-// Chinese-speaking users search Reactions too. The path stays a literal so the
-// bundler emits one lazy chunk instead of one per emojibase locale.
+// Chinese-speaking users search Reactions too and name them in Chinese. The
+// path stays a literal so the bundler emits one lazy chunk instead of one per
+// emojibase locale.
 const loadReactionAnnotationLocale = () =>
   import("emojibase-data/zh/compact.json");
+const ANNOTATION_LANGUAGE: Language = "zh-CN";
+
+/** A Reaction's name in the language on screen; English without an annotation. */
+export function reactionName(entry: ReactionCatalogEntry, language: Language) {
+  return language === ANNOTATION_LANGUAGE && entry.annotationName
+    ? entry.annotationName
+    : entry.name;
+}
 
 // Both datasets spell the same code point sequence, but only emoji-mart keeps
 // the FE0F variation selector and uses lowercase hex.
@@ -94,7 +115,6 @@ export function buildReactionCatalog(
   const byId = new Map<string, ReactionCatalogEntry>();
   const categories = data.categories.map((category) => ({
     id: category.id,
-    label: CATEGORY_LABELS[category.id] ?? category.id,
     entries: category.emojis.flatMap((id) => {
       const emoji = data.emojis[id];
       const skin = emoji?.skins[0];
@@ -105,6 +125,7 @@ export function buildReactionCatalog(
         id,
         glyph,
         name: emoji.name,
+        ...(annotation?.label ? { annotationName: annotation.label } : {}),
         keywords: [
           ...new Set([
             ...emoji.keywords,

@@ -10,6 +10,8 @@ import { isDeepStrictEqual } from "node:util";
 import { admissionLimit, runPriorities, softLimit } from "../../model-tasks.js";
 import { logAgentEvent } from "../observability/agent-log.js";
 import {
+  FIRST_STOP_HOOK_COMPUTER_VERSION,
+  isComputerVersionAtLeast,
   LocalComputerOfflineError,
   resolveOperationModel,
 } from "./local-computer-management.js";
@@ -345,8 +347,12 @@ export class RunnerOperations {
       throw new RunnerGatewayError(
         "Operation reservation was released before admission",
       );
+    const targetForDaemon = filterOperationTargetForDaemon(
+      resolvedTarget,
+      connection.hello.daemon_version,
+    );
     const operation = new RunnerOperationState({
-      target: resolvedTarget,
+      target: targetForDaemon,
       connectionEpoch: connection.connectionEpoch,
       runnerRevision: desiredRunner.runnerRevision,
       createId: this.context.createId,
@@ -838,4 +844,25 @@ function yieldLowerRun(
     .filter((operation) => operation.priority > priority)
     .sort((a, b) => b.priority - a.priority);
   for (const operation of lower) if (operation.requestYield()) return;
+}
+
+function filterOperationTargetForDaemon(
+  target: RunnerOperationTarget,
+  daemonVersion: string,
+): RunnerOperationTarget {
+  if (
+    isComputerVersionAtLeast(daemonVersion, FIRST_STOP_HOOK_COMPUTER_VERSION) ||
+    target.request.run_context.stop_hook === undefined
+  ) {
+    return target;
+  }
+  const filteredRunContext = { ...target.request.run_context };
+  delete filteredRunContext.stop_hook;
+  return {
+    ...target,
+    request: {
+      ...target.request,
+      run_context: filteredRunContext,
+    },
+  };
 }

@@ -1,17 +1,13 @@
 import { UnderlineTabs } from "@/components/ui/underline-tabs";
+import { useT } from "@/i18n/use-translation";
 
+import { libraryMessages as m } from "./library.messages";
+
+/** Each view's texts are messages, worded when they are shown. */
 export const workspaceTabs = [
-  {
-    empty: "No documents created by you",
-    id: "owned",
-    label: "My pages",
-  },
-  {
-    empty: "No documents shared with you",
-    id: "shared",
-    label: "Shared with me",
-  },
-  { empty: "", id: "meetings", label: "Meetings" },
+  { empty: m.ownedEmpty, id: "owned", label: m.myPages },
+  { empty: m.sharedEmpty, id: "shared", label: m.sharedWithMe },
+  { empty: undefined, id: "meetings", label: m.meetings },
 ] as const;
 export type WorkspaceTab = (typeof workspaceTabs)[number]["id"];
 
@@ -22,10 +18,11 @@ export function WorkspaceTabs({
   onChange: (tab: WorkspaceTab) => void;
   value: WorkspaceTab;
 }) {
+  const t = useT();
   return (
     <UnderlineTabs
-      items={workspaceTabs}
-      label="Library views"
+      items={workspaceTabs.map(({ id, label }) => ({ id, label: t(label) }))}
+      label={t(m.libraryViews)}
       onChange={onChange}
       value={value}
     />

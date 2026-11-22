@@ -1,27 +1,31 @@
+import type { Message } from "@/i18n/messages";
+
 import type { PanelTabKind } from "./panel-tab-types";
+import { routinesMessages } from "./routines.messages";
+import { sidePanelMessages as m } from "./side-panel.messages";
 
 const ALL_PANEL_CREATE_ITEMS = [
   {
     kind: "file",
-    label: "Documents",
+    label: m.documents,
   },
   {
     kind: "agentInfo",
-    label: "Agent info",
+    label: m.agentInfo,
   },
   {
     kind: "roomInfo",
-    label: "Room info",
+    label: m.roomInfo,
   },
   {
     kind: "routines",
-    label: "Routines",
+    label: routinesMessages.routines,
   },
   {
     kind: "collaboration",
-    label: "Collaboration",
+    label: m.collaboration,
   },
-] as const satisfies { kind: PanelTabKind; label: string }[];
+] as const satisfies { kind: PanelTabKind; label: Message<string> }[];
 
 export type PanelCreateChoice = (typeof ALL_PANEL_CREATE_ITEMS)[number]["kind"];
 

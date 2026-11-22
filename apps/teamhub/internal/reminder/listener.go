@@ -18,11 +18,13 @@ const (
 	minPollIntervalSec     = 60
 )
 
+// Supported Routine listener binding kinds persisted in room_routine_listeners.
 const (
-	ListenerSlack   = "slack"
-	ListenerGmail   = "gmail"
-	ListenerOutlook = "outlook"
-	ListenerGCal    = "gcal"
+	ListenerSlack           = "slack"
+	ListenerGmail           = "gmail"
+	ListenerOutlook         = "outlook"
+	ListenerGCal            = "gcal"
+	ListenerOutlookCalendar = "outlook_calendar"
 )
 
 type ListenerSpec struct {
@@ -30,8 +32,8 @@ type ListenerSpec struct {
 	Account             string         `json:"account"`
 	Channel             string         `json:"channel,omitempty"`     // slack: "*"
 	Match               *ListenerMatch `json:"match,omitempty"`       // slack kind; optional gmail label
-	CalendarID          string         `json:"calendar_id,omitempty"` // gcal
-	Events              []string       `json:"events,omitempty"`      // gcal
+	CalendarID          string         `json:"calendar_id,omitempty"` // gcal, outlook_calendar
+	Events              []string       `json:"events,omitempty"`      // gcal, outlook_calendar
 	PollIntervalSeconds int            `json:"poll_interval_seconds,omitempty"`
 }
 
@@ -92,9 +94,9 @@ func normalizeListener(spec *ListenerSpec) error {
 		if match != (ListenerMatch{}) {
 			return fmt.Errorf("outlook listeners take no match")
 		}
-	case ListenerGCal:
+	case ListenerGCal, ListenerOutlookCalendar:
 		if match != (ListenerMatch{}) {
-			return fmt.Errorf("gcal listeners take no match")
+			return fmt.Errorf("%s listeners take no match", spec.Type)
 		}
 		spec.CalendarID = strings.TrimSpace(spec.CalendarID)
 		if spec.CalendarID == "" {
@@ -123,7 +125,7 @@ type ListenerEvent struct {
 	Grant       *GrantReference `json:"-"`
 	Source      string          `json:"source"`
 	EventID     string          `json:"event_id"`
-	EventKind   string          `json:"event_kind,omitempty"` // gcal: created|updated|cancelled; slack: message
+	EventKind   string          `json:"event_kind,omitempty"` // gcal/outlook_calendar: created|updated|cancelled; slack: message
 	Channel     string          `json:"channel,omitempty"`
 	ChannelID   string          `json:"channel_id,omitempty"`
 	Sender      string          `json:"sender,omitempty"`
@@ -154,7 +156,7 @@ func MatchEvent(spec ListenerSpec, event ListenerEvent) bool {
 		return spec.Match == nil || spec.Match.LabelID == "" || slices.Contains(event.LabelIDs, spec.Match.LabelID)
 	case ListenerOutlook:
 		return true
-	case ListenerGCal:
+	case ListenerGCal, ListenerOutlookCalendar:
 		return slices.Contains(spec.Events, event.EventKind)
 	}
 	return false

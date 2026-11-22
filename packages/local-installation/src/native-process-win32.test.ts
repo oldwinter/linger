@@ -12,22 +12,27 @@ import type {
 // object ends along with it) from the next snapshot.
 const host = vi.hoisted(() => ({
   processes: [] as WindowsProcess[],
+  exiting: [] as WindowsProcess[],
   listeners: new Map<number, number>(),
+  listenersAvailable: true,
   ended: [] as number[],
   cascade: new Map<number, number[]>(),
 }));
 vi.mock("./native-process-identity.js", async (original) => {
   const actual =
     await original<typeof import("./native-process-identity.js")>();
-  const snapshot = async (): Promise<WindowsSnapshot> => ({
-    processes: [...host.processes],
-    listeners: new Map(host.listeners),
-  });
-  return {
-    ...actual,
-    windowsSnapshot: snapshot,
-    windowsProcesses: async () => (await snapshot()).processes,
+  const windowsProcesses = async () => [
+    ...host.processes,
+    ...host.exiting.splice(0),
+  ];
+  const windowsSnapshot = async (): Promise<WindowsSnapshot> => {
+    if (!host.listenersAvailable) throw new Error("Cannot read TCP listeners");
+    return {
+      processes: await windowsProcesses(),
+      listeners: new Map(host.listeners),
+    };
   };
+  return { ...actual, windowsSnapshot, windowsProcesses };
 });
 const taskkill = vi.hoisted(() => ({
   calls: [] as string[][],
@@ -68,7 +73,9 @@ beforeEach(async () => {
   Object.defineProperty(process, "platform", { ...platform, value: "win32" });
   root = await mkdtemp(path.join(tmpdir(), "native-win32-"));
   host.processes = [row(1, 0, 1, "wininit.exe")];
+  host.exiting = [];
   host.listeners = new Map();
+  host.listenersAvailable = true;
   host.ended = [];
   host.cascade = new Map();
   taskkill.calls = [];
@@ -116,7 +123,8 @@ async function record(name: string, pid: number, key = lease) {
   );
 }
 
-test("a supervisor whose service died is not running", async () => {
+test("a supervisor whose service died is not running even without listener data", async () => {
+  host.listenersAvailable = false;
   await record("livekit", 10);
   host.processes.push(
     worker(10, "livekit"),
@@ -127,7 +135,8 @@ test("a supervisor whose service died is not running", async () => {
   expect((await inspectNativeProcess(root, "livekit")).running).toBe(true);
 });
 
-test("stop ends the whole tree leaves first and forgets the record", async () => {
+test("stop ends the whole tree leaves first and forgets the record without listener data", async () => {
+  host.listenersAvailable = false;
   await record("teamhub", 10);
   host.processes.push(
     worker(10, "teamhub"),
@@ -144,6 +153,43 @@ test("stop ends the whole tree leaves first and forgets the record", async () =>
   await expect(
     readFile(path.join(root, "native/processes/teamhub.json")),
   ).rejects.toThrow();
+});
+
+test.each([
+  ["a different lease", () => worker(10, "web", "c".repeat(64))],
+  ["an unreadable command line", () => row(10, 1, 100)],
+])(
+  "stop retains the live record with %s and signals nothing",
+  async (_, supervisor) => {
+    await record("web", 10);
+    host.processes.push(supervisor(), row(11, 10, 101, "web.exe"));
+    const file = path.join(root, "native/processes/web.json");
+    const original = await readFile(file, "utf8");
+
+    await expect(stopNativeProcess(root, "web")).rejects.toThrow(
+      /identity cannot be verified.*record retained/i,
+    );
+    expect(host.ended).toEqual([]);
+    expect(taskkill.calls).toEqual([]);
+    await expect(readFile(file, "utf8")).resolves.toBe(original);
+  },
+);
+
+test("stop verifies that an exiting supervisor's incomplete CIM row disappears", async () => {
+  await record("web", 10);
+  const supervisor = worker(10, "web");
+  host.processes.push(supervisor);
+  vi.mocked(process.kill).mockImplementationOnce((pid) => {
+    host.ended.push(pid);
+    host.processes = host.processes.filter((entry) => entry.pid !== pid);
+    host.exiting.push({ ...supervisor, command: "" });
+    return true;
+  });
+
+  await stopNativeProcess(root, "web");
+  expect(host.ended).toEqual([10]);
+  expect(taskkill.calls).toEqual([]);
+  expect((await inspectNativeProcess(root, "web")).pid).toBeUndefined();
 });
 
 test("stop forgets a record whose PID Windows gave to another program", async () => {

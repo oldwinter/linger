@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  parseWindowsSnapshot,
+  parseWindowsListeners,
   windowsLeaseTree,
   type WindowsProcess,
 } from "./native-process-identity.js";
@@ -70,32 +70,25 @@ describe("windowsLeaseTree", () => {
   });
 });
 
-describe("parseWindowsSnapshot", () => {
-  it("reads one process and no listeners as lists", () => {
-    const snapshot = parseWindowsSnapshot(
-      JSON.stringify({ p: { p: 4, q: 0, c: 1, l: null }, n: [] }),
-    );
-    expect(snapshot.processes).toEqual([row(4, 0, 1)]);
-    expect(snapshot.listeners.size).toBe(0);
-  });
-
-  it("maps each listening port to its process", () => {
-    const snapshot = parseWindowsSnapshot(
-      JSON.stringify({
-        p: [{ p: 4, q: 0, c: 1, l: "x" }],
-        n: [
-          { o: 7644, t: 55641, a: "127.0.0.1" },
-          { o: 29644, t: 3000, a: "::1" },
-          { o: 16588, t: 3000, a: "127.0.0.1" },
-          { o: 31000, t: 3000, a: "0.0.0.0" },
-        ],
-      }),
-    );
-    // A development server on ::1:3000 is not the web service's listener.
-    expect(snapshot.listeners).toEqual(
+describe("parseWindowsListeners", () => {
+  it("finds IPv4 listeners without interpreting localized states", async () => {
+    const listeners = await parseWindowsListeners([
+      "  TCP    127.0.0.1:55641  0.0.0.0:0  ÉCOUTE  7644",
+      "  TCP    [::1]:3000      [::]:0     LISTENING   29644",
+      "  TCP    127.0.0.1:3000   0.0.0.0:0  LISTENING   16588",
+      "  TCP    0.0.0.0:3000     0.0.0.0:0  LISTENING   31000",
+      "  TCP    0.0.0.0:5432     0.0.0.0:0  LISTENING   1632",
+      "  TCP    127.0.0.1:55641  127.0.0.1:34500  ESTABLISHED  4600",
+      "  TCP    192.0.2.4:2345   0.0.0.0:0  LISTENING   8000",
+      "  UDP    0.0.0.0:53      *:*        1000",
+      "  TCP    0.0.0.0:65536    0.0.0.0:0  LISTENING   1",
+      "  TCP    0.0.0.0:65534    0.0.0.0:0  LISTENING   0",
+    ]);
+    expect(listeners).toEqual(
       new Map([
         [55641, 7644],
         [3000, 16588],
+        [5432, 1632],
       ]),
     );
   });

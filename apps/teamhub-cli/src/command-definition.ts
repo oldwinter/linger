@@ -15,6 +15,7 @@ export interface CommandArguments {
 
 export interface CommandInputReader {
   readonly cwd: string;
+  localPath(source: string): string;
   text(source: string): Promise<string>;
   json(source: string): Promise<unknown>;
 }
@@ -35,6 +36,7 @@ export interface CommandExecutionContext {
   readonly client: TeamHubHttpClient;
   readonly cwd: string;
   readonly stateRoot: string;
+  readonly localPath?: (source: string, relativeTo?: string) => string;
   /** Present for write commands; TeamHub deduplicates the write by it. */
   readonly operationId?: string;
   readonly timing?: CliTiming;

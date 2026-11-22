@@ -15,6 +15,9 @@ import {
   type TaskCommand,
 } from "@/features/rooms/runtime-status/task-command";
 import type { TeamHubMessageActivityRecord } from "@/features/teamhub/teamhub-types";
+import type { Translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
+import { runtimeStatusMessages } from "@/features/rooms/runtime-status/runtime-status.messages";
 
 import {
   activityMessageText,
@@ -31,12 +34,14 @@ import {
   stringValue,
   type ToolCallPair,
 } from "./native-activity-records";
+import { runPanelMessages as m } from "./run-panel.messages";
 
 export function RuntimeHistoryView({
   records,
 }: {
   records: TeamHubMessageActivityRecord[];
 }) {
+  const t = useT();
   const orderedRecords = useMemo(
     () => [...records].sort((left, right) => left.ordinal - right.ordinal),
     [records],
@@ -46,12 +51,12 @@ export function RuntimeHistoryView({
     [orderedRecords],
   );
   const items = useMemo(
-    () => activityTimelineItems(orderedRecords, callPairs),
-    [callPairs, orderedRecords],
+    () => activityTimelineItems(t, orderedRecords, callPairs),
+    [t, callPairs, orderedRecords],
   );
   return (
     <ol
-      aria-label="Activity log"
+      aria-label={t(runtimeStatusMessages.activityLog)}
       className="space-y-1 bg-white px-4 py-3 text-xs font-normal leading-5 text-app-body"
     >
       {items.map((item) =>
@@ -86,6 +91,7 @@ type ActivityTimelineItem =
     };
 
 function activityTimelineItems(
+  t: Translate,
   records: TeamHubMessageActivityRecord[],
   callPairs: ReadonlyMap<string, ToolCallPair>,
 ): ActivityTimelineItem[] {
@@ -100,7 +106,9 @@ function activityTimelineItems(
       record = {
         ...record,
         category: "tool_call",
-        tool_name: toolNameLabel(stringValue(invocation?.tool) ?? "Tool call"),
+        tool_name: toolNameLabel(
+          stringValue(invocation?.tool) ?? t(m.toolCall),
+        ),
       };
     } else if (record.category === "tool_call") {
       if (
@@ -109,7 +117,7 @@ function activityTimelineItems(
       )
         continue;
     } else if (record.category === "reasoning") {
-      const summary = reasoningText(record);
+      const summary = reasoningText(t, record);
       if (!summary?.trim()) continue;
       if (thinkingTitles.has(summary)) continue;
       thinkingTitles.add(summary);
@@ -117,7 +125,7 @@ function activityTimelineItems(
       if (
         isEventRecord(record) ||
         (!isAssistantMessage(record) && !isUserMessage(record)) ||
-        (isUserMessage(record) && activityMessageText(record).length > 240)
+        (isUserMessage(record) && activityMessageText(t, record).length > 240)
       )
         continue;
     } else {
@@ -169,19 +177,22 @@ function activityTimelineItems(
 }
 
 function RuntimeToolCallsActivity({ calls }: { calls: ActivityToolCall[] }) {
+  const t = useT();
   const presentedCalls = calls.map(({ pair, record }) => {
-    const name = record.tool_name ?? pair?.call?.tool_name ?? "Tool call";
+    const name = record.tool_name ?? pair?.call?.tool_name ?? t(m.toolCall);
     const invocation = asObject(nativePayload(record)?.invocation);
     // Native history carries tool names, not activity kinds: show the name.
     const shownName = stringValue(invocation?.tool) ?? name;
     return {
       record,
       name: shownName,
-      ...toolPresentation("tool", shownName),
+      ...toolPresentation(t, "tool", shownName),
     };
   });
-  const { icon: GroupIcon, label: groupLabel } =
-    toolGroupPresentation(presentedCalls);
+  const { icon: GroupIcon, label: groupLabel } = toolGroupPresentation(
+    t,
+    presentedCalls,
+  );
   return (
     <li>
       <details className="group">
@@ -227,8 +238,12 @@ function RuntimeActivityRecord({
 }: {
   record: TeamHubMessageActivityRecord;
 }) {
+  const t = useT();
   if (record.category === "reasoning") {
-    const title = reasoningText(record)?.replace(/^\*\*([\s\S]+)\*\*$/, "$1");
+    const title = reasoningText(t, record)?.replace(
+      /^\*\*([\s\S]+)\*\*$/,
+      "$1",
+    );
     return (
       <li className="flex min-h-8 items-start gap-2 py-1.5 text-app-muted">
         <Sparkles aria-hidden="true" className="mt-0.5 shrink-0" size={15} />
@@ -242,7 +257,7 @@ function RuntimeActivityRecord({
     <li className="py-2">
       <MessageMarkdown
         authorKind={isAssistantMessage(record) ? "agent" : "human"}
-        body={activityMessageText(record)}
+        body={activityMessageText(t, record)}
       />
     </li>
   );

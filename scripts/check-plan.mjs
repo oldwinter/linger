@@ -28,6 +28,7 @@ export const EVERYTHING_PATHS = [
 ];
 
 const COMPUTER_GO_PATHS = [
+  "apps/computer/package.json",
   "apps/computer/local-daemon/",
   "apps/computer/run-test.sh",
   "contracts/generated/go/runnergateway/",

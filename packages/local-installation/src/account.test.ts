@@ -1,8 +1,8 @@
 import {
+  mkdir,
   mkdtemp,
   readFile,
   writeFile,
-  stat,
   rm,
   symlink,
 } from "node:fs/promises";
@@ -11,6 +11,10 @@ import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { ensureLocalAccount, localIdentityProof } from "./account.js";
 import type { Instance } from "./instance.js";
+import {
+  expectPrivateFixtureFile,
+  shareFixtureFile,
+} from "./test-support/private-files.js";
 
 const provisionOwner =
   vi.fn<(email: string, password: string) => Promise<void>>();
@@ -85,7 +89,7 @@ it("creates the owner through stdin, confirms login and logs out before reusing 
   const saved = JSON.parse(await readFile(f.file, "utf8"));
   expect(saved.password.length).toBeGreaterThanOrEqual(24);
   expect(saved.provisioned).toBe(true);
-  expect((await stat(f.file)).mode & 0o777).toBe(0o600);
+  await expectPrivateFixtureFile(f.file);
   expect(requests).toEqual([
     "/v0/auth/login",
     "/v0/auth/login",
@@ -180,10 +184,20 @@ it("does not create an owner on an unexpected login error or leak server respons
 it("rejects nonprivate or linked credential files before network activity", async () => {
   const f = await fixture();
   const target = path.join(f.instance.root, "target");
-  await writeFile(target, "{}", { mode: 0o600 });
-  await symlink(target, f.file);
+  const instance = { ...f.instance };
+  if (process.platform === "win32") {
+    // A junction exercises reparse-point rejection without needing permission
+    // to create a Windows file symlink.
+    await mkdir(target);
+    await writeFile(path.join(target, path.basename(f.file)), "{}");
+    instance.root = path.join(f.instance.root, "junction");
+    await symlink(target, instance.root, "junction");
+  } else {
+    await writeFile(target, "{}", { mode: 0o600 });
+    await symlink(target, f.file);
+  }
   vi.stubGlobal("fetch", vi.fn());
-  await expect(ensureLocalAccount(f.instance, f.signal, owner)).rejects.toThrow(
+  await expect(ensureLocalAccount(instance, f.signal, owner)).rejects.toThrow(
     /private/,
   );
   expect(fetch).not.toHaveBeenCalled();
@@ -238,8 +252,7 @@ it("provides credentials only through a validated private login read", async () 
     email: "person@example.com",
     password: "a-private-password",
   });
-  const { chmod } = await import("node:fs/promises");
-  await chmod(f.file, 0o644);
+  await shareFixtureFile(f.file);
   await expect(readLocalLogin(f.instance)).rejects.toThrow(/private/);
 });
 it("rejects invalid custom credentials before writing or calling the account service", async () => {
@@ -300,8 +313,7 @@ it("reads the server identity from the private instance files", async () => {
     teamhub: "http://127.0.0.1:4100",
     key,
   });
-  const { chmod } = await import("node:fs/promises");
-  await chmod(keyFile, 0o644);
+  await shareFixtureFile(keyFile);
   await expect(readLocalIdentity(f.instance)).rejects.toThrow(/private/);
 });
 

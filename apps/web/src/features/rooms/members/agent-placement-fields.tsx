@@ -5,7 +5,15 @@ import { type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectItem } from "@/components/ui/select";
 import { ComputerSetupInstructions } from "@/features/local-computer/computer-setup-instructions";
+import { computersMessages } from "@/features/local-computer/computers.messages";
 import { LocalRuntimeAuthenticationGuidance } from "@/features/local-computer/local-runtime-authentication-guidance";
+import { commonMessages } from "@/i18n/common.messages";
+import { type Translate, translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
+
+import { agentInfoMessages } from "./agent-info.messages";
+import { agentRuntimeMessages } from "./agent-runtime.messages";
 
 import type { useLocalRuntimeSelection } from "./use-local-runtime-selection";
 
@@ -20,11 +28,12 @@ export function AgentPlacementFields({
   onSelectionChange: () => void;
   selection: ReturnType<typeof useLocalRuntimeSelection>;
 }) {
+  const t = useT();
   return (
     // eslint-disable-next-line jsx-a11y/role-supports-aria-props -- aria-description / aria-disabled / aria-invalid are valid ARIA 1.3 global or form-group attributes missing from the rule data
     <div
       aria-invalid={invalid || undefined}
-      aria-label="Agent runtime placement"
+      aria-label={t(agentInfoMessages.placementLabel)}
       className={`space-y-4 rounded-lg transition-shadow ${invalid ? "ring-1 ring-inset ring-app-danger" : ""}`}
       role="group"
       tabIndex={invalid ? -1 : undefined}
@@ -47,9 +56,12 @@ export function LocalRuntimeFields({
   onSelectionChange: () => void;
   selection: ReturnType<typeof useLocalRuntimeSelection>;
 }) {
+  const t = useT();
   if (selection.isPending) {
     return (
-      <LocalRuntimeStatus>Looking for Local Computers...</LocalRuntimeStatus>
+      <LocalRuntimeStatus>
+        {t(agentInfoMessages.lookingForComputers)}
+      </LocalRuntimeStatus>
     );
   }
   if (selection.error) {
@@ -58,7 +70,7 @@ export function LocalRuntimeFields({
         connected={false}
         disabled={disabled}
         onRetry={() => void selection.refetch()}
-        title="Local Computers are unavailable."
+        title={t(agentInfoMessages.computersUnavailable)}
         titleTone="danger"
       />
     );
@@ -69,7 +81,7 @@ export function LocalRuntimeFields({
         connected={false}
         disabled={disabled}
         onRetry={() => void selection.refetch()}
-        title="No Local Computer online"
+        title={t(agentInfoMessages.noComputerOnline)}
       />
     );
   }
@@ -77,9 +89,11 @@ export function LocalRuntimeFields({
   return (
     <div className="grid gap-3 rounded-lg bg-app-sidebar p-3">
       <label className="block">
-        <span className="mb-1.5 block text-sm font-medium">Computer</span>
+        <span className="mb-1.5 block text-sm font-medium">
+          {t(agentRuntimeMessages.computer)}
+        </span>
         <Select
-          aria-label="Local Computer"
+          aria-label={t(agentInfoMessages.localComputer)}
           className="ui-field-control w-full"
           disabled={disabled}
           onValueChange={(value) => {
@@ -96,9 +110,11 @@ export function LocalRuntimeFields({
         </Select>
       </label>
       <label className="block">
-        <span className="mb-1.5 block text-sm font-medium">Runtime</span>
+        <span className="mb-1.5 block text-sm font-medium">
+          {t(agentRuntimeMessages.runtime)}
+        </span>
         <Select
-          aria-label="Local Runtime"
+          aria-label={t(agentInfoMessages.localRuntime)}
           className="ui-field-control w-full capitalize"
           disabled={disabled}
           onValueChange={(value) => {
@@ -116,7 +132,7 @@ export function LocalRuntimeFields({
               key={runtime.type}
               value={runtime.type}
             >
-              {runtimeLabel(runtime.type, runtime.status)}
+              {runtimeLabel(runtime.type, runtime.status, t)}
             </SelectItem>
           ))}
         </Select>
@@ -133,31 +149,38 @@ export function LocalRuntimeFields({
         </div>
       ) : null}
       <p className="text-xs leading-4 text-app-muted">
-        Apps and Skills stay on this machine.
+        {t(agentInfoMessages.staysOnMachine)}
       </p>
     </div>
   );
 }
 
+type LocalRuntimeState =
+  | "not_installed"
+  | "authentication_required"
+  | "ready"
+  | "incompatible"
+  | "error"
+  | "unknown";
+
+const runtimeStateLabels: Record<LocalRuntimeState, Message<string>> = {
+  authentication_required: agentInfoMessages.statusSignInRequired,
+  error: agentInfoMessages.statusDetectionFailed,
+  unknown: computersMessages.statusUnavailable,
+  incompatible: agentInfoMessages.statusUpgradeRequired,
+  not_installed: computersMessages.notInstalled,
+  ready: computersMessages.ready,
+};
+
 function runtimeLabel(
   type: string,
-  status:
-    | "not_installed"
-    | "authentication_required"
-    | "ready"
-    | "incompatible"
-    | "error"
-    | "unknown",
+  status: LocalRuntimeState,
+  t: Translate = translate,
 ) {
-  const detail = {
-    authentication_required: "Sign in required",
-    error: "Detection failed",
-    unknown: "Status unavailable",
-    incompatible: "Upgrade required",
-    not_installed: "Not installed",
-    ready: "Ready",
-  }[status];
-  return `${type} - ${detail}`;
+  return t(agentInfoMessages.runtimeOption, {
+    runtime: type,
+    status: t(runtimeStateLabels[status]),
+  });
 }
 
 function LocalComputerSetupPrompt({
@@ -173,6 +196,7 @@ function LocalComputerSetupPrompt({
   title: string;
   titleTone?: "danger";
 }) {
+  const t = useT();
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -182,14 +206,14 @@ function LocalComputerSetupPrompt({
           {title}
         </p>
         <Button
-          aria-label="Retry Local Computers"
+          aria-label={t(agentInfoMessages.retryComputers)}
           disabled={disabled}
           onClick={onRetry}
           size="compact"
           type="button"
         >
           <Icon icon={RefreshIcon} size={14} />
-          Retry
+          {t(commonMessages.retry)}
         </Button>
       </div>
       <ComputerSetupInstructions connected={connected} />

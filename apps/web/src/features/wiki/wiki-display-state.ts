@@ -8,15 +8,46 @@ import { removePreferenceKeys } from "@/lib/local-preference-keys";
 
 const WIKI_DISPLAY_PREFIX = "linger:wiki-display:v1:";
 
-export const wikiCollectionLabels = {
-  projects: "Projects",
-  topics: "Topics",
-  contacts: "People",
-  clients: "Companies",
+import { wikiMessages as m } from "./wiki.messages";
+
+/** The wording of each collection, by its route and data key. */
+export const wikiCollections = {
+  projects: {
+    count: m.projectCount,
+    files: m.projectFiles,
+    label: m.projects,
+    noMatch: m.noProjectsMatch,
+    noneGenerated: m.noGeneratedProjects,
+    search: m.searchProjects,
+  },
+  topics: {
+    count: m.topicCount,
+    files: m.topicFiles,
+    label: m.topics,
+    noMatch: m.noTopicsMatch,
+    noneGenerated: m.noGeneratedTopics,
+    search: m.searchTopics,
+  },
+  contacts: {
+    count: m.peopleCount,
+    files: m.peopleFiles,
+    label: m.people,
+    noMatch: m.noPeopleMatch,
+    noneGenerated: m.noGeneratedPeople,
+    search: m.searchPeople,
+  },
+  clients: {
+    count: m.companyCount,
+    files: m.companyFiles,
+    label: m.companies,
+    noMatch: m.noCompaniesMatch,
+    noneGenerated: m.noGeneratedCompanies,
+    search: m.searchCompanies,
+  },
 } as const;
-export type WikiCollection = keyof typeof wikiCollectionLabels;
+export type WikiCollection = keyof typeof wikiCollections;
 export function isWikiCollection(value: string): value is WikiCollection {
-  return Object.hasOwn(wikiCollectionLabels, value);
+  return Object.hasOwn(wikiCollections, value);
 }
 export function wikiPagePath(document: TeamHubDocument) {
   return (

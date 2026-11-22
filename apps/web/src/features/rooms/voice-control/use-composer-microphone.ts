@@ -1,5 +1,8 @@
 import { useCallback } from "react";
 
+import { translate } from "@/i18n/language";
+
+import { composerMessages } from "../chat/composer.messages";
 import { tryAcquireVoicePublisherLease } from "./voice-publisher-lease";
 import type { VoiceControlState } from "./use-voice-control-state";
 
@@ -27,9 +30,11 @@ export function useComposerMicrophone(
         refs.startPromiseRef.current ||
         refs.enablePromiseRef.current
       )
-        throw new Error("Another voice input is using the microphone");
+        throw new Error(translate(composerMessages.microphoneInUse));
       if (recording()) {
-        throw new Error("Hardware recording is using the microphone");
+        throw new Error(
+          translate(composerMessages.microphoneHardwareRecording),
+        );
       }
       // Chat dictation has a separate purpose and must not reuse a hardware
       // session or re-enable its listener when the dictation lease is released.
@@ -40,11 +45,11 @@ export function useComposerMicrophone(
         refs.enablePromiseRef.current ||
         recording()
       )
-        throw new Error("Another voice input is using the microphone");
+        throw new Error(translate(composerMessages.microphoneInUse));
       if (!refs.publisherLeaseRef.current) {
         const release = await tryAcquireVoicePublisherLease(tenantId);
         if (!release)
-          throw new Error("The microphone is active in another tab");
+          throw new Error(translate(composerMessages.microphoneOtherTab));
         if (
           refs.composerLeaseRef.current ||
           refs.startPromiseRef.current ||
@@ -52,7 +57,7 @@ export function useComposerMicrophone(
           recording()
         ) {
           release();
-          throw new Error("Another voice input is using the microphone");
+          throw new Error(translate(composerMessages.microphoneInUse));
         }
         refs.publisherLeaseRef.current = release;
       }

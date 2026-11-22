@@ -243,6 +243,14 @@ describe("execution Context instructions", () => {
       expect(gmailOnly).not.toContain("teamhub gcal");
       expect(gmailOnly).not.toContain("teamhub slack");
       expect(gmailOnly).not.toContain("other connected apps");
+      const outlookOnly = renderComposed(scene, {
+        ...fullDeployment,
+        connectedAppKeys: ["outlook"],
+      })!;
+      expect(outlookOnly).toContain(
+        "- calendar (teamhub outlook-calendar list / free / read)",
+      );
+      expect(outlookOnly).toContain("- mail (teamhub outlook list / read)");
       const outlookCalendar = renderComposed(scene, {
         ...fullDeployment,
         connectedAppKeys: ["outlook_calendar"],

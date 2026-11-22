@@ -405,8 +405,10 @@ daemon from `resources/computer/`, so every package carries them as
 dependency package: the Node.js archive checksums in
 `scripts/local-computer-node-distributions.mjs`, the Cua driver checksums in
 `apps/computer/scripts/bundle-computer-tools.mjs` and the frozen pnpm
-lockfile. A source build keeps staged tools that still validate against the
-manifest and the Node.js pin recorded beside them, and links
+lockfile. The package includes the pinned QuickJS JavaScript engine and its
+WebAssembly binary for `computer.ui_exec`. The validator checks the engine
+version and requires its files in the manifest. A source build keeps staged
+tools that still validate against the manifest and the Node.js pin, and links
 `dist/computer/cli` and `dist/computer/runtime` to this machine's tools; delete
 `dist/computer-tools/` to stage them again. `packaging/computer_tools.py`
 copies them into the app, checks them with the same validator and checks the
@@ -472,8 +474,10 @@ Windows, Linux x64 and Apple silicon bundle PostgreSQL in the app instead
 elsewhere), so Native works without the CDN. Put the pinned archives in
 `LINGER_NATIVE_POSTGRES_DIR` before `node build.mjs`; the build fails without
 them. To download it instead, replace `file` with the HTTPS `url` once it is on
-the CDN. Native PostgreSQL refuses an elevated Linger ("Run as
-administrator"), as it refuses root elsewhere.
+the CDN. `postgres.exe` refuses a token with Administrators enabled, so an
+elevated Linger ("Run as administrator", the built-in Administrator) starts it
+from a copy of its token with that group disabled, as `pg_ctl` does. Native
+PostgreSQL still refuses root elsewhere.
 
 Every target also bundles the voice tools (`voiceTools`, about 40 MB each):
 the official LiveKit server release (Apple silicon: built from the tagged

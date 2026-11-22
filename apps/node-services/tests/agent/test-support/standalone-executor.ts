@@ -72,6 +72,7 @@ export async function createStandaloneExecutor<TRuntimeSettings>(input: {
   const { options } = input;
   const composed: ComposedContextFeatures = {
     matched: options.permissionReview ? [TOOL_APPROVAL_FEATURE_ID] : [],
+    hasRunStopHooks: false,
     contextInstructions: (facts) =>
       options.renderDeveloperInstructions?.(facts),
     notificationContext: (notification) =>
@@ -82,6 +83,7 @@ export async function createStandaloneExecutor<TRuntimeSettings>(input: {
       options.features.afterInboxInputAccepted(fact),
     onRunTerminal: (event) => options.onRunTerminal?.(event),
     onRunEvent: (event) => options.features.onRunEvent(event),
+    evaluateRunBeforeStop: async () => ({ decision: { action: "allow" } }),
     decideMaintenance: () => null,
     onMaintenance: () => undefined,
     onTimer: () => undefined,

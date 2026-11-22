@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import {
+  COMPUTER_TOOL_VERSIONS,
+  QUICKJS_TOOL_ASSETS,
+} from "../computer-tool-bundle.mjs";
 
 // Installer tests already replace Node and Go with fixture executables. Keep
 // tool assets small here too; the real pinned packages have separate protocol
@@ -13,6 +17,7 @@ export const stageFixtureComputerTools = async (
   const files = [
     "extensions/pi-mcp.mjs",
     "node_modules/@playwright/mcp/cli.js",
+    ...QUICKJS_TOOL_ASSETS,
   ];
   if (target.startsWith("darwin-"))
     files.push("cua/cua-driver", "cua/CuaDriver.app/Contents/MacOS/cua-driver");
@@ -34,7 +39,7 @@ export const stageFixtureComputerTools = async (
     path.join(root, "manifest.json"),
     JSON.stringify({
       schema_version: 1,
-      versions: { playwright: "0.0.83", pi: "1.2.0", cua: "0.35.4" },
+      versions: COMPUTER_TOOL_VERSIONS,
       target,
       playwright_entry: "node_modules/@playwright/mcp/cli.js",
       pi_extension: "extensions/pi-mcp.mjs",

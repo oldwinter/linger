@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
+
 import { ActorAvatar } from "../members/actor-avatar";
 import { useProfileCardContent } from "./profile-card-content";
 
@@ -64,6 +67,7 @@ function MessageCardLayout({
 }: MessageCardProps & {
   profileContent?: ReturnType<typeof useProfileCardContent>;
 }) {
+  const t = useT();
   if (!profile) {
     // A delivery shows only its files, like any Message's files; the Agent
     // says what they are in its own words. A card without files, or a
@@ -142,7 +146,7 @@ function MessageCardLayout({
             className="inline-flex min-h-9 items-center justify-center rounded-full border border-app-border px-4 text-sm font-medium text-app-ink transition-colors hover:bg-app-surface-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app-focus"
             to={profile.wikiPath}
           >
-            Open
+            {t(commonMessages.open)}
           </Link>
         </div>
       ) : null}

@@ -891,4 +891,207 @@ describe("RunnerGateway", () => {
       "not active",
     );
   });
+
+  it("omits stop_hook from provider.prepare, operation.prepare, and operation.start for Computers below 0.57.0", async () => {
+    const gateway = createTestRunnerGateway({
+      heartbeatIntervalMs: 1_000,
+      createId: sequenceIds(),
+    });
+    const peer = new RecordingPeer();
+    const connection = await acceptReadyConnection(
+      gateway,
+      peer,
+      { ...contextHello(), daemon_version: "0.56.0" },
+      defaultAgentPlacement({ workspaceGrantId: "grant-owner" }),
+    );
+    const context = localContextViewIdentity();
+    const prepareTarget = {
+      tenantId: context.tenantId,
+      agentId: context.agentId,
+      runnerId: context.computerId,
+      ownerActorId: "actor-alice",
+      workspaceGrantId: context.workspaceGrantId,
+      executionContextKey: context.executionContextKey,
+      runtimeInstanceId: context.runtimeInstanceId,
+    };
+
+    expect(
+      gateway.prepareProvider(prepareTarget, {
+        runtime: { type: "codex" },
+        sessionOptions: { thread_name: "Reviewer" },
+        session: { threadId: "thread-existing" },
+        contextViewRef: { view_digest: context.viewDigest },
+        runContext: { stop_hook: true },
+      }),
+    ).toBeDefined();
+    expect(
+      gateway.prepareProvider(prepareTarget, {
+        runtime: { type: "codex" },
+        sessionOptions: { thread_name: "Reviewer" },
+        session: { threadId: "thread-existing" },
+        contextViewRef: { view_digest: context.viewDigest },
+        runContext: { permission_review: true, stop_hook: true },
+      }),
+    ).toBeDefined();
+    const providerPrepares = peer.sent.filter(
+      (envelope) =>
+        envelope.type === "prepare" && envelope.target === "provider",
+    );
+    expect(providerPrepares).toHaveLength(2);
+    expect(providerPrepares[0]).not.toHaveProperty("run_context");
+    expect(providerPrepares[1]).toMatchObject({
+      run_context: { permission_review: true },
+    });
+
+    const baseTarget = contextRunTarget(context, [
+      {
+        name: "teamhub",
+        relay_url: "https://agent.test/v1/local-mcp-relay/relay-old-daemon",
+        relay_token: "r".repeat(32),
+        tool_names: ["send_message"],
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+      },
+    ]);
+    const operation = await gateway.startOperation({
+      ...baseTarget,
+      request: {
+        ...baseTarget.request,
+        run_context: {
+          ...baseTarget.request.run_context,
+          stop_hook: true,
+        },
+      },
+    });
+    const opPrepare = peer.sent.find(
+      (envelope) =>
+        envelope.type === "prepare" && envelope.target === "operation",
+    );
+    const start = peer.sent.find(
+      (envelope) => envelope.type === "operation.start",
+    );
+    if (
+      opPrepare?.type !== "prepare" ||
+      opPrepare.target !== "operation" ||
+      start?.type !== "operation.start"
+    ) {
+      throw new Error("Expected operation.prepare and operation.start");
+    }
+    expect(opPrepare.stop_hook).toBeUndefined();
+    expect(start.request.run_context.stop_hook).toBeUndefined();
+
+    await connection.receive(
+      event(start, 1, {
+        type: "operation.accepted",
+        command_id: start.command_id,
+        runner_pid: 100,
+      }),
+    );
+    await connection.receive(
+      event(start, 2, {
+        type: "operation.completed",
+        result: {
+          type: "run",
+          final_response: "done",
+          session: { thread_id: "thread-1" },
+        },
+      }),
+    );
+    await operation.result;
+  });
+
+  it("sends stop_hook in provider.prepare, operation.prepare, and operation.start for Computers at 0.57.0 or later", async () => {
+    const gateway = createTestRunnerGateway({
+      heartbeatIntervalMs: 1_000,
+      createId: sequenceIds(),
+    });
+    const peer = new RecordingPeer();
+    const connection = await acceptReadyConnection(
+      gateway,
+      peer,
+      { ...contextHello(), daemon_version: "0.57.0" },
+      defaultAgentPlacement({ workspaceGrantId: "grant-owner" }),
+    );
+    const context = localContextViewIdentity();
+    const prepareTarget = {
+      tenantId: context.tenantId,
+      agentId: context.agentId,
+      runnerId: context.computerId,
+      ownerActorId: "actor-alice",
+      workspaceGrantId: context.workspaceGrantId,
+      executionContextKey: context.executionContextKey,
+      runtimeInstanceId: context.runtimeInstanceId,
+    };
+
+    expect(
+      gateway.prepareProvider(prepareTarget, {
+        runtime: { type: "codex" },
+        sessionOptions: { thread_name: "Reviewer" },
+        session: { threadId: "thread-existing" },
+        contextViewRef: { view_digest: context.viewDigest },
+        runContext: { stop_hook: true },
+      }),
+    ).toBeDefined();
+    const providerPrepare = peer.sent.find(
+      (envelope) =>
+        envelope.type === "prepare" && envelope.target === "provider",
+    );
+    expect(providerPrepare).toMatchObject({
+      run_context: { stop_hook: true },
+    });
+
+    const baseTarget = contextRunTarget(context, [
+      {
+        name: "teamhub",
+        relay_url: "https://agent.test/v1/local-mcp-relay/relay-new-daemon",
+        relay_token: "r".repeat(32),
+        tool_names: ["send_message"],
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+      },
+    ]);
+    const operation = await gateway.startOperation({
+      ...baseTarget,
+      request: {
+        ...baseTarget.request,
+        run_context: {
+          ...baseTarget.request.run_context,
+          stop_hook: true,
+        },
+      },
+    });
+    const opPrepare = peer.sent.find(
+      (envelope) =>
+        envelope.type === "prepare" && envelope.target === "operation",
+    );
+    const start = peer.sent.find(
+      (envelope) => envelope.type === "operation.start",
+    );
+    if (
+      opPrepare?.type !== "prepare" ||
+      opPrepare.target !== "operation" ||
+      start?.type !== "operation.start"
+    ) {
+      throw new Error("Expected operation.prepare and operation.start");
+    }
+    expect(opPrepare.stop_hook).toBe(true);
+    expect(start.request.run_context.stop_hook).toBe(true);
+
+    await connection.receive(
+      event(start, 1, {
+        type: "operation.accepted",
+        command_id: start.command_id,
+        runner_pid: 100,
+      }),
+    );
+    await connection.receive(
+      event(start, 2, {
+        type: "operation.completed",
+        result: {
+          type: "run",
+          final_response: "done",
+          session: { thread_id: "thread-1" },
+        },
+      }),
+    );
+    await operation.result;
+  });
 });

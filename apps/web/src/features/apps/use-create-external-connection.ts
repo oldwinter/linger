@@ -7,9 +7,11 @@ import type {
   TeamHubExternalAppKey,
   TeamHubExternalConnection,
 } from "@/features/teamhub/teamhub-types";
+import { translate } from "@/i18n/language";
 
 import { externalConnectionsQueryKey } from "./connected-apps-queries";
 import { startReauthorization, usableConnectUrl } from "./connection-state";
+import { connectorMessages as m } from "./connectors.messages";
 import { openOAuthUrl } from "./oauth-popup";
 
 /** Composio refused the project API key, so a new key is needed to connect. */
@@ -46,8 +48,8 @@ export function useCreateExternalConnection({
   const reauthorize = useMutation({
     mutationFn: async (connection: TeamHubExternalConnection) => {
       const connectUrl = await startReauthorization(client, connection);
-      if (!connectUrl)
-        throw new Error("Reconnecting could not be started. Try again.");
+      // Worded when it happens, like the errors TeamHub sends.
+      if (!connectUrl) throw new Error(translate(m.reconnectNotStarted));
       resume(connectUrl);
     },
     onSettled: () =>

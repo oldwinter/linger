@@ -121,9 +121,14 @@ components:
       default: general
     LocalRuntimeType:
       type: string
-      enum: [codex, claude, pi]
+      enum: [codex, claude, pi, antigravity]
       x-enum-varnames:
-        [LocalRuntimeTypeCodex, LocalRuntimeTypeClaude, LocalRuntimeTypePi]
+        [
+          LocalRuntimeTypeCodex,
+          LocalRuntimeTypeClaude,
+          LocalRuntimeTypePi,
+          LocalRuntimeTypeAntigravity,
+        ]
     AgentRuntimePlacement:
       type: object
       additionalProperties: false
@@ -506,6 +511,24 @@ components:
       type: string
       enum: [online, error, offline, unknown]
       description: Runtime availability. Managed Task execution is represented by active_task_count.
+    TenantAgentAvailabilityReason:
+      type: string
+      enum:
+        [
+          online,
+          status_unavailable,
+          reconnecting,
+          authentication_required,
+          waiting_for_computer,
+          runtime_not_installed,
+          runtime_incompatible,
+          runtime_error,
+        ]
+      description: >-
+        Why the Agent has its status, as a stable code clients word in their own language.
+        `label` and `current_activity.summary` carry the same state in English for clients
+        that do not know the code. With `runtime_error` the summary is the Runtime's own
+        diagnostic text.
     TenantAgentCurrentActivity:
       type: object
       additionalProperties: false
@@ -530,6 +553,9 @@ components:
           type: string
           minLength: 1
           maxLength: 120
+          description: English wording of the status, the fallback for clients that do not know `reason`.
+        reason:
+          $ref: "#/components/schemas/TenantAgentAvailabilityReason"
         active_task_count:
           type: integer
           format: int64

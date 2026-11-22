@@ -7,16 +7,23 @@ export const runtimeDiagnostics = (options?: {
   readonly ready?: readonly RuntimeDiagnostic["type"][];
   /** How every model is reached; subscription runs several units at once. */
   readonly link?: "api" | "subscription";
-}): [RuntimeDiagnostic, RuntimeDiagnostic, RuntimeDiagnostic] => {
+}): [
+  RuntimeDiagnostic,
+  RuntimeDiagnostic,
+  RuntimeDiagnostic,
+  RuntimeDiagnostic,
+] => {
   const ready = new Set(options?.ready ?? ["codex"]);
   const authenticationRequired = new Set(options?.authenticationRequired ?? []);
-  return (["codex", "claude", "pi"] as const).map((type) => {
+  return (["codex", "claude", "pi", "antigravity"] as const).map((type) => {
     const protocol =
       type === "codex"
         ? ("app-server" as const)
         : type === "claude"
           ? ("stream-json" as const)
-          : ("rpc" as const);
+          : type === "pi"
+            ? ("rpc" as const)
+            : ("acp" as const);
     // A current Computer reports each ready Runtime's model catalog.
     const models: NonNullable<RuntimeDiagnostic["models"]> = [
       {
@@ -59,5 +66,10 @@ export const runtimeDiagnostics = (options?: {
         message: `${type} is not installed`,
       },
     };
-  }) as [RuntimeDiagnostic, RuntimeDiagnostic, RuntimeDiagnostic];
+  }) as [
+    RuntimeDiagnostic,
+    RuntimeDiagnostic,
+    RuntimeDiagnostic,
+    RuntimeDiagnostic,
+  ];
 };

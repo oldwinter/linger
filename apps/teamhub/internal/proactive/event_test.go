@@ -66,7 +66,11 @@ func TestEventWakeNamesTheGrantedAccount(t *testing.T) {
 	if text := eventText("[e]", event, ""); !strings.HasPrefix(text, "[e]\nsource: outlook; kind: new_mail; connection: external_connection_abc\n") {
 		t.Fatalf("wake text without a label=%q", text)
 	}
-	event.Source = "gmail"
+	event.Source, event.Kind = reminder.ListenerOutlookCalendar, "calendar_created"
+	if text := eventText("[e]", event, "work@example.com"); !strings.HasPrefix(text, "[e]\nsource: outlook_calendar; kind: calendar_created; account: work@example.com; account note: Microsoft sign-in name, the mailbox address may differ; connection: external_connection_abc\n") {
+		t.Fatalf("outlook calendar wake text=%q", text)
+	}
+	event.Source, event.Kind = "gmail", "new_mail"
 	if text := eventText("[e]", event, "work@example.com"); !strings.HasPrefix(text, "[e]\nsource: gmail; kind: new_mail; account: work@example.com; connection: external_connection_abc\n") {
 		t.Fatalf("gmail wake text=%q", text)
 	}

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 const demoSkillDigest = "b46c269b8ee9240b2626d113988e1a5e431a5f928997f30f38a0737b974944a7"
@@ -150,4 +151,83 @@ func TestEnsureReportsAnUnavailableSkillPackage(t *testing.T) {
 	if _, err := store.Ensure(t.Context(), testRequest("context-1", digest), source); !errors.Is(err, ErrSkillPackageUnavailable) {
 		t.Fatalf("unavailable package error=%v", err)
 	}
+}
+
+func TestEnsureFetchesTheSkillPackagesOfAViewTogether(t *testing.T) {
+	content := newTestContent(t)
+	store := openTestStore(t)
+	archives, skills := twoSkillPackages(t)
+	// Each fetch answers only once every fetch has started, so fetches made
+	// one after another never finish.
+	var arrived atomic.Int32
+	ready := make(chan struct{})
+	source := ContentSource{ContentURL: content.url(), FetchSkillPackage: func(ctx context.Context, manifestID string) (io.ReadCloser, error) {
+		if arrived.Add(1) == int32(len(skills)) {
+			close(ready)
+		}
+		select {
+		case <-ready:
+			return io.NopCloser(bytes.NewReader(archives[manifestID])), nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}}
+	digest := content.publish(t, "context-1", "runtime-1", nil, nil, skills)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	if _, err := store.Ensure(ctx, testRequest("context-1", digest), source); err != nil {
+		t.Fatalf("packages fetched one at a time: %v", err)
+	}
+}
+
+func TestEnsureReportsTheFailedSkillPackageAndStopsTheOthers(t *testing.T) {
+	content := newTestContent(t)
+	store := openTestStore(t)
+	_, skills := twoSkillPackages(t)
+	// The first package is still downloading when TeamHub refuses the second.
+	downloading := make(chan struct{})
+	released := make(chan struct{})
+	source := ContentSource{ContentURL: content.url(), FetchSkillPackage: func(ctx context.Context, manifestID string) (io.ReadCloser, error) {
+		if manifestID == skills[0].ManifestID {
+			close(downloading)
+			<-ctx.Done()
+			close(released)
+			return nil, ctx.Err()
+		}
+		select {
+		case <-downloading:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		return nil, ErrSkillPackageUnavailable
+	}}
+	digest := content.publish(t, "context-1", "runtime-1", nil, nil, skills)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	if _, err := store.Ensure(ctx, testRequest("context-1", digest), source); !errors.Is(err, ErrSkillPackageUnavailable) {
+		t.Fatalf("View failure=%v, want the refused package", err)
+	}
+	select {
+	case <-released:
+	default:
+		t.Fatal("the other download was not stopped")
+	}
+}
+
+// twoSkillPackages returns two Skill packages of a View and their archives by
+// manifest ID.
+func twoSkillPackages(t *testing.T) (map[string][]byte, []Skill) {
+	t.Helper()
+	archives := map[string][]byte{}
+	var skills []Skill
+	for _, name := range []string{"first", "second"} {
+		archive := skillArchive(t, []zipEntry{{name: "SKILL.md", body: "---\nname: " + name + "\n---\n"}})
+		files, err := extractSkillPackage(archive, filepath.Join(t.TempDir(), "files"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		archives["manifest_"+name] = archive
+		skills = append(skills, Skill{PackageName: name, ManifestID: "manifest_" + name, PackageSHA256: skillPackageDigest(files)})
+	}
+	return archives, skills
 }

@@ -23,7 +23,10 @@ import {
   type Ref,
 } from "react";
 
+import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
+
+import { pocketNotesMessages as m } from "./pocket-notes.messages";
 
 // Each block remains one Markdown line, including empty lines and heading markers.
 const schema = new Schema({
@@ -76,6 +79,22 @@ function noteText(doc: ProseMirrorNode | Fragment) {
   return lines.join("\n");
 }
 
+/** The page's own attributes; its name and placeholder follow the language. */
+function pageAttributes(label: string, placeholder: string) {
+  return {
+    role: "textbox",
+    "aria-label": label,
+    "aria-multiline": "true",
+    "data-placeholder": placeholder,
+    class: cn(
+      "min-h-full whitespace-pre-wrap [overflow-wrap:anywhere] outline-none [&>*]:m-0",
+      "[&>:is(h1,h2,h3,h4,h5,h6)]:font-[580] [&>:is(h1,h2,h3,h4,h5,h6)]:leading-[1.4]",
+      "[&>h1]:text-[24px] [&>h2]:text-[20px] [&>:is(h3,h4,h5,h6)]:text-[16px]",
+      "before:pointer-events-none before:float-left before:h-0 before:text-app-placeholder [&:has(>p:only-child>br:only-child)]:before:content-[attr(data-placeholder)]",
+    ),
+  };
+}
+
 export interface PocketNoteEditorHandle {
   selectionStart: () => number;
   focusAt: (offset: number) => void;
@@ -102,6 +121,10 @@ export function PocketNoteEditor({
   const [initialDoc] = useState(() => parseNote(value));
   const changed = useEffectEvent(onChange);
   const full = useEffectEvent(onFull);
+  const t = useT();
+  const label = t(m.todayNote);
+  const placeholder = t(m.placeholder);
+  const attributes = useEffectEvent(() => pageAttributes(label, placeholder));
 
   useLayoutEffect(() => {
     const editor = new EditorView(host.current, {
@@ -145,18 +168,7 @@ export function PocketNoteEditor({
           }),
         ],
       }),
-      attributes: {
-        role: "textbox",
-        "aria-label": "Today’s note",
-        "aria-multiline": "true",
-        "data-placeholder": "Jot anything down. Tomorrow starts a fresh page.",
-        class: cn(
-          "min-h-full whitespace-pre-wrap [overflow-wrap:anywhere] outline-none [&>*]:m-0",
-          "[&>:is(h1,h2,h3,h4,h5,h6)]:font-[580] [&>:is(h1,h2,h3,h4,h5,h6)]:leading-[1.4]",
-          "[&>h1]:text-[24px] [&>h2]:text-[20px] [&>:is(h3,h4,h5,h6)]:text-[16px]",
-          "before:pointer-events-none before:float-left before:h-0 before:text-app-placeholder [&:has(>p:only-child>br:only-child)]:before:content-[attr(data-placeholder)]",
-        ),
-      },
+      attributes: attributes(),
       clipboardTextParser: (text) => new Slice(parseNote(text).content, 0, 0),
       clipboardTextSerializer: (slice) => noteText(slice.content),
       handleDOMEvents: {
@@ -181,6 +193,11 @@ export function PocketNoteEditor({
       editor.destroy();
     };
   }, [initialDoc, maxLength]);
+
+  // A language switch renames the open page without rebuilding the editor.
+  useLayoutEffect(() => {
+    view.current?.setProps({ attributes: pageAttributes(label, placeholder) });
+  }, [label, placeholder]);
 
   useLayoutEffect(() => {
     const editor = view.current;

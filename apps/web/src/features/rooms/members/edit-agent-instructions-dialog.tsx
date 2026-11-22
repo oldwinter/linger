@@ -2,11 +2,11 @@ import { type FormEvent, useId, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ModalDialog } from "@/components/ui/modal-dialog";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 
-import {
-  presentAgentInstructions,
-  UNSET_AGENT_INSTRUCTIONS,
-} from "./agent-instruction-text";
+import { agentInfoMessages } from "./agent-info.messages";
+import { presentAgentInstructions } from "./agent-instruction-text";
 
 export function EditAgentInstructionsDialog({
   instructions,
@@ -23,6 +23,7 @@ export function EditAgentInstructionsDialog({
   onClose: () => void;
   onSave: (input: { instructions: string }) => void;
 }) {
+  const t = useT();
   const formId = useId();
   const [draft, setDraft] = useState(() =>
     presentAgentInstructions(instructions),
@@ -37,14 +38,14 @@ export function EditAgentInstructionsDialog({
 
   return (
     <ModalDialog
-      description="Define how your Agent should work and respond."
+      description={t(agentInfoMessages.instructionsDescription)}
       onClose={onClose}
       size="md"
-      title="Edit instructions"
+      title={t(agentInfoMessages.editInstructions)}
       footer={
         <>
-          <Button onClick={onClose} type="button">
-            {canEdit ? "Cancel" : "Close"}
+          <Button data-voice-close onClick={onClose} type="button">
+            {t(canEdit ? commonMessages.cancel : commonMessages.close)}
           </Button>
           {canEdit ? (
             <Button
@@ -54,7 +55,7 @@ export function EditAgentInstructionsDialog({
               tone="primary"
               type="submit"
             >
-              Save
+              {t(commonMessages.save)}
             </Button>
           ) : null}
         </>
@@ -62,12 +63,12 @@ export function EditAgentInstructionsDialog({
     >
       <form className="px-5 py-4" id={formId} onSubmit={submit}>
         <textarea
-          aria-label="Agent instructions"
+          aria-label={t(agentInfoMessages.agentInstructions)}
           className="min-h-64 w-full resize-y rounded-md border border-border bg-card px-3 py-2.5 text-sm leading-6 text-foreground outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-app-placeholder hover:border-border-hover focus:border-foreground focus:ring-2 focus:ring-ring disabled:opacity-60"
           disabled={disabled}
           maxLength={50000}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder={UNSET_AGENT_INSTRUCTIONS}
+          placeholder={t(agentInfoMessages.instructionsUnset)}
           value={draft}
         />
         {error ? (

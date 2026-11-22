@@ -19,6 +19,9 @@ import type {
   TeamHubExternalApp,
   TeamHubExternalConnection,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
+
 import { AppLogo } from "./app-logo";
 import {
   establishedExternalConnections,
@@ -30,8 +33,7 @@ import {
   externalConnectionAgentAccessQueryKey,
   externalConnectionAgentAccessQueryOptions,
 } from "./connected-apps-queries";
-
-const GROUP_LABEL = "Accounts this Agent can use";
+import { connectorMessages as m } from "./connectors.messages";
 
 export function AgentConnectors({
   agentActorId,
@@ -41,21 +43,23 @@ export function AgentConnectors({
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const apps = useQuery(externalAppsQueryOptions(client));
   const connections = useQuery(externalConnectionsQueryOptions(client));
+  const groupLabel = t(m.agentAccounts);
   if (apps.isPending || connections.isPending)
     return (
-      <SettingsGroup ariaLabel={GROUP_LABEL}>
+      <SettingsGroup ariaLabel={groupLabel}>
         <SettingsRow icon={<Icon icon={PlugSocketIcon} size={16} />}>
           <p className="flex-1 text-[14px] text-muted-foreground" role="status">
-            Loading connectors...
+            {t(m.loadingConnectors)}
           </p>
         </SettingsRow>
       </SettingsGroup>
     );
   if (apps.error || connections.error)
     return (
-      <SettingsGroup ariaLabel={GROUP_LABEL}>
+      <SettingsGroup ariaLabel={groupLabel}>
         <SettingsRow icon={<Icon icon={PlugSocketIcon} size={16} />}>
           <p
             className="min-w-0 flex-1 text-[14px] text-app-danger"
@@ -70,7 +74,7 @@ export function AgentConnectors({
             }
           >
             <Icon icon={RefreshIcon} size={14} />
-            Retry
+            {t(commonMessages.retry)}
           </Button>
         </SettingsRow>
       </SettingsGroup>
@@ -88,7 +92,7 @@ export function AgentConnectors({
   const appsPath = `/t/${tenantId}/apps`;
   return (
     <div className="flex flex-col gap-5">
-      <SettingsGroup ariaLabel={GROUP_LABEL}>
+      <SettingsGroup ariaLabel={groupLabel}>
         {connected.length ? (
           connected.map(({ app, accounts }) => (
             <section key={app.key} aria-label={app.display_name}>
@@ -106,7 +110,7 @@ export function AgentConnectors({
           ))
         ) : (
           <SettingsRow icon={<Icon icon={PlugSocketIcon} size={16} />}>
-            <SettingsRowText muted title="No connected accounts yet." />
+            <SettingsRowText muted title={t(m.noConnectedAccounts)} />
           </SettingsRow>
         )}
       </SettingsGroup>
@@ -117,7 +121,7 @@ export function AgentConnectors({
         >
           <SettingsRow icon={<Icon icon={PlusSignIcon} size={16} />}>
             <span className="flex-1 text-[14px] font-medium text-foreground">
-              Connect another app
+              {t(m.connectAnotherApp)}
             </span>
             <Icon
               className="text-muted-foreground/70"
@@ -146,6 +150,7 @@ function AgentConnectionAccess({
 }) {
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
+  const t = useT();
   const access = useQuery({
     ...externalConnectionAgentAccessQueryOptions(client, connection.id),
     enabled: connection.status === "active",
@@ -177,14 +182,16 @@ function AgentConnectionAccess({
     <span
       className={connection.status === "pending" ? "town-shimmer-text" : ""}
     >
-      {connection.status === "pending"
-        ? "Connection pending"
-        : "Connection needs attention"}
+      {t(
+        connection.status === "pending"
+          ? m.connectionPending
+          : m.connectionNeedsAttention,
+      )}
     </span>
   ) : access.data && !agent ? (
-    "Access unavailable for this Agent"
+    t(m.accessUnavailable)
   ) : (
-    accountIdentityText(connection.provider, connection.identity_label)
+    accountIdentityText(connection.provider, connection.identity_label, t)
   );
   return (
     <SettingsRow
@@ -202,21 +209,23 @@ function AgentConnectionAccess({
           className="shrink-0 text-xs font-medium text-app-link hover:underline"
           to={managePath}
         >
-          Manage
+          {t(m.manage)}
         </Link>
       ) : access.isPending ? (
         <span className="shrink-0 text-xs text-muted-foreground" role="status">
-          Loading access...
+          {t(m.loadingAccess)}
         </span>
       ) : access.error ? (
         <Button size="compact" onClick={() => void access.refetch()}>
-          Retry access
+          {t(m.retryAccess)}
         </Button>
       ) : (
         <input
           type="checkbox"
           role="switch"
-          aria-label={`Allow Agent access to ${connection.identity_label || connection.provider}`}
+          aria-label={t(m.allowAgentAccess, {
+            account: connection.identity_label || connection.provider,
+          })}
           checked={agent?.granted ?? false}
           disabled={!agent || update.isPending}
           onChange={(event) => update.mutate(event.target.checked)}

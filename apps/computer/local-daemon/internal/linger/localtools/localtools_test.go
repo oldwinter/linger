@@ -195,10 +195,15 @@ func runToolFixture(mode string) {
 						title = fmt.Sprintf("Tab %d", tabs-1)
 					}
 					windows := []any{map[string]any{"pid": 42, "window_id": 9, "title": title, "z_index": 3, "is_on_screen": true, "bounds": map[string]any{"width": 800, "height": 600}}}
-					if strings.HasPrefix(mode, "tabs-everyday") && strings.Count(string(data), `"name":"open"`) >= 2 {
-						// After the start and the command line, a window of
-						// the user's that Chrome restored late lists before
-						// the Computer's window.
+					opens := 2
+					if mode == "tabs-everyday-running" {
+						opens = 1
+					}
+					if strings.HasPrefix(mode, "tabs-everyday") && strings.Count(string(data), `"name":"open"`) >= opens {
+						// After the start, when Chrome was not running, and
+						// the command line, a window of the user's that
+						// Chrome restored late lists before the Computer's
+						// window.
 						for _, id := range []int{11, 12} {
 							// Its title is its front tab's, as Chrome's is.
 							windows = append(windows, map[string]any{"pid": 42, "window_id": id, "title": fmt.Sprintf("Tab %d", tabs-1), "z_index": 2, "is_on_screen": true, "bounds": map[string]any{"width": 900, "height": 700}})
@@ -371,6 +376,8 @@ func runToolFixture(mode string) {
 						result = map[string]any{"content": []any{}, "structuredContent": map[string]string{"degraded_reason": "ax_window_unresolved"}}
 					case a["since"] == "latest" && a["include_screenshot"] == false && (mode == "window-view" || mode == "window-view-sheet" || mode == "window-view-closed" || mode == "window-view-closed-text"):
 						result = map[string]any{"content": []any{map[string]string{"type": "text", "text": "+ [3] AXButton Save"}}, "structuredContent": map[string]string{"snapshot_id": "s00000002"}}
+					case a["since"] == nil && a["include_screenshot"] == false && mode == "window-view":
+						result = map[string]any{"content": []any{map[string]string{"type": "text", "text": "[3] AXButton Save"}}, "structuredContent": map[string]string{"snapshot_id": "s00000002"}}
 					case a["since"] == "latest", a["include_screenshot"] == false:
 						result = map[string]any{"content": []any{}, "structuredContent": map[string]string{"degraded_reason": "ax_window_unresolved"}}
 					case a["display_only"] == true && a["include_accessibility_tree"] == false:
@@ -610,7 +617,7 @@ func TestLocalToolServerPreparationRevocationAndImage(t *testing.T) {
 	}}, []tool{{Name: "screenshot", InputSchema: json.RawMessage(`{"type":"object"}`)}}, func(context.Context, string, json.RawMessage) (json.RawMessage, error) {
 		calls++
 		return json.RawMessage(`{"content":[{"type":"image","mimeType":"image/png","data":"` + strings.Repeat("A", 2*1024*1024) + `"}]}`), nil
-	})
+	}, mcpproxy.LocalToolTimeout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -764,7 +771,7 @@ func TestLocalToolCuaMacKeysFollowTheFrontAppFocus(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls = fixtureCalls(t, marker)
-	if len(calls) != 1 || calls[0].Name != "press_key" || calls[0].Arguments["window_id"] != float64(9) || calls[0].Arguments["delivery_mode"] != "foreground" || calls[0].Arguments["session"] != "owned-session" {
+	if len(calls) != 2 || calls[1].Name != "get_window_state" || calls[1].Arguments["window_id"] != float64(9) || calls[0].Name != "press_key" || calls[0].Arguments["window_id"] != float64(9) || calls[0].Arguments["delivery_mode"] != "foreground" || calls[0].Arguments["session"] != "owned-session" {
 		t.Fatalf("driver calls=%v", calls)
 	}
 	if err := c.drain(); err != nil {
@@ -1137,8 +1144,7 @@ func TestLocalToolCuaMacAgentChromeKeepsTabsItsOwnInputChangesLate(t *testing.T)
 	c.op.manager.agentChromeOwner = c.op
 	c.holdAgentChromeWindow(42, 9, 1, "")
 	// The click below presses a row of page text, which lists no press.
-	c.snapshots = newSnapshotRows()
-	c.snapshots.record(windowRead{Snapshot: "s1", PID: 42, Window: 9, Tree: `- [1] AXStaticText = "Sort by time"`})
+	c.snapshots = newSnapshotRows(&c.op.manager.cuaInputGeneration)
 	// A tab the task's own input opens or closes may show only after the
 	// input returns; the task keeps the count the strip settles on.
 	// The input's result says what it changed in the window, and nothing
@@ -1157,6 +1163,7 @@ func TestLocalToolCuaMacAgentChromeKeepsTabsItsOwnInputChangesLate(t *testing.T)
 		if !strings.Contains(string(result), step.note) {
 			t.Fatalf("result after the task's own %s=%s, want note %s", step.keys, result, step.note)
 		}
+		c.snapshots.record(windowRead{Snapshot: "s1", PID: 42, Window: 9, Tree: `- [1] AXStaticText = "Sort by time"`})
 		result, err = c.call(t.Context(), "click", json.RawMessage(`{"pid":42,"window_id":9,"element_token":"s1:1"}`))
 		if err != nil {
 			t.Fatalf("input after the task's own %s: %v", step.keys, err)
@@ -1203,8 +1210,8 @@ func TestLocalToolCuaMacAgentChromeReadsTheTabStripOnlyAsFarAsItNeeds(t *testing
 	if _, err := c.call(t.Context(), "click", json.RawMessage(`{"pid":42,"window_id":9,"element_token":"s1:1"}`)); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := reads(), []string{"click", "6", "6"}; !slices.Equal(got, want) {
-		t.Fatalf("calls=%v, want the click alone, then two bounded reads", got)
+	if got, want := reads(), []string{"click", "6", "6", "0"}; !slices.Equal(got, want) {
+		t.Fatalf("calls=%v, want click, two bounded tab checks and window readback", got)
 	}
 	// After a script that returned reads, the reads after it are whole.
 	if note := c.recordAgentChromeTabs(t.Context(), float64(42), float64(9), true); note != "" {
@@ -1239,7 +1246,7 @@ func TestLocalToolCuaMacAgentChromeReadsTheTabStripOnlyAsFarAsItNeeds(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := reads()[before:]; !slices.Equal(got, []string{"click", "6", "0", "0"}) {
+	if got := reads()[before:]; !slices.Equal(got, []string{"click", "6", "0", "0", "0"}) {
 		t.Fatalf("calls for fewer tabs=%v, want a bounded read, then whole reads", got)
 	}
 	if note := `The window now has 1 tab(s), 2 before this input; the tab in front still shows \"Tab 0\".`; !strings.Contains(string(result), note) || strings.Contains(string(result), "This input closed") {
@@ -1250,7 +1257,7 @@ func TestLocalToolCuaMacAgentChromeReadsTheTabStripOnlyAsFarAsItNeeds(t *testing
 	if _, err := c.call(t.Context(), "click", json.RawMessage(`{"pid":42,"window_id":9,"element_token":"s1:1"}`)); err != nil {
 		t.Fatal(err)
 	}
-	if got := reads(); !slices.Equal(got[len(got)-4:], []string{"0", "click", "6", "6"}) {
+	if got := reads(); !slices.Equal(got[len(got)-5:], []string{"0", "click", "6", "6", "0"}) {
 		t.Fatalf("calls=%v, want a whole read before the click", got)
 	}
 	if err := c.drain(); err != nil {
@@ -1391,7 +1398,7 @@ func TestLocalToolCuaMacKeysFollowAWindowRaisedInsideTheApp(t *testing.T) {
 	for _, call := range fixtureCalls(t, marker) {
 		got = append(got, fmt.Sprint(call.Name, " ", call.Arguments["window_id"]))
 	}
-	if want := []string{"bring_to_front 7", "hotkey 7", "press_key <nil>", "get_window_state 7"}; !slices.Equal(got, want) {
+	if want := []string{"bring_to_front 7", "hotkey 7", "get_window_state 7", "press_key <nil>", "get_window_state 7"}; !slices.Equal(got, want) {
 		t.Fatalf("driver calls=%v, want %v", got, want)
 	}
 	if err := c.drain(); err != nil {
@@ -1464,13 +1471,14 @@ func TestLocalToolCuaMacKeysNeverReachAnotherWindow(t *testing.T) {
 }
 
 func TestLocalToolCuaInputReturnsWindowChangesAsText(t *testing.T) {
-	if runtime.GOOS == "darwin" {
-		t.Skip("macOS inputs report delivery only")
-	}
 	windowViewDelay = 0
 	t.Cleanup(func() { windowViewDelay = 100 * time.Millisecond })
+	expectedTree := "+ [3] AXButton Save"
+	if runtime.GOOS == "darwin" {
+		expectedTree = "[3] AXButton Save"
+	}
 	for _, test := range []struct{ mode, args, want string }{
-		{"window-view", `{"pid":42,"window_id":7,"direction":"down"}`, "+ [3] AXButton Save"},
+		{"window-view", `{"pid":42,"window_id":7,"direction":"down"}`, expectedTree},
 		{"window-view-degraded", `{"pid":42,"window_id":7,"direction":"down"}`, "after"},
 		{"window-view", `{"pid":42,"direction":"down"}`, ""},
 	} {
@@ -1988,9 +1996,9 @@ func TestLocalToolCuaDeltaCountFailureReadsFullWindowOnlyOnce(t *testing.T) {
 	}
 }
 
-// The user quits their Chrome themselves; the Computer then starts it with
-// the setting and opens its own window, found by the site it shows, and the
-// user's Chrome takes no keys in any of its windows.
+// A Chrome that is not running starts with the setting, the Computer opens
+// its own window, found by the site it shows, and the user's Chrome takes no
+// keys in any of its windows.
 func TestLocalToolCuaMacEverydayChromeOpensTheComputersWindowAndTakesNoKeys(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("the Computer's window in the user's Chrome is macOS only")
@@ -2027,25 +2035,18 @@ func TestLocalToolCuaMacEverydayChromeOpensTheComputersWindowAndTakesNoKeys(t *t
 	everydayChromeSettle = 0
 	t.Cleanup(func() { everydayChromeSettle = settle })
 	b := agentBrowsers[0]
-	// A Chrome started without the setting is never quit by the Computer.
-	if _, err := c.launchAgentChrome(t.Context(), b, []string{"https://example.com/"}); !errors.Is(err, errNotSent) || !strings.Contains(err.Error(), "COMPUTER_BROWSER_RESTART_REQUIRED") || len(opened) != 0 {
-		t.Fatalf("err=%v opened=%v, want a refused launch", err, opened)
-	}
-	// The user quits it; the Computer starts it with the setting and their
-	// windows, then opens the site in a new window.
+	// A Chrome that is not running starts with the setting before the site
+	// opens in a new window.
 	running = 0
-	if !c.op.manager.quitAsked() {
-		t.Fatal("the question to quit Chrome was not recorded")
-	}
 	result, err := c.launchAgentChrome(t.Context(), b, []string{"https://example.com/"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.op.manager.quitAsked() {
-		t.Fatal("the question to quit Chrome outlived the start")
+	if len(opened) != 2 || opened[0][0] != "-n" || slices.Contains(opened[0], "--restore-last-session") || !slices.Contains(opened[0], "--disable-backgrounding-occluded-windows") || !slices.Equal(opened[1][len(opened[1])-3:], []string{"--profile-directory=Default", "--new-window", "https://example.com/"}) {
+		t.Fatalf("opened=%v, want a start with the setting, then the site in a new window", opened)
 	}
-	if len(opened) != 2 || opened[0][0] != "-n" || !slices.Contains(opened[0], "--restore-last-session") || !slices.Contains(opened[0], "--disable-backgrounding-occluded-windows") || !slices.Equal(opened[1][len(opened[1])-3:], []string{"--profile-directory=Default", "--new-window", "https://example.com/"}) {
-		t.Fatalf("opened=%v, want a start with the user's windows, then the site in a new window", opened)
+	if !strings.Contains(string(result), `"pauses_when_covered":false`) {
+		t.Fatalf("result=%s, want a window that keeps working while covered", result)
 	}
 	// Window 11, restored late, lists first, but it shows another site.
 	if !strings.Contains(string(result), `"window_id":12`) || !strings.Contains(string(result), "takes no keys") {
@@ -2110,6 +2111,52 @@ func TestLocalToolCuaMacEverydayChromeOpensTheComputersWindowAndTakesNoKeys(t *t
 	}
 	if err := c.drain(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestLocalToolCuaMacEverydayChromeWorksInAChromeStartedWithoutTheSetting
+// proves the Computer opens its window in a Chrome the user started without
+// the setting, never quits or starts it, and tells the model the window
+// pauses while covered.
+func TestLocalToolCuaMacEverydayChromeWorksInAChromeStartedWithoutTheSetting(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("the Computer's window in the user's Chrome is macOS only")
+	}
+	marker := filepath.Join(t.TempDir(), "calls.jsonl")
+	c := cuaFixtureSession(t, "tabs-everyday-running", marker)
+	pid := everydayChromePID
+	everydayChromePID = func(context.Context) (int, string, error) {
+		return 42, "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", nil
+	}
+	t.Cleanup(func() { everydayChromePID = pid })
+	var opened [][]string
+	open := agentChromeOpen
+	agentChromeOpen = func(_ context.Context, args []string) ([]byte, error) {
+		opened = append(opened, args)
+		f, err := os.OpenFile(marker, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+		_, err = f.WriteString(`{"name":"open"}` + "\n")
+		return nil, err
+	}
+	t.Cleanup(func() { agentChromeOpen = open })
+	data := everydayChromeData
+	everydayChromeData = func() string { return t.TempDir() }
+	t.Cleanup(func() { everydayChromeData = data })
+	settle := everydayChromeSettle
+	everydayChromeSettle = 0
+	t.Cleanup(func() { everydayChromeSettle = settle })
+	result, err := c.launchAgentChrome(t.Context(), agentBrowsers[0], []string{"https://example.com/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(opened) != 1 || !slices.Equal(opened[0][len(opened[0])-3:], []string{"--profile-directory=Default", "--new-window", "https://example.com/"}) {
+		t.Fatalf("opened=%v, want only the site in a new window", opened)
+	}
+	if !strings.Contains(string(result), `"window_id":12`) || !strings.Contains(string(result), `"pauses_when_covered":true`) || !strings.Contains(string(result), "never ask them to quit or restart Chrome") {
+		t.Fatalf("result=%s, want window 12 and the covered-window note", result)
 	}
 }
 

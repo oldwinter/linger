@@ -19,6 +19,9 @@ import type {
   TeamHubPersonalProfileModule,
   TeamHubPersonalProfileTimelineEntry,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import type { Translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 import {
   useAnotherMeActorId,
   WikiWorkingCenter,
@@ -32,11 +35,16 @@ import {
   profileSectionBeingWritten,
   profileSectionDomId,
 } from "./profile-writing";
+import { wikiMessages as m } from "./wiki.messages";
 import "./wiki-profile-page.css";
 
 type ProfilePart =
-  | { kind: "markdown"; markdown: string }
-  | { kind: "timeline"; entries: TeamHubPersonalProfileTimelineEntry[] };
+  | { kind: "markdown"; markdown: string; section: string }
+  | {
+      kind: "timeline";
+      entries: TeamHubPersonalProfileTimelineEntry[];
+      section: string;
+    };
 
 // Profile fields are plain text; escape Markdown syntax so field content can
 // never change the article structure.
@@ -65,37 +73,53 @@ function pointsMarkdown(points: TeamHubPersonalProfileModule["points"]) {
 // its overview first, then its Timeline and points.
 function profileArticleParts(
   profile: TeamHubPersonalProfileDocument,
+  t: Translate,
 ): ProfilePart[] {
   const { background } = profile;
   const parts: ProfilePart[] = [
-    { kind: "markdown", markdown: "## Background" },
+    {
+      kind: "markdown",
+      markdown: `## ${plainMarkdown(t(m.background))}`,
+      section: "Background",
+    },
   ];
   if (background.overview.trim())
     parts.push({
       kind: "markdown",
       markdown: plainMarkdown(background.overview),
+      section: "Background",
     });
   if (background.timeline.length)
-    parts.push({ kind: "timeline", entries: oldestFirst(background.timeline) });
+    parts.push({
+      kind: "timeline",
+      entries: oldestFirst(background.timeline),
+      section: "Background",
+    });
   if (background.points.length)
     parts.push({
       kind: "markdown",
       markdown: pointsMarkdown(background.points).join("\n"),
+      section: "Background",
     });
-  for (const [label, module] of [
-    ["Communication style", profile.communication_style],
-    ["Working style", profile.working_style],
-    ["Preferences", profile.preferences],
-    ["Writing style", profile.writing_style],
+  for (const [section, label, module] of [
+    [
+      "Communication style",
+      t(m.communicationStyle),
+      profile.communication_style,
+    ],
+    ["Working style", t(m.workingStyle), profile.working_style],
+    ["Preferences", t(m.preferences), profile.preferences],
+    ["Writing style", t(m.writingStyle), profile.writing_style],
   ] as const) {
     const overview = module.overview.trim();
     parts.push({
       kind: "markdown",
       markdown: [
-        `## ${label}`,
+        `## ${plainMarkdown(label)}`,
         ...(overview ? ["", plainMarkdown(overview)] : []),
         ...(module.points.length ? ["", ...pointsMarkdown(module.points)] : []),
       ].join("\n"),
+      section,
     });
   }
   return parts.filter(
@@ -130,35 +154,26 @@ function sectionAnchor(
   parts: readonly ProfilePart[],
   index: number,
 ): string | undefined {
-  let section = "Background";
-  const seen = new Set<string>();
-  for (let cursor = 0; cursor <= index; cursor += 1) {
-    const part = parts[cursor];
-    if (!part) continue;
-    if (part.kind === "markdown") {
-      const heading = /^##\s+(.+)$/mu.exec(part.markdown.trim());
-      if (heading?.[1] && part.markdown.trim().startsWith("##")) {
-        section = heading[1];
-      }
-    }
-    if (cursor === index)
-      return seen.has(section) ? undefined : profileSectionDomId(section);
-    seen.add(section);
+  const section = parts[index]?.section;
+  if (!section) return;
+  for (let cursor = 0; cursor < index; cursor += 1) {
+    if (parts[cursor]?.section === section) return undefined;
   }
-  return;
+  return profileSectionDomId(section);
 }
 
 function ProfileSection({ id, part }: { id?: string; part: ProfilePart }) {
+  const t = useT();
   return (
     <div id={id}>
       {part.kind === "timeline" ? (
         <ProfileTimeline entries={part.entries} />
       ) : (
         <ReadOnlyBlockNoteDocument
-          ariaLabel="Profile section"
+          ariaLabel={t(m.profileSection)}
           markdown={part.markdown}
           presentation="knowledge"
-          documentTitle="Profile"
+          documentTitle={t(m.profileTab)}
         />
       )}
     </div>
@@ -170,8 +185,9 @@ function ProfileTimeline({
 }: {
   entries: TeamHubPersonalProfileTimelineEntry[];
 }) {
+  const t = useT();
   return (
-    <ol aria-label="Timeline" className="wiki-profile-timeline">
+    <ol aria-label={t(m.timeline)} className="wiki-profile-timeline">
       {entries.map((entry, index) => (
         <li className="wiki-profile-timeline-entry" key={index}>
           <span className="wiki-profile-timeline-period">{entry.period}</span>
@@ -210,6 +226,7 @@ function ProfileTimeline({
 export function WikiProfilePage() {
   const { tenantId = "" } = useParams();
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const profile = useQuery(personalProfileQueryOptions(client, tenantId));
   const account = useQuery(accountProfileQueryOptions(client, tenantId));
   // The Actor ID seeds the initials tint, so this avatar matches the rail's.
@@ -258,7 +275,7 @@ export function WikiProfilePage() {
   }, [buildingNow, writtenProfile]);
   const saveError =
     save.error instanceof TeamHubError && save.error.status === 409
-      ? "Your Profile changed while you were editing, perhaps because Another Me updated it. Cancel to see the latest version, then edit again."
+      ? t(m.profileChanged)
       : (save.error?.message ?? null);
   if (profile.isPending || account.isPending)
     return (
@@ -267,7 +284,7 @@ export function WikiProfilePage() {
         role="status"
       >
         <Spinner size={16} />
-        Loading Profile…
+        {t(m.loadingProfile)}
       </p>
     );
   if (profile.error || account.error)
@@ -281,31 +298,31 @@ export function WikiProfilePage() {
             void account.refetch();
           }}
         >
-          Retry Profile
+          {t(m.retryProfile)}
         </Button>
       </div>
     );
   const current = profile.data.current;
   const building = Boolean(profile.data.building_since);
   const person = account.data;
-  const parts = current ? profileArticleParts(current.profile) : [];
+  const parts = current ? profileArticleParts(current.profile, t) : [];
   // The infobox title already names the person.
   const details = [
-    ["Organization", person.organization],
-    ["Email", person.email],
-  ].filter(([, value]) => value);
+    { key: "organization", label: m.organization, value: person.organization },
+    { key: "email", label: m.email, value: person.email },
+  ].filter((detail) => detail.value);
   return (
     <div className="wiki-profile mx-auto w-full max-w-[1000px] pb-4">
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_320px] xl:gap-8">
         <aside
-          aria-label="Profile details"
+          aria-label={t(m.profileDetails)}
           className="wiki-profile-infobox xl:sticky xl:top-6 xl:order-2"
         >
           <h2 className="wiki-profile-infobox-title">{person.name}</h2>
           <div className="wiki-profile-infobox-avatar flex justify-center px-4 py-4">
             {person.avatar_image ? (
               <img
-                alt={`${person.name} avatar`}
+                alt={t(commonMessages.avatar, { name: person.name })}
                 className="size-24 rounded-lg object-cover"
                 src={person.avatar_image}
               />
@@ -319,10 +336,10 @@ export function WikiProfilePage() {
             )}
           </div>
           <dl>
-            {details.map(([label, value]) => (
-              <div className="wiki-profile-infobox-row" key={label}>
-                <dt>{label}</dt>
-                <dd>{value}</dd>
+            {details.map((detail) => (
+              <div className="wiki-profile-infobox-row" key={detail.key}>
+                <dt>{t(detail.label)}</dt>
+                <dd>{detail.value}</dd>
               </div>
             ))}
             <WikiProfileSourcesRow client={client} tenantId={tenantId} />
@@ -360,7 +377,7 @@ export function WikiProfilePage() {
               text={
                 writingSection
                   ? `Another Me is writing ${writingSection}`
-                  : "Another Me is updating your profile"
+                  : t(m.updatingProfile)
               }
             />
           ) : null}
@@ -379,7 +396,7 @@ export function WikiProfilePage() {
             />
           ) : parts.length ? (
             <div
-              aria-label="Profile content"
+              aria-label={t(m.profileContent)}
               className="wiki-profile-article"
               data-editable="false"
               role="article"
@@ -395,13 +412,10 @@ export function WikiProfilePage() {
           ) : building ? (
             <WikiWorkingCenter
               actorId={anotherMe}
-              title="Getting to know you…"
+              title={t(m.gettingToKnowYou)}
             />
           ) : (
-            <p className="text-sm text-app-muted">
-              Your profile is not available yet. Add a source under Sources to
-              create it.
-            </p>
+            <p className="text-sm text-app-muted">{t(m.profileEmpty)}</p>
           )}
         </div>
       </div>

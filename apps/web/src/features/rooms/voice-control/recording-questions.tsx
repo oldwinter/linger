@@ -17,6 +17,9 @@ import { Icon } from "@/components/ui/icon";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubVoiceCaptureQuestion } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
+import { recordingMessages as m } from "./recording.messages";
 import { formatRecordingTime } from "./recording-time";
 import styles from "./voice-focus.module.css";
 
@@ -146,6 +149,7 @@ export function RecordingAskBox({
   busy: boolean;
   onAsk: (question: string) => void;
 }) {
+  const t = useT();
   const [question, setQuestion] = useState("");
   const send = () => {
     const text = question.trim();
@@ -167,17 +171,18 @@ export function RecordingAskBox({
     // Shares the window's gutter with the answers above.
     <div className="mx-4 mt-2 mb-4 flex shrink-0 items-end gap-2 rounded-2xl bg-app-surface py-1 pr-1 pl-3 shadow-(--composer-shadow) transition-shadow focus-within:shadow-(--composer-shadow-focus)">
       <textarea
-        aria-label="Ask about this recording"
+        aria-label={t(m.askLabel)}
         className="max-h-24 min-h-7 flex-1 resize-none self-center bg-transparent py-1 text-sm leading-5 text-app-ink [field-sizing:content] placeholder:text-app-placeholder focus:outline-none"
         onChange={(event) => setQuestion(event.target.value)}
         onKeyDown={onKey}
-        placeholder="Ask something or ask to do something"
+        placeholder={t(m.askPlaceholder)}
         rows={1}
         value={question}
       />
       <Button
-        aria-label="Send question"
+        aria-label={t(m.sendQuestion)}
         className="!size-7 !rounded-full"
+        data-voice-risk="never"
         disabled={busy || !question.trim()}
         onClick={send}
         size="compactIcon"
@@ -208,6 +213,7 @@ export function RecordingAnswers({
   recordingStartMs: number;
   taskState: (item: TeamHubVoiceCaptureQuestion) => AskTaskState | undefined;
 }) {
+  const t = useT();
   const listRef = useRef<HTMLOListElement>(null);
   const followingRef = useRef(true);
   const previousQuestionRef = useRef<string | undefined>(undefined);
@@ -226,7 +232,7 @@ export function RecordingAnswers({
     formatRecordingTime(offsetMs - recordingStartMs);
   return (
     <ol
-      aria-label="Answers about this recording"
+      aria-label={t(m.answers)}
       aria-live="polite"
       className="workspace-scrollbar flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-3"
       ref={listRef}
@@ -238,8 +244,7 @@ export function RecordingAnswers({
     >
       {items.length || pending ? null : (
         <li className="m-auto max-w-[32ch] py-6 text-center text-[12px] leading-[18px] text-app-muted">
-          Ask what was said, decided, or left open, or ask Another Me to do
-          something, like drafting a follow-up email.
+          {t(m.askEmpty)}
         </li>
       )}
       {items.map((item) => {
@@ -262,7 +267,9 @@ export function RecordingAnswers({
                   {item.answer}
                 </p>
                 <p className="text-[12px] leading-[18px] text-app-muted">
-                  Based on the recording up to {at(item.cutoff_offset_ms)}
+                  {t(m.basedOnRecording, {
+                    time: at(item.cutoff_offset_ms),
+                  })}
                 </p>
               </>
             )}
@@ -277,15 +284,15 @@ export function RecordingAnswers({
               className="flex items-center gap-2 text-[12px] leading-[18px] text-app-danger"
               role="alert"
             >
-              The answer could not be generated.
+              {t(m.answerFailed)}
               <Button onClick={onRetry} size="compact" tone="ghost">
-                Retry
+                {t(commonMessages.retry)}
               </Button>
             </p>
           ) : (
             <p className="flex items-center gap-2 text-[12px] leading-[18px] text-app-muted">
               <Icon icon={Loading03Icon} className="animate-spin" size={14} />
-              Answering…
+              {t(m.answering)}
             </p>
           )}
         </li>
@@ -302,6 +309,7 @@ function AskTaskStatus({
   onRetry: () => void;
   state: AskTaskState;
 }) {
+  const t = useT();
   return (
     <div className="flex items-center gap-2" data-task-state={state}>
       <TaskNode state={state} />
@@ -310,20 +318,21 @@ function AskTaskStatus({
           className="text-[12px] leading-[18px] text-app-muted"
           role="status"
         >
-          Sending to Another Me…
+          {t(m.sendingToAnotherMe)}
         </span>
       ) : state === "failed" ? (
         <span
           className="flex items-center gap-1 text-[12px] leading-[18px] text-app-danger"
           role="status"
         >
-          {"Not sent · "}
+          {t(m.notSent)}
+          {" · "}
           <button
             className="font-medium underline-offset-2 hover:underline"
             onClick={onRetry}
             type="button"
           >
-            Retry
+            {t(commonMessages.retry)}
           </button>
         </span>
       ) : (
@@ -331,7 +340,7 @@ function AskTaskStatus({
           className="text-[12px] leading-[18px] text-app-muted"
           role="status"
         >
-          Sent to Another Me
+          {t(m.sentToAnotherMe)}
         </span>
       )}
     </div>

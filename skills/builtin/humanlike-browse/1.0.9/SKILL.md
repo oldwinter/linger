@@ -1,6 +1,6 @@
 ---
 name: humanlike-browse
-description: Read, survey, post to or manage a site that watches for automated browsing, such as a social network, a marketplace or any site where the user is signed in, through the computer tools in the Computer's own window of the user's browser. Use whenever a task reads posts, comments, profiles or search results on such a site, or writes there for the user.
+description: Read, survey, post to or manage a site where the user is signed in, or write for the user on a social network or a marketplace, through the computer tools in the Computer's own window of the user's browser. Use whenever a task needs the user's sign-in on such a site or acts there for the user. Pages any visitor can read without signing in use the browser tools instead.
 ---
 
 # Sites that watch for automated browsing
@@ -8,10 +8,11 @@ description: Read, survey, post to or manage a site that watches for automated b
 ## Choose the route
 
 - A public page that needs no sign-in and no clicks: read it with the web search or fetch tools.
-- Anything else on a social network, a marketplace or a site where the user is signed in: only the computer tools, through `launch_app({agent_browser: true, urls: [url]})`. In Chrome or Safari this opens a window of the Computer's own in the user's everyday browser, with the user's sign-ins; Edge and Firefox run as separate instances. Pass `bundle_id` only when the user asks for one browser. The browser tools drive a page in a way these sites detect, so never use them on these sites; the Computer keeps them off every site the task opened this way.
+- Pages any visitor can read without signing in, such as listings, search results or public threads, on any site, including social networks and marketplaces: read them with the browser tools, which are faster, when their description says they use a dedicated Agent Chrome profile: a block there flags no account of the user's. When they drive the user's own Chrome instead, use the computer tools on social networks and marketplaces. If the site answers the browser tools with a captcha, a block page or a sign-in wall, switch to the computer tools for that site.
+- A page that needs the user's sign-in, or any write for the user, such as a post, a message, a purchase or a setting, on a social network, a marketplace or a site where the user is signed in: only the computer tools, through `launch_app({agent_browser: true, urls: [url]})`. In Chrome or Safari this opens a window of the Computer's own in the user's everyday browser, with the user's sign-ins; Edge and Firefox run as separate instances. Pass `bundle_id` only when the user asks for one browser. The browser tools drive a page in a way these sites detect, so never use them for the user's signed-in account; the Computer keeps them off every site the task opened this way.
 - If `launch_app` has no `agent_browser`, this needs a Mac Computer: tell the user and stop.
 - If a call says a computer tool does not exist, take the tool's exact name from your tool list and call it again before telling the user the tools are unavailable.
-- If `launch_app` answers `COMPUTER_BROWSER_RESTART_REQUIRED`, ask the user with a question card to quit Chrome from its menu and leave it closed, saying that the Computer starts it again with their windows and tabs; then end your turn. When they answer that Chrome is closed, call `launch_app` again; if they decline, end the task.
+- Never ask the user to quit or restart their browser. If `launch_app` says the Chrome window updates only while part of it shows on the user's screen and a page stops changing, ask the user to leave part of that window uncovered.
 - If the site asks to sign in, ask the user to sign in once in that browser window and stop; the sign-in stays for later tasks.
 
 ## Move like a person

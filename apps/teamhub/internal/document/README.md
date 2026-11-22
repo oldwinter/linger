@@ -27,6 +27,9 @@ Markdown files and have no body.
 
 `document_texts` holds each active Document's current version normalized once: the Markdown, its
 SHA-256 and the plain search words, with the version it came from (`native_body` sequence or `file_version`).
+Search flattening restores escaped Markdown punctuation as literal text, so identifiers such as `room_id`,
+email addresses and backslash-containing paths stay searchable. Code spans and code blocks keep their
+literal backslashes; formatting removal does not turn escaped punctuation into new markup.
 `internal/documenttext` runs the one `document_text.sync` job; `enqueue_document_text_sync` queues it from
 triggers on `documents` (a new current Version, reactivation), on a new `document_bodies` row and in
 `record_document_history_point`. Global search and Memory (`memory_source.personal_documents`, through

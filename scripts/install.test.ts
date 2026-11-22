@@ -560,7 +560,7 @@ describe("root install.sh", () => {
     const stackCalls = (await readFile(logPath, "utf8")).trim().split("\n");
     const planCall = stackCalls.find((line) => line.startsWith("plan "));
     expect(planCall).toBeDefined();
-    expect(planCall).toContain("--no-search");
+    expect(planCall).not.toContain("search");
     expect(planCall).toContain("--prefer fastest");
     expect(planCall).toContain("--gpu 0");
     expect(planCall).toContain("--share-gpu");
@@ -1003,7 +1003,7 @@ esac
   it("supports custom URL retry/force/skip and local-models-only flows", async () => {
     const root = await createTempRoot();
     await mkdir(path.join(root, "home"), { recursive: true });
-    const { scriptPath, logPath } = await createFakeStackScript(root, {});
+    const { scriptPath } = await createFakeStackScript(root, {});
     const server = await startMockLingerServer(root, false);
     const standaloneDir = path.join(root, "standalone");
     await mkdir(standaloneDir, { recursive: true });
@@ -1047,21 +1047,6 @@ esac
     expect(skipResult.code).toBe(0);
     expect(skipResult.stdout).toContain("Continuing with local models only");
     expect(skipResult.stdout).toContain("./install.sh --connect --web-url");
-
-    const withSearch = await runInstallScript(
-      ["--with-search", "--web-url", server.baseUrl],
-      {
-        scriptPath: standalonePath,
-        cwd: standaloneDir,
-        env: buildTestEnv(root, scriptPath),
-        input: ["n", "n"].join("\n") + "\n",
-      },
-    );
-    expect(withSearch.code).toBe(0);
-    const calls = (await readFile(logPath, "utf8")).trim().split("\n");
-    const lastPlan = calls.filter((line) => line.startsWith("plan ")).pop();
-    expect(lastPlan).toBeDefined();
-    expect(lastPlan).not.toContain("--no-search");
   });
 
   it("handles Compose port decline, owner retry, and explicit URL reset", async () => {
@@ -1340,7 +1325,6 @@ describe("scripts/install/install.ps1 and release pin parity", () => {
 
     for (const flag of [
       "--web-url",
-      "--with-search",
       "--update",
       "--connect",
       "--up",

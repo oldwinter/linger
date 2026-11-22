@@ -184,6 +184,9 @@ func TestConnectedAppsAgentGrantIsExplicitAccountScopedAndRevokedOnDisconnect(t 
 			t.Fatalf("grant attempt=%d result=%+v", attempt+1, granted)
 		}
 	}
+	if _, err := pool.Exec(t.Context(), `UPDATE external_connections SET remote_team_id='team-1' WHERE id=$1`, connectionID); err != nil {
+		t.Fatal(err)
+	}
 	toolService := composioFake.externalSources(t, pool, nil)
 	toolTx, err := pool.Begin(t.Context())
 	if err != nil {
@@ -195,13 +198,14 @@ func TestConnectedAppsAgentGrantIsExplicitAccountScopedAndRevokedOnDisconnect(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(connections) != 1 || connections[0].ID != connectionID || connections[0].AccountID != "account_alice" {
+	if len(connections) != 1 || connections[0].ID != connectionID || connections[0].AccountID != "account_alice" ||
+		connections[0].RemoteTeamID != "team-1" {
 		t.Fatalf("granted MCP connections=%+v", connections)
 	}
 	locked, err := toolService.LockGrantedAgentToolConnectionInTx(
 		t.Context(), toolTx, agentActorID, acmeTenant, connectionID,
 	)
-	if err != nil || locked.ID != connectionID {
+	if err != nil || locked != connections[0] {
 		t.Fatalf("locked MCP connection=%+v err=%v", locked, err)
 	}
 	if err := toolTx.Rollback(t.Context()); err != nil {

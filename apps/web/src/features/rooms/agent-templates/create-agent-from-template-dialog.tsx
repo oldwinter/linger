@@ -25,6 +25,8 @@ import type {
   TeamHubAgentReasoningEffort,
   TeamHubAgentTemplate,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 
 import { ActorAvatar } from "../members/actor-avatar";
 import {
@@ -33,7 +35,7 @@ import {
   storeAgentAvatarKey,
 } from "../members/agent-avatar";
 import { AgentPlacementFields } from "../members/agent-placement-fields";
-import { loadAllManifestPages } from "../members/agent-resource-catalog";
+import { loadAllManifestPages } from "../members/manifest-pages";
 import {
   reasoningEffortLabel,
   useAgentModelSelection,
@@ -42,6 +44,8 @@ import { createTenantAgent } from "../members/create-tenant-agent";
 import { useAgentPlacementFlow } from "../members/use-agent-placement-flow";
 
 import { templateResourceChips } from "./agent-template";
+import { templateDescription, templateName } from "./builtin-template-text";
+import { agentTemplateMessages as m } from "./agent-templates.messages";
 import {
   TemplateContents,
   useTemplateContentGroups,
@@ -56,7 +60,6 @@ import {
   withImportedTemplateSkills,
 } from "./resolve-agent-template-bindings";
 
-const TITLE = "Agent templates";
 const NO_BINDINGS: ResolvedAgentTemplateBindings = {
   importableSkills: [],
   skillBindings: [],
@@ -75,13 +78,14 @@ export function CreateAgentFromTemplateDialog({
   const [template, setTemplate] = useState<TeamHubAgentTemplate | null>(null);
   const [creating, setCreating] = useState(false);
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const templates = useQuery(agentTemplatesQueryOptions(client, tenantId));
   function handleClose() {
     if (!creating) onClose();
   }
   return (
     <ModalDialog
-      ariaLabel={TITLE}
+      ariaLabel={t(m.title)}
       className="flex flex-col overflow-hidden"
       closeOnBackdrop={!creating}
       onClose={handleClose}
@@ -117,14 +121,14 @@ export function CreateAgentFromTemplateDialog({
 // behind a click and made the two sources look like separate features.
 const TEMPLATE_SECTIONS = [
   {
-    empty: "This deployment ships no official template.",
+    empty: m.officialEmpty,
     origin: "builtin",
-    title: "Official templates",
+    title: m.officialTitle,
   },
   {
-    empty: "Nothing published yet. Publish an Agent to share it here.",
+    empty: m.publishedEmpty,
     origin: "published",
-    title: "Templates from users",
+    title: m.publishedTitle,
   },
 ] as const;
 
@@ -146,13 +150,14 @@ function TemplatePicker({
   tenantId: string;
 }) {
   const canRemove = useTemplateRemovalPermission(tenantId);
+  const t = useT();
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex shrink-0 items-start justify-between gap-4 px-5 pb-4 pt-5">
         <div>
-          <h2 className="text-lg">{TITLE}</h2>
+          <h2 className="text-lg">{t(m.title)}</h2>
           <p className="mt-1 text-sm text-app-muted">
-            Pick a template, then choose where the Agent runs.
+            {t(m.pickerDescription)}
           </p>
         </div>
         <CloseButton onClose={onClose} />
@@ -160,14 +165,14 @@ function TemplatePicker({
       <div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-5">
         {pending ? (
           <div
-            aria-label="Loading templates"
+            aria-label={t(m.loadingTemplates)}
             className="space-y-5"
             role="status"
           >
             {TEMPLATE_SECTIONS.map((section) => (
               <section key={section.origin}>
                 <h3 className="mb-2.5 text-base font-semibold text-app-ink">
-                  {section.title}
+                  {t(section.title)}
                 </h3>
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {[0, 1, 2].map((slot) => (
@@ -183,9 +188,9 @@ function TemplatePicker({
         ) : error ? (
           <PickerNotice tone="danger">
             <span className="flex items-center justify-between gap-3">
-              Agent templates are unavailable.
+              {t(m.unavailable)}
               <Button onClick={onRetry} size="compact" type="button">
-                Retry
+                {t(commonMessages.retry)}
               </Button>
             </span>
           </PickerNotice>
@@ -198,11 +203,11 @@ function TemplatePicker({
               return (
                 <section key={section.origin}>
                   <h3 className="mb-2.5 text-base font-semibold text-app-ink">
-                    {section.title}
+                    {t(section.title)}
                   </h3>
                   {listed.length ? (
                     <ul
-                      aria-label={section.title}
+                      aria-label={t(section.title)}
                       className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"
                     >
                       {listed.map((template, index) => (
@@ -223,25 +228,27 @@ function TemplatePicker({
                             <ActorAvatar
                               avatarKey={template.avatar_key}
                               kind="agent"
-                              name={template.name}
+                              name={templateName(template, t)}
                               size="md"
                             />
                             <span className="min-w-0 flex-1">
                               <span className="flex min-w-0 items-baseline gap-1.5 pr-7">
                                 <span className="truncate text-sm font-semibold text-app-ink">
-                                  {template.name}
+                                  {templateName(template, t)}
                                 </span>
                                 {template.published_by ? (
                                   <span className="shrink-0 truncate text-xs leading-4 text-muted-foreground">
-                                    by {template.published_by.display_name}
+                                    {t(m.publishedBy, {
+                                      name: template.published_by.display_name,
+                                    })}
                                   </span>
                                 ) : null}
                               </span>
                               {/* One chip per resource kind: a combined string
                                   hid which kinds a template actually carries. */}
-                              {templateResourceChips(template).length ? (
+                              {templateResourceChips(template, t).length ? (
                                 <span className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
-                                  {templateResourceChips(template).map(
+                                  {templateResourceChips(template, t).map(
                                     (chip) => (
                                       <span
                                         className="rounded-sm bg-muted px-1.5 py-0.5 text-xs leading-4 text-muted-foreground"
@@ -270,7 +277,7 @@ function TemplatePicker({
                       ))}
                     </ul>
                   ) : (
-                    <PickerNotice>{section.empty}</PickerNotice>
+                    <PickerNotice>{t(section.empty)}</PickerNotice>
                   )}
                 </section>
               );
@@ -301,6 +308,7 @@ function RemoveTemplateButton({
 }) {
   const queryClient = useQueryClient();
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const [confirming, setConfirming] = useState(false);
   const remove = useMutation({
     mutationFn: () =>
@@ -322,10 +330,10 @@ function RemoveTemplateButton({
     return (
       <span className="absolute inset-0 z-10 flex flex-col justify-center gap-2 rounded-xl bg-card/95 p-4 text-center backdrop-blur-sm">
         <span className="text-sm font-medium text-app-ink">
-          Remove this template?
+          {t(m.removeQuestion)}
         </span>
         <span className="text-xs leading-4 text-app-muted">
-          Agents already created from it are not affected.
+          {t(m.removeNote)}
         </span>
         {remove.error ? (
           <span className="text-xs leading-4 text-app-danger" role="alert">
@@ -342,9 +350,10 @@ function RemoveTemplateButton({
             size="compact"
             type="button"
           >
-            Cancel
+            {t(commonMessages.cancel)}
           </Button>
           <Button
+            data-voice-risk="never"
             disabled={remove.isPending}
             onClick={() => remove.mutate()}
             size="compact"
@@ -352,10 +361,10 @@ function RemoveTemplateButton({
             type="button"
           >
             {remove.isPending
-              ? "Removing..."
+              ? t(m.removing)
               : remove.error
-                ? "Try again"
-                : "Remove"}
+                ? t(commonMessages.tryAgain)
+                : t(commonMessages.remove)}
           </Button>
         </span>
       </span>
@@ -364,7 +373,8 @@ function RemoveTemplateButton({
   return (
     <span className="absolute right-2 top-2">
       <Button
-        aria-label={`Remove ${template.name} from the marketplace`}
+        data-voice-risk="never"
+        aria-label={t(m.removeFromMarketplace, { name: template.name })}
         className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
         onClick={() => setConfirming(true)}
         size="compactIcon"
@@ -409,7 +419,8 @@ function TemplateSetup({
   template: TeamHubAgentTemplate;
   tenantId: string;
 }) {
-  const [name, setName] = useState(template.name);
+  const t = useT();
+  const [name, setName] = useState(() => templateName(template, t));
   const { client } = useTeamHubRuntime();
   const placement = useAgentPlacementFlow({ tenantId });
   const modelSelection = useAgentModelSelection(
@@ -465,11 +476,11 @@ function TemplateSetup({
   const createAgent = useMutation({
     mutationFn: async () => {
       if (!resolved) {
-        throw new Error("Agent creation is unavailable.");
+        throw new Error(t(m.creationUnavailable));
       }
       const input = {
         agentType: "general" as const,
-        description: template.description,
+        description: templateDescription(template, t),
         instructions: template.instructions,
         model: modelSelection.model,
         ...(modelSelection.reasoningEffort
@@ -548,7 +559,7 @@ function TemplateSetup({
       <header className="flex shrink-0 items-start justify-between gap-3 px-5 pb-4 pt-5">
         <div className="flex min-w-0 items-start gap-3">
           <Button
-            aria-label="Back to templates"
+            aria-label={t(m.backToTemplates)}
             disabled={createAgent.isPending}
             onClick={onBack}
             size="icon"
@@ -560,13 +571,13 @@ function TemplateSetup({
           <ActorAvatar
             avatarKey={template.avatar_key}
             kind="agent"
-            name={template.name}
+            name={templateName(template, t)}
             size="sm"
           />
           <div className="min-w-0">
-            <h2 className="truncate text-lg">{template.name}</h2>
+            <h2 className="truncate text-lg">{templateName(template, t)}</h2>
             <p className="mt-1 text-sm text-app-muted">
-              {template.description || "Choose where this Agent runs."}
+              {templateDescription(template, t) || t(m.chooseWhere)}
             </p>
           </div>
         </div>
@@ -576,7 +587,7 @@ function TemplateSetup({
       <div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-5">
         <fieldset className="space-y-4" disabled={createAgent.isPending}>
           <Field
-            label="Name"
+            label={t(m.name)}
             maxLength={120}
             onChange={(event) => {
               beginNewCommand();
@@ -595,9 +606,11 @@ function TemplateSetup({
             selection={placement.selection}
           />
           <label className="block">
-            <span className="mb-1.5 block text-sm font-medium">Model</span>
+            <span className="mb-1.5 block text-sm font-medium">
+              {t(m.model)}
+            </span>
             <Select
-              aria-label="Agent model"
+              aria-label={t(m.modelLabel)}
               className="ui-field-control w-full"
               disabled={!modelSelection.model}
               onValueChange={(value) => {
@@ -616,10 +629,10 @@ function TemplateSetup({
           {modelSelection.reasoningEfforts.length > 0 ? (
             <label className="block">
               <span className="mb-1.5 block text-sm font-medium">
-                Reasoning
+                {t(m.reasoning)}
               </span>
               <Select
-                aria-label="Agent reasoning effort"
+                aria-label={t(m.reasoningLabel)}
                 className="ui-field-control w-full"
                 disabled={!modelSelection.reasoningEffort}
                 onValueChange={(value) => {
@@ -632,7 +645,7 @@ function TemplateSetup({
               >
                 {modelSelection.reasoningEfforts.map((effort) => (
                   <SelectItem key={effort} value={effort}>
-                    {reasoningEffortLabel(effort)}
+                    {reasoningEffortLabel(effort, t)}
                   </SelectItem>
                 ))}
               </Select>
@@ -665,11 +678,11 @@ function TemplateSetup({
           onClick={onClose}
           type="button"
         >
-          Cancel
+          {t(commonMessages.cancel)}
         </Button>
         <Button disabled={!canSubmit} tone="primary" type="submit">
           <Icon icon={BotIcon} size={16} />
-          {createAgent.isPending ? "Creating..." : "Create Agent"}
+          {createAgent.isPending ? t(m.creating) : t(m.createAgent)}
         </Button>
       </footer>
     </form>
@@ -695,6 +708,7 @@ function TemplateBindingsNote({
   resolved?: ResolvedAgentTemplateBindings;
   template: TeamHubAgentTemplate;
 }) {
+  const t = useT();
   const connectorKeys = template.connector_bindings ?? [];
   const hasBindings = template.skill_bindings.length + connectorKeys.length > 0;
   const appliedGroups = useTemplateContentGroups({
@@ -706,15 +720,15 @@ function TemplateBindingsNote({
   });
 
   if (pending) {
-    return <Note>Checking template Skills...</Note>;
+    return <Note>{t(m.checkingSkills)}</Note>;
   }
   if (error || !resolved) {
     return (
       <Note tone="danger">
         <span className="flex items-center justify-between gap-3">
-          Template Skills couldn&apos;t be checked.
+          {t(m.skillsCheckFailed)}
           <Button onClick={onRetry} size="compact" type="button">
-            Retry
+            {t(commonMessages.retry)}
           </Button>
         </span>
       </Note>
@@ -727,13 +741,11 @@ function TemplateBindingsNote({
     connectors: appliedGroups.connectors,
     skills: [
       ...appliedGroups.skills.map((item) =>
-        importable.has(item.key)
-          ? { ...item, detail: "Added to your Skills" }
-          : item,
+        importable.has(item.key) ? { ...item, detail: t(m.skillAdded) } : item,
       ),
       ...resolved.unavailableSkills.map((item) => ({
         ...item,
-        detail: "Not available here",
+        detail: t(m.skillUnavailable),
         unavailable: true,
       })),
     ],
@@ -744,18 +756,11 @@ function TemplateBindingsNote({
     connectorKeys.length === 0;
   return (
     <div className="space-y-2">
-      <TemplateContents
-        connectorNote="Not granted by creating the Agent. Authorize your own accounts from Connectors afterwards."
-        groups={groups}
-      />
+      <TemplateContents connectorNote={t(m.connectorNote)} groups={groups} />
       {nothingApplies && hasBindings ? (
-        <Note>No template Skills or Connectors are available here.</Note>
+        <Note>{t(m.nothingAvailable)}</Note>
       ) : null}
-      {!nothingApplies ? (
-        <Note>
-          These are used alongside the Skills already on this Computer.
-        </Note>
-      ) : null}
+      {!nothingApplies ? <Note>{t(m.usedAlongside)}</Note> : null}
     </div>
   );
 }
@@ -778,9 +783,11 @@ function CloseButton({
   disabled?: boolean;
   onClose: () => void;
 }) {
+  const t = useT();
   return (
     <Button
-      aria-label={`Close ${TITLE}`}
+      data-voice-close
+      aria-label={t(m.closeDialog)}
       disabled={disabled}
       onClick={onClose}
       size="icon"

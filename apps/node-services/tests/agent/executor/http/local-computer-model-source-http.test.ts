@@ -25,6 +25,8 @@ const sampleStatus = {
     configured: true,
     protocol: "anthropic",
     base_url: "https://api.anthropic.com",
+    path: "/v1",
+    endpoint: "/messages",
     model_id: "claude-sonnet-4-6",
     context_window: 200_000,
     key_saved: true,
@@ -37,12 +39,12 @@ function buildTestApp(
     readonly testResult?: {
       readonly ok: boolean;
       readonly protocol: "anthropic";
-      readonly base_url: string;
+      readonly url: string;
       readonly model_id: string;
       readonly context_window: number;
     };
     readonly modelList?: {
-      readonly base_url: string;
+      readonly url: string;
       readonly models: readonly {
         readonly id: string;
         readonly name?: string;
@@ -94,7 +96,7 @@ describe("Agent Management model-source routes", () => {
             testResult: {
               ok: true,
               protocol: "anthropic" as const,
-              base_url: "https://api.anthropic.com",
+              url: "https://api.anthropic.com/v1/messages",
               model_id: "claude-sonnet-4-6",
               context_window: 200_000,
             },
@@ -107,9 +109,11 @@ describe("Agent Management model-source routes", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        runtime: "claude",
         byok: {
           base_url: "https://api.anthropic.com",
+          path: "/v1",
+          endpoint: "/messages",
+          protocol: "anthropic",
           api_key: secretKey,
           model_id: "claude-sonnet-4-6",
         },
@@ -119,8 +123,16 @@ describe("Agent Management model-source routes", () => {
     const testText = await testRes.text();
     expect(testText).not.toContain(secretKey);
     expect(fn).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "test", runtime: "claude" }),
+      expect.objectContaining({
+        action: "test",
+        byok: expect.objectContaining({
+          path: "/v1",
+          endpoint: "/messages",
+          protocol: "anthropic",
+        }),
+      }),
     );
+    expect(fn.mock.calls[0]?.[0]).not.toHaveProperty("runtime");
 
     const applyRes = await app.request(basePath, {
       method: "POST",
@@ -130,6 +142,9 @@ describe("Agent Management model-source routes", () => {
         runtime: "claude",
         byok: {
           base_url: "https://api.anthropic.com",
+          path: "/v1",
+          endpoint: "/messages",
+          protocol: "anthropic",
           api_key: secretKey,
           model_id: "claude-sonnet-4-6",
         },
@@ -141,7 +156,7 @@ describe("Agent Management model-source routes", () => {
 
   it("lists a BYOK endpoint's models from the address and key alone", async () => {
     const modelList = {
-      base_url: "https://gateway.example.com/anthropic",
+      url: "https://open.bigmodel.cn/api/paas/v4/models",
       models: [{ id: "glm-5", name: "GLM 5", context_window: 131_072 }],
     };
     const fn = vi.fn(async () => ({ modelList }));
@@ -151,7 +166,10 @@ describe("Agent Management model-source routes", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        base_url: " https://gateway.example.com/v1 ",
+        base_url: " https://open.bigmodel.cn ",
+        path: "/api/paas/v4",
+        endpoint: "/chat/completions",
+        protocol: "openai-chat",
         api_key: secretKey,
       }),
     });
@@ -163,7 +181,10 @@ describe("Agent Management model-source routes", () => {
       expect.objectContaining({
         action: "models",
         byok: {
-          base_url: "https://gateway.example.com/v1",
+          base_url: "https://open.bigmodel.cn",
+          path: "/api/paas/v4",
+          endpoint: "/chat/completions",
+          protocol: "openai-chat",
           api_key: secretKey,
         },
       }),
@@ -173,11 +194,32 @@ describe("Agent Management model-source routes", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        base_url: "https://gateway.example.com/v1",
+        base_url: "https://open.bigmodel.cn",
+        path: "/api/paas/v4",
+        endpoint: "/chat/completions",
+        protocol: "openai-chat",
         model_id: "glm-5",
       }),
     });
     expect(withModel.status).toBe(400);
+
+    for (const address of [
+      { path: "api/paas/v4", endpoint: "/chat/completions" },
+      { path: "/api/paas/v4/", endpoint: "/chat/completions" },
+      { path: "", endpoint: "//evil.example.com/x" },
+      { path: "", endpoint: "/chat?key=1" },
+    ]) {
+      const refused = await app.request(`${basePath}/models`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          base_url: "https://open.bigmodel.cn",
+          protocol: "openai-chat",
+          ...address,
+        }),
+      });
+      expect(refused.status).toBe(400);
+    }
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
@@ -195,9 +237,11 @@ describe("Agent Management model-source routes", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        runtime: "gemini",
         byok: {
           base_url: "https://api.example.com",
+          path: "/v1",
+          endpoint: "/chat/completions",
+          protocol: "gemini",
           api_key: secretKey,
           model_id: "gpt-5.4",
         },
@@ -211,9 +255,11 @@ describe("Agent Management model-source routes", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        runtime: "pi",
         byok: {
           base_url: "https://api.anthropic.com",
+          path: "/v1",
+          endpoint: "/messages",
+          protocol: "anthropic",
           api_key: secretKey,
           model_id: "claude-sonnet-4-6",
         },
@@ -258,6 +304,36 @@ describe("Agent Management model-source routes", () => {
       code: "MODEL_SOURCE_UNSUPPORTED",
       message:
         "The localmodels tool on this Computer does not support model sources.",
+    });
+  });
+
+  it("preserves BYOK_GATEWAY_FAILED and Computer diagnostic detail as HTTP 502", async () => {
+    const detail =
+      "cannot record Bifrost process identity ([Errno 1] Operation not permitted: '/bin/ps'); stopped it";
+    const app = buildTestApp(async () => {
+      throw new LocalModelSourceError("BYOK_GATEWAY_FAILED", detail, false);
+    });
+
+    const postRes = await app.request(basePath, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        mode: "byok",
+        runtime: "pi",
+        byok: {
+          base_url: "https://api.kimi.com/coding",
+          path: "/v1",
+          endpoint: "/chat/completions",
+          protocol: "openai-chat",
+          api_key: secretKey,
+          model_id: "k3",
+        },
+      }),
+    });
+    expect(postRes.status).toBe(502);
+    expect(await postRes.json()).toEqual({
+      code: "BYOK_GATEWAY_FAILED",
+      message: detail,
     });
   });
 });

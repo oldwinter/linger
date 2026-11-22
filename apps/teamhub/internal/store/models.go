@@ -1969,6 +1969,23 @@ type VoiceTranscriptUncertainty struct {
 	RecoveredAt      pgtype.Timestamptz `json:"recovered_at"`
 }
 
+type WebSearchKey struct {
+	Backend          string             `json:"backend"`
+	ApiKeyCiphertext []byte             `json:"api_key_ciphertext"`
+	State            string             `json:"state"`
+	QuotaRemaining   pgtype.Float8      `json:"quota_remaining"`
+	QuotaLimit       pgtype.Float8      `json:"quota_limit"`
+	QuotaResetsAt    pgtype.Timestamptz `json:"quota_resets_at"`
+	QuotaObservedAt  pgtype.Timestamptz `json:"quota_observed_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
+type WebSearchSetting struct {
+	Singleton      bool               `json:"singleton"`
+	DefaultBackend pgtype.Text        `json:"default_backend"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
 type WikiCurrentSource struct {
 	WikiID     pgtype.Text `json:"wiki_id"`
 	TenantID   string      `json:"tenant_id"`

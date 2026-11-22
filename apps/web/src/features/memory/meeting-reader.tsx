@@ -32,6 +32,10 @@ import {
 } from "@/features/rooms/room-queries";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 import { MeetingAudioPlayer } from "./meeting-audio-player";
 import { timedTranscriptTurns, wordsInTopic } from "./topic-words";
 import {
@@ -52,7 +56,7 @@ import {
   meetingOpensOnLastWords,
   meetingReadingTab,
 } from "./meeting-without-decision";
-import { parseMeetingSummary } from "./meeting-overview";
+import { parseMeetingSummary, TODO_LIST_TITLE } from "./meeting-overview";
 import {
   MeetingKeywords,
   MeetingOutcomes,
@@ -73,6 +77,8 @@ import {
   meetingTitle,
   meetingWhen,
 } from "./meetings-calendar";
+import { meetingsExtrasMessages } from "./meetings-extras.messages";
+import { meetingsMessages as m } from "./meetings.messages";
 import { keepMeetingPath } from "./keep-meeting";
 import { meetingPath } from "./meeting-routes";
 import { MeetingShareAction } from "./meeting-share-action";
@@ -152,6 +158,7 @@ export function MeetingReader({
 }) {
   const { client } = useTeamHubRuntime();
   const navigate = useNavigate();
+  const t = useT();
   const meeting = entry.meeting!;
   // The shell already cached this identity, so the reader adds no request; the
   // listening position belongs to the signed-in Account.
@@ -455,16 +462,16 @@ export function MeetingReader({
   );
   const summaryDocument = (markdown: string) => (
     <ReadOnlyBlockNoteDocumentLoader
-      ariaLabel="Meeting summary document"
+      ariaLabel={t(m.summaryDocument)}
       hiddenSectionTitles={meetingSummaryHiddenSectionTitles}
       markdown={markdown}
       presentation="knowledge"
       resolveLink={resolveLink}
     />
   );
-  const tabs: Array<{ id: MeetingTab; label: string }> = [
-    { id: "summary", label: "Summary" },
-    { id: "transcript", label: "Transcript" },
+  const tabs: Array<{ id: MeetingTab; label: Message<string> }> = [
+    { id: "summary", label: m.summary },
+    { id: "transcript", label: m.transcript },
   ];
   const actionMenuItems: ActionMenuItem[] = [
     {
@@ -508,7 +515,7 @@ export function MeetingReader({
     ...(meeting.summary_ready
       ? [
           {
-            label: "Download summary",
+            label: t(m.downloadSummary),
             onSelect: () =>
               triggerArtifactDownload(
                 new Blob([entry.content], {
@@ -522,22 +529,29 @@ export function MeetingReader({
       : []),
     {
       danger: true,
-      label: "Delete",
+      label: t(commonMessages.delete),
       onSelect: () => setDeleting(true),
       separatorBefore: true,
+      voiceRisk: "never",
     },
   ];
   return (
     <article
-      aria-label="Meeting"
+      aria-label={t(m.meeting)}
       className="meeting-document mx-auto w-full max-w-4xl px-5 py-7 md:px-10"
       data-meeting-surface
       ref={articleRef}
     >
       <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-[12rem] flex-1">
-          <h2 className="break-words text-xl text-app-ink">{title}</h2>
-          <p className="mt-1 text-xs text-app-muted">Read only</p>
+          <h2 className="break-words text-xl text-app-ink">
+            {when
+              ? t(m.meetingHeading, {
+                  when: formatMeetingWhen(when.date, when.time, t),
+                })
+              : entry.title}
+          </h2>
+          <p className="mt-1 text-xs text-app-muted">{t(m.readOnly)}</p>
           {toldSentence ? (
             <p className="mt-3 text-sm text-app-ink">
               <span className="text-app-muted">The part you would tell. </span>
@@ -548,7 +562,7 @@ export function MeetingReader({
         <div className="flex flex-wrap items-center gap-2">
           {linkCopyState === "copied" ? (
             <span className="text-xs leading-4 text-app-muted" role="status">
-              Copied
+              {t(commonMessages.copied)}
             </span>
           ) : null}
           {linkCopyState === "failed" ? (
@@ -579,7 +593,9 @@ export function MeetingReader({
           captureId={meeting.capture_id}
           name={
             when
-              ? `Meeting ${formatMeetingWhen(when.date, when.time)}`
+              ? t(m.meetingNamed, {
+                  when: formatMeetingWhen(when.date, when.time, t),
+                })
               : entry.title
           }
           onClose={() => setDeleting(false)}
@@ -588,7 +604,7 @@ export function MeetingReader({
         />
       ) : null}
       <div
-        aria-label="Meeting views"
+        aria-label={t(m.views)}
         className="flex items-center gap-1 border-b border-app-border"
         role="tablist"
       >
@@ -607,7 +623,7 @@ export function MeetingReader({
             role="tab"
             type="button"
           >
-            {item.label}
+            {t(item.label)}
           </button>
         ))}
       </div>
@@ -627,7 +643,7 @@ export function MeetingReader({
                       className="text-xs leading-4 text-app-muted"
                       role="status"
                     >
-                      Copied
+                      {t(commonMessages.copied)}
                     </span>
                   ) : null}
                   {summaryCopyState === "failed" ? (
@@ -652,7 +668,7 @@ export function MeetingReader({
               {/* One reading surface: the table of contents reads every
                   heading inside it, the card's included. */}
               <article
-                aria-label="Meeting summary"
+                aria-label={t(m.meetingSummary)}
                 className="[&>article:not(:first-child)]:pt-0 [&>article:not(:last-child)]:pb-0"
                 data-content-renderer="blocknote"
                 data-editable="false"
@@ -688,7 +704,7 @@ export function MeetingReader({
                   ) : (
                     <MeetingOutcomes
                       checks={
-                        block.title === "To-do list" && followUps.length > 0
+                        block.title === TODO_LIST_TITLE && followUps.length > 0
                           ? {
                               checked: followUpChecks.checked,
                               onToggle: followUpChecks.toggle,
@@ -708,7 +724,11 @@ export function MeetingReader({
                       }
                       onTrack={trackAction}
                       outcomes={block.outcomes}
-                      title={block.title}
+                      title={
+                        block.title === TODO_LIST_TITLE
+                          ? t(meetingsExtrasMessages.todoList)
+                          : block.title
+                      }
                     />
                   ),
                 )}
@@ -716,7 +736,7 @@ export function MeetingReader({
             </>
           ) : (
             <p className="text-sm text-app-muted" role="status">
-              The summary is still being written. The transcript is ready now.
+              {t(m.summaryPending)}
             </p>
           )
         ) : null}
@@ -842,6 +862,7 @@ function MeetingVersionReader({
   const { client } = useTeamHubRuntime();
   const speakerNames = useSpeakerNames(captureId);
   const [carrySession] = useState(currentMeetingPlaybackSession);
+  const t = useT();
   const [preview, setPreview] = useState<LoadedArtifactPreview>();
   const previewRef = useRef(preview);
   const carriedPreviewRef = useRef<LoadedArtifactPreview | undefined>(
@@ -1019,7 +1040,9 @@ function MeetingVersionReader({
           return;
         }
         setError(
-          failure instanceof Error ? failure.message : "File unavailable.",
+          failure instanceof Error
+            ? failure.message
+            : translate(m.fileUnavailable),
         );
       });
     return () => {
@@ -1043,7 +1066,9 @@ function MeetingVersionReader({
     } catch (failure) {
       if (!signal.aborted)
         setError(
-          failure instanceof Error ? failure.message : "Download failed.",
+          failure instanceof Error
+            ? failure.message
+            : translate(m.downloadFailed),
         );
     } finally {
       if (!signal.aborted) setDownloading(false);
@@ -1074,13 +1099,13 @@ function MeetingVersionReader({
         </>
       ) : null}
       <Button
-        aria-label={`Download ${filename}`}
+        aria-label={t(m.downloadFile, { filename })}
         size="compact"
         tone="secondary"
         disabled={!preview || downloading}
         onClick={() => void download()}
       >
-        {variant === "player" ? "Download recording" : "Download transcript"}
+        {t(variant === "player" ? m.downloadRecording : m.downloadTranscript)}
       </Button>
     </div>
   );
@@ -1092,17 +1117,15 @@ function MeetingVersionReader({
         size="compact"
         tone="secondary"
       >
-        Retry
+        {t(commonMessages.retry)}
       </Button>
     </div>
   ) : !preview ? (
     <p className="text-sm text-app-muted" role="status">
-      {variant === "player" ? "Loading recording…" : "Loading transcript…"}
+      {t(variant === "player" ? m.loadingRecording : m.loadingTranscript)}
     </p>
   ) : preview.decision.kind === "download" ? (
-    <p className="text-sm text-app-muted">
-      Preview unavailable. Download the recording to open it.
-    </p>
+    <p className="text-sm text-app-muted">{t(m.previewUnavailable)}</p>
   ) : (
     <ArtifactContentRendererLoader
       kind={preview.decision.kind}
@@ -1193,7 +1216,7 @@ function MeetingVersionReader({
     if (error)
       return (
         <section
-          aria-label="Meeting recording"
+          aria-label={t(m.recording)}
           className="flex items-center gap-3 rounded-xl border border-app-border bg-app-surface px-3 py-2.5 text-sm"
         >
           <span className="min-w-0 flex-1 text-app-danger" role="alert">
@@ -1204,7 +1227,7 @@ function MeetingVersionReader({
             size="compact"
             tone="secondary"
           >
-            Retry
+            {t(commonMessages.retry)}
           </Button>
         </section>
       );
@@ -1255,10 +1278,10 @@ function MeetingVersionReader({
         startAtBeginning={continueRecording}
         status={
           !preview
-            ? "Loading…"
+            ? t(commonMessages.loading)
             : playable
               ? undefined
-              : "Preview unavailable · download to listen"
+              : t(m.previewUnavailableListen)
         }
       />
     );

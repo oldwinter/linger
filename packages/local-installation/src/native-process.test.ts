@@ -21,6 +21,8 @@ vi.mock("./instance.js", async (original) => {
 });
 import { test as base, vi, type TestContext } from "vitest";
 import {
+  NATIVE_PROCESS_IDENTITY_UNVERIFIED,
+  NATIVE_PROCESS_REPLACED,
   nativeConfigurationChanged,
   startNativeProcess,
   inspectNativeProcess,
@@ -28,11 +30,14 @@ import {
   stopNativeProcess,
 } from "./native-process.js";
 
-// Each test owns its root and real process group, so they run side by side;
-// the bounds are generous so that a loaded host slows them without failing them.
-const test = base.concurrent;
+// Every test owns a separate process tree. Run Windows trees in sequence
+// because each inspection reads the same system-wide process inventory.
+const windows = process.platform === "win32";
+const test = windows ? base : base.concurrent;
+const posix = windows ? test.skip : test;
+const win32 = windows ? test : test.skip;
 vi.setConfig({
-  testTimeout: 30_000,
+  testTimeout: windows ? 60_000 : 30_000,
   hookTimeout: 60_000,
   expect: { poll: { timeout: 15_000 } },
 });
@@ -44,12 +49,16 @@ async function fixture({ onTestFinished }: TestContext) {
     // then end whatever still runs from this root.
     for (const name of ["web", "teamhub"] as const)
       await stopNativeProcess(root, name, 300).catch(() => {});
-    try {
-      execFileSync("pkill", ["-KILL", "-f", root]);
-    } catch {
-      // pkill exits 1 when nothing matched.
+    if (windows) {
+      await reclaimNativeOrphans(root, { ports: [], paths: [] });
+    } else {
+      try {
+        execFileSync("pkill", ["-KILL", "-f", root]);
+      } catch {
+        // pkill exits 1 when nothing matched.
+      }
     }
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10 });
   });
   return root;
 }
@@ -95,6 +104,41 @@ test("retains an owned service after launch and reuses its identity", async (con
     await readFile(path.join(root, "native/logs/web.log"), "utf8"),
   ).toContain("native fixture ready");
 });
+win32(
+  "starts a service from a token with Administrators disabled",
+  async (context) => {
+    const { expect } = context;
+    const root = await fixture(context);
+    const args = ["a b", "", 'say "hi"', "C:\\dir with space\\", "trailing\\"];
+    // The service reports the arguments it received and whether its token
+    // holds Administrators; an elevated test run proves the group is gone.
+    const report = [
+      "const ps=require('node:path').win32.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe');",
+      "const role='([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)';",
+      "const administrator=require('node:child_process').execFileSync(ps,['-NoProfile','-NonInteractive','-Command',role],{encoding:'utf8'}).trim();",
+      "console.log(JSON.stringify({args:process.argv.slice(1),administrator}));",
+      "setInterval(()=>{},1000);",
+    ].join("");
+    await startNativeProcess({
+      root,
+      name: "web",
+      executable: process.execPath,
+      args: ["-e", report, ...args],
+      cwd: root,
+      env: process.env,
+      withoutAdministrators: true,
+    });
+    await expect
+      .poll(
+        async () => readFile(path.join(root, "native/logs/web.log"), "utf8"),
+        { timeout: 45_000 },
+      )
+      .toContain(JSON.stringify({ args, administrator: "False" }));
+    expect((await inspectNativeProcess(root, "web")).running).toBe(true);
+    await stopNativeProcess(root, "web");
+    expect((await inspectNativeProcess(root, "web")).running).toBe(false);
+  },
+);
 test("refuses to signal a PID whose recorded lease differs", async (context) => {
   const { expect } = context;
   const root = await fixture(context);
@@ -113,7 +157,12 @@ test("refuses to signal a PID whose recorded lease differs", async (context) => 
   altered.lease = "0".repeat(64);
   await writeFile(file, JSON.stringify(altered), { mode: 0o600 });
   expect((await inspectNativeProcess(root, "web")).running).toBe(false);
-  await expect(stopNativeProcess(root, "web")).rejects.toThrow(/identity/i);
+  await expect(stopNativeProcess(root, "web")).rejects.toMatchObject({
+    code:
+      process.platform === "win32"
+        ? NATIVE_PROCESS_IDENTITY_UNVERIFIED
+        : NATIVE_PROCESS_REPLACED,
+  });
   await expect(startNativeProcess(options)).rejects.toThrow(/identity/i);
   expect(() => process.kill(processState.pid!, 0)).not.toThrow();
   await writeFile(file, original, { mode: 0o600 });
@@ -183,33 +232,40 @@ test("redacts complete lines before persisting split writes and known secrets", 
   expect(log).toContain("[REDACTED]");
 });
 
-test("stops descendants that ignore SIGINT after the service leader exits", async (context) => {
-  const { expect } = context;
-  const root = await fixture(context);
-  const childCode =
-    "process.on('SIGINT',()=>{});console.log('descendant-ready');setInterval(()=>{},1000)";
-  await startNativeProcess({
-    root,
-    name: "web",
-    executable: process.execPath,
-    args: [
-      "-e",
-      `const {spawn}=require('node:child_process');const fs=require('node:fs');const c=spawn(process.execPath,['-e',${JSON.stringify(childCode)}],{stdio:'inherit'});fs.writeFileSync('descendant.pid',String(c.pid));process.on('SIGINT',()=>process.exit(0));setInterval(()=>{},1000)`,
-    ],
-    cwd: root,
-    env: process.env,
-  });
-  await expect
-    .poll(async () => readFile(path.join(root, "native/logs/web.log"), "utf8"))
-    .toContain("descendant-ready");
-  const pid = Number(await readFile(path.join(root, "descendant.pid"), "utf8"));
-  // The descendant ignores SIGINT, so only the SIGKILL escalation ends it;
-  // a short interrupt window reaches it without the production wait.
-  await stopNativeProcess(root, "web", 300);
-  await expect.poll(() => exited(pid)).toBe(true);
-});
+posix(
+  "stops descendants that ignore SIGINT after the service leader exits",
+  async (context) => {
+    const { expect } = context;
+    const root = await fixture(context);
+    const childCode =
+      "process.on('SIGINT',()=>{});console.log('descendant-ready');setInterval(()=>{},1000)";
+    await startNativeProcess({
+      root,
+      name: "web",
+      executable: process.execPath,
+      args: [
+        "-e",
+        `const {spawn}=require('node:child_process');const fs=require('node:fs');const c=spawn(process.execPath,['-e',${JSON.stringify(childCode)}],{stdio:'inherit'});fs.writeFileSync('descendant.pid',String(c.pid));process.on('SIGINT',()=>process.exit(0));setInterval(()=>{},1000)`,
+      ],
+      cwd: root,
+      env: process.env,
+    });
+    await expect
+      .poll(async () =>
+        readFile(path.join(root, "native/logs/web.log"), "utf8"),
+      )
+      .toContain("descendant-ready");
+    const pid = Number(
+      await readFile(path.join(root, "descendant.pid"), "utf8"),
+    );
+    // The descendant ignores SIGINT, so only the SIGKILL escalation ends it;
+    // a short interrupt window reaches it without the production wait.
+    await stopNativeProcess(root, "web", 300);
+    await expect.poll(() => exited(pid)).toBe(true);
+  },
+);
 
-(process.platform === "win32" ? test.skip : test)(
+posix(
   "replaces a service whose supervisor was killed with the app",
   async (context) => {
     const { expect } = context;
@@ -246,7 +302,7 @@ test("stops descendants that ignore SIGINT after the service leader exits", asyn
   },
 );
 
-(process.platform === "win32" ? test.skip : test)(
+posix(
   "reclaims a service an earlier attempt left under a lease no record holds",
   async (context) => {
     const { expect } = context;
@@ -279,7 +335,7 @@ test("stops descendants that ignore SIGINT after the service leader exits", asyn
   },
 );
 
-test("cleans the launched owned group when identity persistence fails", async (context) => {
+test("cleans launched owned processes when identity persistence fails", async (context) => {
   const { expect } = context;
   const root = await fixture(context);
   failure.file = path.join(root, "native/processes/web.json");
@@ -344,9 +400,16 @@ test("bundled entry resolves its packaged worker and survives caller exit", asyn
       target: "node26",
     });
   const caller = spawn(process.execPath, [path.join(root, "packaged.mjs")], {
-    stdio: "ignore",
+    stdio: ["ignore", "ignore", "pipe"],
   });
-  expect(await new Promise((resolve) => caller.once("exit", resolve))).toBe(0);
+  let stderr = "";
+  caller.stderr?.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString();
+  });
+  expect(
+    await new Promise((resolve) => caller.once("close", resolve)),
+    stderr,
+  ).toBe(0);
   expect((await inspectNativeProcess(root, "web")).running).toBe(true);
   await expect
     .poll(async () => readFile(path.join(root, "native/logs/web.log"), "utf8"))
@@ -424,12 +487,12 @@ test.for(["ENOSPC", "EIO"])(
       expect(() => process.kill(owner.pid!, 0)).toThrow();
       expect(() => process.kill(service, 0)).toThrow();
     } finally {
-      // A failed assertion must also reclaim the real group on the unfixed code.
+      // Keep the group escape hatch for POSIX; the fixture cleans Windows by lease.
       const record = await readFile(
         path.join(root, "native/processes/web.json"),
         "utf8",
       ).catch(() => "");
-      if (record) {
+      if (!windows && record) {
         try {
           process.kill(-JSON.parse(record).pid, "SIGKILL");
         } catch {
@@ -440,7 +503,7 @@ test.for(["ENOSPC", "EIO"])(
   },
 );
 
-test.for([false, true])(
+posix.for([false, true])(
   "stops leased orphan descendants across groups (owner killed: %s)",
   async (killOwner, context) => {
     const { expect } = context;
@@ -497,6 +560,32 @@ test.for([false, true])(
     }
   },
 );
+test("adopts a running service across executable cache layouts for the same archive", async (context) => {
+  const { expect } = context;
+  const root = await fixture(context);
+  const original = {
+    root,
+    name: "teamhub" as const,
+    executable: process.execPath,
+    args: ["-e", "setInterval(()=>{},1000)"],
+    cwd: root,
+    env: process.env,
+  };
+  const running = await startNativeProcess(original);
+  const upgraded = {
+    ...original,
+    executable: path.join(root, "new-cache", path.basename(process.execPath)),
+    configurationExecutable: original.executable,
+  };
+  expect(await nativeConfigurationChanged(upgraded)).toBe(false);
+  expect((await startNativeProcess(upgraded)).pid).toBe(running.pid);
+  expect(
+    await nativeConfigurationChanged({
+      ...upgraded,
+      configurationExecutable: "another-archive",
+    }),
+  ).toBe(true);
+});
 test("reports a configuration change only for a running recorded process", async (context) => {
   const { expect } = context;
   const root = await fixture(context);

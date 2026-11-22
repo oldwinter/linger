@@ -17,6 +17,11 @@ vi.mock("./localmodels-tool.js", () => ({
     }),
   }),
 }));
+vi.mock("./process.js", async (original) => {
+  const actual = await original<typeof import("./process.js")>();
+  const { withComputerFixture } = await import("./test-support/computer.js");
+  return { ...actual, runProcess: withComputerFixture(actual.runProcess) };
+});
 const roots: string[] = [];
 const owned: number[] = [];
 afterEach(async () => {

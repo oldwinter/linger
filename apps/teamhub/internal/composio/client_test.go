@@ -476,3 +476,30 @@ func authoredProfileSections(profile string) string {
 	}
 	return out.String()
 }
+
+func TestClientExecuteToolSendsAnObjectForMissingArguments(t *testing.T) {
+	var bodies []map[string]json.RawMessage
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		bodies = append(bodies, request)
+		_, _ = w.Write([]byte(`{"data":{},"successful":true}`))
+	}))
+	defer server.Close()
+	client, err := newTestClient(Config{BaseURL: server.URL, APIKey: "restricted-key", HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	userID := client.UserIDForAccount("account_1")
+	if _, err = client.ExecuteTool(context.Background(), "ca_1", userID, "DISCORDBOT_GET_CONNECTED_GUILD", "20261116_00", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = client.ExecuteTool(context.Background(), "ca_1", userID, "DISCORDBOT_GET_GUILD", "20261116_00", map[string]any{"guild_id": "g1"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(bodies) != 2 || string(bodies[0]["arguments"]) != `{}` || string(bodies[1]["arguments"]) != `{"guild_id":"g1"}` {
+		t.Fatalf("arguments=%s, %s", bodies[0]["arguments"], bodies[1]["arguments"])
+	}
+}

@@ -180,6 +180,15 @@ func (t *claudeTurn) authorize(frame claudeFrame) {
 		t.deliverSteers(frame.RequestID, hook)
 		return
 	}
+	if peek.Subtype == "hook_callback" && peek.CallbackID == claudeStopHookID {
+		var hook claudeHookInput
+		if frame.RequestID == "" || json.Unmarshal(peek.Input, &hook) != nil || hook.HookEventName != "Stop" {
+			t.proc.conv.abort(claudePermissionInvalid)
+			return
+		}
+		t.handleStopHook(frame.RequestID, hook)
+		return
+	}
 	if peek.Subtype == "can_use_tool" && t.spec.PermissionReviewer != nil {
 		t.review(frame)
 		return
@@ -234,6 +243,48 @@ func (t *claudeTurn) review(frame claudeFrame) {
 		}
 		response := claudeControlReply(id, permission.CanUseToolResponse(verdict, input, request.ToolUseID))
 		if err := t.proc.write(t.runCtx, response); err != nil && t.runCtx.Err() == nil {
+			t.proc.conv.abort(claudeAuthorizeFailed)
+		}
+	}()
+}
+
+// handleStopHook evaluates a Claude Stop hook asynchronously so network I/O
+// never blocks the stdout reader, while control_cancel_request or turn
+// cancellation aborts the check cleanly.
+func (t *claudeTurn) handleStopHook(requestID string, hook claudeHookInput) {
+	if t.spec.StopHook == nil || t.apiError != "" || t.runCtx.Err() != nil {
+		if err := t.proc.write(t.runCtx, claudeControlReply(requestID, map[string]any{})); err != nil && t.runCtx.Err() == nil {
+			t.proc.conv.abort(claudeAuthorizeFailed)
+		}
+		return
+	}
+	hookCtx, cancel := context.WithCancel(t.runCtx)
+	t.reviewMu.Lock()
+	if previous := t.reviews[requestID]; previous != nil {
+		previous()
+	}
+	t.reviews[requestID] = cancel
+	t.reviewMu.Unlock()
+	stopHook := t.spec.StopHook
+	go func() {
+		defer cancel()
+		decision := stopHook(hookCtx, StopHookRequest{
+			Runtime:        "claude",
+			StopHookActive: hook.StopHookActive,
+		})
+		t.reviewMu.Lock()
+		current := t.reviews[requestID]
+		delete(t.reviews, requestID)
+		t.reviewMu.Unlock()
+		if current == nil || hookCtx.Err() != nil {
+			return
+		}
+		payload := map[string]any{}
+		if decision.Action == "block" && strings.TrimSpace(decision.Reason) != "" {
+			payload["decision"] = "block"
+			payload["reason"] = strings.TrimSpace(decision.Reason)
+		}
+		if err := t.proc.write(t.runCtx, claudeControlReply(requestID, payload)); err != nil && t.runCtx.Err() == nil {
 			t.proc.conv.abort(claudeAuthorizeFailed)
 		}
 	}()

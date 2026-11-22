@@ -1,7 +1,10 @@
 import { useSyncExternalStore } from "react";
 
+import { useT } from "@/i18n/use-translation";
+
 import type { RoomDocumentCollaborationSession } from "../room-document-collaboration";
 import { RoomDocumentSaveIndicator } from "../unified-document-body";
+import { canvasMessages } from "./canvas.messages";
 
 /**
  * The email's state in its header: Drafting while an edit is not durable
@@ -17,6 +20,7 @@ export function MailCanvasStatus({
   sent: boolean;
   session: RoomDocumentCollaborationSession;
 }) {
+  const t = useT();
   const save = useSyncExternalStore(
     session.subscribeSaveState,
     session.getSaveSnapshot,
@@ -24,21 +28,21 @@ export function MailCanvasStatus({
   );
   if (sent)
     return (
-      <span aria-label="Email status" role="status">
-        Sent
+      <span aria-label={t(canvasMessages.emailStatus)} role="status">
+        {t(canvasMessages.sent)}
       </span>
     );
   if (save.protocolError === undefined) {
     if (save.status === "Saved")
       return (
-        <span aria-label="Email status" role="status">
-          Saved
+        <span aria-label={t(canvasMessages.emailStatus)} role="status">
+          {t(canvasMessages.saved)}
         </span>
       );
     if (save.status === "Local pending" || save.status === "Synced")
       return (
-        <span aria-label="Email status" role="status">
-          Drafting
+        <span aria-label={t(canvasMessages.emailStatus)} role="status">
+          {t(canvasMessages.drafting)}
         </span>
       );
     if (save.status === "Connecting") return null;

@@ -8,9 +8,12 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ActionMenu } from "@/components/ui/action-menu";
 import { Icon } from "@/components/ui/icon";
 
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 import { writeClipboardText } from "@/lib/clipboard";
 import { cn } from "@/lib/cn";
 
+import { chatMessages } from "./chat.messages";
 import {
   appFontFaces,
   currentFragmentTheme,
@@ -182,6 +185,7 @@ function scrollingAncestor(element: HTMLElement) {
 const copiedFeedbackMs = 1200;
 
 function FragmentHostActions({ html, title }: { html: string; title: string }) {
+  const t = useT();
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
     "idle",
   );
@@ -218,7 +222,7 @@ function FragmentHostActions({ html, title }: { html: string; title: string }) {
           )}
           role={copyState === "failed" ? "alert" : "status"}
         >
-          {copyState === "copied" ? "Copied" : "Copy failed"}
+          {copyState === "copied" ? t(commonMessages.copied) : "Copy failed"}
         </span>
       ) : null}
       <ActionMenu
@@ -232,16 +236,19 @@ function FragmentHostActions({ html, title }: { html: string; title: string }) {
                 size={14}
               />
             ),
-            label: copyState === "copied" ? "Copied" : "Copy to clipboard",
+            label:
+              copyState === "copied"
+                ? t(commonMessages.copied)
+                : t(chatMessages.copyToClipboard),
             onSelect: handleCopy,
           },
           {
             icon: <Icon icon={Download04Icon} size={14} />,
-            label: "Download file",
+            label: t(chatMessages.downloadFile),
             onSelect: () => downloadFragmentFile(title, html),
           },
         ]}
-        label="Widget actions"
+        label={t(chatMessages.widgetActions)}
         menuClassName="app-popover-card fixed z-[100] w-max min-w-[12rem] p-1"
         trigger={<Icon icon={MoreHorizontalIcon} size={16} />}
       />

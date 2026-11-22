@@ -29,9 +29,12 @@ import type {
   TeamHubDocumentPlacementNode,
   TeamHubDocumentTreeSummary,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import type { Translate } from "@/i18n/language";
 
 import { documentFileName } from "./document-display-name";
 import { compareTreeItems } from "./document-tree-order";
+import { libraryMessages as m } from "./library.messages";
 import {
   readDroppedUploadSources,
   type PendingDocumentUpload,
@@ -85,6 +88,8 @@ export interface TreeLevelInput {
   pendingUploads: readonly PendingDocumentUpload[];
   revealDocumentId: string | null;
   renamingFolder: { id: string; name: string } | null;
+  /** Words the menus and labels in the language on screen. */
+  t: Translate;
   tenantId: string;
 }
 
@@ -109,7 +114,7 @@ export function revealCurrentTreeNode(
     return;
   }
   const scrollContainer = node.closest<HTMLElement>(
-    'aside[aria-label="Library sidebar"]',
+    "aside[data-library-sidebar]",
   );
   if (scrollContainer) {
     const nodeRect = node.getBoundingClientRect();
@@ -207,7 +212,9 @@ export function renderTreeLevel(input: TreeLevelInput): ReactNode[] {
         : renderDocumentNode(item, input),
     );
   const uploads = input.pendingUploads.flatMap((upload) =>
-    upload.parentId === input.parentId ? [renderUploadNode(upload)] : [],
+    upload.parentId === input.parentId
+      ? [renderUploadNode(upload, input.t)]
+      : [],
   );
   return [...nodes, ...uploads];
 }
@@ -278,7 +285,7 @@ function renderFolderNode(item: DocumentTreeFolder, input: TreeLevelInput) {
       >
         {isRenaming ? (
           <FolderRenameInput
-            ariaLabel="Rename folder"
+            ariaLabel={input.t(m.renameFolder)}
             initialName={item.name}
             onCancel={input.onRenameCancel}
             onChange={input.onRenameChange}
@@ -411,39 +418,40 @@ function renderFolderLabel(
               },
             ],
             icon: <Icon icon={FileAddIcon} size={14} />,
-            label: "New file",
+            label: input.t(m.newFile),
           },
           {
             icon: <Icon icon={FolderAddIcon} size={14} />,
-            label: "New folder",
+            label: input.t(m.newFolder),
             onSelect: () => input.onCreateFolder(item.id),
           },
           {
             icon: <Icon icon={FileImportIcon} size={14} />,
-            label: "Import",
+            label: input.t(m.importFile),
             onSelect: () => input.onImportPick(item.id),
           },
           {
             icon: <Icon icon={PencilEdit01Icon} size={14} />,
-            label: "Rename",
+            label: input.t(m.rename),
             onSelect: () => input.onBeginRename(item),
             separatorBefore: true,
           },
           {
             icon: <Icon icon={FolderExportIcon} size={14} />,
-            label: "Move",
+            label: input.t(m.move),
             onSelect: () => input.onMoveBegin(item),
           },
           {
             danger: true,
             disabled: input.deletingFolderId === item.id,
             icon: <Icon icon={Delete02Icon} size={14} />,
-            label: "Delete",
+            voiceRisk: "never",
+            label: input.t(commonMessages.delete),
             onSelect: () => input.onDeleteFolder(item.id),
             separatorBefore: true,
           },
         ]}
-        label={`Actions for ${item.name}`}
+        label={input.t(m.actionsFor, { name: item.name })}
       />
     </>
   );
@@ -518,50 +526,54 @@ function renderDocumentActions(
       items={[
         {
           icon: <Icon icon={Copy01Icon} size={14} />,
-          label: "Copy link",
+          label: input.t(m.copyLink),
           onSelect: () => input.onCopyLink(document),
         },
         {
           disabled: !canRenameDocument(document),
           icon: <Icon icon={PencilEdit01Icon} size={14} />,
-          label: "Rename",
+          label: input.t(m.rename),
           onSelect: () => input.onRenameDocument(document),
         },
         {
           disabled: !document.capabilities.export,
           icon: <Icon icon={Download01Icon} size={14} />,
-          label: "Download",
+          label: input.t(m.download),
           onSelect: () => input.onExportDocument(document),
         },
         {
           disabled: !document.capabilities.duplicate,
           icon: <Icon icon={Copy01Icon} size={14} />,
-          label: "Duplicate",
+          label: input.t(m.duplicate),
           onSelect: () => input.onDuplicateDocument(document, item.parent_id),
         },
         {
           icon: <Icon icon={FolderExportIcon} size={14} />,
-          label: "Move",
+          label: input.t(m.move),
           onSelect: () => input.onMoveBegin(item),
         },
         {
           danger: true,
           disabled: !document.capabilities.delete,
           icon: <Icon icon={Delete02Icon} size={14} />,
-          label: "Delete",
+          voiceRisk: "never",
+          label: input.t(commonMessages.delete),
           onSelect: () => input.onTrashDocument(document),
           separatorBefore: true,
         },
       ]}
-      label={`Actions for ${fileName}`}
+      label={input.t(m.actionsFor, { name: fileName })}
     />
   );
 }
 
-function renderUploadNode(upload: PendingDocumentUpload) {
+function renderUploadNode(upload: PendingDocumentUpload, t: Translate) {
   return (
     <div
-      aria-label={`${upload.filename} upload ${upload.status}`}
+      aria-label={t(
+        upload.status === "uploading" ? m.uploadUploading : m.uploadQueued,
+        { filename: upload.filename },
+      )}
       className="my-0.5 flex h-[33px] min-w-0 items-center gap-2 rounded-md px-2 text-[14px] leading-[18px] text-app-muted"
       key={upload.id}
       // eslint-disable-next-line jsx-a11y/role-has-required-aria-props -- selection is not tracked for this tree item

@@ -4,10 +4,16 @@ import { useState } from "react";
 import { localComputersQueryOptions } from "@/features/local-computer/local-computer-queries";
 import { localModelsQueryOptions } from "@/features/local-models/local-models-queries";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
+import { translate, type Translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 import type {
   TeamHubAgentReasoningEffort,
   TeamHubTenantAgent,
 } from "@/features/teamhub/teamhub-types";
+
+import { composerMessages } from "../chat/composer.messages";
+import { runtimeModelLabel } from "./runtime-model-label";
 
 interface RuntimeModel {
   id: string;
@@ -19,6 +25,7 @@ interface RuntimeModel {
 /** The model and reasoning effort of a new Agent, chosen among the models the
  * selected Computer Runtime reports; the first model is the default. */
 export function useAgentModelSelection(models: readonly RuntimeModel[]) {
+  const t = useT();
   const [requestedModel, setRequestedModel] = useState("");
   const [requestedReasoningEffort, setRequestedReasoningEffort] = useState<
     TeamHubAgentReasoningEffort | ""
@@ -38,7 +45,10 @@ export function useAgentModelSelection(models: readonly RuntimeModel[]) {
     : defaultReasoningEffort;
 
   return {
-    items: models.map(({ id, label }) => ({ value: id, label })),
+    items: models.map((item) => ({
+      value: item.id,
+      label: runtimeModelLabel(item, t),
+    })),
     model: selectedModel?.id ?? "",
     reasoningEffort,
     reasoningEfforts,
@@ -47,18 +57,22 @@ export function useAgentModelSelection(models: readonly RuntimeModel[]) {
   };
 }
 
-export function reasoningEffortLabel(value: TeamHubAgentReasoningEffort) {
-  return (
-    {
-      none: "None",
-      low: "Low",
-      medium: "Medium",
-      high: "High",
-      xhigh: "Extra high",
-      max: "Maximum",
-      ultra: "Ultra",
-    } satisfies Record<TeamHubAgentReasoningEffort, string>
-  )[value];
+export const reasoningEffortMessages = {
+  none: composerMessages.effortNone,
+  low: composerMessages.effortLow,
+  medium: composerMessages.effortMedium,
+  high: composerMessages.effortHigh,
+  xhigh: composerMessages.effortExtraHigh,
+  max: composerMessages.effortMaximum,
+  ultra: composerMessages.effortUltra,
+} satisfies Record<TeamHubAgentReasoningEffort, Message>;
+
+/** The effort's name; a component passes its own `t` to follow the language. */
+export function reasoningEffortLabel(
+  value: TeamHubAgentReasoningEffort,
+  t: Translate = translate,
+) {
+  return t(reasoningEffortMessages[value]);
 }
 
 /**
@@ -81,6 +95,7 @@ export function useResolvedAgentModelLabel(
   tenantId: string,
   runtime: TeamHubTenantAgent["runtime"] | undefined,
 ): string | undefined {
+  const t = useT();
   const placement = runtime?.placement;
   const computerId =
     placement?.type === "local" ? placement.computer_id : undefined;
@@ -88,10 +103,11 @@ export function useResolvedAgentModelLabel(
     ...localComputersQueryOptions(client, tenantId),
     enabled: Boolean(computerId),
   });
-  const catalogLabel = computers.data?.items
+  const catalogModel = computers.data?.items
     .find((item) => item.computer_id === computerId)
     ?.runtimes.find((item) => item.type === placement?.runtime_type)
-    ?.models.find((item) => item.id === runtime?.model)?.label;
+    ?.models.find((item) => item.id === runtime?.model);
+  const catalogLabel = catalogModel && runtimeModelLabel(catalogModel, t);
   const localModels = useQuery({
     ...localModelsQueryOptions(client, tenantId, computerId ?? ""),
     enabled: Boolean(
@@ -106,5 +122,11 @@ export function useResolvedAgentModelLabel(
         (item) => item.model.pi_model === runtime?.model,
       )?.model.name
     : undefined;
-  return catalogLabel ?? localModelLabel ?? runtime?.model;
+  return (
+    catalogLabel ??
+    localModelLabel ??
+    (runtime?.model
+      ? runtimeModelLabel({ id: runtime.model, label: runtime.model }, t)
+      : undefined)
+  );
 }

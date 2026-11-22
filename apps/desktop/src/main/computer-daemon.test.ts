@@ -154,7 +154,8 @@ describe("ComputerDaemonModule", () => {
       LINGER_CODEX_PATH: "/opt/codex",
       [TOKEN_ENV]: TOKEN,
     });
-    expect(statSync(child!.configFile).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32")
+      expect(statSync(child!.configFile).mode & 0o777).toBe(0o600);
     const written = readFileSync(child!.configFile, "utf8");
     // The credential stays out of the config file.
     expect(written).not.toContain(TOKEN);

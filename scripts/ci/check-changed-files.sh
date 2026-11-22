@@ -3,7 +3,9 @@ set -euo pipefail
 
 # Formats, lints and checks the English-only rule on the files a change adds
 # or modifies. Published built-in Skill versions are immutable and never
-# reformatted.
+# reformatted. The client's translation catalogs under
+# apps/web/src/i18n/locales/ are formatted like any other file and are the one
+# place the English-only rule does not apply.
 #
 # Usage: check-changed-files.sh <base> <head>   diff two commits (the gate)
 #        check-changed-files.sh <base> --worktree
@@ -41,7 +43,7 @@ fi
 
 prettier_files=()
 eslint_files=()
-changed_files=()
+english_only_files=()
 while IFS= read -r -d '' file; do
   [[ "$file" =~ ^skills/builtin/[^/]+/[^/]+/ ]] && continue
   [[ -f "$file" ]] || continue
@@ -62,7 +64,11 @@ while IFS= read -r -d '' file; do
       if [[ "$app_lints" == false ]]; then eslint_files+=("$file"); fi
       ;;
   esac
-  changed_files+=("$file")
+  # Translation catalogs: the Web client's and the desktop shell's.
+  case "$file" in
+    apps/web/src/i18n/locales/* | apps/desktop/src/i18n/locales/*) ;;
+    *) english_only_files+=("$file") ;;
+  esac
 done < <(list_changed)
 if ((${#prettier_files[@]} > 0)); then
   pnpm exec prettier --check "${prettier_files[@]}"
@@ -76,9 +82,9 @@ fi
 # git grep exits 1 when nothing matches; any other non-zero status is an error
 # (for example a git without PCRE), which must fail the check rather than pass
 # it. --untracked lets the local run see files not yet added.
-if ((${#changed_files[@]} > 0)); then
+if ((${#english_only_files[@]} > 0)); then
   cjk_status=0
-  LC_ALL=C git grep --untracked -nIP '(*UTF)[\x{3400}-\x{4DBF}\x{4E00}-\x{9FFF}\x{F900}-\x{FAFF}]' -- "${changed_files[@]}" || cjk_status=$?
+  LC_ALL=C git grep --untracked -nIP '(*UTF)[\x{3400}-\x{4DBF}\x{4E00}-\x{9FFF}\x{F900}-\x{FAFF}]' -- "${english_only_files[@]}" || cjk_status=$?
   if ((cjk_status == 0)); then
     echo "Changed files contain Chinese characters; the repository is English-only (see AGENTS.md)." >&2
     exit 1

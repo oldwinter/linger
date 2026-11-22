@@ -41,6 +41,9 @@ import type {
   TeamHubMessageReactionId,
 } from "@/features/teamhub/teamhub-types";
 
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
+
 import type { RoomCardDecision } from "../cards/room-message-card-contract";
 import {
   knownRoomMessageCard,
@@ -74,6 +77,7 @@ import {
 } from "./message-body-blocks";
 import { messageQuoteText } from "./message-quote";
 import { messagePlainText } from "./message-plain-text";
+import { chatMessages } from "./chat.messages";
 import { MessageCard } from "./message-card";
 import { MessageHtmlFragment } from "./message-html-fragment";
 import { MessageMeetingNotes } from "./message-meeting-notes";
@@ -92,6 +96,7 @@ import {
 import { applySearchTermHighlight } from "./search-term-highlight";
 import { settledCardNotice } from "../cards/card-notice";
 import { CardNoticeRows } from "./card-notice-rows";
+import type { PendingMessageFailure } from "./pending-message-failure";
 import { ReplyContext } from "./reply-context";
 import { quoteReplyFromMessage, type StagedQuoteReply } from "./quote-reply";
 import { RoomNoticeRow } from "./room-notice-row";
@@ -118,9 +123,12 @@ export interface PendingRoomMessage {
   clientId: string;
   // Epoch milliseconds of the first send; retries keep it.
   createdAt: number;
+  // TeamHub's own words for a refusal, or the sentence an older client stored.
   error?: string;
   // The person stopped this send. Coming back does not try it again.
   heldByPerson?: true;
+  // Why this client could not finish the send; worded when it is shown.
+  failure?: PendingMessageFailure;
   mentions: TeamHubActorRef[];
   status: "failed" | "sending" | "unknown";
 }
@@ -267,6 +275,7 @@ function ConversationMessageRow({
   focusHighlight,
   workspaceAgentIds,
 }: MessageRowProps) {
+  const t = useT();
   const rowRef = useRef<HTMLElement>(null);
   useEffect(() => {
     if (!focused || !focusHighlight) return;
@@ -456,7 +465,7 @@ function ConversationMessageRow({
     const attachment = attachmentByDocument.get(documentId);
     return {
       ...(metadata
-        ? documentCardPresentation(metadata)
+        ? documentCardPresentation(metadata, t)
         : { filename: attachedName }),
       disabled: attachment ? !attachment.available : false,
       documentId,
@@ -475,7 +484,7 @@ function ConversationMessageRow({
       return (
         <MessageFileItem
           actionLabel="Preview"
-          detail={artifactTreeDetail(block.segment)}
+          detail={artifactTreeDetail(block.segment, t)}
           key={block.segment.publication_group_id}
           name={block.segment.root_path}
           onOpen={
@@ -649,10 +658,12 @@ function ConversationMessageRow({
                   disabled={!onMentionAuthor || !canMentionAuthor}
                   title={
                     canMentionAuthor
-                      ? `Mention ${authorName}`
+                      ? t(chatMessages.mentionAuthor, { name: authorName })
                       : isAuthorMember
-                        ? `${authorName} is unavailable right now`
-                        : `${authorName} is no longer in this Room`
+                        ? t(chatMessages.authorUnavailable, {
+                            name: authorName,
+                          })
+                        : t(chatMessages.authorNotInRoom, { name: authorName })
                   }
                   type="button"
                 >
@@ -671,7 +682,9 @@ function ConversationMessageRow({
         ) : null}
         {isAgent && message.routine_name ? (
           <div
-            aria-label={`Scheduled task: ${message.routine_name}`}
+            aria-label={t(chatMessages.scheduledTask, {
+              name: message.routine_name,
+            })}
             className="mt-2 flex min-w-0 items-center gap-1 text-xs font-normal leading-[18px] text-app-muted"
             data-testid="message-routine-label"
           >
@@ -682,7 +695,7 @@ function ConversationMessageRow({
         ) : null}
         {message.context_messages?.length ? (
           <ReplyContext
-            label="Reply context"
+            label={t(chatMessages.replyContext)}
             messages={message.context_messages.map((contextMessage) => ({
               author: contextMessage.author,
               key: contextMessage.message_id,
@@ -870,6 +883,7 @@ function ConversationMessageActions({
   onToggleReaction?: (reactionId: TeamHubMessageReactionId) => void;
   onTogglePin?: () => void;
 }) {
+  const t = useT();
   const [copyFeedback, setCopyFeedback] = useState<{
     source: "link" | "message" | "quote" | "text";
     status: "copied" | "failed";
@@ -975,7 +989,7 @@ function ConversationMessageActions({
   if (onForwardMessage) {
     overflowItems.push({
       icon: <Icon icon={SentIcon} size={14} />,
-      label: "Forward message",
+      label: t(chatMessages.forwardMessage),
       onSelect: () => onForwardMessage(message),
     });
   }
@@ -1003,7 +1017,7 @@ function ConversationMessageActions({
   if (onOpenThread && !hasCardPayload) {
     overflowItems.push({
       icon: <Icon icon={Message01Icon} size={14} />,
-      label: "Reply to thread",
+      label: t(chatMessages.replyToThread),
       onSelect: () => {
         // The sidebar must restore focus to the persistent trigger, not the removed menu item.
         actionsRef.current
@@ -1038,10 +1052,10 @@ function ConversationMessageActions({
     >
       {onToggleReaction ? (
         <MessageActionButton
-          aria-label="Add reaction"
+          aria-label={t(chatMessages.addReaction)}
           aria-pressed={reactionPickerOpen}
           onClick={() => setReactionPickerOpen((open) => !open)}
-          tooltip="Add reaction"
+          tooltip={t(chatMessages.addReaction)}
         >
           <Icon icon={SmilePlusIcon} size={16} />
         </MessageActionButton>
@@ -1063,22 +1077,22 @@ function ConversationMessageActions({
       ) : null}
       {onReply ? (
         <MessageActionButton
-          aria-label="Reply to message"
+          aria-label={t(chatMessages.replyToMessage)}
           onClick={() => onReply(message)}
-          tooltip="Reply to message"
+          tooltip={t(chatMessages.replyToMessage)}
         >
           <Icon icon={MailReply01Icon} size={16} />
         </MessageActionButton>
       ) : null}
       <MessageActionButton
-        aria-label="Copy message"
+        aria-label={t(chatMessages.copyMessage)}
         onClick={() => copyToClipboard("message", message.raw_message)}
         tooltip={
           messageCopyStatus === "copied"
-            ? "Copied"
+            ? t(commonMessages.copied)
             : messageCopyStatus === "failed"
               ? "Copy failed"
-              : "Copy message"
+              : t(chatMessages.copyMessage)
         }
       >
         {messageCopyStatus === "copied" ? (
@@ -1095,7 +1109,7 @@ function ConversationMessageActions({
           iconClassName="flex size-3.5 shrink-0 items-center justify-center"
           itemClassName="flex min-h-8 w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left font-(family-name:--app-room-font) text-sm text-foreground outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
           items={overflowItems}
-          label="More message actions"
+          label={t(chatMessages.moreMessageActions)}
           menuClassName="fixed z-[100] w-48 rounded-md bg-popover p-1 font-(family-name:--app-room-font) text-sm shadow-md"
           trigger={<Icon icon={MoreHorizontalIcon} size={16} />}
         />
@@ -1110,7 +1124,9 @@ function ConversationMessageActions({
           )}
           role="status"
         >
-          {copyFeedback.status === "copied" ? "Copied" : "Copy failed"}
+          {copyFeedback.status === "copied"
+            ? t(commonMessages.copied)
+            : "Copy failed"}
         </span>
       ) : null}
       {pocketSave === "saved" || pocketSave === "failed" ? (
@@ -1188,6 +1204,7 @@ export function PendingMessageRow({
   onRestoreToDraft?: (clientId: string) => Promise<void> | void;
   onRetry: (clientId: string) => void;
 }) {
+  const t = useT();
   // A send that commits quickly never shows a status line, so the committed
   // row replaces it at the same height.
   const [slow, setSlow] = useState(false);
@@ -1217,7 +1234,7 @@ export function PendingMessageRow({
       <div className="room-message-content min-w-0">
         {message.contextMessages.length ? (
           <ReplyContext
-            label="Pending reply context"
+            label={t(chatMessages.pendingReplyContext)}
             messages={message.contextMessages.map((contextMessage) => ({
               author: contextMessage.author,
               key: contextMessage.id,
@@ -1255,7 +1272,7 @@ export function PendingMessageRow({
             ) : (
               <MessageFileItem
                 detail={fileItemDetail(
-                  artifactFileTypeLabel(attachment.filename),
+                  artifactFileTypeLabel(attachment.filename, undefined, t),
                   attachment.sizeBytes,
                 )}
                 name={attachment.filename}
@@ -1268,17 +1285,17 @@ export function PendingMessageRow({
           <div className="mt-1 flex items-center justify-end gap-2 leading-[18px]">
             <span className="text-xs text-muted-foreground">
               {message.status === "sending"
-                ? "Sending..."
+                ? t(chatMessages.sending)
                 : message.status === "unknown"
-                  ? "Delivery status unknown"
-                  : "Not sent"}
+                  ? t(chatMessages.deliveryUnknown)
+                  : t(chatMessages.notSent)}
             </span>
           </div>
         ) : null}
         {message.status === "failed" || message.status === "unknown" ? (
           <div className="mt-2 flex flex-col items-end gap-2">
             <span className="text-right text-sm text-destructive" role="alert">
-              {message.error ?? "Failed to connect to the server..."}
+              {message.error ?? t(chatMessages.connectFailed)}
             </span>
             <div className="flex flex-wrap items-center justify-end gap-1.5">
               <Button
@@ -1287,7 +1304,7 @@ export function PendingMessageRow({
                 tone="secondary"
               >
                 <Icon icon={RotateLeft01Icon} size={16} />
-                Retry
+                {t(commonMessages.retry)}
               </Button>
               {onRestoreToDraft &&
               (message.body.trim().length > 0 ||
@@ -1307,7 +1324,7 @@ export function PendingMessageRow({
                 tone="ghost"
               >
                 <Icon icon={Cancel01Icon} size={16} />
-                Cancel
+                {t(commonMessages.cancel)}
               </Button>
             </div>
           </div>

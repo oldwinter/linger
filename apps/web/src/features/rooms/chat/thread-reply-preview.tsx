@@ -7,8 +7,10 @@ import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useOptionalTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMessage } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
 
 import { roomMessagesQueryKey } from "../room-queries";
+import { chatMessages } from "./chat.messages";
 
 export const MAX_THREAD_PREVIEW_REPLIES = 3;
 const PREVIEW_BODY_CHARS = 140;
@@ -20,6 +22,7 @@ export function ThreadReplyPreview({
   message: TeamHubMessage;
   onOpen: () => void;
 }) {
+  const t = useT();
   const thread = message.thread;
   const runtime = useOptionalTeamHubRuntime();
   const replyCount = thread?.reply_count ?? 0;
@@ -49,11 +52,11 @@ export function ThreadReplyPreview({
   if (!thread || replyCount <= 0) return null;
 
   const previews = repliesQuery.data ?? [];
-  const repliesLabel = `${replyCount} ${replyCount === 1 ? "reply" : "replies"}`;
+  const repliesLabel = t(chatMessages.replyCount, { count: replyCount });
 
   return (
     <button
-      aria-label={`Open thread, ${repliesLabel}`}
+      aria-label={t(chatMessages.openThread, { replies: repliesLabel })}
       className="mt-2 inline-flex h-6 items-center justify-center rounded-full bg-muted px-1.5 font-(family-name:--app-room-font) text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app-focus"
       onClick={onOpen}
       type="button"

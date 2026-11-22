@@ -1,4 +1,6 @@
 import { TeamHubTransportError } from "@/features/teamhub/teamhub-error";
+import { translate } from "@/i18n/language";
+import { voiceRequestMessages as m } from "./voice-request.messages";
 
 export function abortVoiceRequest(
   controller: AbortController | undefined,
@@ -36,9 +38,9 @@ export class VoiceRequestScope {
       return await operation(controller.signal);
     } catch (cause) {
       if (timedOut && !parent?.aborted)
-        throw new TeamHubTransportError("Voice request timed out");
+        throw new TeamHubTransportError(translate(m.timedOut));
       if (cause instanceof TypeError && !controller.signal.aborted)
-        throw new TeamHubTransportError("Voice response could not be read");
+        throw new TeamHubTransportError(translate(m.unreadable));
       throw cause;
     } finally {
       clearTimeout(timer);

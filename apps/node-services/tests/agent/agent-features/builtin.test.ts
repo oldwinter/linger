@@ -83,6 +83,9 @@ const fullServices = () => ({
       read: vi.fn(async () => ({ live_foreground: false, tasks: [] })),
     },
   },
+  roomReplyGuard: {
+    hasRunReplied: vi.fn(async () => true),
+  },
   agentMemory: {
     agentMemory: {
       recordRun: vi.fn(async () => undefined),

@@ -26,9 +26,11 @@ import {
 } from "./computer-daemon.js";
 import { ConfigStore } from "./config.js";
 import { DesktopIpcModule } from "./desktop-ipc.js";
+import { dialogMessages } from "./dialogs.messages.js";
 import { DiagnosticsModule } from "./diagnostics.js";
 import { EnrollmentModule } from "./enrollment.js";
 import { GlobalShortcutModule } from "./global-shortcut.js";
+import { LanguageModule } from "./language.js";
 import {
   LocalServerModule,
   signInWithPassword,
@@ -45,6 +47,7 @@ import { fileLogger, type Logger } from "./log.js";
 import { MacPermissions } from "./mac-permissions.js";
 import { EventBus, ModuleHost, type Module } from "./modules.js";
 import { parseServerUrl } from "./navigation.js";
+import { openWithXdg } from "./open-url.js";
 import { PowerGuardModule, type PowerApi } from "./power-guard.js";
 import { QuickNoteModule } from "./quick-note.js";
 import { SetupWindowModule } from "./setup-window.js";
@@ -144,12 +147,49 @@ async function main(): Promise<void> {
     log,
   );
 
+  // The default LINGER_HOME of the installer.
+  const home = lingerHome();
+  // The cookie header of the window's session for a server.
+  const webSessionCookie = async (
+    serverUrl: string,
+  ): Promise<string | undefined> => {
+    const cookies = await session.defaultSession.cookies.get({
+      url: serverUrl,
+    });
+    return cookies.length > 0
+      ? cookies.map((c) => `${c.name}=${c.value}`).join("; ")
+      : undefined;
+  };
+  const localServer = new LocalServerModule({
+    home,
+    version: VERSION,
+    macosVersion: () => process.getSystemVersion(),
+    installerDirectory: path.join(here, "../installer"),
+    ...(__SOURCE_ARCHIVE__ ? { sourceArchive: __SOURCE_ARCHIVE__ } : {}),
+    ...(__SOURCE_DEPENDENCIES__
+      ? { sourceDependencies: __SOURCE_DEPENDENCIES__ }
+      : {}),
+    // Developers install their own linger checkout instead.
+    ...(process.env.LINGER_CHECKOUT
+      ? { checkout: process.env.LINGER_CHECKOUT }
+      : {}),
+    // The window's session is the default one, which enrollment reads too.
+    signIn: (server, email, password) =>
+      signInWithPassword(server, email, password, (cookie) =>
+        session.defaultSession.cookies.set({ url: server.origin, ...cookie }),
+      ),
+    sessionCookie: webSessionCookie,
+    // On Linux the sign-in needs to know when no browser opened.
+    openExternal: (url) =>
+      process.platform === "linux" ? openWithXdg(url) : shell.openExternal(url),
+  });
   // Until this computer is connected, the setup window comes first.
   const needsSetup = !config.get().computerId;
   const windows = new WindowManagerModule({
     preload: path.join(here, "../preload/index.cjs"),
     shellPreload: path.join(here, "../preload/shell.cjs"),
     background: background || needsSetup,
+    localServerResumable: (url) => localServer.resumable(url),
   });
   const setup = new SetupWindowModule({
     preload: path.join(here, "../preload/setup.cjs"),
@@ -175,41 +215,10 @@ async function main(): Promise<void> {
         }
       : {}),
   });
-  const status = new StatusModule();
-  // The cookie header of the window's session for a server.
-  const webSessionCookie = async (
-    serverUrl: string,
-  ): Promise<string | undefined> => {
-    const cookies = await session.defaultSession.cookies.get({
-      url: serverUrl,
-    });
-    return cookies.length > 0
-      ? cookies.map((c) => `${c.name}=${c.value}`).join("; ")
-      : undefined;
-  };
-  // The default LINGER_HOME of the installer.
-  const home = lingerHome();
-  const localServer = new LocalServerModule({
-    home,
-    version: VERSION,
-    macosVersion: () => process.getSystemVersion(),
-    installerDirectory: path.join(here, "../installer"),
-    ...(__SOURCE_ARCHIVE__ ? { sourceArchive: __SOURCE_ARCHIVE__ } : {}),
-    ...(__SOURCE_DEPENDENCIES__
-      ? { sourceDependencies: __SOURCE_DEPENDENCIES__ }
-      : {}),
-    // Developers install their own linger checkout instead.
-    ...(process.env.LINGER_CHECKOUT
-      ? { checkout: process.env.LINGER_CHECKOUT }
-      : {}),
-    // The window's session is the default one, which enrollment reads too.
-    signIn: (server, email, password) =>
-      signInWithPassword(server, email, password, (cookie) =>
-        session.defaultSession.cookies.set({ url: server.origin, ...cookie }),
-      ),
-    sessionCookie: webSessionCookie,
-    openExternal: (url) => shell.openExternal(url),
+  const language = new LanguageModule({
+    systemLanguages: () => app.getPreferredSystemLanguages(),
   });
+  const status = new StatusModule();
   // Set once the bundle was swapped, so quitting relaunches the new version.
   let relaunch = false;
   // Set once the setup program of an update runs; it starts the new version.
@@ -224,7 +233,7 @@ async function main(): Promise<void> {
     downloadDirectory: path.join(userData, "updates"),
     announce: (state) => {
       if (!Notification.isSupported()) return;
-      const notice = new Notification(updateNotice(state));
+      const notice = new Notification(updateNotice(state, language.t));
       notice.on("click", () => void updater.install());
       notice.show();
     },
@@ -272,6 +281,7 @@ async function main(): Promise<void> {
       start: async () => {},
       stop: async () => {},
     },
+    language,
     new EnrollmentModule({
       defaultDisplayName,
       credentials,
@@ -375,12 +385,14 @@ async function main(): Promise<void> {
     if (status.current().tone === "busy") {
       const { response } = await dialog.showMessageBox({
         type: "warning",
-        buttons: ["Quit and Stop Tasks", "Cancel"],
+        buttons: [
+          language.t(dialogMessages.quitAndStop),
+          language.t(dialogMessages.cancel),
+        ],
         defaultId: 1,
         cancelId: 1,
-        message: "Quit Linger and stop the running tasks?",
-        detail:
-          "Until you open Linger again, tasks from your phone or the web can't run on this computer.",
+        message: language.t(dialogMessages.quitConfirm),
+        detail: language.t(dialogMessages.quitConfirmDetail),
       });
       if (response !== 0) return;
     }
@@ -398,7 +410,10 @@ async function main(): Promise<void> {
     });
   } catch (error) {
     log.error("desktop.start_failed", { error: String(error) });
-    dialog.showErrorBox("Linger", `Linger failed to start: ${String(error)}`);
+    dialog.showErrorBox(
+      "Linger",
+      language.t(dialogMessages.startFailed, { error: String(error) }),
+    );
     app.exit(1);
   }
 }

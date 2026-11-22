@@ -506,15 +506,16 @@ func TestRuntimeCheckWorksWithoutLoginOrDaemon(t *testing.T) {
 		t.Fatalf("exit=%d", code)
 	}
 	output := f.stdout.String()
-	contains(t, output, "Checking Codex, Claude Code, Pi...\n")
-	for _, progress := range []string{"  Codex         READY (1.2.3)\n", "  Claude Code   NOT_INSTALLED\n", "  Pi            NOT_INSTALLED\n"} {
+	contains(t, output, "Checking Codex, Claude Code, Pi, Antigravity...\n")
+	for _, progress := range []string{"  Codex         READY (1.2.3)\n", "  Claude Code   NOT_INSTALLED\n", "  Pi            NOT_INSTALLED\n", "  Antigravity   NOT_INSTALLED\n"} {
 		contains(t, output, progress)
 	}
 	want := "\nRuntime       Status          Next step\n" +
 		"Codex         READY           —\n" +
 		"Claude Code   NOT_INSTALLED   Install: curl -fsSL https://claude.ai/install.sh | bash\n" +
 		"Pi            NOT_INSTALLED   Install: npm install -g @earendil-works/pi-coding-agent\n" +
-		"\n1/3 runtimes ready. This computer can run agents.\n" +
+		"Antigravity   NOT_INSTALLED   Install: curl -fsSL https://antigravity.google/cli/install.sh | bash\n" +
+		"\n1/4 runtimes ready. This computer can run agents.\n" +
 		"Model reply not verified. Run linger-computer runtime check <name> --live to verify it.\n"
 	if !strings.HasSuffix(output, want) {
 		t.Fatalf("runtime check=%q", output)
@@ -630,13 +631,13 @@ func TestDoctorReportsEveryCheck(t *testing.T) {
 	for _, check := range report.Checks {
 		names = append(names, check.Name+"="+check.Status)
 	}
-	want := []string{"product-runtime=pass", "config=pass", "credential=pass", "state-directory=pass", "gateway-network=pass", "daemon=pass", "runtime:codex=pass", "runtime:claude=warn", "runtime:pi=warn", "enrollment=pass"}
+	want := []string{"product-runtime=pass", "config=pass", "credential=pass", "state-directory=pass", "gateway-network=pass", "daemon=pass", "runtime:codex=pass", "runtime:claude=warn", "runtime:pi=warn", "runtime:antigravity=warn", "enrollment=pass"}
 	// Without herdr installed the report has no herdr line.
 	if !report.OK || !reflect.DeepEqual(names[:len(want)], want) || report.Checks[len(want)].Name != "browser" || len(report.Checks) != len(want)+1 {
 		t.Fatalf("checks=%v", names)
 	}
 	if report.Checks[0].Detail != "Bundled Node 26.5.0" || report.Checks[6].Detail != "/usr/local/bin/codex (1.2.3); Runtime preflight passed; remote model access not verified" ||
-		report.Checks[7].Detail != "Runtime executable not found" || !strings.Contains(report.Checks[9].Detail, "computer_id=computer-local tenant_id=tenant-acme gateway=wss://gateway.example.test/v1/runner-gateway") {
+		report.Checks[7].Detail != "Runtime executable not found" || !strings.Contains(report.Checks[10].Detail, "computer_id=computer-local tenant_id=tenant-acme gateway=wss://gateway.example.test/v1/runner-gateway") {
 		t.Fatalf("details=%+v", report.Checks)
 	}
 	f.clear()

@@ -7,6 +7,7 @@ import {
   activeExternalConnections,
   connectLinkOpen,
   establishedExternalConnections,
+  externalConnectionUnconfirmed,
   usableConnectUrl,
 } from "./connection-state";
 
@@ -32,6 +33,8 @@ describe("external connection state projection", () => {
     connection("active", "active"),
     connection("pending", "pending"),
     connection("pending-error", "pending", "discord_guild_required"),
+    connection("pending-retry", "pending", "provider_identity_unavailable"),
+    connection("pending-duplicate", "pending", "duplicate_remote_principal"),
     connection("expired", "expired"),
     connection("failed", "failed"),
     connection("duplicate", "failed", "duplicate_remote_principal"),
@@ -50,6 +53,12 @@ describe("external connection state projection", () => {
     expect(
       establishedExternalConnections(connections).map((item) => item.id),
     ).toEqual(["active", "disconnecting", "revoke-pending"]);
+  });
+
+  it("treats a pending connection with a check failure as unconfirmed, except a duplicate", () => {
+    expect(
+      connections.filter(externalConnectionUnconfirmed).map((item) => item.id),
+    ).toEqual(["pending-error", "pending-retry"]);
   });
 });
 

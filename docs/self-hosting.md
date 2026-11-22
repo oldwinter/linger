@@ -25,8 +25,8 @@ printf '%s\n' 'choose-a-password' | docker compose exec -T teamhub \
 ```
 
 Open <http://localhost:3000> and sign in. The app then shows the commands that
-connect your computer, and it opens once Claude Code, Codex or Pi is installed
-and ready there. With Pi and no model yet, open Settings › Models from
+connect your computer, and it opens once Claude Code, Codex, Pi or Antigravity
+is installed and ready there. With Pi and no model yet, open Settings › Models from
 that screen and load one; Settings stays reachable while the rest of the app
 waits.
 
@@ -46,6 +46,7 @@ LINGER_SECRET_SEED=<output of: openssl rand -base64 32>
 Voice needs a Soniox key; [Voice](voice.md) shows how to turn it on. To
 develop on the code with hot reload instead, `pnpm dev` runs every service on
 your machine against a PostgreSQL you provide; see
+[Local PostgreSQL 17 for development](local-postgresql.md) and
 [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 To collect the desktop app's diagnostics from your people, run a receiver

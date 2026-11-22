@@ -1,4 +1,7 @@
 import type { TeamHubExternalAppKey } from "@/features/teamhub/teamhub-types";
+import type { Translate } from "@/i18n/language";
+
+import { accountSettingsMessages } from "./account-settings.messages";
 
 type ProfileSourceSelection = "fixed" | "optional" | "required" | "unsupported";
 
@@ -25,27 +28,29 @@ export function profileSourcePolicy(provider: string): {
   };
 }
 
-export function profileSourceSubmitLabel(provider: string, count: number) {
+export function profileSourceSubmitLabel(
+  provider: string,
+  count: number,
+  t: Translate,
+) {
   switch (provider) {
     case "github":
       return count === 0
-        ? "Add GitHub profile"
-        : `Add GitHub profile + ${count} ${pluralize("repository", count, "repositories")}`;
+        ? t(accountSettingsMessages.addGitHubProfile)
+        : t(accountSettingsMessages.addGitHubProfileAndRepositories, {
+            count,
+          });
     case "google_calendar":
-      return `Add ${count} ${pluralize("calendar", count)}`;
+      return t(accountSettingsMessages.addCalendars, { count });
     case "notion":
-      return `Add ${count} Notion ${pluralize("item", count)}`;
+      return t(accountSettingsMessages.addNotionItems, { count });
     case "slack":
-      return `Add ${count} Slack ${pluralize("channel", count)}`;
+      return t(accountSettingsMessages.addSlackChannels, { count });
     case "discord":
-      return `Add ${count} Discord ${pluralize("channel", count)}`;
+      return t(accountSettingsMessages.addDiscordChannels, { count });
     default:
-      return "Add";
+      return t(accountSettingsMessages.add);
   }
-}
-
-function pluralize(singular: string, count: number, plural = `${singular}s`) {
-  return count === 1 ? singular : plural;
 }
 
 export function providerDisplayName(provider: string) {

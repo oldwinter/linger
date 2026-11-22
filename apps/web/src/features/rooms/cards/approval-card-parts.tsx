@@ -11,7 +11,11 @@ import { flushSync } from "react-dom";
 import { AutoHeight } from "@/components/ui/auto-height";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import type { VoiceRisk } from "@/features/rooms/chat/voice-mode/voice-ui-bridge";
+import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
+
+import { cardsMessages } from "./cards.messages";
 
 /**
  * One row in a card's box: a 32px muted icon square, one truncated line and
@@ -130,32 +134,43 @@ const subtleControl =
  * denies.
  */
 export function DecisionActions({
-  approveLabel = "Approve",
-  denyLabel = "Deny",
+  approveLabel: approveText,
+  approveRisk = approveText === undefined ? "confirm" : undefined,
+  denyLabel: denyText,
+  denyRisk = denyText === undefined ? "confirm" : undefined,
   disabled,
   onApprove,
   onDeny,
   reasonRequired = false,
 }: {
   approveLabel?: string;
+  /** What Voice Mode risks by approving, as on `data-voice-risk`. */
+  approveRisk?: VoiceRisk;
   denyLabel?: string;
+  /** What Voice Mode risks by denying, as on `data-voice-risk`. */
+  denyRisk?: VoiceRisk;
   disabled: boolean;
   onApprove: () => void;
   onDeny: (reason?: string) => void;
   reasonRequired?: boolean;
 }) {
+  const t = useT();
+  const approveLabel = approveText ?? t(cardsMessages.approve);
+  const denyLabel = denyText ?? t(cardsMessages.deny);
   const [composing, setComposing] = useState(false);
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const hasDraft = draft.trim() !== "";
-  const toggleLabel = composing
-    ? reasonRequired
-      ? "Close the reason"
-      : "Deny without a reason"
-    : hasDraft
-      ? "Continue your reason"
-      : "Add a reason";
+  const toggleLabel = t(
+    composing
+      ? reasonRequired
+        ? cardsMessages.closeReason
+        : cardsMessages.denyWithoutReason
+      : hasDraft
+        ? cardsMessages.continueReason
+        : cardsMessages.addReason,
+  );
 
   function deny(reason?: string) {
     if (reasonRequired && !reason) {
@@ -188,7 +203,7 @@ export function DecisionActions({
 
   return (
     <div
-      aria-label="Approval actions"
+      aria-label={t(cardsMessages.approvalActions)}
       className={cn(
         "grid w-full gap-2 transition-[grid-template-columns] duration-[var(--app-emphasized-duration)] ease-[var(--app-out-quint)] motion-reduce:transition-none",
         composing
@@ -200,6 +215,7 @@ export function DecisionActions({
       <Button
         aria-label={approveLabel}
         className="group/tip w-full"
+        data-voice-risk={approveRisk}
         disabled={disabled}
         onClick={onApprove}
         size={composing ? "icon" : "large"}
@@ -233,6 +249,7 @@ export function DecisionActions({
                 "inline-flex h-9 w-full items-center justify-center whitespace-nowrap rounded-l-lg px-4 text-sm font-medium text-secondary-foreground",
                 subtleControl,
               )}
+              data-voice-risk={denyRisk}
               disabled={disabled}
               onClick={() => deny()}
               type="button"
@@ -249,17 +266,18 @@ export function DecisionActions({
             inert={!composing}
           >
             <input
-              aria-label="Reason for denying"
+              aria-label={t(cardsMessages.denyReasonLabel)}
               className="h-full w-0 min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-app-placeholder"
               disabled={disabled}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={onReasonKeyDown}
-              placeholder="Reason, then press Enter"
+              placeholder={t(cardsMessages.denyReasonPlaceholder)}
               ref={inputRef}
               value={draft}
             />
             <button
-              aria-label="Deny with this reason"
+              aria-label={t(cardsMessages.denyWithReason)}
+              data-voice-risk="confirm"
               className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-app-focus disabled:opacity-45"
               disabled={disabled || (reasonRequired && !hasDraft)}
               onClick={() => deny(draft.trim())}
@@ -272,6 +290,8 @@ export function DecisionActions({
         <button
           aria-label={toggleLabel}
           aria-pressed={composing}
+          data-voice-close={composing && reasonRequired ? "" : undefined}
+          data-voice-risk={composing && !reasonRequired ? "confirm" : undefined}
           className={cn(
             "group/tip relative inline-flex size-9 shrink-0 items-center justify-center rounded-r-lg",
             subtleControl,
@@ -348,8 +368,9 @@ export function FullCallBlock({
   input: string;
   tool: string;
 }) {
+  const t = useT();
   return (
-    <DetailBlock label={<>Full call · {tool}</>}>
+    <DetailBlock label={t(cardsMessages.fullCall, { tool })}>
       <pre className="max-h-64 overflow-auto px-3 py-2 font-mono text-xs leading-5 text-app-ink">
         {formatInput(input)}
       </pre>

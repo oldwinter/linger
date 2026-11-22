@@ -4,7 +4,9 @@ import {
   TeamHubError,
 } from "@/features/teamhub/teamhub-client";
 import type { TeamHubMessage } from "@/features/teamhub/teamhub-types";
+import { translate } from "@/i18n/language";
 
+import { cardsMessages } from "./cards.messages";
 import type { RoomCardDecision } from "./room-message-card-contract";
 
 export function createRoomCardDecisionController({
@@ -120,7 +122,5 @@ function assertDecisionIdentity(
 }
 
 function invalidDecisionResult(): never {
-  throw new Error(
-    "Card decision response does not match the active Room command.",
-  );
+  throw new Error(translate(cardsMessages.decisionMismatch));
 }

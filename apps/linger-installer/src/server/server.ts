@@ -18,7 +18,11 @@ import {
   validateLocalModelsAuthority,
 } from "./validation.js";
 import { checkModel, openLocalTarget } from "./platform.js";
-import { checkByokEndpoint } from "@linger/local-installation/byok-source";
+import {
+  checkByokEndpoint,
+  listByokModels,
+  validateByokEndpoint,
+} from "@linger/local-installation/byok-source";
 import { checkRuntimeModel } from "@linger/local-installation/managed-codex";
 export interface ServerOptions {
   home: string;
@@ -412,14 +416,63 @@ export async function startInstallerServer(options: ServerOptions) {
           }
           return;
         }
-        if (url.pathname === "/api/byok/check" && method === "POST") {
-          const byok = validateByok(await body(req));
-          const checked = await checkByokEndpoint(
-            options.home,
-            byok,
-            AbortSignal.timeout(45_000),
-          );
-          json(res, 200, checked);
+        if (
+          (url.pathname === "/api/byok/check" ||
+            url.pathname === "/api/byok/models") &&
+          method === "POST"
+        ) {
+          const input = await body(req);
+          const check = url.pathname === "/api/byok/check";
+          let run: () => Promise<unknown>;
+          try {
+            if (check) {
+              const byok = validateByok(input);
+              run = () =>
+                checkByokEndpoint(
+                  options.home,
+                  byok,
+                  AbortSignal.timeout(45_000),
+                );
+            } else {
+              const endpoint = validateByokEndpoint(input);
+              run = () =>
+                listByokModels(
+                  options.home,
+                  endpoint,
+                  AbortSignal.timeout(30_000),
+                );
+            }
+          } catch (invalid) {
+            // The form shows why its address or key was refused.
+            error(
+              res,
+              400,
+              "BYOK_INVALID_CONFIG",
+              invalid instanceof Error
+                ? invalid.message
+                : "Invalid BYOK configuration.",
+            );
+            return;
+          }
+          try {
+            json(res, 200, await run());
+          } catch (failure) {
+            // localmodels names the address it tried and its HTTP status.
+            const code =
+              failure instanceof Error &&
+              "code" in failure &&
+              typeof failure.code === "string"
+                ? failure.code
+                : "BYOK_CHECK_FAILED";
+            error(
+              res,
+              400,
+              code,
+              failure instanceof Error
+                ? failure.message
+                : "Could not reach the BYOK endpoint.",
+            );
+          }
           return;
         }
         if (url.pathname === "/api/runtime-login" && method === "DELETE") {
@@ -453,6 +506,7 @@ export async function startInstallerServer(options: ServerOptions) {
                   "provider",
                   "baseUrl",
                   "model",
+                  "method",
                 ].includes(key),
             )
           )
@@ -464,8 +518,17 @@ export async function startInstallerServer(options: ServerOptions) {
             provider?: unknown;
             baseUrl?: unknown;
             model?: unknown;
+            method?: unknown;
           };
           const name = instanceName(data.instance);
+          if (
+            data.method !== undefined &&
+            (method !== "POST" ||
+              data.code !== undefined ||
+              data.apiKey !== undefined ||
+              (data.method !== "browser" && data.method !== "device"))
+          )
+            throw new Error("Invalid runtime login method");
           if (
             data.code !== undefined &&
             (typeof data.code !== "string" ||
@@ -521,6 +584,7 @@ export async function startInstallerServer(options: ServerOptions) {
                       : {}),
                   }
                 : undefined,
+              data.method as "browser" | "device" | undefined,
             ),
           );
           return;

@@ -19,6 +19,9 @@ import type {
 import { collectTeamHubCursorPages } from "@/features/teamhub/teamhub-cursor-pages";
 
 import { roomDocumentCommentThreadsQueryKey } from "../room-queries";
+import { translate } from "@/i18n/language";
+
+import { documentCommentsMessages as m } from "./document-comments.messages";
 
 export type RoomDocumentCommentAnchor = TeamHubDocumentCommentAnchorInput;
 
@@ -336,7 +339,7 @@ export class TeamHubDocumentThreadStore extends ThreadStore {
   #requireDurableHead(): TeamHubDocumentCommentDurableHead {
     const head = this.#getDurableHead();
     if (head === undefined) {
-      throw new Error("Save the Document before creating or editing Comments");
+      throw new Error(translate(m.saveBeforeCommenting));
     }
     return head;
   }

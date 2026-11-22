@@ -175,7 +175,7 @@ const bodyOptions: Record<string, CommandOption> = {
   },
   "--file": {
     description:
-      "Read a UTF-8 body file; - consumes stdin (multi-line text, e.g. a heredoc).",
+      "Read a UTF-8 body file; - consumes stdin. Pass text through a quoted heredoc (<<'EOF'), which keeps $ and backticks literal; shell double quotes expand them.",
   },
 };
 const completeOptions = {
@@ -569,6 +569,7 @@ export const messageCommandDefinitions: readonly CommandDefinition[] = [
     ],
     examples: [
       'teamhub message send --content "Done."',
+      "teamhub message send --file - <<'EOF'\nDone: $180/store/month, as agreed.\nEOF",
       'teamhub message send --content "[@Reviewer](agent:actor_reviewer) Please review this result."',
       `teamhub message send --message '{"segments":[{"type":"fragment","title":"Weekly sales","content-path":"./playground/weekly-sales.html"}]}'`,
     ],

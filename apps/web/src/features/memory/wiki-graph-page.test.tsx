@@ -21,6 +21,7 @@ import { defineGlobalProperty } from "@/test/global-properties";
 
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { LibraryLayout } from "@/features/library/library-layout";
+import { TeamHubError } from "@/features/teamhub/teamhub-error";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubPersonalWiki,
@@ -404,6 +405,28 @@ describe("WikiGraphPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry graph" }));
     await waitFor(() => expect(getGraph).toHaveBeenCalledTimes(2));
     expect(await screen.findByTitle("Personal knowledge graph")).toBeVisible();
+  });
+
+  it("words the graph-unavailable state itself and keeps other errors as sent", async () => {
+    const runtime = await loggedInRuntime();
+    vi.spyOn(
+      runtime.client,
+      "getPersonalKnowledgeGraphVisualization",
+    ).mockRejectedValue(
+      new TeamHubError({
+        code: "GRAPH_UNAVAILABLE",
+        message: "words from the server",
+        status: 503,
+      }),
+    );
+    renderPage(runtime);
+
+    expect(
+      await screen.findByRole("alert", {
+        name: "Personal Knowledge Graph is unavailable",
+      }),
+    ).toBeVisible();
+    expect(screen.queryByText("words from the server")).toBeNull();
   });
 
   it("shows generation progress instead of a graph failure before the first revision", async () => {

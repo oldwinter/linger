@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 //     fail with that exit code.
 //   - <verb>.json is a fakeScript for every other verb.
 //   - calls.log records each call's arguments and tool environment.
+//   - jobs/<pid> exists while a download or load runs.
 func TestMain(m *testing.M) {
 	if os.Getenv("LOCALMODELS_FAKE_TOOL") == "1" {
 		os.Exit(runFakeTool(os.Args[1:]))
@@ -55,6 +57,12 @@ func runFakeTool(args []string) int {
 		return 3
 	}
 	verb := args[5]
+	if verb == "download" || verb == "load" {
+		marker := filepath.Join(state, "jobs", strconv.Itoa(os.Getpid()))
+		_ = os.MkdirAll(filepath.Dir(marker), 0o700)
+		_ = os.WriteFile(marker, nil, 0o600)
+		defer func() { _ = os.Remove(marker) }()
+	}
 	log, _ := os.OpenFile(filepath.Join(state, "calls.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	_, _ = fmt.Fprintf(log, "%s|PYTHONPATH=%s|cwd=%s|PI_CODING_AGENT_DIR=%s\n", strings.Join(args[5:], " "), os.Getenv("PYTHONPATH"), workingDirectory(), os.Getenv("PI_CODING_AGENT_DIR"))
 	_ = log.Close()
@@ -194,6 +202,15 @@ func newFakeTool(t *testing.T) *fakeTool {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Jobs outlive Library.Close and write into this directory until they
+	// exit; wait for them before the TempDir cleanup removes it. Cleanups
+	// run last-registered first, so this runs after every Close.
+	t.Cleanup(func() {
+		waitFor(t, "the fake tool's jobs to exit", func() bool {
+			entries, err := os.ReadDir(filepath.Join(root, "state", "jobs"))
+			return err != nil || len(entries) == 0
+		})
+	})
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)

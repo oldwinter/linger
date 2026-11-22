@@ -15,6 +15,8 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  COMPUTER_TOOL_VERSIONS,
+  QUICKJS_TOOL_ASSETS,
   nodeRuntimeEntry,
   recordSignedComputerTools,
   validatedComputerToolBundle,
@@ -46,6 +48,7 @@ async function stagedBundle(target: string) {
     "node_modules/@playwright/mcp/cli.js": Buffer.from("console.log(1)\n"),
     "node_modules/native/prebuilt.node": macho("native"),
   };
+  for (const name of QUICKJS_TOOL_ASSETS) files[name] = Buffer.from("engine");
   if (target.startsWith("darwin-")) {
     files["cua/CuaDriver.app/Contents/MacOS/cua-driver"] = macho("app");
     files["cua/cua-driver"] = macho("driver");
@@ -65,7 +68,7 @@ async function stagedBundle(target: string) {
     path.join(tools, "manifest.json"),
     JSON.stringify({
       schema_version: 1,
-      versions: { playwright: "0.0.83", pi: "1.2.0", cua: "0.35.4" },
+      versions: COMPUTER_TOOL_VERSIONS,
       target,
       playwright_entry: "node_modules/@playwright/mcp/cli.js",
       pi_extension: "extensions/pi-mcp.mjs",
@@ -118,6 +121,17 @@ describe("Computer tool bundle", () => {
     await expect(
       validatedComputerToolBundle(bundle, "linux-x64"),
     ).rejects.toThrow("not executable");
+  });
+
+  it("invalidates a cache that predates the pinned QuickJS tool", async () => {
+    const { bundle, tools } = await stagedBundle("linux-x64");
+    const file = path.join(tools, "manifest.json");
+    const manifest = JSON.parse(await readFile(file, "utf8"));
+    delete manifest.versions.quickjs;
+    await writeFile(file, JSON.stringify(manifest));
+    await expect(
+      validatedComputerToolBundle(bundle, "linux-x64"),
+    ).rejects.toThrow("Invalid Computer tool manifest");
   });
 
   it("records re-signed Mach-O files but keeps vendor-signed ones as they were", async () => {

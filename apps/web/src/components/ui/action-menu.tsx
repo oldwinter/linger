@@ -33,6 +33,12 @@ export interface ActionMenuItem {
   label: string;
   onSelect?: () => void;
   separatorBefore?: boolean;
+  /**
+   * What Voice Mode risks by clicking the item, as `data-voice-risk` (see
+   * voice-ui-bridge): "confirm" asks the Human first, "never" also keeps it
+   * out of spoken commands.
+   */
+  voiceRisk?: "confirm" | "never";
 }
 
 export function ActionMenu({
@@ -447,6 +453,7 @@ function ActionMenuItemButton({
         className={`${className} ${
           item.danger ? "text-destructive" : "text-foreground"
         }`}
+        data-voice-risk={item.voiceRisk}
         disabled={item.disabled}
         onClick={(event) => {
           event.preventDefault();
@@ -596,6 +603,7 @@ function ActionSubmenu({
             className={`flex min-h-[33px] w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent focus:bg-accent disabled:pointer-events-none disabled:opacity-50 ${
               child.danger ? "text-destructive" : "text-foreground"
             }`}
+            data-voice-risk={child.voiceRisk}
             disabled={child.disabled}
             onClick={(event) => {
               event.preventDefault();

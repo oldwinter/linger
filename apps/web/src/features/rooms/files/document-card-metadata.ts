@@ -2,6 +2,9 @@ import type {
   TeamHubDocument,
   TeamHubDocumentVersion,
 } from "@/features/teamhub/teamhub-types";
+import type { Translate } from "@/i18n/language";
+
+import { chatMessages } from "../chat/chat.messages";
 import {
   artifactFileKind,
   artifactFileTypeLabel,
@@ -16,23 +19,26 @@ export type DocumentCardMetadata = Pick<
     version?: Pick<TeamHubDocumentVersion, "filename" | "media_type">;
   };
 
-export function documentCardPresentation(document?: DocumentCardMetadata): {
+export function documentCardPresentation(
+  document: DocumentCardMetadata | undefined,
+  t: Translate,
+): {
   filename: string;
   iconKind: ArtifactFileKind;
   typeLabel: string;
 } {
   if (!document) {
     return {
-      filename: "Document",
+      filename: t(chatMessages.untitledDocument),
       iconKind: "document",
-      typeLabel: "Document",
+      typeLabel: t(chatMessages.fileTypeDocument),
     };
   }
   if (document.format === "blocknote") {
     return {
       filename: document.title,
       iconKind: "document",
-      typeLabel: "Online document",
+      typeLabel: t(chatMessages.fileTypeOnlineDocument),
     };
   }
   // The representation comes from TeamHub; titles and message labels are not formats.
@@ -47,6 +53,7 @@ export function documentCardPresentation(document?: DocumentCardMetadata): {
       typeLabel: artifactFileTypeLabel(
         document.version.filename,
         document.version.media_type,
+        t,
       ),
     };
   }
@@ -54,6 +61,6 @@ export function documentCardPresentation(document?: DocumentCardMetadata): {
   return {
     filename: document.title,
     iconKind: artifactFileKind(typeFilename),
-    typeLabel: artifactFileTypeLabel(typeFilename),
+    typeLabel: artifactFileTypeLabel(typeFilename, undefined, t),
   };
 }

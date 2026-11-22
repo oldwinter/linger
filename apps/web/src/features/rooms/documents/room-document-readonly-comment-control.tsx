@@ -3,7 +3,9 @@ import { Icon } from "@/components/ui/icon";
 import { useEffect, useState, type MutableRefObject } from "react";
 
 import { Button } from "@/components/ui/button";
+import { useT } from "@/i18n/use-translation";
 
+import { documentCommentsMessages as m } from "./document-comments.messages";
 import { type RoomDocumentCommentAnchor } from "./room-document-comments";
 import { readOnlyDocumentCommentAnchor } from "./room-document-readonly-selection";
 
@@ -20,6 +22,7 @@ export function ReadOnlySelectionCommentControl({
   editorRootRef: MutableRefObject<HTMLElement | null>;
   onStartComment: () => void;
 }) {
+  const t = useT();
   const [anchor, setAnchor] = useState<RoomDocumentCommentAnchor | null>(null);
   const [position, setPosition] = useState<{
     left: number;
@@ -95,12 +98,12 @@ export function ReadOnlySelectionCommentControl({
       style={position}
     >
       <Button
-        aria-label="Add comment to selected text"
+        aria-label={t(m.addCommentToSelection)}
         onMouseDown={(event) => event.preventDefault()}
         onClick={onStartComment}
         className="bg-app-hover text-app-ink"
         size="compactIcon"
-        title="Add comment"
+        title={t(m.addComment)}
         tone="ghost"
         type="button"
       >

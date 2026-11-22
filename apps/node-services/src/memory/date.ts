@@ -12,8 +12,15 @@ export function localDate(instant: Date | string = new Date()): string {
 }
 
 export function assertDateString(value: string): string {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    throw new Error(`Expected date in YYYY-MM-DD format, got ${value}`);
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
+    !Number.isFinite(parsed.getTime()) ||
+    parsed.toISOString().slice(0, 10) !== value
+  ) {
+    throw new Error(
+      `Expected a valid calendar date in YYYY-MM-DD format, got ${value}`,
+    );
   }
   return value;
 }

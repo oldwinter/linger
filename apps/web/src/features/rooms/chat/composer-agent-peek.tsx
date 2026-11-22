@@ -6,12 +6,15 @@ import {
   useState,
 } from "react";
 
+import { useT } from "@/i18n/use-translation";
+
 import { useAgentAvatarRecord } from "../members/actor-avatar-image";
 import {
   agentAvatarAppearance,
   resolveAgentAvatarKey,
 } from "../members/agent-avatar";
 import { AgentAvatarPortrait } from "../members/agent-avatar-portrait";
+import { composerMessages } from "./composer.messages";
 
 /** Typing must run this long, with pauses no longer than the gap below. */
 export const PEEK_TYPING_MS = 2500;
@@ -240,6 +243,7 @@ function PeekingAgent({
   onReturnFocus?: () => void;
   visible: boolean;
 }) {
+  const t = useT();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const returnFocusRef = useRef(onReturnFocus);
   useLayoutEffect(() => {
@@ -272,9 +276,12 @@ function PeekingAgent({
   return (
     // Pointer interaction keeps focus in the draft; keyboard users can also dismiss it.
     <button
+      data-voice-close
       ref={buttonRef}
       aria-hidden={!visible}
-      aria-label={`Dismiss ${agent.display_name} avatar`}
+      aria-label={t(composerMessages.dismissAgentAvatar, {
+        name: agent.display_name,
+      })}
       type="button"
       tabIndex={visible ? 0 : -1}
       className={`relative size-11 shrink-0 not-last:-ml-2 transition-transform duration-500 ease-[cubic-bezier(0.34,1.4,0.64,1)] ${visible ? "pointer-events-auto cursor-pointer" : ""}`}

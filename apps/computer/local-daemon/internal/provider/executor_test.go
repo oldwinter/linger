@@ -155,6 +155,49 @@ func TestExecutorSynthesizesResultOnlyRunOutput(t *testing.T) {
 	}
 }
 
+func TestExecutorClosesStreamWithEmptyFinalAnswer(t *testing.T) {
+	messages := make(chan native.Event, 1)
+	messages <- native.Event{Kind: native.EventText, ID: "commentary", Body: "Draft saved."}
+	close(messages)
+	results := make(chan native.Outcome, 1)
+	results <- native.Outcome{Status: "completed", Output: "", SessionID: "thread-1"}
+	close(results)
+
+	var events []protocol.Event
+	executor := Executor{NewBackend: func(string, native.Profile) (native.Runtime, error) {
+		return fakeBackend{session: &native.Run{Events: messages, Outcome: results}}, nil
+	}}
+	execution, err := executor.Start(t.Context(), OperationSpec{
+		OperationKind: "run.start", Provider: "codex", ExecutablePath: "/bin/codex",
+		WorkingDirectory: t.TempDir(), TaskID: "run-empty-final",
+	}, func(_ context.Context, event protocol.Event) error {
+		events = append(events, event)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := <-execution.Result; result.Status != "completed" || result.Output != "" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	var deltas []map[string]any
+	for _, event := range events {
+		var payload map[string]any
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload["type"] == "message.delta" {
+			deltas = append(deltas, payload)
+		}
+	}
+	if len(deltas) != 2 || deltas[0]["message_id"] != "commentary" {
+		t.Fatalf("deltas=%+v, want the commentary then a closing message", deltas)
+	}
+	if closing := deltas[1]; closing["message_id"] == "commentary" || closing["delta"] != "" {
+		t.Fatalf("closing message=%+v, want an empty reply in its own message", closing)
+	}
+}
+
 func TestNormalizeMessagePreservesProviderMessageIdentity(t *testing.T) {
 	first := normalizeMessage(native.Event{
 		Kind: native.EventText, ID: "message-progress", Body: "working",

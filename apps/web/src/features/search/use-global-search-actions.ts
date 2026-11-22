@@ -14,6 +14,7 @@ import { tenantRoomsQueryKey } from "@/features/rooms/room-queries";
 import { roomChatPath } from "@/features/rooms/room-routes";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
+import { useT } from "@/i18n/use-translation";
 
 import {
   HIGHLIGHT_MAX_LENGTH,
@@ -24,6 +25,7 @@ import {
   type SearchResult,
   type TargetContext,
 } from "./global-search-model";
+import { searchMessages as m } from "./global-search.messages";
 import {
   recordGlobalSearchQuery,
   type GlobalSearchStore,
@@ -58,6 +60,7 @@ export function useOpenResult({
 }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const t = useT();
   const [openError, setOpenError] = useState<string | null>(null);
   const openingRef = useRef(false);
 
@@ -97,7 +100,7 @@ export function useOpenResult({
       const target = resultTarget(result, targetContext);
       const destination = await conversationPath(target);
       if (!destination) {
-        setOpenError("This conversation could not be opened.");
+        setOpenError(t(m.openFailed));
         return;
       }
       const keyword = query.trim().slice(0, HIGHLIGHT_MAX_LENGTH);
@@ -116,7 +119,7 @@ export function useOpenResult({
       setOpenError(
         cause instanceof Error && cause.message
           ? cause.message
-          : "The conversation could not be opened.",
+          : t(m.openFailedUnknown),
       );
     } finally {
       openingRef.current = false;

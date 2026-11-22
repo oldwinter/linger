@@ -63,6 +63,8 @@ describe("CI outputs", () => {
       ".github/workflows/ci.yml",
     ],
     "computer-go": [
+      "apps/computer/package.json",
+      "pnpm-lock.yaml",
       "apps/computer/local-daemon/internal/daemon/daemon.go",
       "apps/computer/run-test.sh",
       "contracts/generated/go/runnergateway/types.go",

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { translate } from "@/i18n/language";
+
 import {
   collapsedRowBadges,
   contextLabel,
@@ -65,24 +67,24 @@ describe("local models rules", () => {
   });
 
   it("formats every size in GB with at most one decimal", () => {
-    expect(formatGigabytes(gb(0.6))).toBe("0.6 GB");
-    expect(formatGigabytes(0)).toBe("0 GB");
-    expect(formatGigabytes(gb(46))).toBe("46 GB");
-    expect(formatGigabytes(gb(21.44))).toBe("21.4 GB");
+    expect(formatGigabytes(gb(0.6), translate)).toBe("0.6 GB");
+    expect(formatGigabytes(0, translate)).toBe("0 GB");
+    expect(formatGigabytes(gb(46), translate)).toBe("46 GB");
+    expect(formatGigabytes(gb(21.44), translate)).toBe("21.4 GB");
   });
 
   it("names pools from what the Computer reported", () => {
     const view = labView();
-    expect(view.pools.map((pool) => poolLabel(view, pool))).toEqual([
+    expect(view.pools.map((pool) => poolLabel(view, pool, translate))).toEqual([
       "GPU 0 · RTX 4090",
       "GPU 1 · RTX 4090",
       "System memory",
     ]);
-    expect(placeName(view, "gpu:1")).toBe("GPU 1");
-    expect(placeName(view, "system")).toBe("system memory");
-    expect(placeName(macView(), "unified")).toBe("memory");
+    expect(placeName(view, "gpu:1", translate)).toBe("GPU 1");
+    expect(placeName(view, "system", translate)).toBe("system memory");
+    expect(placeName(macView(), "unified", translate)).toBe("memory");
     // A model that fits nowhere has no placement to show.
-    expect(placeName(view, undefined)).toBeUndefined();
+    expect(placeName(view, undefined, translate)).toBeUndefined();
   });
 
   it("adds up GPU memory, or the memory of a Computer without GPUs", () => {
@@ -406,8 +408,8 @@ describe("local models rules", () => {
       parameters: "30B",
       vision: true,
     });
-    expect(parametersLabel(moe)).toBe("30B · 3B active (MoE)");
-    expect(collapsedRowBadges(moe)).toEqual({
+    expect(parametersLabel(moe, translate)).toBe("30B · 3B active (MoE)");
+    expect(collapsedRowBadges(moe, translate)).toEqual({
       badges: ["3B active", "Vision", "+3"],
       overflowTitle: "Tool use, Reasoning, Coding",
     });
@@ -419,17 +421,22 @@ describe("local models rules", () => {
       name: "Qwen3 4B",
       parameters: "4B",
     });
-    expect(parametersLabel(dense)).toBe("4B (Dense)");
-    expect(collapsedRowBadges(dense)).toEqual({ badges: ["4B", "Tool use"] });
+    expect(parametersLabel(dense, translate)).toBe("4B (Dense)");
+    expect(collapsedRowBadges(dense, translate)).toEqual({
+      badges: ["4B", "Tool use"],
+    });
 
     // Collapsed badges depend strictly on structured fields, never name or description.
     expect(
-      collapsedRowBadges({
-        ...dense,
-        description: "Vision reasoning model with 70B scale.",
-        name: "Renamed Without Size",
-      }),
-    ).toEqual(collapsedRowBadges(dense));
+      collapsedRowBadges(
+        {
+          ...dense,
+          description: "Vision reasoning model with 70B scale.",
+          name: "Renamed Without Size",
+        },
+        translate,
+      ),
+    ).toEqual(collapsedRowBadges(dense, translate));
 
     expect(
       collapsedRowBadges(
@@ -438,6 +445,7 @@ describe("local models rules", () => {
           name: "Llama 3.3",
           parameters: "70B",
         }),
+        translate,
       ),
     ).toEqual({ badges: ["70B"] });
   });
@@ -468,28 +476,37 @@ describe("local models rules", () => {
     ).toBe(true);
 
     expect(
-      usedByBadge({
-        model: localModel({ id: "m", name: "M", state: "loaded" }),
-        status: "loaded",
-        used_by: [{ agent_id: "a1", name: "Research" }],
-      }),
+      usedByBadge(
+        {
+          model: localModel({ id: "m", name: "M", state: "loaded" }),
+          status: "loaded",
+          used_by: [{ agent_id: "a1", name: "Research" }],
+        },
+        translate,
+      ),
     ).toBe("1 Agent");
     expect(
-      usedByBadge({
-        model: localModel({ id: "m", name: "M", state: "idle" }),
-        status: "idle",
-        used_by: [
-          { agent_id: "a1", name: "Research" },
-          { agent_id: "a2", name: "Writer" },
-        ],
-      }),
+      usedByBadge(
+        {
+          model: localModel({ id: "m", name: "M", state: "idle" }),
+          status: "idle",
+          used_by: [
+            { agent_id: "a1", name: "Research" },
+            { agent_id: "a2", name: "Writer" },
+          ],
+        },
+        translate,
+      ),
     ).toBe("2 Agents");
     expect(
-      usedByBadge({
-        model: localModel({ id: "m", name: "M", state: "loaded" }),
-        status: "loaded",
-        used_by: [],
-      }),
+      usedByBadge(
+        {
+          model: localModel({ id: "m", name: "M", state: "loaded" }),
+          status: "loaded",
+          used_by: [],
+        },
+        translate,
+      ),
     ).toBeUndefined();
     expect(
       usedByBadge(
@@ -498,27 +515,34 @@ describe("local models rules", () => {
           status: "loaded",
           used_by: [],
         },
+        translate,
         ["Research", "Delegate"],
       ),
     ).toBe("2 Agents");
     expect(
-      usedByBadge({
-        model: localModel({ id: "m", name: "M", state: "absent" }),
-        status: "available",
-        used_by: [{ agent_id: "a1", name: "Research" }],
-      }),
+      usedByBadge(
+        {
+          model: localModel({ id: "m", name: "M", state: "absent" }),
+          status: "available",
+          used_by: [{ agent_id: "a1", name: "Research" }],
+        },
+        translate,
+      ),
     ).toBeUndefined();
     expect(
-      usedByBadge({
-        model: localModel({
-          error: { code: "NETWORK_UNAVAILABLE" },
-          id: "m",
-          name: "M",
-          state: "failed",
-        }),
-        status: "failed",
-        used_by: [{ agent_id: "a1", name: "Research" }],
-      }),
+      usedByBadge(
+        {
+          model: localModel({
+            error: { code: "NETWORK_UNAVAILABLE" },
+            id: "m",
+            name: "M",
+            state: "failed",
+          }),
+          status: "failed",
+          used_by: [{ agent_id: "a1", name: "Research" }],
+        },
+        translate,
+      ),
     ).toBeUndefined();
   });
 
@@ -537,6 +561,7 @@ describe("local models rules", () => {
           name: "m",
           state: "downloading",
         }),
+        translate,
       ),
     ).toBe("25% · 50 MB/s · 5m left");
     expect(
@@ -547,6 +572,7 @@ describe("local models rules", () => {
           name: "m",
           state: "downloading",
         }),
+        translate,
       ),
     ).toBe("checking file");
     expect(
@@ -557,6 +583,7 @@ describe("local models rules", () => {
           prompt_tokens_per_second: 612.4,
           tokens_per_second: 46.2,
         }),
+        translate,
       ),
     ).toBe("46 tokens/s · 612 prompt tokens/s");
     expect(safeModelSourceUrl("http://example.com/model")).toBeUndefined();
@@ -575,10 +602,11 @@ describe("local models rules", () => {
           name: "m",
           state: "downloading",
         }),
+        translate,
       ),
     ).toBe("0% · 1 MB/s · 1h left");
-    expect(contextLabel(512)).toBe("512 tokens");
-    expect(contextLabel(131_072)).toBe("128K tokens");
+    expect(contextLabel(512, translate)).toBe("512 tokens");
+    expect(contextLabel(131_072, translate)).toBe("128K tokens");
 
     // A stopped download does not trigger blocked_load memory guidance.
     const stoppedDownloadView = labView({

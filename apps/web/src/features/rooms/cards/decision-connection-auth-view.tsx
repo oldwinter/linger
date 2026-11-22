@@ -28,9 +28,15 @@ import {
 import { openOAuthUrl } from "@/features/apps/oauth-popup";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubExternalConnection } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 
+import { decisionCardHeading } from "./card-prompts";
 import { CardActions, CardError, CardRow } from "./approval-card-parts";
 import { CardBox, CardDone, type ReceiptTone } from "./card-shell";
+import { cardsMessages } from "./cards.messages";
 import { ConnectedAppIcon } from "./connected-app-identity";
 import { connectedAppDisplayName } from "./connected-app-names";
 import type { DecisionMessageCard } from "./decision-card";
@@ -42,8 +48,6 @@ interface Props {
   messageId: string;
   onDecision: (decision: RoomCardDecision) => Promise<void> | void;
 }
-
-const label = "App authorization requested";
 
 /** The account picker value for a new account; never a connection id. */
 const NEW_ACCOUNT = "__new_account__";
@@ -59,6 +63,7 @@ export function ConnectionAuthDecision({
   currentActorId,
   ...rest
 }: Props) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const catalog = useQuery(externalAppsQueryOptions(client));
   const appKey = card.connection_auth?.app_key ?? "";
@@ -74,7 +79,11 @@ export function ConnectionAuthDecision({
         appName={appName}
         card={card}
         done={
-          <CardDone icon={result.icon} text={result.text} tone={result.tone} />
+          <CardDone
+            icon={result.icon}
+            text={t(result.text)}
+            tone={result.tone}
+          />
         }
       />
     );
@@ -110,22 +119,32 @@ function ConnectionAuthCard({
   done?: ReactNode;
   error?: string;
 }) {
+  const t = useT();
   return (
     <>
-      <CardBox heading={card.title} label={label}>
+      <CardBox
+        heading={decisionCardHeading(card, t, { app: appName })}
+        label={t(cardsMessages.labelAppAuthorization)}
+      >
         <CardRow
           icon={<ConnectedAppIcon appKey={appKey} size={16} />}
           title={appName}
         />
         {card.connection_auth?.account ? (
           <p className="pb-1 text-sm text-muted-foreground [overflow-wrap:anywhere]">
-            {`Requested account: ${card.connection_auth.account}`}
+            {t(cardsMessages.requestedAccount, {
+              account: card.connection_auth.account,
+            })}
           </p>
         ) : null}
         {children}
         {done ??
           (card.status === "authorizing" ? (
-            <CardDone icon={Loading03Icon} text="Authorizing…" tone="muted" />
+            <CardDone
+              icon={Loading03Icon}
+              text={t(cardsMessages.authorizing)}
+              tone="muted"
+            />
           ) : null)}
         {actions ? <CardActions>{actions}</CardActions> : null}
         {error ? <CardError>{error}</CardError> : null}
@@ -137,20 +156,28 @@ function ConnectionAuthCard({
 /** How a settled authorization ended, in a few words. */
 function authorizationResult(card: DecisionMessageCard): {
   icon: IconSvgElement;
-  text: string;
+  text: Message<string>;
   tone: ReceiptTone;
 } {
   switch (card.status) {
     case "succeeded":
-      return { icon: Tick02Icon, text: "Connected", tone: "success" };
+      return {
+        icon: Tick02Icon,
+        text: cardsMessages.connected,
+        tone: "success",
+      };
     case "denied":
-      return { icon: Cancel01Icon, text: "Not connected", tone: "muted" };
+      return {
+        icon: Cancel01Icon,
+        text: cardsMessages.notConnected,
+        tone: "muted",
+      };
     case "expired":
-      return { icon: Clock01Icon, text: "Expired", tone: "muted" };
+      return { icon: Clock01Icon, text: cardsMessages.expired, tone: "muted" };
     default:
       return {
         icon: AlertCircleIcon,
-        text: "Failed: the sign-in did not complete",
+        text: cardsMessages.signInFailed,
         tone: "danger",
       };
   }
@@ -163,6 +190,7 @@ function ConnectionAuthorizationActions({
   messageId,
   onDecision,
 }: Omit<Props, "currentActorId"> & { appKey: string; appName: string }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState("");
@@ -258,7 +286,7 @@ function ConnectionAuthorizationActions({
       }
       if (!connection) {
         if (!app || !app.capabilities.includes("agent_tools"))
-          throw new Error("This app is unavailable for Agent access.");
+          throw new Error(translate(cardsMessages.appUnavailableForAgents));
         // Resume an open pending attempt of this app instead of adding a row.
         const pending = openPendingExternalConnection(
           connections.data?.connections ?? [],
@@ -294,7 +322,7 @@ function ConnectionAuthorizationActions({
       setError(
         cause instanceof Error
           ? cause.message
-          : "Authorization could not be started.",
+          : translate(cardsMessages.authorizationNotStarted),
       );
     } finally {
       setBusy(false);
@@ -309,7 +337,7 @@ function ConnectionAuthorizationActions({
       setError(
         cause instanceof Error
           ? cause.message
-          : "Authorization could not be cancelled.",
+          : translate(cardsMessages.authorizationNotCancelled),
       );
     } finally {
       setBusy(false);
@@ -323,42 +351,44 @@ function ConnectionAuthorizationActions({
     (canConnectNew || available.length > 1);
   const primaryAction = resumeUrl ? (
     <Button
-      aria-label="Open authorization window"
+      aria-label={t(cardsMessages.openAuthorizationWindow)}
       disabled={busy}
       size="large"
       tone="primary"
       onClick={() => {
         if (!openOAuthUrl(resumeUrl))
-          setError(
-            "Your browser blocked the authorization popup. Allow popups and try again.",
-          );
+          setError(translate(cardsMessages.popupBlocked));
       }}
     >
-      Open
+      {t(commonMessages.open)}
     </Button>
   ) : authorizing ? null : selected ? (
     <Button
       aria-label={
         selected.status === "active"
-          ? `Allow ${agentName}`
-          : `Connect ${appName}`
+          ? t(cardsMessages.allowAgent, { name: agentName })
+          : t(cardsMessages.connectApp, { name: appName })
       }
       disabled={busy}
       onClick={() => void authorize(false)}
       size="large"
       tone="primary"
     >
-      {selected.status === "active" ? "Allow" : "Connect"}
+      {t(
+        selected.status === "active"
+          ? cardsMessages.allow
+          : cardsMessages.connect,
+      )}
     </Button>
   ) : loading || canConnectNew ? (
     <Button
-      aria-label={`Connect ${appName}`}
+      aria-label={t(cardsMessages.connectApp, { name: appName })}
       disabled={busy || loading}
       onClick={() => void authorize(true)}
       size="large"
       tone="primary"
     >
-      Connect
+      {t(cardsMessages.connect)}
     </Button>
   ) : null;
 
@@ -373,7 +403,7 @@ function ConnectionAuthorizationActions({
             size="large"
             tone="subtle"
           >
-            {authorizing ? "Cancel" : "Not now"}
+            {t(authorizing ? commonMessages.cancel : cardsMessages.notNow)}
           </Button>
         </>
       }
@@ -385,32 +415,39 @@ function ConnectionAuthorizationActions({
         (loadError
           ? loadError instanceof Error
             ? loadError.message
-            : "Accounts could not be loaded."
+            : t(cardsMessages.accountsNotLoaded)
           : undefined)
       }
     >
       {showPicker ? (
         <div className="pb-1">
           <Select
-            aria-label={`${appName} account`}
+            aria-label={t(cardsMessages.appAccount, { app: appName })}
             className="h-8 w-full px-2.5 text-sm"
             disabled={busy}
             onValueChange={setSelectedId}
             value={selected?.id ?? (canConnectNew ? NEW_ACCOUNT : "")}
           >
-            {available.map((connection) => (
-              <SelectItem key={connection.id} value={connection.id}>
-                {`${accountIdentityText(connection.provider, connection.identity_label) || appName}${
-                  connection.status === "active"
-                    ? ""
+            {available.map((connection) => {
+              const account =
+                accountIdentityText(
+                  connection.provider,
+                  connection.identity_label,
+                ) || appName;
+              return (
+                <SelectItem key={connection.id} value={connection.id}>
+                  {connection.status === "active"
+                    ? account
                     : connection.status === "pending"
-                      ? " (pending)"
-                      : " (needs reconnecting)"
-                }`}
-              </SelectItem>
-            ))}
+                      ? t(cardsMessages.accountPending, { account })
+                      : t(cardsMessages.accountNeedsReconnecting, { account })}
+                </SelectItem>
+              );
+            })}
             {canConnectNew ? (
-              <SelectItem value={NEW_ACCOUNT}>Connect a new account</SelectItem>
+              <SelectItem value={NEW_ACCOUNT}>
+                {t(cardsMessages.connectNewAccount)}
+              </SelectItem>
             ) : null}
           </Select>
         </div>

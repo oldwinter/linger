@@ -8,6 +8,9 @@ import {
 } from "@blocknote/react";
 import { WorkflowSquare01Icon } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
+import { translate } from "@/i18n/language";
+
+import { documentEditorMessages as m } from "./document-editor.messages";
 
 import { insertTableCellList } from "./room-document-table-list";
 import type { RoomDocumentEditor } from "./room-document-blocknote-editor";
@@ -33,15 +36,15 @@ export function getRoomDocumentSlashMenuItems(
     }),
     {
       aliases: ["diagram", "graph", "mmd"],
-      group: "Other",
+      group: translate(m.slashGroupOther),
       icon: <Icon icon={WorkflowSquare01Icon} />,
       onItemClick: () =>
         insertOrUpdateBlockForSlashMenu(editor, {
           props: { language: "mermaid" },
           type: "codeBlock",
         }),
-      subtext: "Create an editable Mermaid diagram",
-      title: "Mermaid diagram",
+      subtext: translate(m.mermaidSubtext),
+      title: translate(m.mermaidTitle),
     },
   ];
 }

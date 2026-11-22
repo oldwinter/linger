@@ -53,6 +53,7 @@ async function preflight(request: OfficePreviewPreflightRequest) {
         error instanceof OfficePreviewGuardError ? error.code : "invalid-file",
       detail: error instanceof Error ? error.message : undefined,
       kind: "failed",
+      limit: error instanceof OfficePreviewGuardError ? error.limit : undefined,
       requestId: request.requestId,
     };
     self.postMessage(response);

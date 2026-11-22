@@ -12,9 +12,10 @@ export async function extractMailMarkdown(source: Uint8Array): Promise<string> {
       maxHtmlLengthToParse: 32 * 1024 * 1024,
     });
     if (mail.headers.size === 0) throw new Error("Missing MIME headers");
-    const body = mail.html
+    let body = mail.html
       ? await extractOfficeMarkdown(Buffer.from(mail.html), "html")
       : (mail.text ?? "");
+    if (!body.trim()) body = mail.text ?? "";
     // Subject/header-only messages are not a substitute for an extractable body.
     if (!body.trim())
       throw new DocumentNormalizationError("DOCUMENT_SOURCE_EMPTY");

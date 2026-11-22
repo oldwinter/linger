@@ -143,8 +143,12 @@ export function parseJsonValue(text: string): unknown {
 
 export function createInputReader(dependencies: {
   cwd: string;
+  localPath?: (source: string) => string;
   readInput?: (source: string) => Promise<string>;
 }): CommandInputReader {
+  const localPath =
+    dependencies.localPath ??
+    ((source: string) => path.resolve(dependencies.cwd, source));
   let stdinRead = false;
   const text = async (source: string): Promise<string> => {
     if (!source || source.includes("\0"))
@@ -157,8 +161,7 @@ export function createInputReader(dependencies: {
         throw new CliError("usage", "Only one input source may read stdin.");
       stdinRead = true;
     }
-    const filename =
-      source === "-" ? "-" : path.resolve(dependencies.cwd, source);
+    const filename = source === "-" ? "-" : localPath(source);
     try {
       if (dependencies.readInput) {
         const result = await dependencies.readInput(filename);
@@ -219,6 +222,7 @@ export function createInputReader(dependencies: {
   };
   return {
     cwd: dependencies.cwd,
+    localPath,
     text,
     json: async (source) => parseJsonValue(await text(source)),
   };

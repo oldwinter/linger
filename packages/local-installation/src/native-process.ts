@@ -14,6 +14,7 @@ import {
   nativeProcessIdentity as observed,
   nativeLeaseProcesses,
   windowsLeaseTree,
+  windowsProcesses,
   windowsSnapshot,
   type WindowsProcess,
   type WindowsSnapshot,
@@ -162,7 +163,7 @@ function recordedTree(
 async function serving(record: Lease): Promise<boolean> {
   if (process.platform !== "win32")
     return (await observed(record.pid, record.lease)) === record.birth;
-  return recordedTree((await windowsSnapshot()).processes, record).length > 1;
+  return recordedTree(await windowsProcesses(), record).length > 1;
 }
 export async function inspectNativeProcess(
   root: string,
@@ -196,7 +197,9 @@ export async function inspectNativeListeners(
         running: (await inspectNativeProcess(root, name)).running,
       })),
     );
-  const snapshot = await windowsSnapshot();
+  const snapshot = await windowsSnapshot(
+    process.env.SystemRoot ?? "C:\\Windows",
+  );
   return Promise.all(
     listeners.map(async ({ name, port }) => {
       const record = await stored(root, name);
@@ -216,13 +219,16 @@ interface NativeConfiguration {
   executable: string;
   args: string[];
   cwd: string;
+  /** Stable executable path when two cache layouts run the same binary. */
+  configurationExecutable?: string;
+  /** Generated configuration the process reads; a change counts as a new configuration. */
   settings?: string;
 }
 function configurationHash(options: NativeConfiguration): string {
   return createHash("sha256")
     .update(
       JSON.stringify({
-        executable: options.executable,
+        executable: options.configurationExecutable ?? options.executable,
         args: options.args,
         cwd: options.cwd,
         settings: options.settings,
@@ -238,19 +244,22 @@ export async function nativeConfigurationChanged(
   if (!existing || !(await serving(existing))) return false;
   return configurationHash(options) !== existing.configuration;
 }
-export async function startNativeProcess(options: {
-  root: string;
-  name: NativeService;
-  executable: string;
-  args: string[];
-  cwd: string;
-  env: NodeJS.ProcessEnv;
-  signal?: AbortSignal;
-  redactions?: string[];
-  /** Generated configuration the process reads; a change counts as a new configuration. */
-  settings?: string;
-  restartOnConfigurationChange?: boolean;
-}): Promise<NativeProcessState> {
+export async function startNativeProcess(
+  options: NativeConfiguration & {
+    root: string;
+    name: NativeService;
+    env: NodeJS.ProcessEnv;
+    signal?: AbortSignal;
+    redactions?: string[];
+    restartOnConfigurationChange?: boolean;
+    /**
+     * Windows: start the service from a copy of the supervisor's token with
+     * Administrators disabled. The same service either way, so this is not
+     * part of the configuration.
+     */
+    withoutAdministrators?: boolean;
+  },
+): Promise<NativeProcessState> {
   options.signal?.throwIfAborted();
   const location = paths(options.root, options.name);
   const configuration = configurationHash(options);
@@ -304,6 +313,7 @@ export async function startNativeProcess(options: {
       args: options.args,
       cwd: options.cwd,
       env: { ...options.env, [leaseKey]: lease },
+      ...(options.withoutAdministrators ? { withoutAdministrators: true } : {}),
       log: location.log,
       redactions: [
         ...new Set(
@@ -468,6 +478,8 @@ async function endUnreapedGroup(child: ChildProcess): Promise<void> {
  * program: none of the service's own processes are left.
  */
 export const NATIVE_PROCESS_REPLACED = "NATIVE_PROCESS_REPLACED";
+export const NATIVE_PROCESS_IDENTITY_UNVERIFIED =
+  "NATIVE_PROCESS_IDENTITY_UNVERIFIED";
 export async function stopNativeProcess(
   root: string,
   name: NativeService,
@@ -577,6 +589,39 @@ function terminate(pid: number) {
 export function windowsTerminationOrder(tree: WindowsProcess[]): number[] {
   return tree.map((candidate) => candidate.pid).reverse();
 }
+async function windowsStopSnapshot(
+  name: NativeService,
+  lease: string,
+  record?: Pick<Lease, "pid" | "birth">,
+): Promise<{ snapshot: WindowsProcess[]; tree: WindowsProcess[] }> {
+  const read = async () => {
+    const snapshot = await windowsProcesses();
+    const tree = windowsLeaseTree(snapshot, lease);
+    const unverified =
+      record && tree[0]?.pid !== record.pid
+        ? snapshot.find(
+            ({ pid, created }) =>
+              pid === record.pid && `win32:${pid}:${created}` === record.birth,
+          )
+        : undefined;
+    return { snapshot, tree, unverified };
+  };
+  let current = await read();
+  // If a process exits during CIM enumeration, its PID and birth can still
+  // appear in that snapshot even though its command line could not be read.
+  // A fresh snapshot distinguishes that from a live, unverifiable process.
+  if (current.unverified?.command === "") current = await read();
+  if (current.unverified) {
+    throw Object.assign(
+      new Error(
+        `Native ${name} process identity cannot be verified; identity record retained.`,
+      ),
+      { code: NATIVE_PROCESS_IDENTITY_UNVERIFIED },
+    );
+  }
+  return current;
+}
+
 /**
  * Ends the supervisor holding the lease and everything under it. Windows
  * links a child only through its parent's PID, so ending a parent first
@@ -593,11 +638,10 @@ async function stopWindowsTree(
 ) {
   const deadline = Date.now() + 12_000;
   for (;;) {
-    const snapshot = (await windowsSnapshot()).processes;
-    const tree = windowsLeaseTree(snapshot, lease);
+    const { snapshot, tree } = await windowsStopSnapshot(name, lease, record);
     if (!tree.length) return;
     if (Date.now() >= deadline) {
-      if (record && (await endRecordedTree(record, snapshot))) return;
+      if (record && (await endRecordedTree(name, record, snapshot))) return;
       throw new Error(`Native ${name} did not stop; identity record retained.`);
     }
     const order = windowsTerminationOrder(tree);
@@ -615,6 +659,7 @@ async function stopWindowsTree(
  * nothing under the lease is left afterwards.
  */
 async function endRecordedTree(
+  name: NativeService,
   record: Pick<Lease, "pid" | "birth" | "lease">,
   snapshot: WindowsProcess[],
 ): Promise<boolean> {
@@ -631,10 +676,7 @@ async function endRecordedTree(
   }).catch(() => undefined);
   const deadline = Date.now() + 3_000;
   for (;;) {
-    const tree = windowsLeaseTree(
-      (await windowsSnapshot()).processes,
-      record.lease,
-    );
+    const { tree } = await windowsStopSnapshot(name, record.lease, record);
     if (!tree.length) return true;
     if (Date.now() >= deadline) return false;
     await delay(100);
@@ -751,11 +793,15 @@ export async function reclaimNativeOrphans(
   const ended: number[] = [];
   const deadline = Date.now() + 12_000;
   for (;;) {
-    const orphans = windowsOrphans(await windowsSnapshot(), records, {
-      root,
-      ...options,
-      self: process.pid,
-    });
+    const orphans = windowsOrphans(
+      await windowsSnapshot(process.env.SystemRoot ?? "C:\\Windows"),
+      records,
+      {
+        root,
+        ...options,
+        self: process.pid,
+      },
+    );
     if (!orphans.length) return ended;
     if (Date.now() >= deadline)
       throw new Error(

@@ -1,5 +1,5 @@
 // Package native adapts locally installed coding CLIs (Codex, Claude Code,
-// Pi) to the Computer Daemon's Operation model.
+// Pi, Antigravity) to the Computer Daemon's Operation model.
 package native
 
 import (
@@ -13,7 +13,7 @@ import (
 )
 
 // Kinds lists the Runtime kinds this package can open.
-var Kinds = []string{"claude", "codex", "pi"}
+var Kinds = []string{"claude", "codex", "pi", "antigravity"}
 
 func Supports(kind string) bool {
 	for _, known := range Kinds {
@@ -36,6 +36,8 @@ func Open(kind string, profile Profile) (Runtime, error) {
 		return newCodexRuntime(profile), nil
 	case "pi":
 		return newPiRuntime(profile), nil
+	case "antigravity":
+		return newAntigravityRuntime(profile), nil
 	}
 	return nil, fmt.Errorf("native runtime %q is unsupported", kind)
 }
@@ -85,12 +87,17 @@ type Profile struct {
 }
 
 type RunSpec struct {
-	Dir                   string
-	Model                 string
-	Budget                time.Duration
-	ResumeID              string
-	AssignSessionID       string
-	ResumeRequired        bool
+	Dir             string
+	Model           string
+	Budget          time.Duration
+	ResumeID        string
+	AssignSessionID string
+	ResumeRequired  bool
+	// FreshSession, when set, lets a Runtime that reported its turn started
+	// before its retained session loaded continue in a new session when the
+	// session is gone, as the executor does for one that reported nothing.
+	// The Runtime calls it before it opens the new session.
+	FreshSession          func()
 	PrepareOnly           bool
 	WarmMCP               bool
 	MCPReady              func(context.Context) error
@@ -104,13 +111,23 @@ type RunSpec struct {
 	Effort                string
 	HumanInteraction      *HumanInteractionBridge
 	PermissionReviewer    *permission.Reviewer
+	StopHook              StopHookFunc
 	CodexPermissionHook   *permission.CodexHook
 	RuntimeHome           string
 	SharedTaskLink        permission.CodexTaskLink
 	ClaudePolicy          *ClaudeToolPolicy
+	// ShellTextHook is the Daemon executable that Codex and the managed Pi
+	// extension run as shell-text-hook before a shell command, to refuse a
+	// TeamHub command whose text the shell would rewrite. Claude checks the
+	// same rule in its own tool policy. Empty runs no hook.
+	ShellTextHook string
 	// ContextWindow is the model's context length in tokens; zero when
 	// unknown.
 	ContextWindow int
+	// WithoutNativeWebTools turns off Codex's web_search and Claude's
+	// WebSearch and WebFetch: a model served through the localmodels gateway
+	// cannot run provider-hosted search, and the Agent uses teamhub web.
+	WithoutNativeWebTools bool
 	// Readiness counts the spawns, sessions and recycles of this Operation.
 	Readiness           *ReadinessCounters
 	ExposeTurnStarted   bool

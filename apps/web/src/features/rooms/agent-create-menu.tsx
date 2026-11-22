@@ -7,6 +7,9 @@ import {
 import { Icon } from "@/components/ui/icon";
 
 import { ActionMenu } from "@/components/ui/action-menu";
+import { useT } from "@/i18n/use-translation";
+
+import { roomListMessages } from "./room-list.messages";
 
 /** The 26px plus beside a navigation group title (AGENTS and ROOMS). */
 export const navPlusButtonClass =
@@ -21,25 +24,26 @@ export function AgentCreateMenu({
   onCreateAgent: () => void;
   onCreateRoom: () => void;
 }) {
+  const t = useT();
   return (
     <ActionMenu
-      label="Create chat"
+      label={t(roomListMessages.createChat)}
       placement="right-start"
       buttonClassName={navPlusButtonClass}
       trigger={<Icon icon={PlusSignIcon} size={16} />}
       items={[
         {
-          label: "Create Agent",
+          label: t(roomListMessages.createAgent),
           icon: <Icon icon={BotIcon} size={14} />,
           onSelect: onCreateAgent,
         },
         {
-          label: "Create Room",
+          label: t(roomListMessages.createRoom),
           icon: <Icon icon={UserGroupIcon} size={14} />,
           onSelect: onCreateRoom,
         },
         {
-          label: "Agent templates",
+          label: t(roomListMessages.agentTemplates),
           icon: <Icon icon={Copy01Icon} size={14} />,
           onSelect: onCreateFromTemplate,
         },

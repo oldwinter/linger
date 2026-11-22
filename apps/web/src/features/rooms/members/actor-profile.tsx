@@ -31,10 +31,13 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { type TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type {
   TeamHubActor,
+  TeamHubAgentReasoningEffort,
   TeamHubTenantAgent,
   TeamHubTenantAgentAvailabilitySnapshot,
   TeamHubTenantAgentUpdateInput,
 } from "@/features/teamhub/teamhub-types";
+import { formatLocale, translate } from "@/i18n/language";
+import { RichMessage, useT } from "@/i18n/use-translation";
 
 import {
   teamHubIdentityQueryOptions,
@@ -58,23 +61,24 @@ const PublishAgentTemplateDialog = lazy(async () => ({
   default: (await import("../agent-templates/publish-agent-template-dialog"))
     .PublishAgentTemplateDialog,
 }));
+import { agentTemplateMessages } from "../agent-templates/agent-templates.messages";
+import { roomDialogMessages } from "../room-dialogs.messages";
+import { agentInfoMessages } from "./agent-info.messages";
 import { AgentInstructions } from "./agent-instructions";
+import { agentRuntimeMessages } from "./agent-runtime.messages";
 import { EditAgentInstructionsDialog } from "./edit-agent-instructions-dialog";
 import type {
   AgentRuntimeField,
   AgentRuntimeUpdateInput,
 } from "./edit-agent-runtime-dialog";
 import { tenantLocalModelsQueryKey } from "@/features/local-models/local-models-queries";
-import { useResolvedAgentModelLabel } from "./use-agent-model-selection";
+import {
+  reasoningEffortLabel,
+  useResolvedAgentModelLabel,
+} from "./use-agent-model-selection";
 const EditAgentRuntimeDialog = lazy(async () => ({
   default: (await import("./edit-agent-runtime-dialog")).EditAgentRuntimeDialog,
 }));
-
-const profileDateFormatter = dateTimeFormat({
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-});
 
 /** A Human's profile. Agents open their Agent Info panel tab instead. */
 export function ActorProfilePanel({
@@ -88,13 +92,16 @@ export function ActorProfilePanel({
   onSelectActor: (actorId: string) => void;
   tenantId: string;
 }) {
+  const t = useT();
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => headingRef.current?.focus(), [actor.id]);
 
   return (
     <aside
-      aria-label={`${actor.display_name} profile`}
+      aria-label={t(agentInfoMessages.profileLabel, {
+        name: actor.display_name,
+      })}
       className="room-profile-panel flex h-full min-h-0 w-[336px] max-w-[min(21rem,calc(100%-min(22.5rem,45%)))] shrink flex-col border-l border-border bg-background max-sm:w-full max-sm:max-w-none max-sm:border-l-0"
     >
       <header className="shrink-0 px-5 pt-5">
@@ -114,11 +121,12 @@ export function ActorProfilePanel({
               {actor.display_name}
             </h2>
             <p className="truncate text-xs text-app-subtle">
-              {actor.handle ?? "No public handle"}
+              {actor.handle ?? t(agentInfoMessages.noPublicHandle)}
             </p>
           </div>
           <Button
-            aria-label="Close profile"
+            data-voice-close
+            aria-label={t(agentInfoMessages.closeProfile)}
             onClick={onClose}
             size="compactIcon"
             tone="ghost"
@@ -406,6 +414,7 @@ function HumanProfileContent({
   onSelectActor: (actorId: string) => void;
   tenantId: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const { data: tenantAgents } = useSuspenseQuery(
     tenantAgentsQueryOptions(client, tenantId),
@@ -429,13 +438,13 @@ function HumanProfileContent({
           </span>
         </div>
         <p className="mt-1 text-sm text-app-subtle">
-          {actor.handle ?? "No public handle"}
+          {actor.handle ?? t(agentInfoMessages.noPublicHandle)}
         </p>
       </section>
       <ProfileSection>
         <ProfileField
           icon={<Icon icon={Calendar03Icon} size={14} />}
-          label="Joined"
+          label={t(agentInfoMessages.joined)}
           value={formatProfileDate(actor.created_at)}
         />
       </ProfileSection>
@@ -566,7 +575,8 @@ function useAgentConfigurationUpdate(
       "expected_configuration_revision"
     >,
   ) => {
-    if (!registration) throw new Error("Agent profile is unavailable.");
+    if (!registration)
+      throw new Error(translate(agentInfoMessages.profileUnavailable));
     return teamHubData(
       client.api.PATCH("/v0/tenants/{tenantId}/agents/{agentId}", {
         params: { path: { tenantId, agentId: actorId } },
@@ -588,18 +598,19 @@ function PublishTemplateButton({
 }: {
   registration: TeamHubTenantAgent;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <>
       <button
-        aria-label="Publish as template"
+        aria-label={t(agentTemplateMessages.publishTitle)}
         className="agent-publish-button"
         onClick={() => setOpen(true)}
-        title="Publish as template"
+        title={t(agentTemplateMessages.publishTitle)}
         type="button"
       >
         <Icon icon={LayoutTemplateIcon} size={14} />
-        Publish
+        {t(agentTemplateMessages.publish)}
       </button>
       {open ? (
         <Suspense fallback={null}>
@@ -646,12 +657,13 @@ function HumanProfileSections({
   createdAgents: TeamHubActor[];
   onSelectActor?: (actorId: string) => void;
 }) {
+  const t = useT();
   return (
     <>
       <ProfileSection
         title={
           <>
-            Created Agents{" "}
+            {t(agentInfoMessages.createdAgents)}{" "}
             <span className="text-xs font-normal text-muted-foreground">
               {createdAgents.length}
             </span>
@@ -678,14 +690,16 @@ function HumanProfileSections({
                     {createdAgent.display_name}
                   </span>
                   <span className="block truncate text-xs text-app-subtle">
-                    Agent
+                    {t(agentInfoMessages.agent)}
                   </span>
                 </span>
               </button>
             ))}
           </div>
         ) : (
-          <p className="text-sm text-app-subtle">No created Agents.</p>
+          <p className="text-sm text-app-subtle">
+            {t(agentInfoMessages.noCreatedAgents)}
+          </p>
         )}
       </ProfileSection>
     </>
@@ -704,29 +718,48 @@ function PanelAgentRuntimeDetails({
   localRuntime?: TeamHubTenantAgentAvailabilitySnapshot["local_runtime_status"];
   placement?: TeamHubTenantAgent["runtime"]["placement"];
   modelLabel?: string;
-  reasoning?: string;
+  reasoning?: TeamHubAgentReasoningEffort;
   canEdit: boolean;
   busy: boolean;
   onEdit: (field?: AgentRuntimeField) => void;
 }) {
+  const t = useT();
   const type = placement?.runtime_type ?? "codex";
-  const name = { codex: "Codex", claude: "Claude Code", pi: "Pi" }[type];
+  const name = {
+    codex: "Codex",
+    claude: "Claude Code",
+    pi: "Pi",
+    antigravity: "Antigravity",
+  }[type];
   const computer =
-    localRuntime?.display_name || placement?.computer_id || "Local Computer";
+    localRuntime?.display_name ||
+    placement?.computer_id ||
+    t(agentInfoMessages.localComputer);
   const status = localRuntime?.computer_status ?? "unknown";
+  const effort = reasoning ? reasoningEffortLabel(reasoning, t) : undefined;
   return (
-    <section className="space-y-3" aria-label="Runtime configuration">
+    <section
+      className="space-y-3"
+      aria-label={t(agentInfoMessages.runtimeConfiguration)}
+    >
       <div className="overflow-hidden rounded-xl bg-card shadow-outline">
         <InfoRow
           icon={<Icon icon={ServerStack01Icon} size={16} />}
-          label="Runs on"
-          value={`Local · ${computer}${status === "online" ? " · Online" : status === "offline" ? " · Offline" : ""}`}
+          label={t(agentInfoMessages.runsOn)}
+          value={t(
+            status === "online"
+              ? agentInfoMessages.runsOnLocalOnline
+              : status === "offline"
+                ? agentInfoMessages.runsOnLocalOffline
+                : agentInfoMessages.runsOnLocal,
+            { computer },
+          )}
           chevron={canEdit}
           onClick={canEdit ? () => onEdit("computer") : undefined}
         />
         <InfoRow
           icon={<Icon icon={CpuIcon} size={16} />}
-          label="Runtime"
+          label={t(agentRuntimeMessages.runtime)}
           value={name}
           chevron={canEdit}
           onClick={canEdit ? () => onEdit("runtime") : undefined}
@@ -735,11 +768,14 @@ function PanelAgentRuntimeDetails({
             names both. */}
         <InfoRow
           icon={<Icon icon={AiBrain01Icon} size={16} />}
-          label="Model"
+          label={t(agentRuntimeMessages.model)}
           value={
-            modelLabel && reasoning
-              ? `${modelLabel} · ${reasoning}`
-              : modelLabel || reasoning
+            modelLabel && effort
+              ? t(agentInfoMessages.modelWithEffort, {
+                  model: modelLabel,
+                  effort,
+                })
+              : modelLabel || effort
           }
           chevron={canEdit}
           onClick={canEdit ? () => onEdit("model") : undefined}
@@ -747,16 +783,24 @@ function PanelAgentRuntimeDetails({
       </div>
       {localRuntime ? (
         <details className="px-1 text-xs text-app-muted">
-          <summary className="cursor-pointer">Runtime details</summary>
+          <summary className="cursor-pointer">
+            {t(agentInfoMessages.runtimeDetails)}
+          </summary>
           <dl className="mt-2 space-y-1">
             <div>
-              <dt className="inline">Status: </dt>
-              <dd className="inline">{localRuntime.status}</dd>
+              <RichMessage
+                message={agentInfoMessages.runtimeStatus}
+                tags={runtimeDetailTags}
+                values={{ status: localRuntime.status }}
+              />
             </div>
             {localRuntime.version ? (
               <div>
-                <dt className="inline">Version: </dt>
-                <dd className="inline">{localRuntime.version}</dd>
+                <RichMessage
+                  message={agentInfoMessages.runtimeVersion}
+                  tags={runtimeDetailTags}
+                  values={{ version: localRuntime.version }}
+                />
               </div>
             ) : null}
           </dl>
@@ -764,12 +808,17 @@ function PanelAgentRuntimeDetails({
       ) : null}
       {busy ? (
         <p className="px-1 text-xs text-app-muted">
-          Runtime settings can't change while this Agent is working.
+          {t(agentInfoMessages.runtimeBusy)}
         </p>
       ) : null}
     </section>
   );
 }
+
+const runtimeDetailTags = {
+  term: (text: string) => <dt className="inline">{text}</dt>,
+  value: (text: string) => <dd className="inline">{text}</dd>,
+};
 
 function PanelAgentInfoDetails({
   canEdit,
@@ -795,16 +844,18 @@ function PanelAgentInfoActions({
   canDelete: boolean;
   onDelete: () => void;
 }) {
+  const t = useT();
   if (!canDelete) return null;
   return (
-    <SettingsGroup ariaLabel="Agent actions">
+    <SettingsGroup ariaLabel={t(agentInfoMessages.agentActions)}>
       <button
+        data-voice-risk="never"
         className="flex min-h-11 w-full items-center justify-center gap-2 px-3.5 text-[14px] font-medium text-destructive transition-colors duration-150 hover:bg-destructive/5 focus-visible:bg-destructive/5 focus-visible:outline-none"
         onClick={onDelete}
         type="button"
       >
         <Icon icon={Delete02Icon} size={16} />
-        Remove Agent
+        {t(roomDialogMessages.removeAgent)}
       </button>
     </SettingsGroup>
   );
@@ -909,5 +960,8 @@ function ProfileField({
 }
 
 function formatProfileDate(value: string) {
-  return profileDateFormatter.format(new Date(value));
+  return dateTimeFormat(
+    { day: "numeric", month: "short", year: "numeric" },
+    formatLocale(),
+  ).format(new Date(value));
 }

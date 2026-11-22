@@ -3,6 +3,9 @@ import { lazy, Suspense, useMemo, type ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
 import { isRunWorking } from "@/features/teamhub/run-status";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
+import { commonMessages } from "@/i18n/common.messages";
+import { translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 
 import { RoomRejoinBanner } from "../room-participation";
 import { readRoomComposerDraft, writeRoomComposerDraft } from "../room-drafts";
@@ -22,6 +25,7 @@ import {
 import { useRoomBackgroundTasks } from "./use-room-background-tasks";
 import { roomOffersVoiceMaterials } from "./voice-mode/voice-materials-context";
 import { RoomComposerDock } from "./room-composer-dock";
+import { composerMessages } from "./composer.messages";
 import type { RoomChatData } from "./use-room-chat-data";
 import type { RoomChatConversationState } from "./use-room-chat-conversation-state";
 import type { RoomChatTimelineActions } from "./use-room-chat-timeline-actions";
@@ -44,6 +48,7 @@ export function RoomChatComposerSection({
   data,
   state,
 }: RoomChatComposerSectionProps) {
+  const t = useT();
   const {
     client,
     documentsPending,
@@ -101,13 +106,13 @@ export function RoomChatComposerSection({
           className="flex items-center justify-between gap-3 px-4 py-2 text-sm text-app-danger"
           role="alert"
         >
-          <span>Documents outside this Room could not be loaded.</span>
+          <span>{t(composerMessages.documentsOutsideRoomFailed)}</span>
           <Button
             onClick={() => void shareableDocuments.refetch()}
             size="compact"
             tone="secondary"
           >
-            Retry
+            {t(commonMessages.retry)}
           </Button>
         </div>
       ) : null}
@@ -214,11 +219,12 @@ export function RoomChatComposerSection({
         onStageAttachment={delivery.stageAttachment}
         placeholder={
           room.kind === "direct" && room.direct_peer
-            ? `Message ${
-                actorDisplayNames[room.direct_peer?.id ?? ""] ??
-                room.direct_peer?.display_name
-              }`
-            : "Message this Room"
+            ? t(composerMessages.messagePeer, {
+                name:
+                  actorDisplayNames[room.direct_peer?.id ?? ""] ??
+                  room.direct_peer?.display_name,
+              })
+            : t(composerMessages.messageThisRoom)
         }
         ref={interactions.composerRef}
         resolveDocumentLink={(link) => resolveRoomDocumentLink(data, link)}
@@ -240,7 +246,7 @@ async function resolveRoomDocumentLink(
   link: RoomDocumentLink,
 ) {
   if (link.tenantId !== tenantId) {
-    throw new Error("Document cannot be shared in this Room.");
+    throw new Error(translate(composerMessages.documentCannotBeShared));
   }
   try {
     const document = await teamHubData(
@@ -288,7 +294,7 @@ async function resolveRoomDocumentLink(
     if (error instanceof Error && error.message.trim()) {
       throw error;
     }
-    throw new Error("Document cannot be shared in this Room.", {
+    throw new Error(translate(composerMessages.documentCannotBeShared), {
       cause: error,
     });
   }

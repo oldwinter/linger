@@ -30,6 +30,9 @@ type runtimeProbeOutcome struct {
 	Code             string
 	Message          string
 	protocolVerified bool
+	// catalog is the model list an authentication probe already read, so
+	// discovery does not start the Runtime a second time for it.
+	catalog *native.ModelList
 }
 
 func probeRuntime(ctx context.Context, runtimeType, executable string, environment map[string]string, timeout time.Duration, version string, runtimeHomeRoot ...string) runtimeProbeOutcome {
@@ -76,6 +79,9 @@ func probeRuntimeProtocol(ctx context.Context, runtimeType, executable string, e
 		// make the probe report a false protocol incompatibility.
 		payload = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"linger-computer-doctor","title":"Linger Computer Doctor","version":"1.0.0"},"capabilities":null}}` + "\n"
 
+	case "antigravity":
+		args = []string{"acp"}
+		payload = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}` + "\n"
 	case "claude":
 		args = []string{
 			"-p", "--output-format", "stream-json", "--input-format", "stream-json", "--verbose",
@@ -125,6 +131,9 @@ func protocolProbeResponseMatches(runtimeType string, response map[string]any) b
 	case "codex":
 		_, result := response["result"].(map[string]any)
 		return response["id"] == float64(1) && result
+	case "antigravity":
+		result, ok := response["result"].(map[string]any)
+		return ok && response["id"] == float64(1) && result["protocolVersion"] == float64(1)
 
 	default:
 		return false

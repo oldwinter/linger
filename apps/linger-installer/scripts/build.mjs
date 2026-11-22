@@ -3,7 +3,12 @@ import { build as buildWeb } from "vite";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-await buildWeb({ configFile: path.join(root, "vite.config.ts"), root });
+const output = path.resolve(root, process.argv[2] ?? "dist");
+await buildWeb({
+  configFile: path.join(root, "vite.config.ts"),
+  root,
+  build: { outDir: path.join(output, "web") },
+});
 await build({
   entryPoints: [
     path.resolve(
@@ -11,7 +16,7 @@ await build({
       "../../packages/local-installation/src/native-process-worker.mjs",
     ),
   ],
-  outfile: path.join(root, "dist/native-process-worker.mjs"),
+  outfile: path.join(output, "native-process-worker.mjs"),
   bundle: true,
   platform: "node",
   format: "esm",
@@ -19,7 +24,7 @@ await build({
 });
 await build({
   entryPoints: [path.join(root, "src/main.ts")],
-  outfile: path.join(root, "dist/installer.js"),
+  outfile: path.join(output, "installer.js"),
   bundle: true,
   platform: "node",
   format: "esm",

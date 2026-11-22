@@ -9,10 +9,12 @@ import {
   type LocalAccountSignIn,
   type WorkspaceGrantView,
 } from "../shared/api.js";
+import { LANGUAGES } from "../i18n/language.js";
 import type { ComputerDaemonModule } from "./computer-daemon.js";
 import type { WorkspaceGrant } from "./config.js";
 import { ConnectorOAuth } from "./connector-oauth.js";
 import type { EnrollmentModule } from "./enrollment.js";
+import type { LanguageModule } from "./language.js";
 import type { LocalServerModule } from "./local-server.js";
 import type { Module, ModuleContext } from "./modules.js";
 import { sameOrigin } from "./navigation.js";
@@ -30,6 +32,7 @@ const grantIdInput = z.string().min(1).max(128);
 // Electron's badge is a count on the app icon, so it takes only a small
 // non-negative integer.
 const badgeCountInput = z.number().int().min(0).max(1_000_000);
+const languageInput = z.enum(LANGUAGES);
 // The server address is not settable from the SPA: a page served by one
 // server must not be able to repoint the app. It changes on app://offline.
 const settingsPatchInput = z
@@ -84,6 +87,7 @@ export class DesktopIpcModule implements Module {
     "WorkspaceGrants",
     "Tray",
     "Updater",
+    "Language",
   ];
   readonly #badge: DesktopBadgeHost | undefined;
   readonly #defaultDisplayName: string;
@@ -112,6 +116,7 @@ export class DesktopIpcModule implements Module {
     const power = ctx.get<PowerGuardModule>("PowerGuard");
     const localServer = ctx.get<LocalServerModule>("LocalServer");
     const updater = ctx.get<UpdaterModule>("Updater");
+    const language = ctx.get<LanguageModule>("Language");
 
     const oauth = new ConnectorOAuth();
     ipcMain.handle(IPC.connectorOAuthPrepare, (event: IpcMainInvokeEvent) => {
@@ -216,6 +221,18 @@ export class DesktopIpcModule implements Module {
       }
     });
 
+    // The way back from the floating voice window, which stays up while the
+    // main window is minimized, hidden to the tray or behind another app.
+    // macOS brings a window forward only within the app, so the app comes
+    // forward too.
+    handle(IPC.voiceWindowShowMain, () => {
+      windows.show();
+      if (process.platform === "darwin") app.focus({ steal: true });
+    });
+    // The language picked in the page's Settings, for the shell's own text.
+    handle(IPC.languageSet, (tag) => {
+      language.choose(languageInput.parse(tag));
+    });
     handle(IPC.updateState, () => updateView(updater.state()));
     handle(IPC.updateInstall, () => updater.install());
     handle(IPC.updateCheck, () => updater.check());

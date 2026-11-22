@@ -378,16 +378,45 @@ export async function inspectRuntime(
 }
 export async function prepareRuntime(
   runtime: NativeRuntime,
-  options: RuntimePreparationOptions,
+  options: RuntimePreparationOptions & {
+    reuseInstalled?: boolean;
+    onDescriptor?: (descriptor: RuntimeDescriptor) => void;
+  },
   dependencies: RuntimeDependencies = {},
 ): Promise<InstallOutcome> {
-  const { prepareDependencies } = await import("./dependencies.js");
-  const installed = await prepareDependencies(
-    { ...options, dependency: runtime },
-    dependencies,
-  );
-  if (installed.code !== 0) return installed;
-  const state = await inspectRuntime(runtime, options, dependencies);
+  let state: RuntimeInspection | undefined;
+  let fallbackEnv = options.env;
+  if (options.reuseInstalled) {
+    try {
+      const existing = await inspectRuntime(runtime, options, dependencies);
+      if (existing.installed) {
+        options.onEvent({
+          kind: "log",
+          stage: "runtime",
+          message: `Reusing the installed ${runtime} runtime.\n`,
+        });
+        state = existing;
+      } else if (!fallbackEnv) {
+        fallbackEnv = runtimeEnvironmentFromDescriptors([existing.descriptor]);
+      }
+    } catch (error) {
+      if (options.signal.aborted) throw error;
+    }
+  }
+  if (!state) {
+    const { prepareDependencies } = await import("./dependencies.js");
+    const installed = await prepareDependencies(
+      {
+        ...options,
+        ...(fallbackEnv ? { env: fallbackEnv } : {}),
+        dependency: runtime,
+      },
+      dependencies,
+    );
+    if (installed.code !== 0) return installed;
+    state = await inspectRuntime(runtime, options, dependencies);
+  }
+  options.onDescriptor?.(state.descriptor);
   if (state.ready)
     return {
       code: 0,

@@ -1,14 +1,19 @@
+import { commonMessages } from "@/i18n/common.messages";
+import { formatLocale } from "@/i18n/language";
+import { useT, useTranslation } from "@/i18n/use-translation";
 import { formatDateTime } from "@/lib/date-format";
 import type { PropsWithChildren } from "react";
 
 import { Button } from "@/components/ui/button";
 import { StatusDot } from "@/features/local-computer/computer-row";
 import { LocalRuntimeAuthenticationGuidance } from "@/features/local-computer/local-runtime-authentication-guidance";
+import { localRuntimeMessage } from "@/features/local-computer/local-runtime-message";
 import type {
   TeamHubRoom,
   TeamHubTenantAgent,
   TeamHubTenantAgentAvailabilitySnapshot,
 } from "@/features/teamhub/teamhub-types";
+import { composerMessages } from "./composer.messages";
 
 export function projectDirectPeerState(
   room: TeamHubRoom,
@@ -53,6 +58,7 @@ function DirectPeerAvailability({
   onRetry: () => void;
   state: ReturnType<typeof projectDirectPeerState>;
 }>) {
+  const t = useT();
   if (state.deleted) return <DeletedAgentNotice />;
   if (state.directoryUnavailable) {
     return <AgentDirectoryUnavailableNotice onRetry={onRetry} />;
@@ -64,8 +70,7 @@ function DirectPeerAvailability({
           className="room-notice-enter room-readable py-3 text-sm text-app-muted"
           role="status"
         >
-          Local Agent status is unavailable. You can still send messages;
-          replies may be delayed.
+          {t(composerMessages.localAgentStatusUnavailable)}
         </p>
       ) : state.runtimeIssue ? (
         <LocalRuntimeAttentionNotice status={state.runtimeIssue} />
@@ -100,26 +105,28 @@ export function RoomComposerDock({
 }
 
 function AgentDirectoryUnavailableNotice({ onRetry }: { onRetry: () => void }) {
+  const t = useT();
   return (
     <div
       className="room-readable flex items-center justify-between gap-3 border-t border-[var(--app-status-warning-border)] py-4 text-sm text-app-body"
       role="alert"
     >
-      <span>Agent status is unavailable. Messages remain read-only.</span>
+      <span>{t(composerMessages.agentStatusUnavailable)}</span>
       <Button onClick={onRetry} size="compact" tone="secondary">
-        Retry
+        {t(commonMessages.retry)}
       </Button>
     </div>
   );
 }
 
 function DeletedAgentNotice() {
+  const t = useT();
   return (
     <div
       className="room-readable border-t border-app-border py-4 text-sm text-app-muted"
       role="status"
     >
-      This Agent has been deleted. Message and Run history remain available.
+      {t(composerMessages.agentDeleted)}
     </div>
   );
 }
@@ -131,6 +138,7 @@ function LocalRuntimeAttentionNotice({
     TeamHubTenantAgentAvailabilitySnapshot["local_runtime_status"]
   >;
 }) {
+  const { language, t } = useTranslation();
   const authenticationRequired = status.status === "authentication_required";
   const reconnecting = status.connection_status === "reconnecting";
   const unknown =
@@ -146,17 +154,25 @@ function LocalRuntimeAttentionNotice({
         role="status"
         title={
           status.observed_at
-            ? `Last confirmed at ${formatDateTime(status.observed_at)}`
+            ? t(composerMessages.lastConfirmedAt, {
+                time: formatDateTime(
+                  status.observed_at,
+                  undefined,
+                  formatLocale(language),
+                ),
+              })
             : undefined
         }
       >
         <StatusDot tone="warning" />
         <span className="font-medium text-app-ink">
-          {reconnecting
-            ? "Reconnecting to Local Computer…"
-            : "Checking Local Computer status…"}
+          {t(
+            reconnecting
+              ? composerMessages.reconnectingLocalComputer
+              : composerMessages.checkingLocalComputer,
+          )}
         </span>
-        <span>You can keep sending messages.</span>
+        <span>{t(composerMessages.keepSending)}</span>
       </div>
     );
   }
@@ -165,20 +181,24 @@ function LocalRuntimeAttentionNotice({
       className="room-readable border-t border-[var(--app-status-warning-border)] py-4 text-sm text-app-body"
       role="status"
     >
-      <p className="mb-1 font-medium">Agent unavailable</p>
+      <p className="mb-1 font-medium">{t(composerMessages.agentUnavailable)}</p>
       {authenticationRequired ? (
         <LocalRuntimeAuthenticationGuidance
           runtimeType={status.runtime_type}
           computerName={status.display_name}
         />
       ) : (
-        <p className="mt-1 text-app-muted">
-          {status.message ?? "Check the Local Computer Runtime and try again."}
+        <p className="mt-1 text-app-muted" title={status.message}>
+          {localRuntimeMessage(
+            status,
+            status.runtime_type,
+            status.display_name,
+            t,
+          ) ?? t(composerMessages.checkLocalRuntime)}
         </p>
       )}
       <p className="mt-1 text-app-muted">
-        You can still send messages. This Agent cannot reply until its Runtime
-        recovers.
+        {t(composerMessages.agentCannotReply)}
       </p>
     </div>
   );

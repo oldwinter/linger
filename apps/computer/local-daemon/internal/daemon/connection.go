@@ -335,6 +335,7 @@ func (d *Daemon) acceptRunnerWelcome(ctx, connectionCtx context.Context, stream 
 		d.prewarmOnce.Do(func() { go p.Prewarm(ctx) })
 	}
 	d.setGatewayState("connected")
+	d.byokEndpoint.Store(slices.Contains(command.ServiceFeatures, serviceFeatureByokEndpoint))
 	localModels := slices.Contains(command.ServiceFeatures, serviceFeatureLocalModels)
 	if err := d.activateStreamAndReplay(ctx, stream, command.ReconcileOperationIDs, localModels); err != nil {
 		return err

@@ -1,0 +1,33 @@
+import { defineMessages } from "./messages";
+
+/** Text shown before any feature loads, and words every feature shares. */
+export const commonMessages = defineMessages("common", {
+  close: "Close",
+  loadingApp: "Loading TeamHub",
+  loadingRoom: "Loading Room...",
+  unavailableTitle: "Web client unavailable",
+  unavailableBody: "The application could not finish loading.",
+  tryAgain: "Try again",
+  avatar: "{name} avatar",
+  resizeHint: "Drag to resize; double-click to reset",
+  cancel: "Cancel",
+  retry: "Retry",
+  open: "Open",
+  copy: "Copy",
+  copied: "Copied",
+  search: "Search",
+  save: "Save",
+  delete: "Delete",
+  remove: "Remove",
+  edit: "Edit",
+  done: "Done",
+  back: "Back",
+  you: "You",
+  justNow: "just now",
+  loading: "Loading…",
+  tableOfContents: "Table of contents",
+  closeTableOfContents: "Close table of contents",
+  documentTableOfContents: "Document table of contents",
+  noHeadings: "No headings",
+  sectionUnavailable: "This section is unavailable in the current document.",
+});

@@ -144,7 +144,7 @@ func operationPreparationFingerprint(spec provider.OperationSpec) (string, error
 		BaseInstructions, DeveloperInstructions                            *string
 		RegistrationID, CodexVersion                                       string
 		TenantID, OwnerActorID, AgentID, ComputerID, ScopeID               string
-		PermissionReview                                                   bool
+		PermissionReview, StopHook                                         bool
 	}{
 		Provider: spec.Provider, ExecutablePath: spec.ExecutablePath, WorkingDirectory: spec.WorkingDirectory,
 		Model: spec.Model, ResumeSessionID: spec.ResumeSessionID, Environment: spec.Environment,
@@ -153,7 +153,7 @@ func operationPreparationFingerprint(spec provider.OperationSpec) (string, error
 		SystemPrompt: spec.SystemPrompt, BaseInstructions: spec.BaseInstructions, DeveloperInstructions: spec.DeveloperInstructions,
 		RegistrationID: spec.RegistrationID, CodexVersion: spec.CodexVersion,
 		TenantID: spec.TenantID, OwnerActorID: spec.OwnerActorID, AgentID: spec.AgentID, ComputerID: spec.ComputerID,
-		ScopeID: spec.ScopeID, PermissionReview: spec.PermissionReview,
+		ScopeID: spec.ScopeID, PermissionReview: spec.PermissionReview, StopHook: spec.StopHook,
 	})
 	if err != nil {
 		return "", fmt.Errorf("encode Operation preparation fingerprint: %w", err)

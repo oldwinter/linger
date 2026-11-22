@@ -6,6 +6,7 @@ import type {
   TeamHubLocalComputerPage,
   TeamHubTenantAgent,
 } from "@/features/teamhub/teamhub-types";
+import { useTranslation } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
 
 import { appIcons } from "./computer-app-icons";
@@ -18,6 +19,7 @@ import {
   appStatus,
   computerReadiness,
 } from "./computer-readiness";
+import { computersMessages } from "./computers.messages";
 
 type LocalComputer = TeamHubLocalComputerPage["items"][number];
 
@@ -31,8 +33,9 @@ export function ComputerDirectory({
   computers: LocalComputer[];
   onSelect: (computerId: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
-    <ul aria-label="Local computers directory" className="grid gap-1">
+    <ul aria-label={t(computersMessages.directoryLabel)} className="grid gap-1">
       {computers.map((computer) => (
         <li key={computer.computer_id}>
           <DirectoryRow
@@ -58,6 +61,8 @@ function DirectoryRow({
   computer: LocalComputer;
   onSelect: () => void;
 }) {
+  const translation = useTranslation();
+  const { t } = translation;
   const displayStatus = useComputerConnectionStatus(
     computer.computer_id,
     computer.status,
@@ -66,27 +71,31 @@ function DirectoryRow({
   const offline = displayStatus !== "online";
   const subtitle =
     readiness.kind === "reconnecting" ? (
-      <span className="town-shimmer-text">Reconnecting…</span>
+      <span className="town-shimmer-text">
+        {t(computersMessages.reconnecting)}
+      </span>
     ) : readiness.kind === "offline" ? (
       computer.last_seen_at ? (
-        `Offline · ${relativeTime(computer.last_seen_at)}`
+        t(computersMessages.offlineSince, {
+          time: relativeTime(computer.last_seen_at, translation),
+        })
       ) : (
-        "Offline"
+        t(computersMessages.offline)
       )
     ) : readiness.kind === "update" ? (
-      "Update required"
+      t(computersMessages.updateRequired)
     ) : readiness.kind === "signIn" ? (
-      `Sign in to ${appNames[readiness.app]}`
+      t(computersMessages.signInToApp, { app: appNames[readiness.app] })
     ) : readiness.kind === "updateApp" ? (
-      `Update ${appNames[readiness.app]}`
+      t(computersMessages.updateApp, { app: appNames[readiness.app] })
     ) : readiness.kind === "check" ? (
-      `Couldn't check ${appNames[readiness.app]}`
+      t(computersMessages.couldNotCheckApp, { app: appNames[readiness.app] })
     ) : readiness.kind === "setUp" ? (
-      `Set up ${appNames[readiness.app]}`
+      t(computersMessages.setUpApp, { app: appNames[readiness.app] })
     ) : computer.active_operations ? (
-      `Ready · ${computer.active_operations} running`
+      t(computersMessages.readyRunning, { count: computer.active_operations })
     ) : (
-      "Ready"
+      t(computersMessages.ready)
     );
   const apps = appOrder.filter(
     (app) => appStatus(computer, app) !== "not_installed",

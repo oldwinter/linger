@@ -32,11 +32,17 @@ const operationProviderPrepareKind = "internal.provider.prepare"
 
 type OperationSpec struct {
 	// A continuation prompt requires the exact native history of the interrupted Task.
-	ResumeAfterYield  bool
+	ResumeAfterYield bool
+	// SessionMoved is called when a started Run continues in a new native
+	// session because its retained one is gone. The Run announced the old
+	// session, so it must not yield to it.
+	SessionMoved      func()
 	HumanInteractions bool
 	// PermissionReview sends the Runtime's own permission prompts to the
 	// Runtime permission review (Agent Service declares it per Run).
 	PermissionReview bool
+	// StopHook asks Agent Service before a Runtime finishes a turn.
+	StopHook bool
 	// TeamHubCLIBin is the bundled TeamHub CLI directory; its command manifest
 	// names the TeamHub commands that run without review.
 	TeamHubCLIBin        string
@@ -61,8 +67,9 @@ type OperationSpec struct {
 	LocalEvidence func(ctx context.Context, tool, input string) *permission.Evidence
 	// LocalAllowed reports whether a local browser or desktop call runs
 	// without review.
-	LocalAllowed     func(tool, input string) bool
-	ClaudeSkillNames []string
+	LocalAllowed         func(tool, input string) bool
+	RegisterToolReviewer func(*permission.Reviewer) (func(), error)
+	ClaudeSkillNames     []string
 	// ContextSkillDigest identifies the Skill packages of the Context View
 	// the Daemon published into the workspace.
 	ContextSkillDigest      string
@@ -77,11 +84,14 @@ type OperationSpec struct {
 	RegistrationID          string
 	DaemonVersion           string
 	CodexVersion            string
-	TenantID                string
-	OwnerActorID            string
-	AgentID                 string
-	ComputerID              string
-	ScopeID                 string
+	// WithoutNativeWebTools turns off the Runtime's own web search and page
+	// fetch, which a model served through the localmodels gateway cannot run.
+	WithoutNativeWebTools bool
+	TenantID              string
+	OwnerActorID          string
+	AgentID               string
+	ComputerID            string
+	ScopeID               string
 	// ContextWindow is the selected model's context length in tokens as
 	// Runtime discovery resolved it; zero when unknown.
 	ContextWindow int
@@ -113,6 +123,9 @@ type Executor struct {
 	// of a models cache for a Context's new home.
 	CodexModelSessionHome string
 	PiMCPExtension        string
+	// ShellTextHook is the Daemon's own executable, which Runs start as
+	// shell-text-hook before a shell command; empty runs no hook.
+	ShellTextHook string
 }
 
 type Result struct {
@@ -166,6 +179,7 @@ func (e Executor) PrepareProvider(ctx context.Context, spec OperationSpec) (Resu
 	spec.TrustedLocalMCPTools = nil
 	spec.LocalEvidence = nil
 	spec.LocalAllowed = nil
+	spec.RegisterToolReviewer = nil
 	execution, err := e.Start(ctx, spec, func(context.Context, protocol.Event) error { return nil })
 	if err != nil {
 		return Result{}, err
@@ -417,11 +431,11 @@ func (e Executor) Start(ctx context.Context, spec OperationSpec, emit EmitFunc) 
 			if native.CodexSupportsDirectTools(spec.CodexVersion) {
 				mcpConfig, capabilityErr = codexDirectLocalTools(mcpConfig, spec.TrustedLocalMCPTools)
 			}
-			// A prepare binds the thread its reviewed Run reuses, so it carries the
-			// same hook as that Run; the binding fingerprint covers the hook. The
+			// A prepare binds the thread its Run reuses, so it carries the same
+			// managed hooks as that Run; the binding fingerprint covers them. The
 			// Run's MCP servers are attached when it adopts the process.
-			if capabilityErr == nil && authorization.ReviewsPermissions() && native.CodexSupportsPermissionHook(spec.CodexVersion) {
-				codexHook, mcpConfig, capabilityErr = prepareCodexPermissionReview(runtimeHome.Path, teamhubCommands, mcpConfig)
+			if capabilityErr == nil && (authorization.ReviewsPermissions() || authorization.UsesStopHook()) && native.CodexSupportsPermissionHook(spec.CodexVersion) {
+				codexHook, mcpConfig, capabilityErr = prepareCodexHooks(runtimeHome.Path, teamhubCommands, mcpConfig, authorization.ReviewsPermissions(), authorization.UsesStopHook())
 			}
 
 		case "claude":
@@ -504,7 +518,7 @@ func (e Executor) Start(ctx context.Context, spec OperationSpec, emit EmitFunc) 
 			resultCh <- result
 		}
 		var bridge *native.HumanInteractionBridge
-		if (spec.HumanInteractions || spec.PermissionReview) && spec.OperationKind == "run.start" {
+		if (spec.HumanInteractions || spec.PermissionReview || spec.StopHook) && spec.OperationKind == "run.start" {
 			bridge = native.NewHumanInteractionBridge(func(message native.Event) {
 				payload, err := json.Marshal(map[string]any{"type": "human_interaction.requested", "request": message.Input})
 				if err == nil {
@@ -519,8 +533,9 @@ func (e Executor) Start(ctx context.Context, spec OperationSpec, emit EmitFunc) 
 			execution.mu.Unlock()
 			defer bridge.Close()
 		}
-		// The bridge carries both Room questions and permission reviews, but
-		// only a Context with Room questions posts Codex's native questions.
+		// The bridge carries Room questions, permission reviews, and runtime
+		// hooks, but only a Context with Room questions posts Codex's native
+		// questions.
 		var questions *native.HumanInteractionBridge
 		if spec.HumanInteractions {
 			questions = bridge
@@ -531,6 +546,18 @@ func (e Executor) Start(ctx context.Context, spec OperationSpec, emit EmitFunc) 
 				RuntimeVersion: spec.CodexVersion, Platform: runtime.GOOS, Workspace: spec.WorkingDirectory,
 			}}
 		}
+		var stopHook native.StopHookFunc
+		if spec.UsesStopHook() {
+			stopHook = native.NewBridgeStopHook(bridge, spec.Provider, logger)
+		}
+		if spec.RegisterToolReviewer != nil {
+			release, err := spec.RegisterToolReviewer(reviewer)
+			if err != nil {
+				finish(Result{Status: "failed", Error: err.Error()})
+				return
+			}
+			defer release()
+		}
 		runtimeHomePath := ""
 		if runtimeHome != nil {
 			runtimeHomePath = runtimeHome.Path
@@ -538,7 +565,9 @@ func (e Executor) Start(ctx context.Context, spec OperationSpec, emit EmitFunc) 
 		runSpec := native.RunSpec{
 			HumanInteraction:      questions,
 			PermissionReviewer:    reviewer,
+			StopHook:              stopHook,
 			CodexPermissionHook:   codexHook,
+			ShellTextHook:         e.ShellTextHook,
 			RuntimeHome:           runtimeHomePath,
 			Dir:                   spec.WorkingDirectory,
 			SharedTaskLink:        permission.CodexTaskLink{Path: spec.SharedTask.WritableTaskLink, Target: spec.SharedTask.WritableTaskRoot},
@@ -549,12 +578,14 @@ func (e Executor) Start(ctx context.Context, spec OperationSpec, emit EmitFunc) 
 			AssignSessionID:       spec.CreateProviderSessionID,
 			ResumeID:              spec.ResumeSessionID,
 			ResumeRequired:        spec.ResumeSessionID != "",
+			FreshSession:          freshSession(spec),
 			Budget:                spec.Timeout,
 			ComputerArgs:          append([]string(nil), spec.ExtraArgs...),
 			AgentArgs:             append([]string(nil), spec.CustomArgs...),
 			MCPServers:            mcpConfig,
 			Effort:                spec.ThinkingLevel,
 			ContextWindow:         spec.ContextWindow,
+			WithoutNativeWebTools: spec.WithoutNativeWebTools,
 			Title:                 spec.ThreadName,
 			AppendPrompt:          spec.SystemPrompt,
 			BaseInstructions:      spec.BaseInstructions,
@@ -580,7 +611,7 @@ func (e Executor) Start(ctx context.Context, spec OperationSpec, emit EmitFunc) 
 		var providerResult native.Outcome
 		var ok bool
 		freshSession := false
-		if spec.OperationKind == "run.start" && spec.Provider != "codex" && spec.Provider != "claude" && spec.Provider != "pi" {
+		if spec.OperationKind == "run.start" && spec.Provider != "codex" && spec.Provider != "claude" && spec.Provider != "pi" && spec.Provider != "antigravity" {
 			payload, marshalErr := json.Marshal(map[string]any{
 				"type": "run.started", "turn_id": stableEventID("turn", spec.TaskID),
 			})
@@ -663,8 +694,13 @@ func (e Executor) Start(ctx context.Context, spec OperationSpec, emit EmitFunc) 
 			finish(Result{Status: "failed", Error: executionFailure, CleanupUnconfirmed: providerResult.ExitUnconfirmed})
 			return
 		}
+		// The Agent Service takes the stream's last text message as the reply and
+		// requires it to equal the result's. When only one side has text, either a
+		// Runtime that streams nothing or an empty final answer after streamed
+		// commentary, a closing message carries the result's reply.
+		resultHasText := providerResult.Output != ""
 		if spec.OperationKind == "run.start" && providerResult.Status == "completed" &&
-			!emittedResponseText && providerResult.Output != "" {
+			emittedResponseText != resultHasText {
 			for _, projected := range projection.project(native.Event{Kind: native.EventText, ID: stableEventID("message", spec.TaskID+"\x00final"), Body: providerResult.Output}) {
 				payload, marshalErr := json.Marshal(projected)
 				if marshalErr != nil {
@@ -707,7 +743,9 @@ func normalizeMessage(message native.Event, operationID string) any {
 	if callID == "" {
 		callID = stableEventID("call", operationID+"\x00"+message.ToolName+"\x00"+message.Body)
 	}
-	toolName := message.ToolName
+	// The Runner Gateway caps a tool name at 200 characters and fails the
+	// Operation on a longer one; a Runtime may name a tool by its arguments.
+	toolName := clip(message.ToolName, 200)
 	if toolName == "" {
 		toolName = "provider_tool"
 	}
@@ -782,16 +820,10 @@ func retireClaudeResident(home string) error {
 	return native.StopParkedClaudeResidentForCredentials(filepath.Join(home, "sessions"))
 }
 
-// codexBatchedInputs are the macOS desktop inputs that Codex sends only as
-// run_actions steps.
-var codexBatchedInputs = []any{"click", "double_click", "right_click", "drag", "scroll", "type_text", "press_key", "hotkey"}
-
 // codexDirectLocalTools gives Codex the Daemon's own computer and browser
 // tools as plain function tools, as Codex's computer-use plugin does with its
 // REPL: outside code mode and never deferred. A call is then a JSON function
 // call, not a script that wraps each tool in text(await tools.mcp__...).
-// Desktop inputs go only through run_actions, Codex's one-script-per-call
-// shape, so the model plans several steps in one call.
 func codexDirectLocalTools(mcpConfig json.RawMessage, localTools []string) (json.RawMessage, error) {
 	if len(mcpConfig) == 0 || len(localTools) == 0 {
 		return mcpConfig, nil
@@ -805,35 +837,39 @@ func codexDirectLocalTools(mcpConfig json.RawMessage, localTools []string) (json
 		name, _, ok := strings.Cut(strings.TrimPrefix(tool, "mcp__"), "__")
 		if settings, found := servers[name].(map[string]any); ok && found {
 			settings["omit_tools_from"] = []any{"code_mode", "deferred"}
-			if name == "computer" {
-				settings["disabled_tools"] = codexBatchedInputs
-			}
 		}
 	}
 	return json.Marshal(parsed)
 }
 
-// prepareCodexPermissionReview readies a Context's CODEX_HOME for a reviewed
-// Run: the execpolicy rules that allow read-only and TeamHub commands, managed
-// MCP tools that always ask, and the PermissionRequest hook that reaches this
-// Daemon. Without the hook a reviewed Run cannot start.
-func prepareCodexPermissionReview(codexHome string, teamhubCommands []permission.TeamHubCommand, mcpConfig json.RawMessage) (*permission.CodexHook, json.RawMessage, error) {
-	if err := permission.CodexWriteRules(codexHome, permission.CodexRules(teamhubCommands)); err != nil {
-		return nil, nil, fmt.Errorf("write Codex permission rules: %w", err)
-	}
-	mcpConfig, err := permission.CodexPromptMCPTools(mcpConfig)
-	if err != nil {
-		return nil, nil, fmt.Errorf("Codex MCP configuration is invalid: %w", err)
+// prepareCodexHooks readies a Context's CODEX_HOME for managed Codex hooks:
+// when review is enabled, execpolicy rules and MCP prompt overrides; for either
+// review or stop hooks, the loopback Daemon hook endpoint and config.
+func prepareCodexHooks(codexHome string, teamhubCommands []permission.TeamHubCommand, mcpConfig json.RawMessage, review, stop bool) (*permission.CodexHook, json.RawMessage, error) {
+	if review {
+		if err := permission.CodexWriteRules(codexHome, permission.CodexRules(teamhubCommands)); err != nil {
+			return nil, nil, fmt.Errorf("write Codex permission rules: %w", err)
+		}
+		var err error
+		mcpConfig, err = permission.CodexPromptMCPTools(mcpConfig)
+		if err != nil {
+			return nil, nil, fmt.Errorf("Codex MCP configuration is invalid: %w", err)
+		}
 	}
 	endpoint, err := permission.CodexSharedEndpoint()
 	if err != nil {
-		return nil, nil, fmt.Errorf("start Codex permission hook endpoint: %w", err)
+		return nil, nil, fmt.Errorf("start Codex hook endpoint: %w", err)
 	}
 	executable, err := os.Executable()
 	if err != nil {
-		return nil, nil, fmt.Errorf("locate the Daemon for the Codex permission hook: %w", err)
+		return nil, nil, fmt.Errorf("locate the Daemon for the Codex hook: %w", err)
 	}
-	return &permission.CodexHook{Endpoint: endpoint, Config: endpoint.HooksConfig(executable)}, mcpConfig, nil
+	return &permission.CodexHook{
+		Endpoint:          endpoint,
+		Config:            endpoint.HooksConfigFor(executable, review, stop),
+		ReviewPermissions: review,
+		StopHook:          stop,
+	}, mcpConfig, nil
 }
 
 // ReviewsPermissions reports whether this Operation answers the Runtime's own
@@ -841,6 +877,25 @@ func prepareCodexPermissionReview(codexHome string, teamhubCommands []permission
 // declares it per Run; session and preparation Operations never prompt.
 func (spec OperationSpec) ReviewsPermissions() bool {
 	return spec.PermissionReview && spec.OperationKind == "run.start"
+}
+
+// freshSession lets a started Run continue in a new native session, except
+// one resuming after a yield, whose prompt continues the old session.
+func freshSession(spec OperationSpec) func() {
+	if spec.ResumeAfterYield {
+		return nil
+	}
+	return func() {
+		if spec.SessionMoved != nil {
+			spec.SessionMoved()
+		}
+	}
+}
+
+// UsesStopHook reports whether this Operation asks Agent Service before a
+// Runtime finishes its turn.
+func (spec OperationSpec) UsesStopHook() bool {
+	return spec.StopHook && spec.OperationKind == "run.start"
 }
 
 // startsFreshSession reports whether a Run whose retained native session the

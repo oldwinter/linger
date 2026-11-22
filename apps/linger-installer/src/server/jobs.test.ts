@@ -281,6 +281,53 @@ test.each([
   },
 );
 
+test("a runtime failure stays on the persisted job after checkout cleanup logs", async () => {
+  const { jobs, dir } = await setup(async (_input, _signal, emit) => {
+    emit({
+      kind: "stage",
+      stage: "runtime",
+      state: "failed",
+      message: "Could not mount the model endpoint.",
+    });
+    emit({
+      kind: "log",
+      stage: "services",
+      message: "Stopping PostgreSQL after the installation failure.",
+    });
+    return {
+      code: 1,
+      state: "failed",
+      message: "Could not mount the model endpoint.",
+      details: { stage: "runtime" },
+    };
+  });
+  const job = await jobs.start({ instance: "default" });
+  await jobs.wait(job.id);
+  const saved: unknown = JSON.parse(
+    await readFile(path.join(dir, `${job.id}.json`), "utf8"),
+  );
+  expect(saved).toMatchObject({
+    job: {
+      state: "failed",
+      stage: "runtime",
+      stages: expect.arrayContaining([
+        expect.objectContaining({
+          id: "runtime",
+          state: "failed",
+          message: "Could not mount the model endpoint.",
+        }),
+      ]),
+    },
+    events: expect.arrayContaining([
+      expect.objectContaining({
+        kind: "stage",
+        stage: "runtime",
+        state: "failed",
+      }),
+    ]),
+  });
+});
+
 const localPlan = {
   planId: "a".repeat(64),
   gpuIndex: 1,

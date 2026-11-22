@@ -42,6 +42,8 @@ type Set struct {
 	proxies []*proxy
 	local   []LocalBinding
 	config  json.RawMessage
+	hidden  map[string]bool
+	ui      *toolOrchestrator
 	once    sync.Once
 	err     error
 }
@@ -100,8 +102,11 @@ func (s *Set) Close() error {
 		return nil
 	}
 	s.once.Do(func() {
+		s.closeToolReviewer()
 		var closeErrors []error
-		for _, binding := range s.local {
+		// The public tool owns callers of the drivers bound before it.
+		for i := len(s.local) - 1; i >= 0; i-- {
+			binding := s.local[i]
 			if err := binding.Close(); err != nil {
 				closeErrors = append(closeErrors, err)
 			}

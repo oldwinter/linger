@@ -11,7 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { FormFeedback } from "@/components/ui/form-feedback";
 import { Icon } from "@/components/ui/icon";
+import { useT } from "@/i18n/use-translation";
 
+import { authMessages as m } from "./auth.messages";
 import { AuthShell } from "./auth-shell";
 import { safeAuthenticationReturnTo } from "./authentication-return-to";
 import {
@@ -37,13 +39,14 @@ export function TeamHubLoginPage({
     returnTo,
   });
   const localAccount = useDesktopLocalAccount();
+  const t = useT();
   const authenticationNotice =
     searchParams.get("reason") === "session-expired"
-      ? "Your session has expired. Sign in again to continue."
+      ? t(m.sessionExpired)
       : null;
 
   return (
-    <AuthShell subtitle="Welcome back to Linger." title="Log in">
+    <AuthShell subtitle={t(m.loginSubtitle)} title={t(m.loginTitle)}>
       {authenticationNotice ? (
         <div className="mb-4">
           <FormFeedback tone="danger">{authenticationNotice}</FormFeedback>
@@ -69,6 +72,7 @@ function LocalAccountSignIn({
 }) {
   const { isSubmitting, submittingMethod } = authentication.state;
   const desktopSubmitting = submittingMethod === "desktop";
+  const t = useT();
 
   return (
     <div className="auth-local-account">
@@ -84,11 +88,11 @@ function LocalAccountSignIn({
         type="button"
       >
         {desktopSubmitting ? null : <Icon icon={ComputerIcon} size={16} />}
-        <span>Sign in with this computer&apos;s account</span>
+        <span>{t(m.localAccountSignIn)}</span>
       </Button>
       <div className="auth-divider">
         <span />
-        <span>or</span>
+        <span>{t(m.or)}</span>
         <span />
       </div>
     </div>
@@ -111,6 +115,7 @@ function AuthenticationForm({
   const { changeField, handleSubmit } = authentication;
   const credentialsSubmitting = submittingMethod === "credentials";
   const formError = !fieldErrors.email && !fieldErrors.password ? error : null;
+  const t = useT();
 
   return (
     <form
@@ -124,7 +129,7 @@ function AuthenticationForm({
         autoComplete="email"
         disabled={isSubmitting}
         error={fieldErrors.email}
-        label="Email"
+        label={t(m.email)}
         onChange={(event) => changeField("email", event.target.value)}
         placeholder="you@company.com"
         type="email"
@@ -134,7 +139,7 @@ function AuthenticationForm({
         autoComplete="current-password"
         disabled={isSubmitting}
         error={fieldErrors.password}
-        label="Password"
+        label={t(m.password)}
         onChange={(value) => changeField("password", value)}
         value={password}
       />
@@ -149,7 +154,7 @@ function AuthenticationForm({
         type="submit"
         tone="primary"
       >
-        <span>Log in</span>
+        <span>{t(m.logIn)}</span>
         {credentialsSubmitting ? null : (
           <Icon icon={ArrowRight02Icon} size={16} />
         )}
@@ -174,6 +179,7 @@ function PasswordField({
   value: string;
 }) {
   const [visible, setVisible] = useState(false);
+  const t = useT();
 
   return (
     <Field
@@ -184,7 +190,7 @@ function PasswordField({
       onChange={(event) => onChange(event.target.value)}
       suffix={
         <button
-          aria-label={`${visible ? "Hide" : "Show"} ${label.toLowerCase()}`}
+          aria-label={t(visible ? m.hidePassword : m.showPassword)}
           className="grid size-7 place-items-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           onClick={() => setVisible((current) => !current)}
           type="button"

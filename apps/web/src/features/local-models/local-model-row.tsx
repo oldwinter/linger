@@ -18,6 +18,9 @@ import { Link } from "react-router";
 import { Button, buttonClassName } from "@/components/ui/button";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
 import type { TeamHubLocalComputerPage } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
 
 import {
@@ -28,6 +31,7 @@ import {
 } from "./local-model-agents";
 import { ModelFacts } from "./local-model-details";
 import { modelErrorShortCopy, unavailableShortCopy } from "./local-models-copy";
+import { localModelsMessages as m } from "./local-models.messages";
 import type {
   LocalModel,
   LocalModelAction,
@@ -39,7 +43,9 @@ import {
   downloadStatusDetail,
   downloadStopped,
   formatGigabytes,
+  joinList,
   placeName,
+  placeTitle,
   usedByBadge,
   type ModelEntry,
   type ModelStatus,
@@ -133,19 +139,19 @@ function cardTone(
  */
 const statusTags: Record<
   ModelStatus,
-  { dot?: string; label: string; working?: boolean }
+  { dot?: string; label: Message<string>; working?: boolean }
 > = {
-  available: { label: "Not downloaded" },
+  available: { label: m.statusAvailable },
   downloading: {
     dot: "bg-app-info",
-    label: "Downloading",
+    label: m.statusDownloading,
     working: true,
   },
-  failed: { dot: "bg-app-danger", label: "Couldn't load" },
-  idle: { dot: "bg-muted-foreground/60", label: "Downloaded" },
-  loaded: { dot: "bg-app-success", label: "Loaded" },
-  loading: { dot: "bg-app-info", label: "Loading", working: true },
-  unavailable: { label: "Can't download" },
+  failed: { dot: "bg-app-danger", label: m.statusFailed },
+  idle: { dot: "bg-muted-foreground/60", label: m.statusIdle },
+  loaded: { dot: "bg-app-success", label: m.statusLoaded },
+  loading: { dot: "bg-app-info", label: m.statusLoading, working: true },
+  unavailable: { label: m.statusUnavailable },
 };
 
 /**
@@ -153,10 +159,10 @@ const statusTags: Record<
  * under way: until a snapshot moves the model on, the status alone would
  * read as if nothing had happened.
  */
-const endingLabels: Partial<Record<LocalModelAction, string>> = {
-  cancel: "Cancelling",
-  remove: "Removing",
-  unload: "Unloading",
+const endingLabels: Partial<Record<LocalModelAction, Message<string>>> = {
+  cancel: m.endingCancel,
+  remove: m.endingRemove,
+  unload: m.endingUnload,
 };
 
 interface Handlers {
@@ -180,6 +186,7 @@ function OpenChatLink({
   href: string;
   onClick: (event: MouseEvent) => void;
 }) {
+  const t = useT();
   return (
     <Link
       className={buttonClassName({
@@ -190,7 +197,7 @@ function OpenChatLink({
       onClick={onClick}
       to={href}
     >
-      Open chat
+      {t(m.openChat)}
     </Link>
   );
 }
@@ -208,8 +215,9 @@ function RowStatusLine({
   recommended: boolean;
   slower: boolean;
   status: ModelStatus;
-  tag: { dot?: string; label: string; working?: boolean };
+  tag: { dot?: string; label: Message<string>; working?: boolean };
 }) {
+  const t = useT();
   return (
     <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
       {tag.dot ? (
@@ -235,21 +243,23 @@ function RowStatusLine({
                   : undefined
           }
         >
-          {tag.label}
+          {t(tag.label)}
         </span>
         {recommended ? (
           <>
             {" · "}
             {download}
             {" · "}
-            <span className="font-medium text-app-info">Recommended</span>
+            <span className="font-medium text-app-info">
+              {t(m.recommended)}
+            </span>
           </>
         ) : slower ? (
           <>
             {" · "}
             {download}
             {" · "}
-            <span className="text-app-warning">runs slower</span>
+            <span className="text-app-warning">{t(m.runsSlower)}</span>
           </>
         ) : detail ? (
           ` · ${detail}`
@@ -312,6 +322,7 @@ function DownloadProgress({
   model: LocalModel;
   progress: number;
 }) {
+  const t = useT();
   const shownProgress =
     model.download?.step === "verify" && !model.download.total_bytes
       ? 100
@@ -319,7 +330,7 @@ function DownloadProgress({
   return (
     <div className="px-4 pb-3">
       <span
-        aria-label={`${model.name} download progress`}
+        aria-label={t(m.downloadProgress, { name: model.name })}
         aria-valuemax={100}
         aria-valuemin={0}
         aria-valuenow={shownProgress}
@@ -371,6 +382,7 @@ export function ModelRow({
   switchingForAgents?: boolean;
   view: LocalModelsView;
 }) {
+  const t = useT();
   const panelId = useId();
   const { model } = entry;
   // A requested load or download reads as started at once; the snapshot that
@@ -385,28 +397,28 @@ export function ModelRow({
         : entry.status;
   const started = status !== entry.status;
   const stopped = status === "failed" && downloadStopped(model);
-  const where = placeName(view, model.pool);
+  const where = placeName(view, model.pool, t);
   const ending = requested && endingLabels[requested];
   const tag = ending
     ? {
         dot: statusTags[status].dot,
-        label: stopped && requested === "cancel" ? "Discarding" : ending,
+        label: stopped && requested === "cancel" ? m.endingDiscard : ending,
         working: true,
       }
     : stopped
-      ? { ...statusTags.failed, label: "Download stopped" }
+      ? { ...statusTags.failed, label: m.statusDownloadStopped }
       : statusTags[status];
   const progress = downloadPercent(model);
-  const download = formatGigabytes(model.download_bytes);
+  const download = formatGigabytes(model.download_bytes, t);
   const recommended = status === "available" && model.recommended;
   const slower =
     status === "available" && !model.recommended && model.fit === "system";
   const brand = familyBrand(model.family);
   const computerId = view.computer.computer_id;
   const usedNames = usedByAgentNames(entry, assignableAgents, computerId);
-  const usedBy = usedByBadge({ ...entry, status }, usedNames);
+  const usedBy = usedByBadge({ ...entry, status }, t, usedNames);
   const usedByTitle = usedNames.length
-    ? `Used by ${usedNames.join(", ")}`
+    ? t(m.usedByNames, { names: joinList(usedNames, t) })
     : undefined;
   const primaryAgent = primaryLocalModelAgent(assignableAgents);
   const primaryUsing = primaryAgent
@@ -417,7 +429,7 @@ export function ModelRow({
     Boolean(model.pi_model) &&
     Boolean(primaryAgent) &&
     Boolean(onAssignAgent);
-  const { badges, overflowTitle } = collapsedRowBadges(model);
+  const { badges, overflowTitle } = collapsedRowBadges(model, t);
   const hasMeta = Boolean(usedBy) || badges.length > 0;
   const damagedFiles =
     status === "failed" &&
@@ -425,34 +437,61 @@ export function ModelRow({
       model.error?.code === "MODEL_FILES_MISSING");
   const detail = {
     available: download,
-    downloading: started ? null : downloadStatusDetail(model),
-    failed: modelErrorShortCopy(model.error) ?? null,
+    downloading: started ? null : downloadStatusDetail(model, t),
+    failed: modelErrorShortCopy(model.error, t) ?? null,
     idle: model.note
-      ? "no room to load yet"
+      ? t(m.noRoomYet)
       : usedNames.length
-        ? "load to answer"
+        ? t(m.loadToAnswer)
         : null,
     loaded: [
-      where ? `${where[0]!.toUpperCase()}${where.slice(1)}` : undefined,
-      formatGigabytes(model.memory_bytes),
+      placeTitle(view, model.pool, t),
+      formatGigabytes(model.memory_bytes, t),
     ]
       .filter(Boolean)
       .join(" · "),
     loading: where ?? null,
-    unavailable: unavailableShortCopy(model.availability.reason),
+    unavailable: unavailableShortCopy(model.availability.reason, t),
   }[status];
 
+  // The button's word, what it does, the action it asks for, and its name
+  // with the model for assistive technology.
   const action = (
     {
-      available: ["Download", handlers.onDownload, "download"],
-      downloading: ["Cancel", handlers.onCancel, "cancel"],
+      available: [
+        m.actionDownload,
+        handlers.onDownload,
+        "download",
+        m.downloadModel,
+      ],
+      downloading: [
+        commonMessages.cancel,
+        handlers.onCancel,
+        "cancel",
+        m.cancelModel,
+      ],
       failed: stopped
-        ? (["Resume download", handlers.onDownload, "download"] as const)
+        ? ([
+            m.actionResumeDownload,
+            handlers.onDownload,
+            "download",
+            m.resumeDownloadModel,
+          ] as const)
         : damagedFiles
-          ? (["Remove", handlers.onRemove, "remove"] as const)
-          : (["Retry", handlers.onLoad, "load"] as const),
-      idle: ["Load", handlers.onLoad, "load"],
-      loaded: ["Unload", handlers.onUnload, "unload"],
+          ? ([
+              commonMessages.remove,
+              handlers.onRemove,
+              "remove",
+              m.removeModel,
+            ] as const)
+          : ([
+              commonMessages.retry,
+              handlers.onLoad,
+              "load",
+              m.retryModel,
+            ] as const),
+      idle: [m.actionLoad, handlers.onLoad, "load", m.loadModel],
+      loaded: [m.actionUnload, handlers.onUnload, "unload", m.unloadModel],
       loading: null,
       unavailable: null,
     } as const
@@ -574,7 +613,7 @@ export function ModelRow({
           >
             {showsUseForAgents ? (
               <Button
-                aria-label={`Use ${model.name} for Agents`}
+                aria-label={t(m.useForAgentsNamed, { name: model.name })}
                 className="px-2.5"
                 disabled={disabled}
                 loading={switchingForAgents}
@@ -585,11 +624,14 @@ export function ModelRow({
                 size="compact"
                 tone="primary"
               >
-                Use for Agents
+                {t(m.useForAgents)}
               </Button>
             ) : showsPrimaryAssignButton && primaryAgent && onAssignAgent ? (
               <Button
-                aria-label={`Use ${model.name} with ${primaryAgent.name}`}
+                aria-label={t(m.useWithNamed, {
+                  agent: primaryAgent.name,
+                  model: model.name,
+                })}
                 className="px-2.5"
                 disabled={
                   disabled || primaryAgent.busy || Boolean(assigningAgentId)
@@ -602,19 +644,19 @@ export function ModelRow({
                 size="compact"
                 title={
                   primaryAgent.busy
-                    ? `Wait for ${primaryAgent.name} to finish the current turn`
+                    ? t(m.waitForTurn, { agent: primaryAgent.name })
                     : undefined
                 }
                 tone="primary"
               >
-                Use with {primaryAgent.name}
+                {t(m.useWith, { agent: primaryAgent.name })}
               </Button>
             ) : showsOpenChat && anotherMeChatHref ? (
               <OpenChatLink href={anotherMeChatHref} onClick={stopRowClick} />
             ) : null}
             {action ? (
               <Button
-                aria-label={`${action[0]} ${model.name}`}
+                aria-label={t(action[3], { name: model.name })}
                 className="px-2.5"
                 disabled={disabled}
                 loading={requested === action[2]}
@@ -633,7 +675,7 @@ export function ModelRow({
                         : "secondary"
                 }
               >
-                {action[0]}
+                {t(action[0])}
               </Button>
             ) : null}
           </div>
@@ -647,7 +689,7 @@ export function ModelRow({
           className="border-t border-border px-4 pt-1 pb-3"
           id={panelId}
           role="region"
-          aria-label={`${model.name} details`}
+          aria-label={t(m.detailsOf, { name: model.name })}
         >
           {model.description ? (
             <p className="pt-2 pb-1 text-sm text-muted-foreground">
@@ -668,24 +710,26 @@ export function ModelRow({
             <div className="mt-2 border-t border-border/70 pt-2.5">
               {removable ? (
                 <Button
+                  data-voice-risk="never"
                   disabled={disabled}
                   loading={requested === "remove"}
                   onClick={handlers.onRemove}
                   size="compact"
                   tone="danger"
                 >
-                  Remove from computer
+                  {t(m.removeFromComputer)}
                 </Button>
               ) : null}
               {stopped ? (
                 <Button
+                  data-voice-risk="never"
                   disabled={disabled}
                   loading={requested === "cancel"}
                   onClick={handlers.onCancel}
                   size="compact"
                   tone="danger"
                 >
-                  Discard download
+                  {t(m.discardDownload)}
                 </Button>
               ) : null}
             </div>

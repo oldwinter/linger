@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { translate } from "@/i18n/language";
+
 import {
   profileSourcePolicy,
   profileSourceSubmitLabel,
@@ -19,13 +21,17 @@ describe("profile source policy", () => {
   });
 
   it("names the submitted result instead of exposing a generic update command", () => {
-    expect(profileSourceSubmitLabel("github", 0)).toBe("Add GitHub profile");
-    expect(profileSourceSubmitLabel("github", 3)).toBe(
+    expect(profileSourceSubmitLabel("github", 0, translate)).toBe(
+      "Add GitHub profile",
+    );
+    expect(profileSourceSubmitLabel("github", 3, translate)).toBe(
       "Add GitHub profile + 3 repositories",
     );
-    expect(profileSourceSubmitLabel("google_calendar", 2)).toBe(
+    expect(profileSourceSubmitLabel("google_calendar", 2, translate)).toBe(
       "Add 2 calendars",
     );
-    expect(profileSourceSubmitLabel("notion", 0)).toBe("Add 0 Notion items");
+    expect(profileSourceSubmitLabel("notion", 0, translate)).toBe(
+      "Add 0 Notion items",
+    );
   });
 });

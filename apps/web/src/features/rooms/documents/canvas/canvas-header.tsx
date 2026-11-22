@@ -1,5 +1,8 @@
 import { LinkSquare02Icon, PencilEdit01Icon } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
+import type { Translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
 import {
   useEffect,
@@ -13,6 +16,17 @@ import type { RoomDocumentCollaborationSession } from "../room-document-collabor
 import type { RoomDocumentEditor } from "../room-document-comment-schema";
 import { type CanvasDocument, canvasText, readCanvas } from "./canvas-document";
 import { canvasStatusKeys } from "./canvas-targets";
+import { canvasMessages } from "./canvas.messages";
+
+/** A target field's label as the target gave it, or worded in the language. */
+function fieldText(t: Translate, text: string | Message<string>): string;
+function fieldText(
+  t: Translate,
+  text: string | Message<string> | undefined,
+): string | undefined;
+function fieldText(t: Translate, text: string | Message<string> | undefined) {
+  return typeof text === "object" ? t(text) : text;
+}
 
 const agentEditingQuietMs = 3_000;
 
@@ -77,6 +91,7 @@ export function CanvasHeader({
   editor: RoomDocumentEditor;
   sender?: ReactNode;
 }) {
+  const t = useT();
   const save = (key: string, value: string) => {
     if ((canvas.fields[key] ?? "") === value) return;
     editor.updateBlock(canvas.blockId, {
@@ -99,7 +114,9 @@ export function CanvasHeader({
 
   return (
     <section
-      aria-label={`${canvas.target.label} canvas`}
+      aria-label={t(canvasMessages.canvasLabel, {
+        target: canvas.target.label,
+      })}
       className="mb-5"
       data-canvas-target={canvas.target.id}
     >
@@ -117,7 +134,7 @@ export function CanvasHeader({
               role="status"
             >
               <Icon icon={PencilEdit01Icon} size={14} />
-              Agent is editing…
+              {t(canvasMessages.agentEditing)}
             </span>
           ) : null}
         </div>
@@ -126,14 +143,14 @@ export function CanvasHeader({
         <div className="mb-1 flex items-center gap-2">
           <div className="min-w-0 flex-1">
             <label className="sr-only" htmlFor="canvas-field-subject">
-              Subject
+              {t(canvasMessages.subject)}
             </label>
             <CanvasField
               className="text-[15px] font-semibold"
               editable={editable}
               id="canvas-field-subject"
               onSave={(value) => save("subject", value)}
-              placeholder="Subject"
+              placeholder={t(canvasMessages.subject)}
               value={canvas.fields.subject ?? ""}
             />
           </div>
@@ -145,7 +162,9 @@ export function CanvasHeader({
       <dl>
         {sender ? (
           <div className="flex min-h-11 items-center gap-3">
-            <dt className="w-14 shrink-0 text-sm text-app-muted">From</dt>
+            <dt className="w-14 shrink-0 text-sm text-app-muted">
+              {t(canvasMessages.from)}
+            </dt>
             <dd className="min-w-0 flex-1 text-sm text-app-ink [overflow-wrap:anywhere]">
               {sender}
             </dd>
@@ -164,7 +183,7 @@ export function CanvasHeader({
             >
               <dt className="w-14 shrink-0 text-sm text-app-muted">
                 <label htmlFor={`canvas-field-${field.key}`}>
-                  {field.label}
+                  {fieldText(t, field.label)}
                 </label>
               </dt>
               <dd className="min-w-0 flex-1">
@@ -172,7 +191,7 @@ export function CanvasHeader({
                   editable={editable}
                   id={`canvas-field-${field.key}`}
                   onSave={(value) => save(field.key, value)}
-                  placeholder={field.placeholder}
+                  placeholder={fieldText(t, field.placeholder)}
                   value={canvas.fields[field.key] ?? ""}
                 />
               </dd>
@@ -190,8 +209,11 @@ function CanvasStatus({
   canvas: CanvasDocument;
   compact?: boolean;
 }) {
+  const t = useT();
   if (canvas.status === "editing") return null;
-  const label = canvas.status === "sent" ? "Sent" : "Draft saved";
+  const label = t(
+    canvas.status === "sent" ? canvasMessages.sent : canvasMessages.draftSaved,
+  );
   return canvas.link ? (
     <a
       aria-label={label}
@@ -227,6 +249,7 @@ function CanvasField({
   placeholder?: string;
   value: string;
 }) {
+  const t = useT();
   const [draft, setDraft] = useState(value);
   const focused = useRef(false);
   // The Agent may rewrite a field while it is shown; keep what is being typed.
@@ -252,7 +275,7 @@ function CanvasField({
         if (event.key === "Enter" && !event.nativeEvent.isComposing)
           event.currentTarget.blur();
       }}
-      placeholder={editable ? placeholder : "None"}
+      placeholder={editable ? placeholder : t(canvasMessages.none)}
       readOnly={!editable}
       value={draft}
     />

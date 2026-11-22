@@ -69,6 +69,13 @@
 - A Pi background model call uses one ephemeral RPC turn with no tools on
   whatever model Pi's profile selects by default, local or remote; the Daemon
   does not check which.
+- A Codex background model call runs the model its `config.toml` selects (the
+  active profile's or the top-level `model`). When it selects none, the call
+  names the model Codex's own catalog marks as the default for the signed-in
+  account, the catalog Agent runs choose from; the Daemon passes that default
+  on and never picks among models. Codex's built-in default may be one the
+  account cannot use. A call the provider rejects with `model_not_found` is
+  reported as `runtime_incompatible`, not as a transient failure.
 
 - Default tests use deterministic providers and real fixture child processes;
   they never call a live model.

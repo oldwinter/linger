@@ -26,6 +26,7 @@ vi.mock("electron", () => ({
 
 vi.mock("./tray-icon.js", () => ({ renderTrayIcon: () => Buffer.alloc(0) }));
 
+const { LanguageModule } = await import("./language.js");
 const { TrayModule } = await import("./tray.js");
 const { EventBus } = await import("./modules.js");
 const { stubModule, testHost } = await import("./test-support.js");
@@ -36,6 +37,8 @@ const startTray = async () => {
   const tray = new TrayModule({ quit: () => {} });
   const host = testHost(
     [
+      stubModule("Config"),
+      new LanguageModule({ systemLanguages: () => ["en-US"] }),
       { ...stubModule("Status"), current: () => ({ ...status }) } as never,
       { ...stubModule("PowerGuard"), alwaysOn: () => false } as never,
       stubModule("WindowManager"),

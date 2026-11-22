@@ -990,6 +990,34 @@ func TestCodexSteerNeedsConsumptionEvidence(t *testing.T) {
 	}
 }
 
+func TestCodexThreadRunsTheShellTextHookBeforeShellCommands(t *testing.T) {
+	cases := []struct {
+		name, version string
+		want          bool
+	}{
+		{"Codex with hooks", "0.165.0", true},
+		{"Codex without hooks", "0.100.0", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := newCodexFake(t, []codexFakeTurn{{Status: "completed"}}, nil)
+			fake.version = tc.version
+			codexResidentCapForTest(t, 0)
+			spec := fake.spec()
+			spec.ShellTextHook = "/opt/linger/linger-computer-daemon"
+			if out, _ := codexDrain(t, fake.runtime(nil), "hello", spec); out.Status != statusCompleted {
+				t.Fatalf("outcome = %+v", out)
+			}
+			config, _ := fake.requests("thread/start")[0]["params"].(map[string]any)["config"].(map[string]any)
+			hooks, _ := json.Marshal(config["hooks"])
+			found := strings.Contains(string(hooks), `"PreToolUse":[{"hooks":[{"command":"'/opt/linger/linger-computer-daemon' shell-text-hook"`) && strings.Contains(string(hooks), `"matcher":"^Bash$"`)
+			if found != tc.want || (config["bypass_hook_trust"] == true) != tc.want {
+				t.Fatalf("config = %v", config)
+			}
+		})
+	}
+}
+
 func TestCodexThreadToolOutputLimitFollowsContextWindow(t *testing.T) {
 	cases := []struct {
 		name, version string

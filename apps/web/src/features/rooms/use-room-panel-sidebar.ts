@@ -38,8 +38,8 @@ export function useRoomPanelSidebar({
       const title =
         input.title ??
         (input.kind === "file"
-          ? (input.documentId ?? "Document")
-          : panelTabTitle(input.anchorMessageId ?? "Untitled"));
+          ? (input.documentId ?? "")
+          : panelTabTitle(input.anchorMessageId ?? ""));
       persistOpenPanelTab(scope, {
         kind: input.kind,
         activityRunStatusId: input.activityRunStatusId,

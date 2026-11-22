@@ -3,8 +3,11 @@ import type {
   TeamHubAgentTemplatePublishInput,
   TeamHubTenantAgent,
 } from "@/features/teamhub/teamhub-types";
+import { type Translate, translate } from "@/i18n/language";
 
 import type { AgentAvatarKey } from "../members/agent-avatar";
+
+import { agentTemplateMessages as m } from "./agent-templates.messages";
 
 /**
  * The portable part of an Agent: identity text, instructions, and the Skill
@@ -55,21 +58,25 @@ export type TemplateResourceCounts = Pick<
  * kinds it has rather than one string that has to be read apart. Kinds the
  * template does not carry are left out entirely.
  */
-export function templateResourceChips(template: TemplateResourceCounts) {
+export function templateResourceChips(
+  template: TemplateResourceCounts,
+  t: Translate = translate,
+) {
+  const skills = template.skill_bindings.length;
+  const routines = template.routines?.length ?? 0;
+  const connectors = template.connector_bindings?.length ?? 0;
   return [
-    countLabel(template.skill_bindings.length, "Skill"),
-    countLabel(template.routines?.length ?? 0, "Routine"),
-    countLabel(template.connector_bindings?.length ?? 0, "Connector"),
+    skills ? t(m.skillCount, { count: skills }) : "",
+    routines ? t(m.routineCount, { count: routines }) : "",
+    connectors ? t(m.connectorCount, { count: connectors }) : "",
   ].filter((part) => part !== "");
 }
 
 /** Single-line summary, for places that have room for only one string. */
-export function templateResourceSummary(template: TemplateResourceCounts) {
-  const parts = templateResourceChips(template);
-  return parts.length ? parts.join(" · ") : "Instructions only";
-}
-
-export function countLabel(total: number, noun: string) {
-  if (total === 0) return "";
-  return `${total} ${noun}${total === 1 ? "" : "s"}`;
+export function templateResourceSummary(
+  template: TemplateResourceCounts,
+  t: Translate = translate,
+) {
+  const parts = templateResourceChips(template, t);
+  return parts.length ? parts.join(" · ") : t(m.instructionsOnly);
 }

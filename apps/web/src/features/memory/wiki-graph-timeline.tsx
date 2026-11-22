@@ -1,6 +1,8 @@
 import { ArrowRightDoubleIcon } from "@hugeicons/core-free-icons";
 import { formatDateTime } from "@/lib/date-format";
 import { Icon } from "@/components/ui/icon";
+import { type Translate, formatLocale } from "@/i18n/language";
+import { useTranslation } from "@/i18n/use-translation";
 import {
   type CSSProperties,
   type KeyboardEvent,
@@ -14,6 +16,7 @@ import {
 } from "react";
 
 import type { TimeBucket, TimeGranularity } from "./wiki-graph-model";
+import { wikiTimelineMessages as m } from "./wiki-timeline.messages";
 
 interface WikiGraphTimelineProps {
   buckets: TimeBucket[];
@@ -42,6 +45,8 @@ export function WikiGraphTimeline({
   focused,
   onShowAll,
 }: WikiGraphTimelineProps) {
+  const { language, t } = useTranslation();
+  const locale = formatLocale(language);
   const rulerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   // Fractional playhead position while dragging, gliding or snapping.
@@ -253,7 +258,7 @@ export function WikiGraphTimeline({
   if (!count) {
     return (
       <div className="wiki-graph-timeline wiki-graph-timeline-empty">
-        No dated sessions or events yet.
+        {t(m.noDated)}
       </div>
     );
   }
@@ -269,14 +274,14 @@ export function WikiGraphTimeline({
       <div className="wiki-graph-timeline-controls">
         <div className="wiki-graph-readout" aria-live="polite">
           <p className="wiki-graph-readout-date">
-            {longLabel(bucket.start, granularity)}
+            {longLabel(bucket.start, granularity, locale)}
             <span className="wiki-graph-readout-year">
               {yearOf(bucket.start, granularity)}
             </span>
           </p>
         </div>
         <button
-          aria-label="Jump to latest"
+          aria-label={t(m.jumpToLatest)}
           className="wiki-graph-latest"
           data-hidden={(atLatest && !focused) || undefined}
           onClick={() => {
@@ -286,17 +291,19 @@ export function WikiGraphTimeline({
           tabIndex={atLatest && !focused ? -1 : 0}
           type="button"
         >
-          Latest <Icon icon={ArrowRightDoubleIcon} size={14} />
+          {t(m.latest)} <Icon icon={ArrowRightDoubleIcon} size={14} />
         </button>
       </div>
       <div
-        aria-label="Timeline playhead"
+        aria-label={t(m.playhead)}
         aria-valuemax={last}
         aria-valuemin={0}
         aria-valuenow={cursor}
         aria-valuetext={fullLabel(
           buckets[cursor]?.start ?? bucket.start,
           granularity,
+          locale,
+          t,
         )}
         className="wiki-graph-ruler"
         data-dragging={dragging || undefined}
@@ -371,7 +378,7 @@ export function WikiGraphTimeline({
       {hoverIndex !== undefined && !dragging ? (
         <HoverPreview
           inset={rulerRef.current?.offsetLeft ?? 0}
-          label={fullLabel(buckets[hoverIndex]!.start, granularity)}
+          label={fullLabel(buckets[hoverIndex]!.start, granularity, locale, t)}
           left={center - (position + 0.5) * step + (hoverIndex + 0.5) * step}
           width={width}
         />
@@ -402,19 +409,27 @@ function HoverPreview({
   );
 }
 
-function longLabel(start: string, granularity: TimeGranularity): string {
+/** "SEP 3", or "SEP 28 – OCT 4" for a week, in the language on screen. */
+function longLabel(
+  start: string,
+  granularity: TimeGranularity,
+  locale: string,
+): string {
   const date = new Date(`${start}T00:00:00Z`);
-  const month = formatDateTime(date, {
-    month: "short",
-    timeZone: "UTC",
-  }).toUpperCase();
-  if (granularity === "day") return `${month} ${date.getUTCDate()}`;
+  const monthDay = (value: Date) =>
+    formatDateTime(
+      value,
+      { month: "short", day: "numeric", timeZone: "UTC" },
+      locale,
+    ).toUpperCase();
+  if (granularity === "day") return monthDay(date);
   const end = new Date(date.getTime() + 6 * 86_400_000);
-  const endMonth = formatDateTime(end, {
-    month: "short",
-    timeZone: "UTC",
-  }).toUpperCase();
-  return `${month} ${date.getUTCDate()} – ${endMonth === month ? "" : `${endMonth} `}${end.getUTCDate()}`;
+  const sameMonth = end.getUTCMonth() === date.getUTCMonth();
+  return `${monthDay(date)} – ${
+    sameMonth
+      ? formatDateTime(end, { day: "numeric", timeZone: "UTC" }, locale)
+      : monthDay(end)
+  }`;
 }
 
 /** The bucket's year, or both years for a week that crosses New Year. */
@@ -427,8 +442,16 @@ function yearOf(start: string, granularity: TimeGranularity): string {
   return first === last ? first : `${first}–${last}`;
 }
 
-function fullLabel(start: string, granularity: TimeGranularity): string {
-  return `${longLabel(start, granularity)}, ${yearOf(start, granularity)}`;
+function fullLabel(
+  start: string,
+  granularity: TimeGranularity,
+  locale: string,
+  t: Translate,
+): string {
+  return t(m.dateWithYear, {
+    date: longLabel(start, granularity, locale),
+    year: yearOf(start, granularity),
+  });
 }
 
 function isMonday(day: string): boolean {

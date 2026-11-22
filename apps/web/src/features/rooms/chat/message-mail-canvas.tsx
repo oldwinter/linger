@@ -23,6 +23,7 @@ import { Icon } from "@/components/ui/icon";
 import { Select, SelectItem } from "@/components/ui/select";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { useWikiDocumentLinks } from "@/features/wiki/wiki-document-links";
+import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
 import { CardActions, CardRowDetails } from "../cards/approval-card-parts";
 import { CardBox, CardDone } from "../cards/card-shell";
@@ -33,6 +34,7 @@ import {
 import "../documents/room-document-blocknote.css";
 import { UnifiedDocumentBody } from "../documents/unified-document-body";
 import { useUnifiedDocumentPageModel } from "../documents/use-unified-document-page-model";
+import { chatMessages } from "./chat.messages";
 
 const iconButton =
   "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-app-muted transition-colors duration-150 hover:bg-accent hover:text-app-ink focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app-focus motion-reduce:transition-none";
@@ -61,10 +63,11 @@ export function MessageMailCanvas({
   const mail = useMailCanvasSend(client, documentId, editorSaved);
   const { refresh } = mail;
   const editorId = useId();
+  const t = useT();
   if (!mail.mail) return fallback;
   const { subject, to } = mail.mail;
   return (
-    <CardBox label="Email">
+    <CardBox label={t(chatMessages.email)}>
       <div className="-mx-2 flex min-h-9 w-[calc(100%+1rem)] items-center gap-1 pr-1">
         <h3 className="flex min-w-0 flex-1">
           <button
@@ -80,7 +83,7 @@ export function MessageMailCanvas({
               size={16}
             />
             <span className="min-w-0 flex-1 text-sm font-semibold text-app-ink [overflow-wrap:anywhere]">
-              {subject.trim() || "No subject"}
+              {subject.trim() || t(chatMessages.emailNoSubject)}
             </span>
             <Icon
               className={cn(
@@ -93,10 +96,10 @@ export function MessageMailCanvas({
           </button>
         </h3>
         <button
-          aria-label="Open in side panel"
+          aria-label={t(chatMessages.openInSidePanel)}
           className={iconButton}
           onClick={onOpen}
-          title="Open in side panel"
+          title={t(chatMessages.openInSidePanel)}
           type="button"
         >
           <Icon icon={ArrowExpand01Icon} size={14} />
@@ -104,7 +107,9 @@ export function MessageMailCanvas({
       </div>
       <AutoHeight open={!open}>
         <p className="pt-1 text-sm text-app-muted [overflow-wrap:anywhere]">
-          {to ? `To ${to}` : "No recipients"}
+          {to
+            ? t(chatMessages.emailTo, { recipients: to })
+            : t(chatMessages.emailNoRecipients)}
         </p>
       </AutoHeight>
       <div id={editorId}>
@@ -200,17 +205,30 @@ function MailCardFooter({
 }: {
   mail: ReturnType<typeof useMailCanvasSend>;
 }) {
+  const t = useT();
   const { status } = mail;
   const error = mail.mail?.error;
   if (status === "sent")
-    return <CardDone icon={Tick02Icon} text="Sent" tone="success" />;
+    return (
+      <CardDone
+        icon={Tick02Icon}
+        text={t(chatMessages.emailSent)}
+        tone="success"
+      />
+    );
   if (status === "declined")
-    return <CardDone icon={Cancel01Icon} text="Not sent" tone="muted" />;
+    return (
+      <CardDone
+        icon={Cancel01Icon}
+        text={t(chatMessages.notSent)}
+        tone="muted"
+      />
+    );
   if (mail.busy)
     return (
       <CardDone
         icon={Loading03Icon}
-        text={progressLabel[status ?? "queued"] ?? "Sending…"}
+        text={t(progressLabel[status ?? "queued"] ?? chatMessages.emailSending)}
         tone="muted"
       />
     );
@@ -218,13 +236,21 @@ function MailCardFooter({
     status === "unknown" ? (
       <CardDone
         icon={HelpCircleIcon}
-        text={error ? `Result unknown: ${error}` : "Result unknown"}
+        text={
+          error
+            ? t(chatMessages.emailResultUnknownWithError, { error })
+            : t(chatMessages.emailResultUnknown)
+        }
         tone="warning"
       />
     ) : status === "failed" ? (
       <CardDone
         icon={AlertCircleIcon}
-        text={error ? `Failed: ${error}` : "Failed"}
+        text={
+          error
+            ? t(chatMessages.emailFailedWithError, { error })
+            : t(chatMessages.emailFailed)
+        }
         tone="danger"
       />
     ) : null;
@@ -234,34 +260,42 @@ function MailCardFooter({
     <>
       {receipt}
       <CardActions>
-        <div aria-label="Approval actions" className="flex gap-2" role="group">
+        <div
+          aria-label={t(chatMessages.approvalActions)}
+          className="flex gap-2"
+          role="group"
+        >
           <Button
+            data-voice-risk="never"
             disabled={!mail.canSend || mail.declining}
             onClick={mail.send}
             size="large"
             tone="primary"
           >
-            {status === "unknown" ? "Send again" : "Send"}
+            {status === "unknown"
+              ? t(chatMessages.emailSendAgain)
+              : t(chatMessages.emailSend)}
           </Button>
           <Button
+            data-voice-risk="never"
             disabled={mail.declining}
             onClick={mail.decline}
             size="large"
             tone="ghost"
           >
-            Don&apos;t send
+            {t(chatMessages.emailDontSend)}
           </Button>
         </div>
         {mail.accounts.length > 1 && mail.account ? (
           <Select
-            aria-label="Send from"
+            aria-label={t(chatMessages.emailSendFrom)}
             onValueChange={mail.choose}
             value={mail.account.id}
             variant="pill"
           >
             {mail.accounts.map((account) => (
               <SelectItem key={account.id} value={account.id}>
-                {account.identity_label || "Gmail account"}
+                {account.identity_label || t(chatMessages.gmailAccount)}
               </SelectItem>
             ))}
           </Select>

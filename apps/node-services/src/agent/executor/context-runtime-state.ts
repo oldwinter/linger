@@ -136,6 +136,15 @@ export interface ContextRuntimeStatePort {
   noteQueuedRun?(): void;
   cancelLocalRun(runId: string): RuntimeStateAwaitable<RunCancellationStatus>;
   getLocalRun(runId: string): RuntimeStateAwaitable<LocalRun | null>;
+  /**
+   * Reports whether TeamHub persisted a visible reply for the Run, so an
+   * apparent missing reply from activity classification can be confirmed
+   * before failing the Run.
+   */
+  hasLocalRunReplied(
+    runId: string,
+    signal?: AbortSignal,
+  ): RuntimeStateAwaitable<boolean>;
   enqueueSteer(
     groupId: string,
     messages: NonEmptyReadonlyArray<Message>,
@@ -683,6 +692,19 @@ class TeamHubContextRuntimeState implements ContextRuntimeStatePort {
       attemptCount: result.attempt_count,
       ...(terminal ? { terminal } : {}),
     };
+  }
+
+  async hasLocalRunReplied(
+    runId: string,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    this.#assertOpen();
+    const result = await this.#client.getRunReplyStatus(
+      this.#contextKey,
+      runId,
+      signal,
+    );
+    return result.replied;
   }
 
   async enqueueSteer(

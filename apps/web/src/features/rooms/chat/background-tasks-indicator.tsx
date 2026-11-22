@@ -1,16 +1,25 @@
 import { ArrowUp01Icon } from "@hugeicons/core-free-icons";
-import { useEffect, useId, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useId, useRef, useState } from "react";
 
 import { Icon } from "@/components/ui/icon";
+import { commonMessages } from "@/i18n/common.messages";
+import type { Translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { TeamHubRoomBackgroundTask } from "@/features/teamhub/teamhub-types";
-import { TaskConversationDialog } from "../task-sidebar/adapters/task-conversation-dialog";
+import { runtimeStatusMessages as m } from "../runtime-status/runtime-status.messages";
 import { CancelTaskButton } from "./cancel-task-button";
 import {
   useCancelRoomBackgroundTask,
   useRoomBackgroundTasks,
 } from "./use-room-background-tasks";
+
+const TaskConversationDialog = lazy(() =>
+  import("../task-sidebar/adapters/task-conversation-dialog").then((m) => ({
+    default: m.TaskConversationDialog,
+  })),
+);
 
 /**
  * One floating line above the composer while this Room's Meta has background
@@ -47,13 +56,15 @@ export function BackgroundTasksIndicator({
         </div>
       ) : null}
       {opened ? (
-        <TaskConversationDialog
-          onClose={() => setOpened(undefined)}
-          originRoomId={roomId}
-          taskId={opened.id}
-          tenantId={tenantId}
-          title={opened.title}
-        />
+        <Suspense fallback={null}>
+          <TaskConversationDialog
+            onClose={() => setOpened(undefined)}
+            originRoomId={roomId}
+            taskId={opened.id}
+            tenantId={tenantId}
+            title={opened.title}
+          />
+        </Suspense>
       ) : null}
     </>
   );
@@ -74,6 +85,7 @@ export function BackgroundTasksPill({
   onOpen?: (task: TeamHubRoomBackgroundTask) => void;
   tasks: readonly TeamHubRoomBackgroundTask[];
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [clockNow, setClockNow] = useState(Date.now);
   const root = useRef<HTMLDivElement>(null);
@@ -117,12 +129,12 @@ export function BackgroundTasksPill({
     <div className="relative z-20 inline-flex" ref={root}>
       {open ? (
         <section
-          aria-label="Background tasks"
+          aria-label={t(m.backgroundTasks)}
           className="absolute bottom-full left-1/2 mb-1.5 w-[min(360px,calc(100vw-48px))] -translate-x-1/2 rounded-xl bg-popover p-1.5 shadow-md"
           id={listId}
         >
           <p className="px-2 pt-1 pb-1.5 text-[12px] leading-[18px] font-[470] text-app-muted">
-            Background tasks
+            {t(m.backgroundTasks)}
           </p>
           <ul className="flex flex-col">
             {tasks.map((task) => (
@@ -131,7 +143,7 @@ export function BackgroundTasksPill({
                 key={task.id}
               >
                 <button
-                  aria-label={`Open task ${task.title}`}
+                  aria-label={t(m.openTask, { title: task.title })}
                   className="grid min-w-0 flex-1 grid-cols-[6px_minmax(0,1fr)_auto] items-baseline gap-x-2.5 rounded-md py-1.5 pr-1 pl-2 text-left focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app-focus disabled:cursor-default"
                   disabled={!onOpen}
                   onClick={() => {
@@ -148,7 +160,7 @@ export function BackgroundTasksPill({
                     {task.title}
                   </span>
                   <span className="text-[12px] leading-[18px] text-app-muted tabular-nums">
-                    {runningFor(task.created_at, currentNow)}
+                    {runningFor(task.created_at, currentNow, t)}
                   </span>
                   <span className="col-span-2 col-start-2 truncate text-[12px] leading-[18px] text-app-muted">
                     {task.requirement}
@@ -178,9 +190,7 @@ export function BackgroundTasksPill({
           aria-hidden="true"
           className="size-[11px] animate-spin rounded-full border-[1.5px] border-app-border-strong border-t-app-link motion-reduce:animate-none"
         />
-        {count === 1
-          ? "1 task running in the background"
-          : `${count} tasks running in the background`}
+        {t(m.backgroundTasksRunning, { count })}
         <span
           className={cn(
             "inline-flex text-app-muted transition-transform",
@@ -195,13 +205,15 @@ export function BackgroundTasksPill({
 }
 
 /** How long a Task has been running, in the coarsest unit that fits. */
-export function runningFor(createdAt: string, now: number) {
+export function runningFor(createdAt: string, now: number, t: Translate) {
   const minutes = Math.max(
     0,
     Math.floor((now - new Date(createdAt).getTime()) / 60_000),
   );
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min`;
+  if (minutes < 1) return t(commonMessages.justNow);
+  if (minutes < 60) return t(m.runningMinutes, { minutes });
   const hours = Math.floor(minutes / 60);
-  return hours < 24 ? `${hours} h` : `${Math.floor(hours / 24)} d`;
+  return hours < 24
+    ? t(m.runningHours, { hours })
+    : t(m.runningDays, { days: Math.floor(hours / 24) });
 }

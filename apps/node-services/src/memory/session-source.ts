@@ -32,12 +32,6 @@ export function sessionPath(
   recordingId?: string,
 ): string {
   assertDateString(date);
-  const parsed = new Date(`${date}T00:00:00Z`);
-  if (
-    !Number.isFinite(parsed.getTime()) ||
-    parsed.toISOString().slice(0, 10) !== date
-  )
-    throw new Error("Invalid Session business date");
   return `evidence/${date}/sessions/${sessionFileName(roomId, recordingId)}`;
 }
 

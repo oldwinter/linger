@@ -58,22 +58,40 @@ test.each([
 test("validates BYOK check and installation inputs", () => {
   expect(
     validateByok({
-      baseUrl: "https://api.openai.com/v1/",
+      baseUrl: "https://api.openai.com/",
+      path: "/v1",
+      endpoint: "/responses",
+      protocol: "openai-responses",
       apiKey: "sk-test",
       modelId: "gpt-5.4",
       runtime: "codex",
     }),
   ).toMatchObject({
-    baseUrl: "https://api.openai.com/v1",
+    baseUrl: "https://api.openai.com",
+    path: "/v1",
+    endpoint: "/responses",
+    protocol: "openai-responses",
     modelId: "gpt-5.4",
     runtime: "codex",
   });
+  expect(() =>
+    validateByok({
+      baseUrl: "https://api.openai.com",
+      path: "v1",
+      endpoint: "/responses",
+      protocol: "openai-responses",
+      modelId: "gpt-5.4",
+    }),
+  ).toThrow();
   expect(
     validateInput({
       instance: "default",
       setupChoice: "claude",
       byok: {
         baseUrl: "https://api.anthropic.com",
+        path: "/v1",
+        endpoint: "/messages",
+        protocol: "anthropic",
         apiKey: "sk-ant-test",
         modelId: "claude-sonnet-4-6",
       },
@@ -91,7 +109,10 @@ test("validates BYOK check and installation inputs", () => {
       instance: "default",
       setupChoice: "local-models",
       byok: {
-        baseUrl: "https://api.openai.com/v1",
+        baseUrl: "https://api.openai.com",
+        path: "/v1",
+        endpoint: "/chat/completions",
+        protocol: "openai-chat",
         modelId: "gpt-5.4",
       },
     }),

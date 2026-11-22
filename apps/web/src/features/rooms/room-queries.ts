@@ -11,6 +11,7 @@ import {
   type TeamHubClient,
 } from "@/features/teamhub/teamhub-client";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
+import { teamHubClientErrorMessages } from "@/features/teamhub/teamhub-client-errors.messages";
 import { collectTeamHubCursorPages } from "@/features/teamhub/teamhub-cursor-pages";
 import type {
   TeamHubDocument,
@@ -22,6 +23,7 @@ import type {
   TeamHubRoomMemberPage,
   TeamHubTenantAgentPage,
 } from "@/features/teamhub/teamhub-types";
+import { translate } from "@/i18n/language";
 
 export const teamHubQueryRoot = ["teamhub"] as const;
 
@@ -817,7 +819,7 @@ function requireScope<T>(matches: boolean, value: T): T {
   if (!matches) {
     throw new TeamHubError({
       code: "RESOURCE_NOT_FOUND",
-      message: "The requested TeamHub resource is unavailable.",
+      message: translate(teamHubClientErrorMessages.resourceUnavailable),
       status: 404,
     });
   }
@@ -847,7 +849,7 @@ function resolveNextMessagePageParam(
   ) {
     throw new TeamHubError({
       code: "PAGINATION_LIMIT_EXCEEDED",
-      message: "TeamHub returned more Room history than this client can load.",
+      message: translate(teamHubClientErrorMessages.roomHistoryTooLong),
       status: 502,
     });
   }
@@ -864,7 +866,7 @@ function resolveNextMessagePageParam(
   ) {
     throw new TeamHubError({
       code: "INVALID_PAGINATION",
-      message: "TeamHub returned an invalid Room Message cursor.",
+      message: translate(teamHubClientErrorMessages.invalidRoomMessageCursor),
       status: 502,
     });
   }

@@ -10,6 +10,7 @@ import { Link, useLocation } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { libraryMessages } from "@/features/library/library.messages";
 import { useLibraryTreeState } from "@/features/library/use-library-tree-state";
 import { personalWikiDocumentsQueryKey } from "@/features/teamhub/document-queries";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
@@ -20,9 +21,12 @@ import {
   workspaceHeadingToggleClass,
 } from "@/features/library/workspace-sidebar-styles";
 import type { TeamHubDocumentPage } from "@/features/teamhub/teamhub-types";
+import { translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 
 import { meetingPath } from "@/features/memory/meeting-routes";
 import { useMeetings } from "@/features/memory/memory-queries";
+import { wikiMessages as m } from "./wiki.messages";
 import {
   formatMeetingDay,
   formatMeetingWhen,
@@ -65,20 +69,21 @@ export function MeetingsSidebarTree({
     openedForRoutedMeeting.current = true;
     setCollapsed(false);
   }, [holdsRoutedMeeting, setCollapsed]);
-  const label = "Meetings";
+  const t = useT();
+  const toggleLabel = t(collapsed ? m.expandMeetings : m.collapseMeetings);
   const contentId = "library-meetings-collection";
 
   return (
-    <section aria-label={`${label} tree`}>
+    <section aria-label={t(m.meetingsTree)}>
       {/* The tree marks the open meeting, not the collection holding it. */}
       <div className="flex items-center justify-between gap-1">
         <button
           aria-controls={contentId}
           aria-expanded={!collapsed}
-          aria-label={`${collapsed ? "Expand" : "Collapse"} ${label}`}
+          aria-label={toggleLabel}
           className={workspaceHeadingToggleClass}
           onClick={() => setCollapsed((value) => !value)}
-          title={`${collapsed ? "Expand" : "Collapse"} ${label}`}
+          title={toggleLabel}
           type="button"
         >
           <Icon
@@ -86,12 +91,12 @@ export function MeetingsSidebarTree({
             className="shrink-0 text-app-muted"
             size={WORKSPACE_HEADING_ICON_SIZE}
           />
-          <span className="truncate">{label}</span>
+          <span className="truncate">{t(libraryMessages.meetings)}</span>
         </button>
         <Link
-          aria-label={`Open ${label}`}
+          aria-label={t(m.openMeetings)}
           className={workspaceHeadingActionClass}
-          title={`Open ${label}`}
+          title={t(m.openMeetings)}
           to={meetingsTabPath(tenantId, "week")}
         >
           <Icon icon={ArrowRight01Icon} size={WORKSPACE_HEADING_ICON_SIZE} />
@@ -141,7 +146,7 @@ export function useWikiDocuments(tenantId: string) {
             item.creator.tenant_id !== tenantId,
         )
       ) {
-        throw new Error("Wiki Documents are unavailable.");
+        throw new Error(translate(m.documentsUnavailable));
       }
       return page;
     },
@@ -170,6 +175,7 @@ function MeetingFiles({
   tenantId: string;
 }) {
   const meetings = useMeetings(tenantId);
+  const t = useT();
   const location = useLocation();
   const currentId = new URLSearchParams(location.search).get("entry");
   const days = useMemo(
@@ -181,22 +187,24 @@ function MeetingFiles({
   );
 
   if (meetings.isPending)
-    return <TreeMessage busy>Loading Meetings…</TreeMessage>;
+    return <TreeMessage busy>{t(m.loadingMeetings)}</TreeMessage>;
   if (meetings.error)
     return (
       <TreeError
-        label="Retry Meetings"
-        message="Meetings are unavailable."
+        label={t(m.retryMeetings)}
+        message={t(m.meetingsUnavailable)}
         onRetry={() => void meetings.refetch()}
       />
     );
-  if (days.length === 0)
-    return <TreeMessage>No completed meetings yet.</TreeMessage>;
+  if (days.length === 0) return <TreeMessage>{t(m.noMeetings)}</TreeMessage>;
 
   return (
     <div className="space-y-1">
       {days.map((day) => (
-        <section aria-label={`Meetings on ${day.date}`} key={day.date}>
+        <section
+          aria-label={t(m.meetingsOn, { date: day.date })}
+          key={day.date}
+        >
           <h3 className="flex h-[24px] items-center px-2 text-[12px] font-medium text-app-muted">
             {formatMeetingDay(day.date)}
           </h3>
@@ -230,21 +238,24 @@ function MeetingLink({
   to: string;
 }) {
   const ref = useRef<HTMLAnchorElement>(null);
+  const t = useT();
   useEffect(() => {
     if (current) ref.current?.scrollIntoView?.({ block: "nearest" });
   }, [current]);
   return (
     <Link
       aria-current={current ? "page" : undefined}
-      aria-label={`Meeting ${meeting.date} ${meeting.time}`}
+      aria-label={t(m.meetingLabel, { date: meeting.date, time: meeting.time })}
       className={`flex h-[33px] w-full min-w-0 items-center gap-2 rounded-md pl-[26px] pr-2 text-left text-[14px] leading-[18px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-focus ${current ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-app-hover"}`}
       onClick={onOpen}
       ref={ref}
-      title={`Meeting · ${meeting.date} ${meeting.time}`}
+      title={t(m.meetingTitle, { date: meeting.date, time: meeting.time })}
       to={to}
     >
       <span className="min-w-0 flex-1 truncate">
-        Meeting {formatMeetingWhen(meeting.date, meeting.time)}
+        {t(m.meetingWhen, {
+          when: formatMeetingWhen(meeting.date, meeting.time, t),
+        })}
       </span>
     </Link>
   );

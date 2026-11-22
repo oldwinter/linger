@@ -224,31 +224,51 @@
       <div class="mark">
         <img src="app://offline/logo.png" alt="" /><span class="badge"></span>
       </div>
-      <h1 id="title">Can't reach the server</h1>
-      <p id="reason">
-        Linger can't reach <span class="host" id="host"></span>. Check your
-        network or VPN and make sure the server is running.
-      </p>
+      <h1 id="title" data-t="unreachableTitle"></h1>
+      <p id="reason"></p>
       <span class="code" id="code"></span>
       <div class="actions">
-        <button class="primary" id="retry" type="button">Try Again</button>
-        <button class="link" id="edit" type="button">Change Server</button>
-        <button class="link failed-only" id="logs" type="button">
-          Show Logs
-        </button>
-        <button class="link failed-only" id="diagnostics" type="button">
-          Save Diagnostics
-        </button>
-        <button class="link failed-only" id="send" type="button" hidden>
-          Send Diagnostics
-        </button>
-        <button class="link failed-only" id="reset" type="button">
-          Set Up Again
-        </button>
+        <button
+          class="primary"
+          id="retry"
+          type="button"
+          data-t="tryAgain"
+        ></button>
+        <button
+          class="link"
+          id="edit"
+          type="button"
+          data-t="changeServer"
+        ></button>
+        <button
+          class="link failed-only"
+          id="logs"
+          type="button"
+          data-t="showLogs"
+        ></button>
+        <button
+          class="link failed-only"
+          id="diagnostics"
+          type="button"
+          data-t="saveDiagnostics"
+        ></button>
+        <button
+          class="link failed-only"
+          id="send"
+          type="button"
+          data-t="sendDiagnostics"
+          hidden
+        ></button>
+        <button
+          class="link failed-only"
+          id="reset"
+          type="button"
+          data-t="setUpAgain"
+        ></button>
         <span class="countdown" id="countdown"></span>
       </div>
       <form action="app://offline/connect" method="get" id="form">
-        <label for="server">Server address</label>
+        <label for="server" data-t="serverAddress"></label>
         <input
           id="server"
           name="server"
@@ -257,10 +277,15 @@
           spellcheck="false"
           required
         />
-        <p class="hint" id="hint">The address of your team's Linger server.</p>
+        <p class="hint" id="hint" data-t="serverHint"></p>
         <div class="row">
-          <button class="primary" type="submit">Connect</button>
-          <button class="link" id="cancel" type="button">Cancel</button>
+          <button class="primary" type="submit" data-t="connect"></button>
+          <button
+            class="link"
+            id="cancel"
+            type="button"
+            data-t="cancel"
+          ></button>
         </div>
       </form>
     </main>
@@ -279,32 +304,34 @@
       );
       if (local === "updating") {
         document.body.dataset.mode = "updating";
-        $("title").textContent = "Updating Linger";
-        $("reason").textContent =
-          "Linger is restarting on this computer with the new version. This takes about a minute.";
+        $("title").textContent = t("updatingTitle");
+        $("reason").textContent = t("updating");
       } else if (local === "starting") {
         document.body.dataset.mode = "starting";
-        $("title").textContent = "Starting Linger";
-        $("reason").textContent =
-          "Linger is starting on this computer. This takes about a minute.";
+        $("title").textContent = t("startingTitle");
+        $("reason").textContent = t("starting");
       } else if (local === "failed") {
         document.body.dataset.mode = "failed";
-        $("title").textContent = "Linger couldn't start on this computer";
+        $("title").textContent = t("failedTitle");
         $("reason").textContent = params.get("failed");
       } else if (!server) {
         document.body.dataset.mode = "setup";
-        $("title").textContent = "Connect to Linger";
-        $("reason").textContent =
-          "Enter your team's server address, then sign in.";
+        $("title").textContent = t("setupTitle");
+        $("reason").textContent = t("setup");
         // Setup, where Linger can also be installed on this computer.
-        $("cancel").textContent = "Back to Setup";
+        $("cancel").textContent = t("backToSetup");
         $("server").focus();
       } else {
-        $("host").textContent = new URL(server).host;
+        $("reason").replaceChildren(
+          ...tSpans("unreachable", { host: new URL(server).host }),
+        );
         $("code").textContent = error;
       }
+      // An address that is not one comes as a code, worded here; any other
+      // text that is not a network error code shows as it is.
       if (error && !error.startsWith("ERR_")) {
-        $("hint").textContent = error;
+        $("hint").textContent =
+          error === "invalid-server" ? t("invalidServer") : error;
         $("hint").classList.add("invalid");
         if (server) document.body.classList.add("editing");
       }
@@ -346,7 +373,7 @@
           }
           left -= 1;
           if (left <= 0) return connect(server);
-          $("countdown").textContent = "Retrying in " + left + "s";
+          $("countdown").textContent = t("retrying", { seconds: left });
         };
         tick();
         setInterval(tick, 1000);

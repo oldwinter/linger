@@ -12,7 +12,7 @@ export interface CommandError {
 const singleLine = (value: string) => value.replace(/\p{Cc}/gu, " ");
 const templates: Record<string, string> = {
   authorization_required:
-    "Complete the account authorization card in the chat, then run this command again.",
+    "Waiting for the user to authorize the account; an authorization card is in the chat. End your turn: the card's result wakes you, then run this command again. If the user declines, don't retry.",
   provider_key_required:
     "The user has not set up Composio, which every connected app needs. A card asking them to add a Composio API key was posted in this chat; run this command again after they add it.",
   account_ambiguous:
@@ -89,6 +89,11 @@ export function formatCommandError(
       "candidates",
       "draft_id",
       "partial_receipts",
+      "backend",
+      "origin",
+      "reason",
+      "ready_backends",
+      "retry_after_seconds",
     ]
       .filter((name) => Object.hasOwn(error.details, name))
       .map((name) => [name, error.details[name]]),
@@ -133,6 +138,10 @@ export function renderCommandError(error: CommandError): string {
     typeof error.details?.draft_id === "string"
       ? `Draft: ${singleLine(error.details.draft_id)}`
       : undefined,
+    Array.isArray(error.details?.ready_backends) &&
+    error.details.ready_backends.length
+      ? `Ready backends: ${error.details.ready_backends.map((item) => singleLine(displayText(item))).join(", ")}`
+      : "",
     ...(Array.isArray(error.details?.partial_receipts)
       ? error.details.partial_receipts
       : []
@@ -179,6 +188,7 @@ export function errorExitCode(failure: CliError): number {
         unsupported_combination: 2,
         authorization_required: 4,
         provider_key_required: 4,
+        search_key_requested: 4,
         unauthenticated: 4,
         conflict: 3,
         ambiguous_name: 2,

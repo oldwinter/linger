@@ -307,7 +307,7 @@ func eventText(label string, event Event, accountLabel string) string {
 			// An Outlook label is the Microsoft account's sign-in name, which can
 			// belong to another mail provider; the account value itself stays
 			// exact so it can be passed to --account.
-			if event.Source == "outlook" {
+			if event.Source == reminder.ListenerOutlook || event.Source == reminder.ListenerOutlookCalendar {
 				facts = append(facts, "account note: Microsoft sign-in name, the mailbox address may differ")
 			}
 		}

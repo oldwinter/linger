@@ -145,7 +145,13 @@ export const routineSchema = z
     listener: z
       .object({
         app: z
-          .enum(["gmail", "outlook", "google_calendar", "slack"])
+          .enum([
+            "gmail",
+            "outlook",
+            "google_calendar",
+            "outlook_calendar",
+            "slack",
+          ])
           .describe(
             "Connected app whose new events the Routine hands to proactive judgement.",
           ),

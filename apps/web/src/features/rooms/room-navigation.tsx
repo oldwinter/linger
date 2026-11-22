@@ -18,6 +18,7 @@ import { Icon, type IconSvgElement } from "@/components/ui/icon";
 import { NavigationDrawer } from "@/components/ui/navigation-drawer";
 import { useRoomListWidth } from "@/components/ui/use-sidebar-width";
 import { searchShortcutLabel } from "@/features/search/search-shortcut";
+import { useT } from "@/i18n/use-translation";
 import {
   documentQueryOptions,
   teamHubIdentityQueryOptions,
@@ -28,6 +29,7 @@ import type {
   TeamHubTenant,
 } from "@/features/teamhub/teamhub-types";
 
+import { navigationMessages } from "./room-navigation.messages";
 import { useRoomActivity } from "./use-room-activity";
 
 const RoomSecondaryNavigation = lazy(async () => ({
@@ -67,6 +69,8 @@ export function RoomNavigation({
   tenant: TeamHubTenant;
 }) {
   const location = useLocation();
+  const t = useT();
+  const spaceName = t(navigationMessages.space, { name: username });
   const [expanded, setExpanded] = useState(false);
   // Width also changes when the Room list is dragged wider; animating only while
   // the rail is toggling keeps the drag following the pointer with no lag.
@@ -128,12 +132,13 @@ export function RoomNavigation({
   return (
     <NavigationDrawer
       ariaLabel="Room navigation"
-      closeLabel="Close Room navigation"
+      closeLabel={t(navigationMessages.closeNavigation)}
       onClose={onCloseMobile}
       open={mobileOpen}
     >
       <aside
-        aria-label="Collaboration sidebar"
+        aria-label={t(navigationMessages.sidebar)}
+        data-voice-area="sidebar"
         data-animating={railToggling || undefined}
         data-expanded={railExpanded}
         data-secondary-navigation={secondaryNavigationVisible || undefined}
@@ -153,7 +158,8 @@ export function RoomNavigation({
         style={navigationWidth.style}
       >
         <nav
-          aria-label="Primary navigation"
+          aria-label={t(navigationMessages.primary)}
+          data-voice-area="navigation"
           className="app-primary-navigation flex min-h-0 shrink-0 flex-col bg-card"
         >
           <div className="primary-navigation-topbar">
@@ -164,15 +170,19 @@ export function RoomNavigation({
                   className={`min-w-0 flex-1 truncate text-sm font-medium ${
                     mobilePrimaryOnly ? "text-left" : "text-center"
                   }`}
-                  title={`${username}'s space`}
+                  title={spaceName}
                 >
-                  {username}'s space
+                  {spaceName}
                 </span>
               </>
             ) : null}
             {mobilePrimaryOnly ? null : (
               <button
-                aria-label={expanded ? "Collapse sidebar" : "Expand sidebar"}
+                aria-label={t(
+                  expanded
+                    ? navigationMessages.collapseSidebar
+                    : navigationMessages.expandSidebar,
+                )}
                 aria-expanded={expanded}
                 className="primary-navigation-toggle flex size-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-sidebar-muted"
                 onClick={() => {
@@ -201,10 +211,10 @@ export function RoomNavigation({
             // The desktop app's Chat list folds away; this brings it back.
             <div className="primary-navigation-list-toggle">
               <button
-                aria-label="Show Chat list"
+                aria-label={t(navigationMessages.showChatList)}
                 className="primary-navigation-toggle flex shrink-0 items-center justify-center text-app-muted transition-colors hover:bg-app-hover hover:text-app-ink"
                 onClick={() => setListCollapsed(false)}
-                title="Show Chat list"
+                title={t(navigationMessages.showChatList)}
                 type="button"
               >
                 <RoomRailGlyph icon={SidebarLeftIcon} />
@@ -215,7 +225,7 @@ export function RoomNavigation({
             <RailLink
               active={roomNavigationVisible}
               icon={<RoomRailGlyph icon={Message01Icon} />}
-              label="Messages"
+              label={t(navigationMessages.messages)}
               onNavigate={onCloseMobile}
               to={
                 roomId
@@ -233,21 +243,21 @@ export function RoomNavigation({
             <RailLink
               active={workspaceVisible}
               icon={<RoomRailGlyph icon={LibrariesIcon} />}
-              label="Library"
+              label={t(navigationMessages.library)}
               onNavigate={onCloseMobile}
               to={`/t/${tenant.id}/library`}
             />
             <RailLink
               active={wikiVisible}
               icon={<RoomRailGlyph icon={BookOpen01Icon} />}
-              label="Wiki"
+              label={t(navigationMessages.wiki)}
               onNavigate={onCloseMobile}
               to={`/t/${tenant.id}/library/wiki`}
             />
             <RailLink
               active={effectivePathname === `/t/${tenant.id}/apps`}
               icon={<RoomRailGlyph icon={Plug01Icon} />}
-              label="Connectors"
+              label={t(navigationMessages.connectors)}
               onNavigate={onCloseMobile}
               to={`/t/${tenant.id}/apps`}
             />
@@ -288,7 +298,7 @@ export function RoomNavigation({
         {secondaryNavigationVisible ? (
           <div
             {...navigationWidth.handleProps}
-            aria-label="Resize Chat navigation"
+            aria-label={t(navigationMessages.resizeChatList)}
           />
         ) : null}
       </aside>

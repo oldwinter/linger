@@ -1,4 +1,7 @@
 import type { TeamHubMessageSegment } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
+
+import { cardsMessages } from "./cards.messages";
 
 const emptyActorDisplayNames: Readonly<Record<string, string>> = {};
 const taskOutputRequirementsPrefix = "[Task output requirements v1]";
@@ -56,6 +59,7 @@ export function CreationMessagePreview({
   actorDisplayNames?: Readonly<Record<string, string>>;
   segments: readonly TeamHubMessageSegment[];
 }) {
+  const t = useT();
   const occurrences = new Map<string, number>();
   const structuredSegments = segments.flatMap((segment) => {
     if (segment.type === "text") {
@@ -77,7 +81,9 @@ export function CreationMessagePreview({
 
   return (
     <div>
-      <p className="font-medium text-app-body">Initial task input</p>
+      <p className="font-medium text-app-body">
+        {t(cardsMessages.initialTaskInput)}
+      </p>
       <p className="mt-1 whitespace-pre-wrap border-l-2 border-app-border pl-2.5 [overflow-wrap:anywhere] text-sm leading-5 text-app-body">
         {visibleContent}
       </p>
@@ -90,22 +96,35 @@ export function CreationMessagePreview({
             >
               {segment.type === "reference" ? (
                 <span>
-                  Reference target:{" "}
-                  {actorDisplayNames[segment.target] ?? "Space member"} (
-                  {segment.target_type})
+                  {t(cardsMessages.referenceTarget, {
+                    name:
+                      actorDisplayNames[segment.target] ??
+                      t(cardsMessages.spaceMember),
+                    type: segment.target_type,
+                  })}
                 </span>
               ) : segment.type === "file" ? (
-                <span>File: {segment.content}</span>
+                <span>
+                  {t(cardsMessages.fileSegment, { name: segment.content })}
+                </span>
               ) : segment.type === "html_fragment" ? (
                 <span>{segment.content}</span>
               ) : segment.type === "meeting_notes" ? (
-                <span>Meeting summary</span>
+                <span>{t(cardsMessages.meetingSummary)}</span>
               ) : segment.type === "document" ? (
-                <span>Document: {segment.content}</span>
+                <span>
+                  {t(cardsMessages.documentSegment, { name: segment.content })}
+                </span>
               ) : segment.type === "artifact_tree" ? (
-                <span>Artifact directory: {segment.root_path}</span>
+                <span>
+                  {t(cardsMessages.artifactDirectory, {
+                    path: segment.root_path,
+                  })}
+                </span>
               ) : (
-                <span>Skill: {segment.content}</span>
+                <span>
+                  {t(cardsMessages.skillSegment, { name: segment.content })}
+                </span>
               )}
             </li>
           ))}

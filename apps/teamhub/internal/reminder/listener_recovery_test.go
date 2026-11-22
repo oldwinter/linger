@@ -203,7 +203,7 @@ func TestPendingPollEventsDoNotWaitForProvider(t *testing.T) {
 		t.Error("provider contacted with saved events pending")
 		return 503, nil
 	})
-	for _, source := range []string{ListenerGmail, ListenerOutlook, ListenerGCal, ListenerSlack} {
+	for _, source := range []string{ListenerGmail, ListenerOutlook, ListenerGCal, ListenerOutlookCalendar, ListenerSlack} {
 		cursor := pollCursor{V: "checkpoint", PageToken: "next", Pending: []ListenerEvent{{Source: source, EventID: "saved"}}}
 		read, err := fetchListenerPoll(t.Context(), provider, "ca", ListenerSpec{Type: source}, cursor)
 		if err != nil || len(read.cursor.Pending) != 1 || len(read.events) != 0 || read.nextPoll != time.Minute || read.cursor.PageToken != "next" {
@@ -277,5 +277,209 @@ func TestGmailOversizedExternalPlainKeepsReadableHTML(t *testing.T) {
 				t.Fatalf("readable alternative hidden: %s", body)
 			}
 		})
+	}
+}
+
+func TestOutlookCalendarBootstrapPersistsPagesAndCapturesNewEvents(t *testing.T) {
+	calls := 0
+	created := time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano)
+	provider := pollTestProvider(t, func(endpoint string, p map[string]string) (int, any) {
+		calls++
+		page := 1
+		if p["$skiptoken"] != "" {
+			page, _ = strconv.Atoi(p["$skiptoken"])
+		}
+		if page != calls || endpoint != "/v1.0/me/calendarView/delta" {
+			t.Errorf("page %d call %d endpoint %s", page, calls, endpoint)
+		}
+		if page == 1 && (p["startDateTime"] == "" || p["endDateTime"] == "") {
+			t.Errorf("initial sync missing window bounds: %v", p)
+		}
+		items := []any{
+			map[string]any{"id": "old", "subject": "Past review", "createdDateTime": "2000-01-01T00:00:00Z", "lastModifiedDateTime": "2000-01-01T00:00:00Z"},
+			map[string]any{"id": "gone", "@removed": map[string]string{"reason": "deleted"}},
+		}
+		if page == 2 {
+			items = append(items, map[string]any{
+				"id": "new1", "subject": "Board sync",
+				"createdDateTime": created, "lastModifiedDateTime": created,
+				"start": map[string]string{"dateTime": "2026-11-22T09:00:00.0000000", "timeZone": "UTC"},
+				"end":   map[string]string{"dateTime": "2026-11-22T10:00:00.0000000", "timeZone": "UTC"},
+			})
+		}
+		wire := map[string]any{"value": items}
+		if page < 3 {
+			wire["@odata.nextLink"] = fmt.Sprintf("https://graph.microsoft.com/v1.0/me/calendarView/delta?$skiptoken=%d", page+1)
+		} else {
+			wire["@odata.deltaLink"] = "https://graph.microsoft.com/v1.0/me/calendarView/delta?$deltatoken=cal_done"
+		}
+		return 200, wire
+	})
+	first, err := fetchOutlookCalendar(t.Context(), provider, "ca", ListenerSpec{}, pollCursor{})
+	if err != nil || calls != 0 || first.cursor.Channels["since"] == "" || first.cursor.Channels["window_end"] == "" {
+		t.Fatalf("observation boundary was not saved before remote reads: %+v calls=%d err=%v", first, calls, err)
+	}
+	cursor := persistedPollCursor(t, first.cursor)
+	boundary := cursor.Channels["since"]
+	for page := 1; page <= 3; page++ {
+		read, err := fetchOutlookCalendar(t.Context(), provider, "ca", ListenerSpec{}, cursor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cursor = persistedPollCursor(t, read.cursor)
+		if cursor.Channels["since"] != boundary {
+			t.Fatal("bootstrap boundary moved")
+		}
+		if page < 3 && (cursor.V != "" || cursor.PageToken == "" || read.nextPoll != time.Minute) {
+			t.Fatalf("bootstrap lost continuation on page %d: %+v", page, read)
+		}
+		if page == 2 {
+			if len(read.events) != 1 || read.events[0].Source != ListenerOutlookCalendar || read.events[0].EventKind != "created" || read.events[0].Start != "2026-11-22T09:00:00Z" {
+				t.Fatalf("event arriving during bootstrap lost: %+v", read.events)
+			}
+		} else if len(read.events) != 0 {
+			t.Fatalf("pre-existing event or tombstone emitted during bootstrap on page %d: %+v", page, read.events)
+		}
+	}
+	if calls != 3 || cursor.PageToken != "" || !strings.Contains(cursor.V, "cal_done") {
+		t.Fatalf("final cursor=%+v calls=%d", cursor, calls)
+	}
+}
+
+func TestOutlookCalendarPollClassifiesCreatedUpdatedAndCancelled(t *testing.T) {
+	provider := pollTestProvider(t, func(endpoint string, p map[string]string) (int, any) {
+		if endpoint != "/v1.0/me/calendarView/delta" || p["$deltatoken"] != "old" {
+			t.Errorf("unexpected request %s %v", endpoint, p)
+		}
+		return 200, map[string]any{
+			"@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/calendarView/delta?$deltatoken=new",
+			"value": []any{
+				map[string]any{
+					"id": "c1", "subject": "Created meeting",
+					"createdDateTime": "2026-10-29T01:00:00.000Z", "lastModifiedDateTime": "2026-10-29T01:00:00.500Z",
+					"start":     map[string]string{"dateTime": "2026-10-30T14:00:00.0000000", "timeZone": "UTC"},
+					"end":       map[string]string{"dateTime": "2026-10-30T15:00:00.0000000", "timeZone": "UTC"},
+					"location":  map[string]string{"displayName": "Room 3"},
+					"organizer": map[string]any{"emailAddress": map[string]string{"name": "Host", "address": "host@example.com"}},
+					"body":      map[string]string{"contentType": "html", "content": "<p>Bring notes.</p>"},
+				},
+				map[string]any{
+					"id": "u1", "subject": "Rescheduled meeting",
+					"createdDateTime": "2026-10-01T00:00:00Z", "lastModifiedDateTime": "2026-10-29T02:00:00Z",
+					"start": map[string]string{"dateTime": "2026-10-31T16:00:00.0000000", "timeZone": "UTC"},
+				},
+				map[string]any{
+					"id": "x1", "subject": "Cancelled meeting", "isCancelled": true,
+					"createdDateTime": "2026-10-01T00:00:00Z", "lastModifiedDateTime": "2026-10-29T03:00:00Z",
+				},
+				map[string]any{"id": "d1", "@removed": map[string]string{"reason": "deleted"}},
+				map[string]any{"id": "m1", "@removed": map[string]string{"reason": "changed"}},
+			},
+		}
+	})
+	cursor := pollCursor{
+		V: "https://graph.microsoft.com/v1.0/me/calendarView/delta?$deltatoken=old",
+		Channels: map[string]string{
+			"since":        "2026-10-28T00:00:00Z",
+			"window_start": time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339),
+			"window_end":   time.Now().Add(180 * 24 * time.Hour).UTC().Format(time.RFC3339),
+		},
+	}
+	read, err := fetchOutlookCalendar(t.Context(), provider, "ca", ListenerSpec{}, cursor)
+	if err != nil || len(read.events) != 4 || !strings.Contains(read.cursor.V, "$deltatoken=new") {
+		t.Fatalf("read=%+v err=%v", read, err)
+	}
+	if read.events[0].EventKind != "created" || read.events[0].Description != "Bring notes." || read.events[0].Location != "Room 3" || read.events[0].Organizer != "Host <host@example.com>" {
+		t.Fatalf("created event=%+v", read.events[0])
+	}
+	if read.events[1].EventKind != "updated" || read.events[1].Start != "2026-10-31T16:00:00Z" {
+		t.Fatalf("updated event=%+v", read.events[1])
+	}
+	if read.events[2].EventKind != "cancelled" || read.events[2].MessageID != "x1" {
+		t.Fatalf("isCancelled event=%+v", read.events[2])
+	}
+	if read.events[3].EventKind != "cancelled" || read.events[3].EventID != "d1:cancelled" {
+		t.Fatalf("removed deleted event=%+v", read.events[3])
+	}
+}
+
+func TestOutlookCalendarExpiredContinuationReplaysThenResyncs(t *testing.T) {
+	calls := 0
+	provider := pollTestProvider(t, func(_ string, p map[string]string) (int, any) {
+		calls++
+		if calls <= 2 {
+			return 410, map[string]any{}
+		}
+		if p["startDateTime"] == "" || p["endDateTime"] == "" {
+			t.Fatalf("expired delta did not restart initial sync: %v", p)
+		}
+		return 200, map[string]any{"@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/calendarView/delta?$deltatoken=fresh"}
+	})
+	cursor := pollCursor{
+		V:         "https://graph.microsoft.com/v1.0/me/calendarView/delta?$deltatoken=old",
+		PageToken: "https://graph.microsoft.com/v1.0/me/calendarView/delta?$skiptoken=expired",
+		Channels: map[string]string{
+			"since":        "2026-10-28T00:00:00Z",
+			"window_start": time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339),
+			"window_end":   time.Now().Add(180 * 24 * time.Hour).UTC().Format(time.RFC3339),
+		},
+	}
+	for round := 1; round <= 3; round++ {
+		read, err := fetchOutlookCalendar(t.Context(), provider, "ca", ListenerSpec{}, cursor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cursor = persistedPollCursor(t, read.cursor)
+		if cursor.Channels["since"] != "2026-10-28T00:00:00Z" {
+			t.Fatal("resync lost original observation boundary")
+		}
+		if round == 1 && (cursor.V == "" || cursor.PageToken != "") {
+			t.Fatal("checkpoint discarded with expired page")
+		}
+		if round == 2 && (cursor.V != "" || cursor.PageToken != "") {
+			t.Fatal("expired checkpoint not reset")
+		}
+	}
+	if !strings.Contains(cursor.V, "fresh") {
+		t.Fatalf("resync did not finish: %+v", cursor)
+	}
+}
+
+func TestOutlookCalendarRollsWindowBeforeCoverageExpires(t *testing.T) {
+	calls := 0
+	provider := pollTestProvider(t, func(endpoint string, p map[string]string) (int, any) {
+		calls++
+		if endpoint != "/v1.0/me/calendarView/delta" || p["$deltatoken"] != "old" {
+			t.Errorf("unexpected request %s %v", endpoint, p)
+		}
+		return 200, map[string]any{
+			"@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/calendarView/delta?$deltatoken=drained",
+			"value": []any{
+				map[string]any{
+					"id": "u_last", "subject": "Moved before roll",
+					"createdDateTime": "2026-06-02T00:00:00Z", "lastModifiedDateTime": "2026-10-29T02:00:00Z",
+					"start": map[string]string{"dateTime": "2026-11-01T10:00:00.0000000", "timeZone": "UTC"},
+				},
+			},
+		}
+	})
+	cursor := pollCursor{
+		V: "https://graph.microsoft.com/v1.0/me/calendarView/delta?$deltatoken=old",
+		Channels: map[string]string{
+			"since":        "2026-06-01T00:00:00Z",
+			"window_start": "2026-05-31T00:00:00Z",
+			"window_end":   time.Now().Add(10 * 24 * time.Hour).UTC().Format(time.RFC3339),
+		},
+	}
+	read, err := fetchOutlookCalendar(t.Context(), provider, "ca", ListenerSpec{}, cursor)
+	if err != nil || calls != 1 || len(read.events) != 1 || read.events[0].MessageID != "u_last" || read.cursor.V != "" || read.nextPoll != time.Minute {
+		t.Fatalf("window roll must drain pending delta before resetting cursor: %+v calls=%d err=%v", read, calls, err)
+	}
+	if cursor.Channels["since"] != "2026-06-01T00:00:00Z" {
+		t.Fatal("input cursor channels mutated before persistence")
+	}
+	nextEnd, err := time.Parse(time.RFC3339, read.cursor.Channels["window_end"])
+	if err != nil || nextEnd.Before(time.Now().Add(150*24*time.Hour)) {
+		t.Fatalf("rolled window_end too soon: %q err=%v", read.cursor.Channels["window_end"], err)
 	}
 }

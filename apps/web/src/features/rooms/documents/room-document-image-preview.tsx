@@ -5,6 +5,9 @@ import {
   imageParse,
 } from "@blocknote/core";
 
+import { translate } from "@/i18n/language";
+
+import { documentEditorMessages as m } from "./document-editor.messages";
 import type {
   RoomDocumentEditor,
   RoomDocumentPartialBlock,
@@ -262,14 +265,14 @@ const roomDocumentImageRender: typeof defaultImageRender = function (
 
   const wrapper = document.createElement("div");
   wrapper.className = "bn-visual-media-wrapper relative";
-  const filename = block.props.name || preview?.filename || "image";
+  const filename = block.props.name || preview?.filename || translate(m.image);
   const status = document.createElement("span");
   status.className =
     "inline-flex min-h-24 w-full items-center justify-center text-sm text-app-muted";
   status.setAttribute("role", "status");
   status.textContent = preview
-    ? `Uploading ${filename}`
-    : `Loading ${filename}`;
+    ? translate(m.uploadingFile, { filename })
+    : translate(m.loadingFile, { filename });
 
   const image = document.createElement("img");
   image.alt = filename;
@@ -292,7 +295,7 @@ const roomDocumentImageRender: typeof defaultImageRender = function (
       })
       .catch(() => {
         status.setAttribute("role", "alert");
-        status.textContent = `${filename} is unavailable`;
+        status.textContent = translate(m.fileUnavailable, { filename });
       });
   }
   return { dom: wrapper };

@@ -4,6 +4,9 @@ import { useState } from "react";
 import { teamHubData, teamHubDone } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubDocumentPlacementNode } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
+
+import { libraryMessages as m } from "./library.messages";
 
 import {
   myDocumentTreeQueryKey,
@@ -24,6 +27,7 @@ export function useMyDocumentsFolderEdits({
 }: MyDocumentsFolderEditsInput) {
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
+  const t = useT();
   const [renamingFolder, setRenamingFolder] = useState<{
     id: string;
     name: string;
@@ -72,9 +76,7 @@ export function useMyDocumentsFolderEdits({
     } catch (moveError) {
       rollback();
       setError(
-        moveError instanceof Error
-          ? moveError.message
-          : "The document could not be moved.",
+        moveError instanceof Error ? moveError.message : t(m.documentNotMoved),
       );
     }
   }
@@ -113,7 +115,7 @@ export function useMyDocumentsFolderEdits({
       setError(
         renameError instanceof Error
           ? renameError.message
-          : "The folder could not be renamed.",
+          : t(m.folderNotRenamed),
       );
     }
   }
@@ -140,7 +142,7 @@ export function useMyDocumentsFolderEdits({
       setError(
         deleteError instanceof Error
           ? deleteError.message
-          : "The folder could not be deleted.",
+          : t(m.folderNotDeleted),
       );
     } finally {
       setDeletingFolderId(null);

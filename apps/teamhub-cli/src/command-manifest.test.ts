@@ -25,6 +25,11 @@ describe("command manifest", () => {
     expect(find("gmail", "send")?.approval).toBe("confirm");
     expect(find("gmail", "draft")?.approval).toBe("allow");
     expect(find("gcal", "create")?.approval).toBe("judge");
+    expect(find("outlook-calendar", "list")?.approval).toBe("allow");
+    expect(find("outlook-calendar", "free")?.approval).toBe("allow");
+    expect(find("outlook-calendar", "create")?.approval).toBe("judge");
+    expect(find("outlook-calendar", "update")?.approval).toBe("judge");
+    expect(find("outlook-calendar", "cancel")?.approval).toBe("judge");
     expect(find("slack", "react")?.approval).toBe("judge");
     expect(find("apps", "execute")?.approval).toBe("judge");
     expect(find("apps", "search")?.approval).toBe("allow");

@@ -89,13 +89,8 @@ export function createTeamHubClient(
         method,
         outcome: "failure",
       });
-      throw new CliError(
-        operationId ? "outcome_unknown" : "connection_failed",
-        operationId
-          ? "The operation outcome is unknown. Retry with --operation-id set to this Operation ID."
-          : "Could not reach TeamHub.",
-        operationId ? { operation_id: operationId } : {},
-      );
+      if (operationId) throw unknownWriteOutcome(operationId);
+      throw new CliError("connection_failed", "Could not reach TeamHub.");
     }
     if (timing) {
       const returnedId = response.headers.get("x-request-id");
@@ -147,6 +142,13 @@ export function createTeamHubClient(
         },
       );
     }
+    if (operationId && response.status !== 204) {
+      try {
+        return await jsonResponse(response);
+      } catch {
+        throw unknownWriteOutcome(operationId);
+      }
+    }
     return response;
   };
   // The base URL only shapes the Request: the transport above prefixes the
@@ -160,17 +162,34 @@ export function createTeamHubClient(
         headers: call.headers,
         ...(call.body ? { body: await call.text() } : {}),
       });
-      if (response.status === 204) return response;
-      const value = await readJson(response);
-      if (!record(value))
-        throw new CliError(
-          "invalid_response",
-          "TeamHub returned an invalid JSON response.",
-        );
-      return Response.json(value, { status: response.status });
+      if (response.status === 204 || call.headers.get("x-teamhub-operation-id"))
+        return response;
+      return jsonResponse(response);
     },
   });
   return { config, api, request };
+}
+
+async function jsonResponse(response: Response): Promise<Response> {
+  const content = await readBounded(response, 8 * 1024 * 1024);
+  if (!record(parseJson(content)))
+    throw new CliError(
+      "invalid_response",
+      "TeamHub returned an invalid JSON response.",
+    );
+  return new Response(content, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+function unknownWriteOutcome(operationId: string): CliError {
+  return new CliError(
+    "outcome_unknown",
+    "The operation outcome is unknown. Retry with --operation-id set to this Operation ID.",
+    { operation_id: operationId },
+  );
 }
 
 function timedResponse(
@@ -226,7 +245,9 @@ function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 export async function readJson(response: Response): Promise<unknown> {
-  const content = await readBounded(response, 8 * 1024 * 1024);
+  return parseJson(await readBounded(response, 8 * 1024 * 1024));
+}
+function parseJson(content: Buffer): unknown {
   try {
     return JSON.parse(content.toString("utf8"));
   } catch {
@@ -239,7 +260,7 @@ export async function readJson(response: Response): Promise<unknown> {
 export async function readBounded(
   response: Response,
   limit: number,
-): Promise<Buffer> {
+): Promise<Buffer<ArrayBuffer>> {
   if (!response.body) return Buffer.alloc(0);
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];

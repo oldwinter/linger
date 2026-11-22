@@ -33,7 +33,6 @@ MODE="guide"
 EXPLICIT_WEB_URL=""
 WEB_URL=""
 CONNECT_LINGER=1
-WITH_SEARCH=0
 PURGE=0
 YES=0
 
@@ -42,8 +41,8 @@ KIT_PYTHON=""
 PROMPT_VALUE=""
 
 # >>> stack release pin
-STACK_PIN_NPM_VERSION='0.1.0-dev.43'
-STACK_PIN_SHA256='b481ab03f04f222840eda2c230077d9a3dc8884ba256bdcd7d06019854fb2bae'
+STACK_PIN_NPM_VERSION='0.1.0-dev.47'
+STACK_PIN_SHA256='6252836588a29eb4b45b4a2fdb6d3dea83273ea25c25f4c3c6264c21cdd5d086'
 # <<< stack release pin
 
 usage() {
@@ -55,7 +54,6 @@ Guided setup for Linger local models and connecting this computer to Linger.
 Options:
   --web-url <origin>   Linger server URL (default: http://localhost:3000)
   --connect            Install and connect linger-computer only
-  --with-search        Also install the local DuckDuckGo web-search helper
   --up                 Start installed local models and refresh linger-computer
   --status             Show local model and linger-computer status
   --remove             Uninstall local model services (keeps downloaded files)
@@ -1033,9 +1031,6 @@ step_check_hardware_and_options() {
   HAS_ACCEPTED_STACK=0
   SHARED_GPU_APPROVED=0
   PLAN_ARGS=()
-  if (( WITH_SEARCH == 0 )); then
-    PLAN_ARGS+=("--no-search")
-  fi
 
   set +e
   sh "$STACK_SCRIPT" status --json > "$WORK_DIR/status.json" 2>"$WORK_DIR/status.err"
@@ -1509,10 +1504,6 @@ while (( $# > 0 )); do
       ;;
     --connect)
       set_mode "connect"
-      shift
-      ;;
-    --with-search)
-      WITH_SEARCH=1
       shift
       ;;
     --up)

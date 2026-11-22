@@ -1,4 +1,7 @@
+import { translate } from "@/i18n/language";
+
 import { TeamHubError } from "./teamhub-client";
+import { teamHubClientErrorMessages as m } from "./teamhub-client-errors.messages";
 import type { TeamHubPageInput } from "./teamhub-types";
 
 const defaultPageSize = 200;
@@ -53,7 +56,7 @@ export async function collectTeamHubCursorPages<Page extends CursorPage>(
     if (!nextCursor || seenCursors.has(nextCursor)) {
       throw new TeamHubError({
         code: "INVALID_PAGINATION",
-        message: "TeamHub returned an invalid pagination cursor.",
+        message: translate(m.invalidCursor),
         status: 502,
       });
     }
@@ -68,7 +71,7 @@ export async function collectTeamHubCursorPages<Page extends CursorPage>(
 function throwPaginationLimitExceeded(): never {
   throw new TeamHubError({
     code: "PAGINATION_LIMIT_EXCEEDED",
-    message: "TeamHub returned more directory data than this client can load.",
+    message: translate(m.directoryTooLong),
     status: 502,
   });
 }

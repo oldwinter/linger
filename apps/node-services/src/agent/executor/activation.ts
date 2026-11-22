@@ -72,6 +72,8 @@ export interface ContextRuntimeBackendRequest<TRuntimeSettings> {
    * a Run declares no review and the Runtime's own rules decide alone.
    */
   readonly permissionReview?: true;
+  /** Runs invoke Runtime stop hooks before finishing a turn. */
+  readonly stopHook?: true;
   /**
    * The developer instructions are the compact version, so the Runtime's own
    * instruction wrapper uses its compact version too.
@@ -209,6 +211,8 @@ export interface ContextRuntimeActivationRequest<TRuntimeSettings> {
   readonly agentType?: AgentType;
   /** Runs review Runtime permission prompts through TeamHub's judge. */
   readonly permissionReview?: true;
+  /** Runs invoke Runtime stop hooks before finishing a turn. */
+  readonly stopHook?: true;
   /**
    * Renders `agent.developerInstructions` with the facts this activation reads
    * from the Agent's effective resources.
@@ -716,6 +720,7 @@ const activationBackendRequest = <TRuntimeSettings>(
   runtimeInstanceKey: activation.runtimeInstanceKey,
   ...(request.executionEpoch ? { executionEpoch: request.executionEpoch } : {}),
   ...(request.permissionReview ? { permissionReview: true as const } : {}),
+  ...(request.stopHook ? { stopHook: true as const } : {}),
   ...(activation.compactInstructions
     ? { compactInstructions: true as const }
     : {}),

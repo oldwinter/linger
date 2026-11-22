@@ -6,6 +6,7 @@ import { Link, useParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
 import { requireRoomRouteParam } from "./room-route-params";
 import { roomTeamMdQueryOptions } from "./task-sidebar/team-md-query";
 import {
@@ -20,6 +21,7 @@ import {
  * refreshes, so a new protocol replaces this page while it is open.
  */
 export function WorkMovesPage() {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const params = useParams();
   const tenantId = requireRoomRouteParam(params.tenantId, "Tenant");
@@ -81,7 +83,7 @@ export function WorkMovesPage() {
           <>
             <section aria-labelledby="work-moves-pattern">
               <h3 className="text-lg text-foreground" id="work-moves-pattern">
-                {patternTitle(document.collaborate_pattern)}
+                {t(patternTitle(document.collaborate_pattern))}
               </h3>
               <p className="mt-2 text-sm text-foreground">
                 {patternAccounts[document.collaborate_pattern]}

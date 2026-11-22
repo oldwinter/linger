@@ -11,6 +11,11 @@ vi.mock("./localmodels-tool.js", () => ({
   pinnedToolSource: () => undefined,
   runLocalmodels: vi.fn(),
 }));
+vi.mock("./process.js", async (original) => {
+  const actual = await original<typeof import("./process.js")>();
+  const { withComputerFixture } = await import("./test-support/computer.js");
+  return { ...actual, runProcess: withComputerFixture(actual.runProcess) };
+});
 const roots: string[] = [];
 afterEach(async () => {
   vi.unstubAllEnvs();

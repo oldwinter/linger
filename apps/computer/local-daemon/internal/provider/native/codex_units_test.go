@@ -513,3 +513,20 @@ func TestCodexCleanupExcusedWhenTheProcessHadGone(t *testing.T) {
 		}
 	}
 }
+
+func TestCodexExecutionArgsDisableWebSearchLast(t *testing.T) {
+	spec := RunSpec{AgentArgs: []string{"-c", `web_search="live"`}}
+	args := codexExecutionArgs(Profile{CodexToolVersion: "0.150.1"}, spec, "/home", slog.New(slog.DiscardHandler))
+	if slices.Contains(args, `web_search="disabled"`) {
+		t.Fatalf("subscription Codex lost web search: %q", args)
+	}
+	spec.WithoutNativeWebTools = true
+	args = codexExecutionArgs(Profile{CodexToolVersion: "0.150.1"}, spec, "/home", slog.New(slog.DiscardHandler))
+	if !slices.Equal(args[len(args)-2:], []string{"--config", `web_search="disabled"`}) {
+		t.Fatalf("gateway Codex keeps web search: %q", args)
+	}
+	process := &codexProcess{withoutWebTools: false}
+	if fields := codexMismatch(Profile{}, spec, "")(process); !slices.Contains(fields, "web_tools") {
+		t.Fatalf("a process with web search served a gateway Operation: %v", fields)
+	}
+}

@@ -393,6 +393,7 @@ describe("EnrollmentModule", () => {
     serverOverrides: ServerOverrides = {},
     initialServerUrl = "https://linger.example.com",
     initialConfig: Partial<DesktopConfig> = {},
+    ensureDefault: () => Promise<void> = async () => {},
   ) => {
     const dir = tempDirectory();
     const daemonIdentityFile = path.join(dir, "daemon-identity.json");
@@ -408,7 +409,14 @@ describe("EnrollmentModule", () => {
       fetch: server.fetch,
     });
     const host = testHost(
-      [stubModule("Config"), enrollment],
+      [
+        stubModule("Config"),
+        {
+          ...stubModule("WorkspaceGrants", ["Config"]),
+          ensureDefault,
+        } as never,
+        enrollment,
+      ],
       { serverUrl: initialServerUrl, ...initialConfig },
       bus,
     );
@@ -607,6 +615,27 @@ describe("EnrollmentModule", () => {
     expect(
       host.ctx.config.get().savedEnrollments?.["https://other.example.com"],
     ).toBeUndefined();
+    await host.stop("quit");
+  });
+
+  it("ensures default workspace grant before emitting computer.changed", async () => {
+    const order: string[] = [];
+    const { enrollment, host, bus } = setupModule(
+      {},
+      "https://linger.example.com",
+      {},
+      async () => {
+        order.push("ensureDefault");
+      },
+    );
+    bus.on("computer.changed", (computerId) => {
+      if (computerId) order.push("computer.changed");
+    });
+
+    await host.start();
+    await enrollment.enroll();
+
+    expect(order).toEqual(["ensureDefault", "computer.changed"]);
     await host.stop("quit");
   });
 });

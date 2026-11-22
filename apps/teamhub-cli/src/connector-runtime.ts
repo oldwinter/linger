@@ -156,7 +156,7 @@ export async function resolveConnectorAccount(
 function authorizationCard(resolution: Json): never {
   throw new ConnectorError(
     "authorization_required",
-    "Complete the account authorization card in the chat, then run this command again.",
+    "Waiting for the user to authorize the account; an authorization card is in the chat. End your turn: the card's result wakes you, then run this command again. If the user declines, don't retry.",
     { ...resolution, operation_rejected: true },
   );
 }

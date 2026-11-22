@@ -2,6 +2,9 @@ import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
 import type { RefObject } from "react";
 
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
+
 import { Button } from "./ui/button";
 import type { DocumentHeading } from "./document-headings";
 
@@ -16,6 +19,7 @@ export function DocumentTableOfContents({
   id?: string;
   onClose: () => void;
 }) {
+  const t = useT();
   const baseLevel = Math.min(...headings.map((heading) => heading.level), 6);
   return (
     <aside
@@ -23,9 +27,12 @@ export function DocumentTableOfContents({
       id={id}
     >
       <header className="flex h-12 items-center justify-between border-b border-app-border/60 px-3">
-        <h3 className="text-sm font-semibold">Table of contents</h3>
+        <h3 className="text-sm font-semibold">
+          {t(commonMessages.tableOfContents)}
+        </h3>
         <Button
-          aria-label="Close table of contents"
+          data-voice-close
+          aria-label={t(commonMessages.closeTableOfContents)}
           onClick={onClose}
           size="icon"
           tone="ghost"
@@ -34,11 +41,13 @@ export function DocumentTableOfContents({
         </Button>
       </header>
       <nav
-        aria-label="Document table of contents"
+        aria-label={t(commonMessages.documentTableOfContents)}
         className="workspace-scrollbar h-[calc(100%-48px)] overflow-y-auto p-2"
       >
         {headings.length === 0 ? (
-          <p className="px-2 py-6 text-sm text-app-muted">No headings</p>
+          <p className="px-2 py-6 text-sm text-app-muted">
+            {t(commonMessages.noHeadings)}
+          </p>
         ) : (
           headings.map((heading) => (
             <button

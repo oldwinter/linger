@@ -2,6 +2,7 @@ import { focusManager, onlineManager } from "@tanstack/react-query";
 import { afterEach, vi } from "vitest";
 
 import { resetComposerAttachmentDraftsForTest } from "@/features/rooms/chat/composer-attachment-drafts";
+import { resetLanguageForTest } from "@/i18n/language";
 import { setRoomDiagnosticsEnabledForTest } from "@/lib/room-diagnostics";
 import { restoreGlobalProperties } from "@/test/global-properties";
 import { assertNoUnhandledTestRoutes } from "@/test/teamhub-test-server";
@@ -185,6 +186,8 @@ afterEach(() => {
     onlineManager.setOnline(true);
     resetDocumentGlobals();
     resetComposerAttachmentDraftsForTest();
+    // The language on screen is module state the files of a worker share.
+    resetLanguageForTest();
     resetRoomTimelineReadingPositions?.();
     // Timers first: a later assertion that throws must not leave a leaked fake
     // timer on the window the next file shares.

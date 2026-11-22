@@ -18,6 +18,10 @@ import (
 // An Agent Service that predates them closes the connection on the frame.
 const serviceFeatureLocalModels = "local_models"
 
+// serviceFeatureByokEndpoint in runner.welcome's service_features says the
+// Agent Service accepts a BYOK summary's path and endpoint.
+const serviceFeatureByokEndpoint = "byok_endpoint"
+
 // LocalModelLibrary runs the actions a Computer owner chooses on this
 // Computer's localmodels library. The Daemon never picks a model itself.
 type LocalModelLibrary interface {

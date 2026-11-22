@@ -35,6 +35,7 @@ import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import { myRulesQueryOptions } from "@/features/settings/my-rules-queries";
 import { teamHubIdentityQueryOptions } from "./room-queries";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
 
 import { latestShadowLine } from "./shadow-line";
@@ -77,6 +78,7 @@ import {
   type RunYouStarted,
 } from "./working-now";
 import { RecordingEntry } from "./voice-control/recording-entry";
+import { roomListMessages } from "./room-list.messages";
 import { useNavReorderFlip } from "./use-nav-reorder-flip";
 import {
   useWorkingClock,
@@ -207,6 +209,10 @@ export function RoomSecondaryNavigation({
 }) {
   usePrefetchTemplateFlow();
   const { client } = useTeamHubRuntime();
+  const t = useT();
+  const searchTitle = t(roomListMessages.searchShortcut, {
+    shortcut: searchShortcutLabel(),
+  });
   const rules = useQuery({
     ...myRulesQueryOptions(client, tenant.id),
     enabled: Boolean(anotherMeRoomId) && typeof client.api?.GET === "function",
@@ -399,35 +405,36 @@ export function RoomSecondaryNavigation({
   const searchButton = (
     <button
       aria-keyshortcuts="Control+k Meta+k"
-      aria-label="Search"
+      aria-label={t(roomListMessages.search)}
       className="room-secondary-navigation-search flex h-7 w-full min-w-0 shrink items-center justify-between gap-1.5 rounded-lg bg-card px-2.5 text-xs text-muted-foreground shadow-outline transition-colors duration-150 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:h-11"
       onClick={() => {
         onOpenSearch?.();
         onCloseMobile();
       }}
-      title={`Search (${searchShortcutLabel()})`}
+      title={searchTitle}
       type="button"
     >
-      <span className="truncate">Search chats</span>
+      <span className="truncate">{t(roomListMessages.searchChats)}</span>
       <Icon className="shrink-0" icon={Search01Icon} size={14} />
     </button>
   );
 
   return (
     <nav
-      aria-label="Room navigation"
+      aria-label={t(roomListMessages.navigation)}
+      data-voice-area="sidebar"
       className="app-secondary-navigation relative flex w-[var(--sidebar-width)] min-w-0 flex-col bg-card"
     >
       {onCollapse ? (
         // Shares the 57px height of the chat header so both titles sit on
         // one line; a hairline fades in under it once the list scrolls.
         <header
-          aria-label="Message actions"
+          aria-label={t(roomListMessages.messageActions)}
           className="app-secondary-navigation-header room-secondary-navigation-header relative z-40 flex h-(--app-header-height) shrink-0 items-center justify-between gap-2 pl-px pr-4"
           role="toolbar"
         >
           <span className="room-secondary-navigation-title truncate">
-            Messages
+            {t(roomListMessages.messages)}
           </span>
           <div className="flex items-center gap-0.5">
             {accountId ? (
@@ -444,10 +451,11 @@ export function RoomSecondaryNavigation({
             <RoomListCopyMenu rooms={shownChats} tenantId={tenant.id} />
           </div>
           <button
-            aria-label="Hide Chat list"
+            data-voice-close
+            aria-label={t(roomListMessages.hideChatList)}
             className="room-secondary-navigation-collapse flex size-7 shrink-0 items-center justify-center rounded-md text-app-muted transition-colors hover:bg-app-hover hover:text-app-ink"
             onClick={onCollapse}
-            title="Hide Chat list"
+            title={t(roomListMessages.hideChatList)}
             type="button"
           >
             <Icon icon={SidebarLeftIcon} />
@@ -456,7 +464,7 @@ export function RoomSecondaryNavigation({
       ) : (
         <div
           className="xs-nav-quick flex shrink-0 items-center gap-1.5 pl-0 pr-1.5 pt-3"
-          aria-label="Quick access"
+          aria-label={t(roomListMessages.quickAccess)}
         >
           {accountId ? (
             <QuietRemindersControl accountId={accountId} variant="toolbar" />
@@ -472,8 +480,8 @@ export function RoomSecondaryNavigation({
           <RoomListCopyMenu rooms={shownChats} tenantId={tenant.id} />
           <button
             aria-keyshortcuts="Control+k Meta+k"
-            aria-label="Search"
-            title={`Search (${searchShortcutLabel()})`}
+            aria-label={t(roomListMessages.search)}
+            title={searchTitle}
             className="xs-nav-search"
             onClick={() => {
               onOpenSearch?.();
@@ -628,7 +636,7 @@ export function RoomSecondaryNavigation({
                   />
                 </>
               }
-              title="Messages"
+              title={t(roomListMessages.messages)}
             >
               {markAllRead.running && markAllRead.progress ? (
                 <p className="px-2 text-xs text-app-muted" role="status">
@@ -718,7 +726,8 @@ export function RoomSecondaryNavigation({
                               ? markdownPlainText(
                                   room.latest_message.raw_message,
                                 )
-                              : (room.description ?? "No messages yet")}
+                              : (room.description ??
+                                t(roomListMessages.noMessages))}
                           </span>
                         </span>
                         <RoomRowStatus
@@ -1027,9 +1036,10 @@ function NavRow({
 
 /** The same marker on a Room row and on its snoozed row. */
 function RoomPinnedMarker() {
+  const t = useT();
   return (
     <span
-      aria-label="Pinned"
+      aria-label={t(roomListMessages.pinned)}
       className="room-pin-badge town-pill-pop ml-0.5 flex shrink-0 text-muted-foreground"
       role="img"
     >
@@ -1101,11 +1111,16 @@ function DirectRoomLink({
   const peer = room.direct_peer!;
   const displayName = peer.display_name;
   const inactive = room.direct_peer_active === false;
+  const t = useT();
   const [hovered, setHovered] = useState(false);
   return (
     <Link
       aria-current={active ? "page" : undefined}
-      aria-label={`${displayName}${inactive ? ", Deleted" : ""}`}
+      aria-label={
+        inactive
+          ? t(roomListMessages.deletedChat, { name: displayName })
+          : displayName
+      }
       className={roomNavClass()}
       onClick={onNavigate}
       onPointerEnter={(event) => {
@@ -1127,10 +1142,10 @@ function DirectRoomLink({
         </RoomRowTitle>
         <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">
           {inactive
-            ? "Deleted"
+            ? t(roomListMessages.deleted)
             : room.latest_message
               ? markdownPlainText(room.latest_message.raw_message)
-              : "No messages yet"}
+              : t(roomListMessages.noMessages)}
         </span>
       </span>
       <RoomRowStatus
@@ -1144,6 +1159,7 @@ function DirectRoomLink({
 }
 
 function RoomAttentionBadge({ room }: { room: TeamHubRoomListItem }) {
+  const t = useT();
   if (room.unread_message_count === 0 && room.unread_mention_count === 0) {
     return null;
   }
@@ -1152,9 +1168,12 @@ function RoomAttentionBadge({ room }: { room: TeamHubRoomListItem }) {
   const count = mentions
     ? room.unread_mention_count
     : room.unread_message_count;
-  const label = mentions
-    ? `${count} unread mention${count === 1 ? "" : "s"}`
-    : `${count} unread message${count === 1 ? "" : "s"}`;
+  const label = t(
+    mentions
+      ? roomListMessages.unreadMentions
+      : roomListMessages.unreadMessages,
+    { count },
+  );
 
   return (
     <span
@@ -1194,6 +1213,7 @@ function AnotherMeCard({
   tenantId: string;
   working: boolean;
 }) {
+  const t = useT();
   const name = room.direct_peer?.display_name ?? "Another Me";
   const { client } = useTeamHubRuntime();
   const identity = useQuery(teamHubIdentityQueryOptions(client));
@@ -1309,7 +1329,7 @@ function AnotherMeCard({
             {quiet.label ??
               (room.latest_message
                 ? markdownPlainText(room.latest_message.raw_message)
-                : "Your personal agent")}
+                : t(roomListMessages.personalAgent))}
           </span>
         </span>
         <RoomRowStatus
@@ -1342,6 +1362,7 @@ function RoomRowStatus({
   room: TeamHubRoomListItem;
   working: boolean;
 }) {
+  const t = useT();
   useRoomRenderTiming("room_list", {
     roomId: room.id,
     result: working ? "working" : "stopped",
@@ -1366,16 +1387,18 @@ function RoomRowStatus({
           <span className="flex size-4 shrink-0 items-center justify-center">
             {working ? (
               <span
-                aria-label={duration?.speech ?? "Agent working"}
+                aria-label={
+                  duration?.speech ?? t(roomListMessages.agentWorking)
+                }
                 className="flex text-app-muted"
                 role="img"
-                title={duration?.speech ?? "Agent working"}
+                title={duration?.speech ?? t(roomListMessages.agentWorking)}
               >
                 <Spinner size={14} />
               </span>
             ) : (
               <span
-                aria-label="Last run failed"
+                aria-label={t(roomListMessages.lastRunFailed)}
                 className="flex text-app-danger"
                 role="img"
               >

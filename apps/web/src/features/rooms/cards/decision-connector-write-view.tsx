@@ -8,10 +8,13 @@ import { Fragment, useId, useMemo, useState } from "react";
 
 import { AutoHeight } from "@/components/ui/auto-height";
 import { Icon } from "@/components/ui/icon";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
 
 import { MessageMarkdown } from "../chat/message-markdown";
 import { CardRowDetails, FullCallBlock } from "./approval-card-parts";
+import { cardsMessages } from "./cards.messages";
 import type { DecisionMessageCard } from "./decision-card";
 import { SlackMrkdwn } from "./slack-mrkdwn";
 
@@ -27,6 +30,7 @@ export function EmailDecisionView({
   account: string;
   message: ConnectorWriteMessage;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const previewId = useId();
   return (
@@ -45,7 +49,7 @@ export function EmailDecisionView({
             size={16}
           />
           <span className="min-w-0 flex-1 text-sm font-semibold text-app-ink [overflow-wrap:anywhere]">
-            {message.subject?.trim() || "No subject"}
+            {message.subject?.trim() || t(cardsMessages.noSubject)}
           </span>
           <Icon
             className={cn(
@@ -60,7 +64,9 @@ export function EmailDecisionView({
       {message.to?.length ? (
         <AutoHeight open={!open}>
           <p className="pt-1 text-sm text-app-muted [overflow-wrap:anywhere]">
-            To {message.to.map(displayEmailAddress).join(", ")}
+            {t(cardsMessages.emailToLine, {
+              recipients: message.to.map(displayEmailAddress).join(", "),
+            })}
           </p>
         </AutoHeight>
       ) : null}
@@ -108,27 +114,33 @@ function MessagePreview({
   emailFrom?: string;
   message: ConnectorWriteMessage;
 }) {
+  const t = useT();
   const email = emailFrom !== undefined;
   function recipients(addresses?: string[]) {
     return (email ? addresses?.map(displayEmailAddress) : addresses)?.join(
       ", ",
     );
   }
-  const rows: [string, string | undefined][] = [
+  const rows: [Message<string>, string | undefined][] = [
     [
-      "From",
+      cardsMessages.emailFrom,
       emailFrom === undefined ? undefined : displayEmailAddress(emailFrom),
     ],
-    ["To", recipients(message.to)],
-    ["Cc", recipients(message.cc) || (email ? "None" : undefined)],
-    ["Bcc", recipients(message.bcc)],
-    ["Subject", email ? undefined : message.subject],
-    ["Where", message.destination],
+    [cardsMessages.emailTo, recipients(message.to)],
+    [
+      cardsMessages.emailCc,
+      recipients(message.cc) || (email ? t(cardsMessages.none) : undefined),
+    ],
+    [cardsMessages.emailBcc, recipients(message.bcc)],
+    [cardsMessages.emailSubject, email ? undefined : message.subject],
+    [cardsMessages.messageWhere, message.destination],
   ];
-  const shown = rows.filter((row): row is [string, string] => Boolean(row[1]));
+  const shown = rows.filter((row): row is [Message<string>, string] =>
+    Boolean(row[1]),
+  );
   return (
     <section
-      aria-label="Message preview"
+      aria-label={t(cardsMessages.messagePreview)}
       className={cn(
         email
           ? "mt-2"
@@ -151,11 +163,11 @@ function MessagePreview({
                   ? "grid grid-cols-[3rem_minmax(0,1fr)] gap-x-3 py-3"
                   : "contents"
               }
-              key={label}
+              key={label.id}
             >
-              <dt className="text-app-muted">{label}</dt>
+              <dt className="text-app-muted">{t(label)}</dt>
               <dd
-                className={`[overflow-wrap:anywhere] text-app-ink ${label === "Subject" ? "font-semibold" : ""}`}
+                className={`[overflow-wrap:anywhere] text-app-ink ${label === cardsMessages.emailSubject ? "font-semibold" : ""}`}
               >
                 {value}
               </dd>
@@ -170,11 +182,13 @@ function MessagePreview({
           format={message.format}
         />
       ) : (
-        <p className="px-3 py-2.5 text-xs text-app-muted">No message text.</p>
+        <p className="px-3 py-2.5 text-xs text-app-muted">
+          {t(cardsMessages.noMessageText)}
+        </p>
       )}
       {message.attachments?.length ? (
         <ul
-          aria-label="Attachments"
+          aria-label={t(cardsMessages.attachments)}
           className="flex flex-wrap gap-1.5 border-t border-app-border px-3 py-2"
         >
           {message.attachments.map((name, index) => (
@@ -241,6 +255,7 @@ function HtmlMessageBody({
   expanded: boolean;
   html: string;
 }) {
+  const t = useT();
   const [height, setHeight] = useState(120);
   const source = useMemo(
     () => htmlEmailDocument(html, expanded),
@@ -264,7 +279,7 @@ function HtmlMessageBody({
       sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"
       srcDoc={source}
       style={{ height }}
-      title="Message body"
+      title={t(cardsMessages.messageBody)}
     />
   );
 }

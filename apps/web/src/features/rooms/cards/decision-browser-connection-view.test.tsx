@@ -22,7 +22,8 @@ const card: Card = {
   decision_id: "browser-1",
   kind: "browser_connection",
   status: "pending",
-  title: "Please connect your everyday Chrome.",
+  title:
+    "Please connect your everyday Chrome so I can continue the browser task. The extension token goes only to your Computer.",
   browser_connection: { computer_id: "computer-mac" },
   decision_owner: { id: "alice", display_name: "Alice", kind: "human" },
   requester: { id: "writer", display_name: "Writer", kind: "agent" },
@@ -99,11 +100,13 @@ describe("Browser connection card", () => {
     expect(
       within(box).getByRole("heading", {
         level: 3,
-        name: "Please connect your everyday Chrome.",
+        name: "Please connect your everyday Chrome so I can continue the browser task. The extension token goes only to your Computer.",
       }),
     ).toBeVisible();
     expect(
-      screen.getAllByText("Please connect your everyday Chrome."),
+      screen.getAllByText(
+        "Please connect your everyday Chrome so I can continue the browser task. The extension token goes only to your Computer.",
+      ),
     ).toHaveLength(1);
     expect(document.querySelector(".card-prompt")).toBeNull();
     expect(box).toHaveTextContent("Everyday Chrome");

@@ -45,6 +45,27 @@ describe("Runtime activity path", () => {
       expect(screen.getByText("Unconfirmed")).toBeVisible();
     },
   );
+  it("shows an interrupted Run as a stop and any other failure as an error", () => {
+    const stopped = (code: "interrupted" | "timeout") =>
+      projectRuntimeActivityPath(
+        [
+          record("1", {
+            type: "status.changed",
+            status: "stopped",
+            outcome: "failed",
+            failure: { code, runtime_type: "claude" },
+          }),
+        ],
+        new Map(),
+        "ended",
+      );
+    expect(stopped("interrupted")).toEqual([
+      expect.objectContaining({ kind: "outcome", tone: "canceled" }),
+    ]);
+    expect(stopped("timeout")).toEqual([
+      expect.objectContaining({ kind: "outcome", tone: "failed" }),
+    ]);
+  });
   it("keeps each Task step its own item whatever kind the Computer gave it", () => {
     const input = (command: string) => [
       {

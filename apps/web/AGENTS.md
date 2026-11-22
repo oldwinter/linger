@@ -22,7 +22,9 @@ build:assets` to check the initial JS budget.
 
 - `src/app`: routes, providers, route error boundaries, and global CSS.
 - `src/features/teamhub`: Human API, Session, error, and realtime adapters.
-- `src/features/rooms`: Room routes, Chat, Timeline, the right sidebar (Agent Info, Activity, Thread, Document) and membership UI. Catch up freezes the chats that had new messages or mentions and walks them one at a time; opening a chat leaves the rest of the walk in place. Finishing the walk can keep that list, with each chat's last line, on today's Pocket note. Today's Pocket note can be sent into Another Me's chat; the note is saved first, and Open chat shows the message that was sent. While agents are working, the room list gathers those rooms and says whether each is still on your message or already replying. A one-time reminder that can still run today can be held three hours later; Another Me then runs it at that time. While an agent is working in a Room, Watch the work opens that run on its own page and keeps reading it until the agent replies. Add a document lets the Human choose documents they can share and bind them into the Room. How work moves reads the room's team.md as the sequence of who starts, who receives a handoff, and who the result is reported to. A newly published team.md replaces that page. Who can manage lets an owner choose which people may change the room afterwards. The room keeps those roles. While a run is in progress, Steer this run shows the plan the agent published and can stop it before the next step. Who is speaking (`/t/:tenantId/voices`) names the voices in the open recording; the recording keeps those names on this computer. Right now (`/t/:tenantId/hearing`) shows the words a recording is hearing as they arrive. Who is awake (`/t/:tenantId/awake`) shows which agents can be reached and opens a chat with one. Surprise me (`/t/:tenantId/surprise`) spins the rooms you belong to and opens the one it lands on. Stepping out of a regular room stops new messages and sending until you come back. Hand this off (`/t/:tenantId/rooms/:roomId/hand-off`) creates an issue for someone else in that room, so the job waits on the dashboard. What an agent can do (`/t/:tenantId/agents/:agentId/can-do`) turns that agent's skills on or off for the next time they work. A shared conversation can be watched in the order it happened: each message waits a compressed beat of the gap before it, and a quiet stretch is named. A Room in the sidebar and in search leads with the face of whoever spoke last. When every person in a room has reacted to one message, that message stays above the timeline until the agreement breaks. Earlier conversation takes the room back one stretch of five quiet minutes or a new day; later messages leave until Back to now, and sending a message returns to the live room. Words still in the Room composer sit at the end of the timeline in the writer's place until they are sent or cleared. A voice draft or a message already on its way keeps that place instead. Two messages from different people within three seconds land as one moment, side by side once the room is wide enough. When Another Me says something new while the person is somewhere else in the app, those words arrive where they already are. Opening Another Me's chat or dismissing the arrival leaves it. The first reading only marks the latest message, and quiet hours still hold it. In Another Me's chat, and on the sidebar card while that chat is open, Another Me wears your picture, or your initials when you have not set one. Leaving the chat returns their own figure. Scrolling today's page continues into the newest earlier day that has words; that day stays read-only and is not written onto today. An open Pocket note stays open while you move between rooms. When more than one enabled routine would fire in the same minute, the oldest keeps that minute and its instruction gains the others' work; the rest of that minute is removed. Coming back to this window after a minute opens the one room whose conversation moved while it was hidden, unless you are already there, writing, or a dialog is open. Messages that arrive while this window is hidden stay unread until you click, type, or scroll. A message the server never confirmed is sent again when this window becomes visible after being hidden. A mention of someone who leaves the room is lifted out of the message that has not been sent. A profile stays open only while that person is in the room; once they leave, it closes. Sitting still in an open room that stays quiet lets the timeline rest, so the next message does not pull the view. Words still being said after the last confirmed line stay on the recording while it saves, until that line arrives. A sentence that finishes while someone is still talking stays on the recording, and the words still being said continue after it. Words that continue the last confirmed line grow on that line, under the person who is already talking. A sentence that does not continue it, including one said again, stays its own line. When someone you named has not answered for an hour, an empty composer in that room becomes a follow-up to them on that message. If they answer before it is sent, and it was not edited, the follow-up leaves. When a run you started finishes while you are in another room, its reply stays in the working list until you open that room. When two agents answer the same message, those answers sit together. A question you asked yesterday that is still unanswered leads the room this morning, until you speak again or leave. - `src/features/auth`: When a session expires, signing in opens the page you were on. A link cannot choose that page. Logging out leaves the next sign-in on Rooms. - `src/features/rooms/files`: A PDF page keeps its words on top of the picture, so a sentence can be selected and copied.
+- `src/features/rooms`: Room routes, Chat, Timeline, the right sidebar (Agent Info, Activity, Thread, Document) and membership UI. Catch up freezes the chats that had new messages or mentions and walks them one at a time; opening a chat leaves the rest of the walk in place. Finishing the walk can keep that list, with each chat's last line, on today's Pocket note. Today's Pocket note can be sent into Another Me's chat; the note is saved first, and Open chat shows the message that was sent. While agents are working, the room list gathers those rooms and says whether each is still on your message or already replying. A one-time reminder that can still run today can be held three hours later; Another Me then runs it at that time. While an agent is working in a Room, Watch the work opens that run on its own page and keeps reading it until the agent replies. Add a document lets the Human choose documents they can share and bind them into the Room. How work moves reads the room's team.md as the sequence of who starts, who receives a handoff, and who the result is reported to. A newly published team.md replaces that page. Who can manage lets an owner choose which people may change the room afterwards. The room keeps those roles. While a run is in progress, Steer this run shows the plan the agent published and can stop it before the next step. Who is speaking (`/t/:tenantId/voices`) names the voices in the open recording; the recording keeps those names on this computer. Right now (`/t/:tenantId/hearing`) shows the words a recording is hearing as they arrive. Who is awake (`/t/:tenantId/awake`) shows which agents can be reached and opens a chat with one. Surprise me (`/t/:tenantId/surprise`) spins the rooms you belong to and opens the one it lands on. Stepping out of a regular room stops new messages and sending until you come back. Hand this off (`/t/:tenantId/rooms/:roomId/hand-off`) creates an issue for someone else in that room, so the job waits on the dashboard. What an agent can do (`/t/:tenantId/agents/:agentId/can-do`) turns that agent's skills on or off for the next time they work. A shared conversation can be watched in the order it happened: each message waits a compressed beat of the gap before it, and a quiet stretch is named. A Room in the sidebar and in search leads with the face of whoever spoke last. When every person in a room has reacted to one message, that message stays above the timeline until the agreement breaks. Earlier conversation takes the room back one stretch of five quiet minutes or a new day; later messages leave until Back to now, and sending a message returns to the live room. Words still in the Room composer sit at the end of the timeline in the writer's place until they are sent or cleared. A voice draft or a message already on its way keeps that place instead. Two messages from different people within three seconds land as one moment, side by side once the room is wide enough. When Another Me says something new while the person is somewhere else in the app, those words arrive where they already are. Opening Another Me's chat or dismissing the arrival leaves it. The first reading only marks the latest message, and quiet hours still hold it. In Another Me's chat, and on the sidebar card while that chat is open, Another Me wears your picture, or your initials when you have not set one. Leaving the chat returns their own figure. Scrolling today's page continues into the newest earlier day that has words; that day stays read-only and is not written onto today. An open Pocket note stays open while you move between rooms. When more than one enabled routine would fire in the same minute, the oldest keeps that minute and its instruction gains the others' work; the rest of that minute is removed. Coming back to this window after a minute opens the one room whose conversation moved while it was hidden, unless you are already there, writing, or a dialog is open. Messages that arrive while this window is hidden stay unread until you click, type, or scroll. A message the server never confirmed is sent again when this window becomes visible after being hidden. A mention of someone who leaves the room is lifted out of the message that has not been sent. A profile stays open only while that person is in the room; once they leave, it closes. Sitting still in an open room that stays quiet lets the timeline rest, so the next message does not pull the view. Words still being said after the last confirmed line stay on the recording while it saves, until that line arrives. A sentence that finishes while someone is still talking stays on the recording, and the words still being said continue after it. Words that continue the last confirmed line grow on that line, under the person who is already talking. A sentence that does not continue it, including one said again, stays its own line. When someone you named has not answered for an hour, an empty composer in that room becomes a follow-up to them on that message. If they answer before it is sent, and it was not edited, the follow-up leaves. When a run you started finishes while you are in another room, its reply stays in the working list until you open that room. When two agents answer the same message, those answers sit together. A question you asked yesterday that is still unanswered leads the room this morning, until you speak again or leave.
+- `src/features/auth`: When a session expires, signing in opens the page you were on. A link cannot choose that page. Logging out leaves the next sign-in on Rooms.
+- `src/features/rooms/files`: A PDF page keeps its words on top of the picture, so a sentence can be selected and copied.
 - `src/features/settings`: Settings. My Rules can review newly learned shadow rules one at a time. Promote makes a rule active; Leave keeps it in shadow. What this changes next shows where a shadow rule would have decided differently, then lets it decide so the next match follows it. On Shortcuts, pressing a shortcut says what it does and every place it works.
 - `src/features/work-items`: What happened opens one Work Item's description and the recorded story, and can open the Room doing the work. Two selected cards can be read side by side, including how they differ on state, priority, and whether a room is doing the work. The board itself still edits through its existing peek, selection, and menus. When the Work Item was opened while a meeting was still underway, the story names that meeting, how far in, and opens it. When a Pocket note exists for the day the Work Item was opened, the story shows that note. When someone is assigned and is not a member of the room doing the work, the story says so. A Work Item you created and assigned to yourself, still open after the day you created it, leads Todo. Accepting a decision a task is waiting on brings that task to the person it belongs to.
 - `src/features/jump`: one field that opens a room, a meeting, or a library
@@ -31,6 +33,11 @@ build:assets` to check the initial JS budget.
 - `src/features/wiki`: A Wiki page Another Me finished yesterday waits at the
   front of Wiki until that page is opened.
 - `src/features/local-computer`: What this Mac can do asks macOS for Screen Recording and Accessibility on one computer, then relaunches Linger when a new grant needs it. Opening Computers on this Mac opens that computer when several are connected. All computers stays on the list.
+- `src/features/web-search`: web search backend queries, bundled provider
+  logos and the key field. The chat's search key card reads the backend list
+  with `include_quota=false`, so it never makes TeamHub call a provider; the
+  Connectors Web search group reads it with live quota. Saving a key or the
+  default from either refreshes both.
 - `src/features/local-models`: Settings › Models (`settings/models?computer=<id>`).
   Its tabs read and switch the Computer's model source (Local model, BYOK)
   through TeamHub's `model-source` API, which asks the Computer live; the page
@@ -38,8 +45,15 @@ build:assets` to check the initial JS budget.
   Local model; the page never holds a saved API key (reusing a saved key only
   for the saved endpoint's origin, clearing entered keys after saving, offering
   manual model ID entry even when endpoints list models, and disabling BYOK
-  edits while offline), and a switch refused with `AGENT_HAS_ACTIVE_RUNS`
-  retries with `force_terminate` only after the owner confirms. The Local model
+  edits while offline). BYOK addresses requests as base URL + path + endpoint
+  and sends the format the address's ending names (else the Runtime's own);
+  it lists models only on request and shows a Test result as a floating
+  message, with the Computer's own message for endpoint refusals; switch
+  failures also surface the Computer's diagnostic detail for
+  `BYOK_GATEWAY_FAILED` (from the `gateway` detail entry) and BYOK endpoint
+  refusals. A switch
+  refused with `AGENT_HAS_ACTIVE_RUNS` retries with `force_terminate` only
+  after the owner confirms. The Local model
   tab is one Computer's model library as TeamHub last stored it. The Computer
   decides fit, availability, placement, the recommendation and memory; the page
   only orders and labels them, picks the Make room default (including
@@ -73,6 +87,14 @@ build:assets` to check the initial JS budget.
   accounts for) when unloading models cannot free enough, and says a model
   cannot fit only when it needs more than the pool's total. A Computer's detail
   on the Computers page links here and reads no model state itself.
+- `src/i18n`: the interface languages (English and Simplified Chinese).
+  `messages.ts` re-exports the React-free core from
+  `@linger/service-kit/messages`, which the desktop shell shares,
+  `language.ts` holds the language on screen and the stored choice,
+  `desktop-language.ts` reports a stored choice to the desktop app so its
+  menus and pages follow, `use-translation.tsx` is the React side, and
+  `locales/` holds one catalog per translated language plus its glossary,
+  which the desktop catalog follows too.
 - `src/test`: unit-test support, including the in-process TeamHub test server.
 - `e2e`: Playwright product workflows; every spec runs on the real TeamHub and
   Document Runtime stack (`make check-e2e-room-document`).
@@ -120,9 +142,23 @@ build:assets` to check the initial JS budget.
   During Live, the Meeting entry offers to start a new Meeting even while an
   earlier one is saving. Both in-page voice windows retain a visible, draggable
   title bar: dark in browsers, the window's own surface colour in the desktop
-  app. Picture-in-picture keeps the browser title bar. The desktop app cannot
-  open picture-in-picture, so there voice windows stay in the page, offer no
-  float button, and on macOS stay out of the window drag strip.
+  app. Picture-in-picture keeps the browser title bar. The desktop app floats
+  them in its own always-on-top window, which stays up while the main window
+  is minimized or closed to the tray: when the preload offers
+  `window.lingerDesktop.voiceWindow`, `voice-pip.ts` opens it with
+  `window.open("")` (the desktop main process allows only that call) and is
+  the only place that knows which kind of window it got. A desktop app without that field keeps voice windows
+  in the page with no float button. In the page on macOS they stay out of the
+  window drag strip. In the page both windows resize by any edge or corner
+  (`voice-window-resize.tsx`), down to a minimum size and never past the
+  viewport; the corner grip also takes arrow keys. Dragging the title bar
+  keeps the whole window inside the viewport too, and a window that grows
+  where it sits, or whose viewport shrinks, moves back in. Neither window can
+  be taller than the viewport leaves room for, so the header stays reachable.
+  The size lasts while the window is open and is not stored. Voice Mode's expand button switches
+  between its two preset sizes and drops a dragged size; a minimized
+  recording resizes in width only. A floated window has no handles: the
+  browser or the desktop app resizes it.
 - The compact primary rail reveals labels on hover and keyboard focus without
   moving link hit areas or neighbouring links. A stationary pointer at an edge
   must not trigger repeated hover enter/leave; sidebar expansion and Chat list
@@ -145,6 +181,12 @@ build:assets` to check the initial JS budget.
 - Recording and Voice Mode distinguish the native window's close action from
   back to tab through the shared PiP return detection. Back to tab keeps the
   session running in the page and exposes a Float action; close ends it.
+  Every floated window also draws its own return button, in the browser and
+  in the desktop app: `returnVoicePipToPage` brings the tab or the main
+  window to the front, reports the return itself and closes the floated
+  window. Voice Mode then opens the Room the call started in; a recording
+  stays on the page the main window shows. The desktop app's window has no
+  back to tab button, so every other close of it ends the session.
   Recording moves one portal host between documents so paused state, Ask
   drafts and transcript scroll survive the move. Hide it while classifying a
   native close, and ignore a late result after unmount or a replacement window.
@@ -237,3 +279,68 @@ build:assets` to check the initial JS budget.
   React Doctor catches this and it renders fine in unit tests, so assert the outcome
   (the wrapper carries the positioning, the clamped node carries no `block`) in a test
   and confirm that test fails when the utility is put back on the same element.
+- Interface text on a translated surface comes from a message, not a literal.
+  English is the source and the fallback: a string with no translation shows
+  its English text.
+  - Add a string: declare it in the feature's `*.messages.ts` with
+    `defineMessages("<namespace>", { name: "English text" })`, show it with
+    `const t = useT()` and `t(messages.name)`, and add the same
+    `<namespace>.<name>` to `src/i18n/locales/zh-CN.json` following
+    `src/i18n/locales/zh-CN.glossary.md`. `src/i18n/catalog.test.ts` fails when
+    a key, a `{placeholder}`, a `<tag>` or a plural form is missing from a
+    catalog, or when a catalog keeps a key the source no longer has.
+  - Values go in `{name}` placeholders (`t(m.space, { name })`); never join
+    translated fragments into a sentence, because word order differs. A count
+    is a plural message, `{ one: "{count} file", other: "{count} files" }`,
+    called with `count`; a catalog lists the plural forms of its own language.
+    An element inside a sentence is a `<name>…</name>` span rendered with
+    `RichMessage`, which keeps user-supplied text as text.
+  - Outside React (a toast, an error built in a helper) call `translate()`
+    when the text is shown, never at module load: a module-level string keeps
+    the language it was created in after the Human switches.
+  - Dates and numbers inside translated text take `formatLocale(language)`.
+    `lib/date-format.ts` stays on `APP_LOCALE` for surfaces that are still
+    English, so one screen does not mix an English sentence with a Chinese
+    date; a translated surface passes its locale or translation to those
+    helpers.
+  - A label on a translated surface follows the language, so CSS and DOM
+    queries never select by its text. Use a class or a `data-*` marker such as
+    `data-voice-area` and `data-chat-composer`, not `[aria-label="…"]`.
+  - A translated control tells Voice Mode what clicking it does with a
+    marker, never with words in its label: `data-voice-risk="never"` for
+    deleting, removing, sending, leaving, signing out, paying, archiving or
+    discarding (spoken commands never click it, the live model asks first),
+    `data-voice-risk="confirm"` for other decisions such as approve, deny or
+    revoke (the live model asks first), and `data-voice-close` on the button
+    that closes its panel or dialog. An `ActionMenu` item takes `voiceRisk`.
+    `voice-risk-markers.test.ts` fails when a control named by such a message
+    lacks its marker.
+  - Text this client keeps beyond the screen (the Outbox, saved state) is
+    stored as a reason or a key and worded when it is shown, so it follows a
+    language switch and a reload. `pending-message-failure.ts` is the pattern:
+    the Outbox stores `failure.reason`, the hook words it with `t`.
+  - Names and text that people or Agents wrote (Agent names, message
+    previews, a published template) are data and are shown as they are.
+  - TeamHub's own English is worded here from what it means, never translated
+    on the server: a status from its stable code
+    (`agent-availability-text.ts`), a card's ask from its kind and fields
+    (`card-prompts.ts`). A code or kind this client does not know shows
+    TeamHub's English.
+  - Errors are worded from the code only when TeamHub's message says nothing
+    more (`teamhub-error-text.ts`: expired sign-in, rate limit, server error,
+    a response without a TeamHub body). `FORBIDDEN`, `CONFLICT`, `NOT_FOUND`,
+    `INVALID_REQUEST` and the like keep TeamHub's message, which says what to
+    do; a case worth its own wording needs its own code from TeamHub.
+  - Fixed catalog text (`web-search-backend-text.ts`, `app-groups.ts`,
+    `builtin-template-text.ts`, `runtime-model-label.ts`) keeps a copy by id
+    for other languages only, through `teamHubCatalogText`: English shows
+    TeamHub's text, so a change on the server shows at once.
+  - Add a language: add it to `LANGUAGES` and `catalogLoaders` in
+    `src/i18n/language.ts` and add `src/i18n/locales/<tag>.json`. Catalogs
+    load on demand, so English users download none.
+  - The choice is stored on the device (`localStorage["linger.language"]`);
+    an absent value means no explicit choice, which is English today. Tests
+    start in English: `src/test/setup.ts` resets the language after each test,
+    and a test of translated text reads the expected string from the catalog
+    instead of writing Chinese, which the repository gate allows only under
+    `src/i18n/locales/`.

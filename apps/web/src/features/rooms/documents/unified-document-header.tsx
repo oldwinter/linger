@@ -32,10 +32,12 @@ import {
   canRenameDocument,
   useDocumentRename,
 } from "@/features/library/use-document-rename";
+import { documentSourceLabel } from "@/features/library/document-source-label";
 import { WORKSPACE_TREE_ID } from "@/features/library/workspace-tree";
 import { markMomentPath } from "./mark-moment";
 import { writeDocumentLinkClipboard } from "@/features/rooms/files/document-clipboard-link";
 import { documentDetailPath } from "@/features/rooms/files/document-detail-routes";
+import { libraryMessages } from "@/features/library/library.messages";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type {
   TeamHubDocument,
@@ -44,6 +46,9 @@ import type {
 import { WikiCopyLink } from "@/features/wiki/wiki-copy-link";
 import { WikiPageActionsMenu } from "@/features/wiki/wiki-page-actions-menu";
 import { WikiSendToRoom } from "@/features/wiki/wiki-send-to-room";
+import { commonMessages } from "@/i18n/common.messages";
+import { translate, type Translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 import { roomMembersQueryOptions } from "../room-queries";
 
 import type { RoomDocumentCollaborationSession } from "./room-document-collaboration";
@@ -54,6 +59,7 @@ import { RoomDocumentShareAction } from "./room-document-share-action";
 import type { UnifiedDocumentPageModel } from "./use-unified-document-page-model";
 import { useDocumentCommentsClose } from "./document-comment-draft-guard";
 import { MailCanvasStatus } from "./canvas/canvas-mail-status";
+import { documentPageMessages as m } from "./document-page.messages";
 import {
   RoomDocumentSaveIndicator,
   RoomDocumentSessionBanner,
@@ -136,7 +142,9 @@ export function UnifiedDocumentPageHeader({
           void writeDocumentLinkClipboard({
             documentId,
             tenantId,
-            title: document ? documentLogicalTitle(document) : "Document",
+            title: document
+              ? documentLogicalTitle(document)
+              : translate(m.document),
             url: new URL(
               documentDetailPath({ documentId, tenantId }),
               window.location.origin,
@@ -277,6 +285,7 @@ function UnifiedDocumentHeader({
   treeOpen: boolean;
   tenantId: string;
 }) {
+  const t = useT();
   const rename = useDocumentRename(tenantId);
   const actionsMenu =
     document && !isWikiPage ? (
@@ -317,11 +326,11 @@ function UnifiedDocumentHeader({
             <Button
               aria-controls={WORKSPACE_TREE_ID}
               aria-expanded={treeOpen}
-              aria-label="Open Library pages"
+              aria-label={t(m.openLibraryPages)}
               className="sm:hidden"
               onClick={onOpenTree}
               size="icon"
-              title="Library pages"
+              title={t(m.libraryPages)}
               tone="ghost"
             >
               <Icon icon={SidebarLeftIcon} />
@@ -331,7 +340,7 @@ function UnifiedDocumentHeader({
         {mailCanvas ? (
           <span className="flex items-center gap-2 text-sm font-medium text-app-ink">
             <Icon icon={Mail01Icon} size={16} />
-            Mail
+            {t(m.mail)}
           </span>
         ) : document ? (
           <div className="room-document-header-file">
@@ -366,7 +375,7 @@ function UnifiedDocumentHeader({
           </div>
         ) : (
           <span className="truncate text-sm font-semibold text-app-ink">
-            {sidebar ? "" : "Document"}
+            {sidebar ? "" : t(m.document)}
           </span>
         )}
       </div>
@@ -397,7 +406,7 @@ function UnifiedDocumentHeader({
                 className="text-xs leading-4 text-app-muted"
                 role="status"
               >
-                Copied
+                {t(commonMessages.copied)}
               </span>
             ) : linkCopyState === "failed" ? (
               <span className="text-xs leading-4 text-app-danger" role="alert">
@@ -408,10 +417,10 @@ function UnifiedDocumentHeader({
         ) : null}
         {document && !isWikiPage ? (
           <Button
-            aria-label="Share"
+            aria-label={t(m.share)}
             size="compactIcon"
             onClick={onShare}
-            title="Share"
+            title={t(m.share)}
             tone="ghost"
           >
             <Icon icon={Share08Icon} />
@@ -424,11 +433,11 @@ function UnifiedDocumentHeader({
         document.capabilities.read &&
         document.capabilities.comment ? (
           <Button
-            aria-label="Comments"
+            aria-label={t(m.comments)}
             aria-pressed={commentsOpen}
             onClick={onComments}
             size="icon"
-            title="Comments"
+            title={t(m.comments)}
             tone="ghost"
           >
             <Icon icon={Comment01Icon} />
@@ -436,11 +445,11 @@ function UnifiedDocumentHeader({
         ) : null}
         {!sidebar && !mailCanvas ? (
           <Button
-            aria-label="Table of contents"
+            aria-label={t(commonMessages.tableOfContents)}
             aria-pressed={tocOpen}
             onClick={onToc}
             size="icon"
-            title="Table of contents"
+            title={t(commonMessages.tableOfContents)}
             tone="ghost"
           >
             <Icon icon={TableOfContentsIcon} />
@@ -506,6 +515,7 @@ function UnifiedDocumentBreadcrumb({
   sharedDocument: boolean;
   sharedItems: TeamHubDocumentPlacementNode[];
 }) {
+  const t = useT();
   const personalPlacement = items.find(
     (item) => item.node_kind === "document" && item.document_id === document.id,
   );
@@ -536,15 +546,8 @@ function UnifiedDocumentBreadcrumb({
   }
   const context = document.from[0];
   const contextLabel =
-    context?.label ??
-    (context?.binding_kind === "room"
-      ? "Room"
-      : context?.binding_kind === "task"
-        ? "Work Item"
-        : context?.binding_kind === "wiki_page" ||
-            context?.binding_kind === "wiki_source"
-          ? "Wiki"
-          : "Documents");
+    (context && documentSourceLabel(context, t)) ??
+    documentContextLabel(context?.binding_kind, t);
   return (
     <DocumentBreadcrumb
       alwaysVisible={alwaysVisible}
@@ -552,15 +555,26 @@ function UnifiedDocumentBreadcrumb({
       currentName={documentFileName(document)}
       rootLabel={
         personalPlacement
-          ? "Owned by Me"
+          ? t(libraryMessages.ownedByMe)
           : sharedDocument
-            ? "Shared with me"
+            ? t(libraryMessages.sharedWithMe)
             : placement === undefined
               ? contextLabel
-              : "Owned by Me"
+              : t(libraryMessages.ownedByMe)
       }
     />
   );
+}
+
+function documentContextLabel(
+  bindingKind: TeamHubDocument["from"][number]["binding_kind"] | undefined,
+  t: Translate,
+) {
+  return bindingKind === "room"
+    ? t(m.contextRoom)
+    : bindingKind === "task"
+      ? t(m.contextWorkItem)
+      : t(m.contextDocuments);
 }
 
 function DocumentBreadcrumb<T extends { id: string; name: string }>({
@@ -574,6 +588,7 @@ function DocumentBreadcrumb<T extends { id: string; name: string }>({
   currentName: string;
   rootLabel: string;
 }) {
+  const t = useT();
   const visible = ancestors.length > 2 ? ancestors.slice(-2) : ancestors;
   const items = [
     { key: "root", label: rootLabel },
@@ -586,7 +601,7 @@ function DocumentBreadcrumb<T extends { id: string; name: string }>({
 
   return (
     <nav
-      aria-label="Breadcrumb"
+      aria-label={t(m.breadcrumb)}
       className={
         alwaysVisible
           ? "flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-sm text-app-muted"
@@ -656,6 +671,7 @@ function RoomDocumentActions({
   onEditingChange: (editing: boolean) => void;
   session: RoomDocumentCollaborationSession;
 }) {
+  const t = useT();
   const save = useSyncExternalStore(
     session.subscribeSaveState,
     session.getSaveSnapshot,
@@ -667,12 +683,16 @@ function RoomDocumentActions({
       buttonClassName="room-document-mode-trigger"
       initialFocusIndex={isEditing ? 0 : 1}
       itemClassName="flex min-h-9 w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-sm outline-none hover:bg-app-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-focus disabled:pointer-events-none disabled:opacity-45"
-      label="Document mode"
+      label={t(m.documentMode)}
       items={[
         {
-          label: "Edit",
+          label: t(commonMessages.edit),
           icon: isEditing ? (
-            <span aria-label="Current mode" className="inline-flex" role="img">
+            <span
+              aria-label={t(m.currentMode)}
+              className="inline-flex"
+              role="img"
+            >
               <Icon icon={Tick02Icon} size={14} />
             </span>
           ) : (
@@ -682,9 +702,13 @@ function RoomDocumentActions({
           onSelect: () => onEditingChange(true),
         },
         {
-          label: "Read",
+          label: t(m.read),
           icon: !isEditing ? (
-            <span aria-label="Current mode" className="inline-flex" role="img">
+            <span
+              aria-label={t(m.currentMode)}
+              className="inline-flex"
+              role="img"
+            >
               <Icon icon={Tick02Icon} size={14} />
             </span>
           ) : (
@@ -695,7 +719,7 @@ function RoomDocumentActions({
       ]}
       trigger={
         <>
-          <span>{isEditing ? "Edit mode" : "Read mode"}</span>
+          <span>{isEditing ? t(m.editMode) : t(m.readMode)}</span>
           <Icon icon={ArrowDown01Icon} size={14} />
         </>
       }

@@ -39,7 +39,7 @@ func terminalRuntimeFailure(raw json.RawMessage) (*PublicRuntimeFailure, error) 
 	}
 	// A failure observed without a selected Runtime names none.
 	switch failure.RuntimeType {
-	case "", "codex", "claude", "pi":
+	case "", "codex", "claude", "pi", "antigravity":
 	default:
 		return nil, ErrInvalid
 	}

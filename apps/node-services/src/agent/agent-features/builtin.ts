@@ -40,6 +40,10 @@ import { createNotificationContextFeature } from "./notification-context/feature
 import { createEmojiReactionFeature } from "./emoji-reaction/feature.js";
 import { createReplyRhythmFeature } from "./reply-rhythm/feature.js";
 import type { ReplyRhythmSettings } from "./reply-rhythm/types.js";
+import {
+  createRoomReplyGuardFeature,
+  type RoomReplyGuardFeatureDeps,
+} from "./room-reply-guard/feature.js";
 import { createRunStatusFeature } from "./run-status/feature.js";
 import {
   createUserMemoryFeature,
@@ -102,6 +106,8 @@ export interface BuiltinFeatureServices {
   readonly userMemories?: UserMemoryTracker;
   /** Another Me reply rhythm and its offer settings; absent disables it. */
   readonly replyRhythm?: { readonly settings?: ReplyRhythmSettings };
+  /** Confirms persisted Room replies on Runtime stop; absent disables it. */
+  readonly roomReplyGuard?: Pick<RoomReplyGuardFeatureDeps, "hasRunReplied">;
   /**
    * Domain merger for per-message text contributions. Defaults to the
    * prompt-domain notification-sentinel merger.
@@ -251,6 +257,15 @@ const MODULE_ASSEMBLY: Record<AgentFeatureModuleName, BuiltinModuleAssembly> = {
     service: (services) =>
       services.replyRhythm
         ? createReplyRhythmFeature(services.replyRhythm)
+        : undefined,
+  },
+  "room-reply-guard": {
+    service: (services) =>
+      services.roomReplyGuard
+        ? createRoomReplyGuardFeature({
+            ...services.roomReplyGuard,
+            logger: services.logger,
+          })
         : undefined,
   },
   "run-status": {

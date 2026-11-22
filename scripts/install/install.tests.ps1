@@ -703,7 +703,7 @@ exit 0
         $mComp.Server.Dispose()
     }
 
-    # 5. Model selection, multi-pick, share GPU, mem cap, --with-search, preflight fail, live apply + connect
+    # 5. Model selection, multi-pick, share GPU, mem cap, preflight fail, live apply + connect
     $dZero = Join-Path $workRoot 't-zero'
     $fZero = New-FakeStack $dZero @{ Picks = @() }
     $mZero = Start-MockServer $dZero $false
@@ -737,7 +737,7 @@ exit 0
         Assert-Exit $rGpuNo 0 'decline gpu share'
         Assert-Contains $rGpuNo.StdOut 'Installation cancelled.' 'decline gpu share msg'
 
-        $rPrefail = Invoke-Script @('--with-search', '--web-url', $mPre.Server.BaseUrl) $envPre "2`ny`nbadcap`n24G`ny`n"
+        $rPrefail = Invoke-Script @('--web-url', $mPre.Server.BaseUrl) $envPre "2`ny`nbadcap`n24G`ny`n"
         Assert-Exit $rPrefail 1 'preflight fail exit 1'
         Assert-Contains $rPrefail.StdOut 'Please enter a size like 24G or 16384M' 'bad mem cap prompt'
         Assert-NotContains $rPrefail.StdOut '2 compute process(es) outside' 'preflight.gpu suppressed'
@@ -749,7 +749,7 @@ exit 0
         Assert-Contains $planLog '--prefer fastest' 'fastest picked'
         Assert-Contains $planLog '--gpu 0 --share-gpu --gpu-memory 24G' 'gpu memory cap passed'
         Assert-Contains $planLog '--decision auto --aux embedding,reranker' 'helpers passed'
-        Assert-NotContains $planLog '--no-search' '--with-search omits --no-search'
+        Assert-NotContains $planLog 'search' 'plan passes no search option'
     } finally {
         $mPre.Server.Dispose()
     }

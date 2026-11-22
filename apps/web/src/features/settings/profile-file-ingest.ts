@@ -4,6 +4,9 @@ import {
   createTeamHubIdempotencyKey,
   type TeamHubClient,
 } from "@/features/teamhub/teamhub-client";
+import { translate } from "@/i18n/language";
+
+import { accountSettingsMessages } from "./account-settings.messages";
 
 export const PROFILE_FILE_ACCEPT =
   ".pdf,.txt,.md,.doc,.docx,application/pdf,text/plain,text/markdown,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -28,7 +31,9 @@ export async function uploadProfileInputFiles(
       createTeamHubIdempotencyKey(),
     );
     if (!document.current_version) {
-      throw new Error("Uploaded profile Document has no current Version.");
+      throw new Error(
+        translate(accountSettingsMessages.uploadedFileHasNoVersion),
+      );
     }
     uploaded.push({
       inputVersionId: document.current_version.id,

@@ -19,6 +19,8 @@ import {
   runtimeSessionStartsFresh,
 } from "./provider.js";
 import type { ExecutionContextRef } from "./context-ref.js";
+import type { RunStopHookEvaluation } from "../agent-features/compose.js";
+import type { RunStopHookInput } from "../agent-features/contracts.js";
 import { ReplyDelivery } from "./reply-delivery.js";
 import type {
   ProfileUpdate,
@@ -240,6 +242,7 @@ interface ActiveExecution {
   readonly sourceInboxIds: Set<string>;
   readonly steerOperations: Set<Promise<void>>;
   readonly replyDelivery: ReplyDelivery;
+  readonly observedMessages: Message[];
   acceptingSteers: boolean;
 }
 
@@ -282,6 +285,9 @@ interface LocalRunExecution {
   upstreamCanceled: boolean;
   providerSucceeded: boolean;
   hasYielded: boolean;
+  readonly observedMessages: Message[];
+  stopHookReplyConfirmed: boolean;
+  stopHookBlocked: boolean;
 }
 
 export class RunLoop {
@@ -304,6 +310,12 @@ export class RunLoop {
   readonly #state: ContextRuntimeStatePort;
   readonly #prepareInput: (message: Message) => Message;
   readonly #onRunEvent: (event: RunEvent) => readonly RuntimeStatusUpdate[];
+  readonly #onRunBeforeStop:
+    | ((
+        input: RunStopHookInput,
+        signal: AbortSignal,
+      ) => Promise<RunStopHookEvaluation>)
+    | undefined;
   readonly #onRunClaimed:
     | ((runId: string, messages: NonEmptyReadonlyArray<Message>) => void)
     | undefined;
@@ -360,6 +372,11 @@ export class RunLoop {
     readonly prepareInput: (message: Message) => Message;
     /** Composed per-event status projections. Required. */
     readonly onRunEvent: (event: RunEvent) => readonly RuntimeStatusUpdate[];
+    /** Composed Runtime stop hooks evaluated before a turn finishes. */
+    readonly onRunBeforeStop?: (
+      input: RunStopHookInput,
+      signal: AbortSignal,
+    ) => Promise<RunStopHookEvaluation>;
     /** Observes the inputs of each claimed Run, before it executes. */
     readonly onRunClaimed?: (
       runId: string,
@@ -378,7 +395,8 @@ export class RunLoop {
     this.#runtimeType =
       options.runtimeName === "codex" ||
       options.runtimeName === "claude" ||
-      options.runtimeName === "pi"
+      options.runtimeName === "pi" ||
+      options.runtimeName === "antigravity"
         ? options.runtimeName
         : undefined;
     this.#runtimeSession = options.runtimeSession;
@@ -391,6 +409,7 @@ export class RunLoop {
     this.#state = options.state;
     this.#prepareInput = options.prepareInput;
     this.#onRunEvent = options.onRunEvent;
+    this.#onRunBeforeStop = options.onRunBeforeStop;
     this.#onRunClaimed = options.onRunClaimed;
     this.#onWorkStateRefreshed = options.onWorkStateRefreshed;
   }
@@ -930,6 +949,9 @@ export class RunLoop {
       upstreamCanceled: false,
       providerSucceeded: false,
       hasYielded: false,
+      observedMessages: [...messages],
+      stopHookReplyConfirmed: false,
+      stopHookBlocked: false,
     };
     try {
       await this.#runExecution(execution);
@@ -1174,6 +1196,36 @@ export class RunLoop {
           runContext: execution.runContext,
           acceptedAtMonotonicMs: execution.acceptedAtMonotonicMs,
           runKind: execution.kind,
+          ...(this.#onRunBeforeStop
+            ? {
+                onStopHook: async (event, signal) => {
+                  const evaluation = await this.#onRunBeforeStop!(
+                    {
+                      runId: execution.runId,
+                      attempt: event.attempt,
+                      stopHookActive: event.stopHookActive,
+                      inputs: execution.observedMessages,
+                    },
+                    signal,
+                  );
+                  if (evaluation.replyConfirmed) {
+                    execution.stopHookReplyConfirmed = true;
+                  }
+                  if (evaluation.decision.action === "block") {
+                    execution.stopHookBlocked = true;
+                    this.#logger.log("info", "local_run.stop_hook_blocked", {
+                      runId: execution.runId,
+                      ...(evaluation.blockedBy
+                        ? { feature: evaluation.blockedBy }
+                        : {}),
+                      ...(event.runtime ? { runtime: event.runtime } : {}),
+                      attempt: event.attempt,
+                    });
+                  }
+                  return evaluation.decision;
+                },
+              }
+            : {}),
           ...(execution.hasYielded
             ? {
                 beforeYieldResume: async () => {
@@ -1331,6 +1383,7 @@ export class RunLoop {
         new Set(execution.provenance.sourceInboxIds),
       steerOperations: new Set(),
       replyDelivery,
+      observedMessages: execution.observedMessages,
     };
     this.#activeExecution = active;
     execution.intent.resolveProviderReady(active);
@@ -1367,10 +1420,14 @@ export class RunLoop {
     const statusDrainStartedAt = performance.now();
     await this.#settleRuntimeStatusEvents(execution);
     const runtimeStatusDrainMs = performance.now() - statusDrainStartedAt;
-    const terminal = this.#completedTerminal(
+    const terminal = await this.#completedTerminal(
       runId,
       finalResponse,
       replyDelivery,
+      {
+        replyConfirmed: execution.stopHookReplyConfirmed,
+        blocked: execution.stopHookBlocked,
+      },
     );
     this.#logger.log("info", "local_run.finish_started", {
       runId,
@@ -1730,15 +1787,42 @@ export class RunLoop {
    * Provider turn is not a succeeded Run when the Room has nothing to show:
    * the Agent tried to post and none landed, or a Human who mentioned it is
    * waiting and it never tried. Its final text is private scratch and is not
-   * posted for it. Task Runs report through their final response and keep it.
+   * posted for it. Because activity classification inspects shell text for
+   * display and can miss compound scripts or decision cards, TeamHub confirms
+   * whether a visible reply landed before failing the Run. Task Runs report
+   * through their final response and keep it.
    */
-  #completedTerminal(
+  async #completedTerminal(
     runId: string,
     finalResponse: string,
     replyDelivery: ReplyDelivery,
-  ): LocalRunTerminal {
+    stopHook: { readonly replyConfirmed: boolean; readonly blocked: boolean },
+  ): Promise<LocalRunTerminal> {
     const roomRun = this.#executionContextRef?.kind === "meta";
-    const undelivered = roomRun && replyDelivery.replyUndelivered;
+    const suspectedUndelivered = roomRun && replyDelivery.replyUndelivered;
+    const suspectedNotSent =
+      roomRun && !stopHook.replyConfirmed && replyDelivery.replyNotSent;
+    let confirmedReplied = false;
+    if (suspectedUndelivered || suspectedNotSent) {
+      try {
+        confirmedReplied = await this.#state.hasLocalRunReplied(
+          runId,
+          this.#terminalRecoveryStop.signal,
+        );
+      } catch (error) {
+        this.#logger.log("warn", "local_run.reply_check_failed", {
+          runId,
+          error,
+        });
+      }
+    }
+    if (
+      stopHook.blocked &&
+      (confirmedReplied || replyDelivery.counts().deliveredMessageWrites > 0)
+    ) {
+      this.#logger.log("info", "local_run.stop_hook_recovered", { runId });
+    }
+    const undelivered = suspectedUndelivered && !confirmedReplied;
     if (replyDelivery.hasFailures) {
       this.#logger.log("warn", "local_run.teamhub_messages_failed", {
         runId,
@@ -1754,10 +1838,11 @@ export class RunLoop {
         failure: runFailure("reply_undelivered", this.#runtimeType),
       };
     }
-    if (roomRun && replyDelivery.replyNotSent) {
+    if (suspectedNotSent && !confirmedReplied) {
       this.#logger.log("warn", "local_run.reply_not_sent", {
         runId,
         ...replyDelivery.counts(),
+        stopHookBlocked: stopHook.blocked,
         finalResponseLength: finalResponse.length,
       });
       return {
@@ -1860,6 +1945,7 @@ export class RunLoop {
         target.sourceInboxIds.add(inboxId);
       }
       target.inputs.push(input);
+      target.observedMessages.push(...messages);
       target.replyDelivery.observeInputs(messages);
       this.#reportActiveRunContext({
         runId: target.runId,
@@ -2020,7 +2106,12 @@ const classifiedRunFailure = (
             : error instanceof StreamingAgentRunLimitError
               ? "response_too_large"
               : "unclassified",
-        runtimeType,
+        // A Run that definitely never started did not reach the Runtime, so
+        // naming it would point the user at the wrong component.
+        error instanceof ProviderRunStartError &&
+          !(error instanceof ProviderRunAdmissionUnavailableError)
+          ? undefined
+          : runtimeType,
       );
 
 const runFailure = (

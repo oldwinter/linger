@@ -457,6 +457,7 @@ interface HarnessOptions {
   readonly shouldPrepareContext?: ExecutorRegistryDependencies<TestRuntime>["shouldPrepareContext"];
   readonly presencePreparation?: ExecutorRegistryDependencies<TestRuntime>["presencePreparation"];
   readonly inspectDetachedHistory?: ExecutorRegistryDependencies<TestRuntime>["inspectDetachedHistory"];
+  readonly redeliverWake?: ExecutorRegistryDependencies<TestRuntime>["redeliverWake"];
 }
 
 const wireLocalRuntime = {
@@ -560,6 +561,7 @@ const createHarness = (options: HarnessOptions = {}) => {
     ...(options.canRunMaintenance
       ? { canRunMaintenance: options.canRunMaintenance }
       : {}),
+    ...(options.redeliverWake ? { redeliverWake: options.redeliverWake } : {}),
   });
   managers.push(manager);
   return {
@@ -5100,6 +5102,64 @@ describe("Execution Context AgentManager", () => {
       roomKind: "collaboration",
       targetResidency: "active",
     });
+  });
+
+  it("restores at once and redelivers a wake that arrived while unbinding", async () => {
+    vi.useFakeTimers();
+    const ghostStore = createInMemoryGhostStore<TestRuntime>();
+    const contextStore = new PushContextStore();
+    const runWakes = new RecordingRunWakes();
+    const redeliverWake = vi.fn();
+    const ref = roomMetaRef("room-wake-during-unbind");
+    await seedGhost(ghostStore, "agent-1");
+    await contextStore.ensure(ref, "active");
+    const harness = createHarness({
+      ghostStore,
+      contextStore,
+      runWakes,
+      redeliverWake,
+      shouldActivateOnRestore: async () => false,
+    });
+    await harness.manager.restore();
+    const key = encodeExecutionContextRef(ref);
+    const firstFake = harness.fakes.get(key)!;
+
+    contextStore.publishLeaseLoss(ref);
+    runWakes.target(ref).wake("queued");
+    // The unbind cleanup defers a one-second restore; the held wake starts it
+    // without waiting out that delay and goes back to the wake router.
+    await vi.advanceTimersByTimeAsync(10);
+    const current = harness.fakes.get(key);
+    expect(current).not.toBe(firstFake);
+    expect(current?.calls).toContain("create");
+    expect(redeliverWake).toHaveBeenCalledExactlyOnceWith(key, "queued");
+  });
+
+  it("hands a wake that arrived while unbinding back to the wake router", async () => {
+    vi.useFakeTimers();
+    const ghostStore = createInMemoryGhostStore<TestRuntime>();
+    const contextStore = new PushContextStore();
+    const runWakes = new RecordingRunWakes();
+    const redeliverWake = vi.fn();
+    const ref = roomMetaRef("room-wake-after-release");
+    await seedGhost(ghostStore, "agent-1");
+    await contextStore.ensure(ref, "active");
+    const harness = createHarness({
+      ghostStore,
+      contextStore,
+      runWakes,
+      redeliverWake,
+      shouldActivateOnRestore: async () => false,
+    });
+    await harness.manager.restore();
+    const key = encodeExecutionContextRef(ref);
+    // This process no longer holds the Context, so no restore is deferred.
+    vi.spyOn(contextStore, "list").mockResolvedValue([]);
+
+    contextStore.publishLeaseLoss(ref);
+    runWakes.target(ref).wake("queued");
+    await vi.advanceTimersByTimeAsync(10);
+    expect(redeliverWake).toHaveBeenCalledExactlyOnceWith(key, "queued");
   });
 
   it("observes a Shell stop failure immediately while other cleanup is pending", async () => {

@@ -15,6 +15,7 @@ import {
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
 
 import {
   clearGlobalSearchQueries,
@@ -30,6 +31,8 @@ import {
   matchRank,
   MIN_BACKEND_QUERY_LENGTH,
   SCOPE_ORDER,
+  SCOPES,
+  scopeText,
   type GlobalSearchTab,
   type GroupTab,
   type ResultGroup,
@@ -37,6 +40,7 @@ import {
   type SearchResult,
   type TargetContext,
 } from "./global-search-model";
+import { searchMessages as m } from "./global-search.messages";
 import { matchesSearchQuery, normalizeSearchQuery } from "./search-text";
 
 const EMPTY_MEETINGS: readonly TeamHubMemoryEntry[] = [];
@@ -331,6 +335,7 @@ export function useResultSections({
   tab: GlobalSearchTab;
   tenantId: string;
 }) {
+  const t = useT();
   const showingStart = debouncedQuery === "" && tab === "all";
   const sections = useMemo<ResultSection[]>(() => {
     if (showingStart) {
@@ -344,14 +349,15 @@ export function useResultSections({
             }),
           ),
           key: "search-in",
-          label: "Search in",
+          label: t(m.searchIn),
           layout: "scopes",
         },
       ];
       if (store.queries.length > 0) {
         startSections.push({
           action: {
-            label: "Clear",
+            ariaLabel: t(m.clearRecent),
+            label: t(m.clear),
             onSelect: () => setStore(clearGlobalSearchQueries(tenantId)),
           },
           items: store.queries.map(
@@ -362,7 +368,7 @@ export function useResultSections({
             }),
           ),
           key: "recent-searches",
-          label: "Recent",
+          label: t(m.recent),
           layout: "rows",
         });
       }
@@ -374,7 +380,10 @@ export function useResultSections({
       kind,
       messagesLoading,
       tab,
-    });
+    }).map((section) => ({
+      ...section,
+      label: scopeText(SCOPES[section.key as GroupTab].label, t),
+    }));
   }, [
     docsLoading,
     groups,
@@ -383,6 +392,7 @@ export function useResultSections({
     setStore,
     showingStart,
     store,
+    t,
     tab,
     tenantId,
   ]);

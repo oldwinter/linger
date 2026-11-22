@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, open, realpath } from "node:fs/promises";
@@ -22,6 +23,55 @@ export interface TeamHubConfig {
   readonly identityKey: string;
   /** The same namespace without the Context. */
   readonly agentIdentityKey?: string;
+}
+
+export function createLocalPathResolver(cwd: string, env: NodeJS.ProcessEnv) {
+  const distro = process.platform === "win32" ? env.WSL_DISTRO_NAME : undefined;
+  const wsl = path.join(env.SystemRoot ?? "C:/Windows", "System32", "wsl.exe");
+  const translatedParents = new Map<string, string>();
+  return (source: string, relativeTo = cwd): string => {
+    if (!distro || !source.startsWith("/") || source.startsWith("//"))
+      return path.resolve(relativeTo, source);
+    const invalidPath = () =>
+      new CliError(
+        "invalid_path",
+        "Could not resolve the local WSL file path.",
+      );
+    if (/[:\\\p{Cc}]/u.test(source)) throw invalidPath();
+    const normalized = path.posix.normalize(source);
+    const parent = path.posix.dirname(normalized);
+    let translated = translatedParents.get(parent);
+    if (translated === undefined) {
+      // Translate the directory, preserving the leaf for the file checks.
+      // Use the invoking distro even when a different distro is the default.
+      try {
+        translated = execFileSync(
+          wsl,
+          [
+            "--distribution",
+            distro,
+            "--exec",
+            "/usr/bin/wslpath",
+            "-w",
+            parent,
+          ],
+          {
+            encoding: "utf8",
+            windowsHide: true,
+            timeout: 10_000,
+            maxBuffer: 65_536,
+            stdio: ["ignore", "pipe", "pipe"],
+          },
+        ).replace(/\r?\n$/u, "");
+      } catch {
+        throw invalidPath();
+      }
+      if (!path.isAbsolute(translated) || /\p{Cc}/u.test(translated))
+        throw invalidPath();
+      translatedParents.set(parent, translated);
+    }
+    return path.join(translated, path.posix.basename(normalized));
+  };
 }
 
 function invalid(message: string): never {

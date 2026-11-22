@@ -12,7 +12,12 @@ import {
   type Instance,
 } from "./instance.js";
 import type { InstallOutcome, InstallerEvent } from "./events.js";
-import { applyNativeSource, readByokEnvironment } from "./byok-source.js";
+import {
+  applyNativeSource,
+  mountSavedByokSource,
+  readByokEnvironment,
+  type ByokGatewayFailure,
+} from "./byok-source.js";
 import { localmodelsFailure } from "./localmodels-failure.js";
 import { runLocalmodels } from "./localmodels-tool.js";
 import {
@@ -553,6 +558,62 @@ export async function prepareLocalModels(
     });
   });
 }
+// Runs `callback` under the local model lock, waiting for another holder.
+// Returns undefined when the wait runs out.
+async function waitForLocalModelsLock<T>(
+  home: string,
+  callback: () => Promise<T>,
+  signal: AbortSignal,
+  dependencies: RestoreDependencies,
+): Promise<{ value: T } | undefined> {
+  const deadline = Date.now() + (dependencies.lockWaitMs ?? LOCK_WAIT_MS);
+  for (;;) {
+    try {
+      return { value: await withLocalModelsLock(home, callback) };
+    } catch (error) {
+      if ((error as { code?: unknown }).code !== INSTANCE_BUSY) throw error;
+      if (Date.now() >= deadline) return undefined;
+      await sleep(dependencies.lockRetryMs ?? 1000, signal);
+    }
+  }
+}
+
+/**
+ * Brings back the Bifrost gateway of a saved BYOK source, which the
+ * desktop's quit stops with the stack. A failure is logged and returned,
+ * never thrown: failing the resume would block the whole local workspace,
+ * including the Models page that switches the source. Returns undefined
+ * when there was nothing to do or the gateway is up.
+ */
+export async function restoreByokSource(
+  home: string,
+  options: { signal: AbortSignal; onEvent: (e: InstallerEvent) => void },
+  dependencies: RestoreDependencies & { fetch?: typeof fetch } = {},
+): Promise<ByokGatewayFailure | undefined> {
+  const source = await readByokEnvironment(home);
+  if (source?.mode !== "byok") return undefined;
+  // The quit-time stop holds the lock while it takes the gateway down, so a
+  // gateway that answers before it ends is not proof that it stays up.
+  const held = await waitForLocalModelsLock(
+    home,
+    () => mountSavedByokSource(home, source, options, dependencies),
+    options.signal,
+    dependencies,
+  );
+  const failure: ByokGatewayFailure | undefined = held
+    ? held.value
+    : {
+        code: "LOCAL_MODELS_BUSY",
+        message: "Another local model operation is still running.",
+      };
+  if (failure)
+    options.onEvent({
+      kind: "log",
+      message: `${failure.message} (${failure.code}) The Computer mounts the gateway again before the next Run once the endpoint is reachable.`,
+    });
+  return failure;
+}
+
 /**
  * Brings back the local model stack of a local-models setup whose services
  * still run, such as when Linger opens again after a quit stopped the
@@ -584,29 +645,31 @@ export async function restoreLocalModels(
     );
   // A quit-time stop may still hold the lock; checking before it ends would
   // see a stack it is about to take down.
-  const deadline = Date.now() + (dependencies.lockWaitMs ?? LOCK_WAIT_MS);
-  let observed: Binding | null;
-  for (;;) {
-    try {
-      observed = await withLocalModelsLock(home, observe);
-      break;
-    } catch (error) {
-      if ((error as { code?: unknown }).code !== INSTANCE_BUSY) throw error;
-      if (Date.now() >= deadline)
-        return {
-          code: 4,
-          state: "action_required",
-          message:
-            "Another local model operation is still running. Try again once it ends.",
-          details: { code: "LOCAL_MODELS_RECOVERY_REQUIRED" },
-        };
-      await sleep(dependencies.lockRetryMs ?? 1000, options.signal);
-    }
-  }
+  const held = await waitForLocalModelsLock(
+    home,
+    observe,
+    options.signal,
+    dependencies,
+  );
+  if (!held)
+    return {
+      code: 4,
+      state: "action_required",
+      message:
+        "Another local model operation is still running. Try again once it ends.",
+      details: { code: "LOCAL_MODELS_RECOVERY_REQUIRED" },
+    };
+  const observed = held.value;
   if (observed?.ready) return;
   // prepareLocalModels takes the lock itself, and the lock is not reentrant.
   return (
     (await prepareLocalModels(instance, options, dependencies)) ??
-    (await applyNativeSource(home, "local", "pi", options.signal, dependencies))
+    (await applyNativeSource(
+      home,
+      "local",
+      "pi",
+      { signal: options.signal, onEvent: options.onEvent },
+      dependencies,
+    ))
   );
 }

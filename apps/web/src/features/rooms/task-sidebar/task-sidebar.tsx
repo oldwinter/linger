@@ -14,6 +14,8 @@ import { useReducedMotion } from "motion/react";
 
 import { Button } from "@/components/ui/button";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 import { roomMessagesInfiniteQueryOptions } from "../room-queries";
 import { Icon } from "@/components/ui/icon";
 import type {
@@ -43,6 +45,7 @@ import { selectMountedTaskTabs } from "./task-keep-alive";
 import type { TaskAnchorResolution } from "./task-tab-types";
 import { UrlPreviewPanel } from "./url-preview-panel";
 import { PanelLoading } from "./panel-loading";
+import { sidePanelMessages as m } from "./side-panel.messages";
 
 // Opening Agent info or tasks should not load the document editor.
 const TaskActivitiesPanelTab = lazy(() =>
@@ -217,6 +220,7 @@ export function TaskSidebar({
   const focusActiveTabRef = useRef(false);
   const activeTabIdRef = useRef(activeTabId);
   const sidebarWidth = clampPanelSidebarWidth(preferredWidth);
+  const t = useT();
   const reduceMotion = useReducedMotion();
   const exitAnimationEndRef = useRef(onExitAnimationEnd);
   useLayoutEffect(() => {
@@ -335,10 +339,11 @@ export function TaskSidebar({
   return (
     <aside
       aria-busy={activeResolution === "loading" || undefined}
-      aria-label="Panel sidebar"
+      aria-label={t(m.panelSidebar)}
       className={`panel-sidebar relative h-full min-h-0 shrink-0 ${activeTab?.kind === "agentInfo" ? "bg-card" : "bg-sidebar"}`}
       data-dragging={dragging || undefined}
       data-open={expanded ? "true" : "false"}
+      data-voice-area="sidebar"
       data-voice-closable={expanded || undefined}
       data-maximized={maximized || undefined}
       inert={!open || undefined}
@@ -613,12 +618,13 @@ function MountedPanelTab({
   tasksByMessageId,
   tenantId,
 }: MountedPanelTabProps) {
+  const t = useT();
   if (!tab) return null;
   const hidden = tabId !== activeTabId;
 
   if (tab.kind === "taskActivity" && tab.taskId) {
     return (
-      <Suspense fallback={<PanelLoading label="Loading task" />}>
+      <Suspense fallback={<PanelLoading label={t(m.loadingTask)} />}>
         <TaskActivitiesPanelTab
           hidden={hidden || !sidebarOpen}
           taskId={tab.taskId}
@@ -633,7 +639,7 @@ function MountedPanelTab({
     return (
       <AgentActivityTab
         actorId={actor?.id ?? tab.actorId ?? ""}
-        actorName={actor?.display_name ?? "Agent"}
+        actorName={actor?.display_name ?? t(m.agentFallbackName)}
         hidden={hidden || !sidebarOpen}
         onChange={onAgentActivityChange}
         roomId={roomId}
@@ -647,7 +653,7 @@ function MountedPanelTab({
   if (tab.kind === "agentInfo") {
     const actor = resolvePanelAgentActor(actors, tab.actorId, directPeer);
     const activityActorId = actor?.id ?? tab.actorId ?? "";
-    const actorName = actor?.display_name ?? "Agent";
+    const actorName = actor?.display_name ?? t(m.agentFallbackName);
     const nestedActivityMessage = tab.anchorMessageId
       ? roomMessages.find((message) => message.id === tab.anchorMessageId)
       : undefined;
@@ -693,7 +699,7 @@ function MountedPanelTab({
   if (isPanelCollectionTab(tab)) {
     if (tab.kind === "collaboration") {
       return (
-        <Suspense fallback={<PanelLoading label="Loading collaboration" />}>
+        <Suspense fallback={<PanelLoading label={t(m.loadingCollaboration)} />}>
           <CollaborationPanel
             actors={roomMembers}
             hidden={hidden || !sidebarOpen}
@@ -758,7 +764,7 @@ function MountedPanelTab({
 
   if (tab.kind === "file") {
     return (
-      <Suspense fallback={<PanelLoading label="Loading file" />}>
+      <Suspense fallback={<PanelLoading label={t(m.loadingFile)} />}>
         <ConnectedFilePanelTab
           currentActorId={currentActorId}
           documentId={tab.documentId!}
@@ -845,18 +851,19 @@ function TaskResolutionBody({
   tabId: string;
   title?: string;
 }) {
+  const t = useT();
   const content = {
     error: {
-      description: "The complete Room history could not be loaded.",
-      title: title ?? "Task could not be loaded",
+      description: t(m.taskLoadFailedBody),
+      title: title ?? t(m.taskLoadFailedTitle),
     },
     loading: {
-      description: "Looking through the Room history...",
-      title: title ?? "Loading Task",
+      description: t(m.taskLoadingBody),
+      title: title ?? t(m.taskLoadingTitle),
     },
     unavailable: {
-      description: "This Message is not available in the current Room history.",
-      title: title ?? "This message no longer exists",
+      description: t(m.messageGoneBody),
+      title: title ?? t(m.messageGoneTitle),
     },
   }[resolution];
 
@@ -878,7 +885,7 @@ function TaskResolutionBody({
         </p>
         {onRetry ? (
           <Button className="mt-3" onClick={onRetry} size="compact">
-            Retry
+            {t(commonMessages.retry)}
           </Button>
         ) : null}
       </div>
@@ -905,6 +912,7 @@ function AgentActivityTab({
   tab: PanelTab;
   tenantId: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const targetRoomId = tab.activityRoomId ?? roomId;
   const query = useInfiniteQuery({
@@ -932,19 +940,19 @@ function AgentActivityTab({
         messages={roomMessages}
         messagesRoomId={roomId}
         onBack={back}
-        backLabel="Back to Activity"
+        backLabel={t(m.backToActivity)}
         roomId={targetRoomId}
         tenantId={tenantId}
       />
     );
   if (targetRoomId !== roomId && query.isPending && !hidden)
-    return <PanelLoading label="Loading activity" />;
+    return <PanelLoading label={t(m.loadingActivity)} />;
   if (targetRoomId !== roomId && query.isError && !query.data && !hidden)
     return (
       <div role="alert" className="p-4 text-sm">
-        <p>Activity history could not be loaded.</p>
+        <p>{t(m.activityLoadFailed)}</p>
         <Button tone="secondary" onClick={() => void query.refetch()}>
-          Retry
+          {t(commonMessages.retry)}
         </Button>
       </div>
     );
@@ -955,14 +963,14 @@ function AgentActivityTab({
         hidden={hidden}
         message={message}
         onBack={back}
-        backLabel="Back to Activity"
+        backLabel={t(m.backToActivity)}
         roomId={targetRoomId}
         tenantId={tenantId}
       />
     );
   return (
     <div
-      aria-label={`${actorName} activity`}
+      aria-label={t(m.agentActivityRegion, { name: actorName })}
       className={
         hidden ? "hidden" : "workspace-scrollbar h-full min-h-0 overflow-y-auto"
       }
@@ -993,10 +1001,10 @@ function AgentActivityTab({
             onClick={() => void query.fetchNextPage()}
           >
             {query.isFetchingNextPage
-              ? "Loading…"
+              ? t(commonMessages.loading)
               : query.isFetchNextPageError
-                ? "Retry loading earlier activity"
-                : "Load earlier activity"}
+                ? t(m.retryEarlierActivity)
+                : t(m.loadEarlierActivity)}
           </Button>
         </div>
       ) : null}

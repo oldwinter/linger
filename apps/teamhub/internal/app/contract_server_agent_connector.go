@@ -101,7 +101,7 @@ func (a *App) resolveConnectorAccount(c *gin.Context) {
 	if isConnectionIDSelector(selector) {
 		requestedAccount = ""
 	}
-	if roomID, card, ok := a.postConnectorCard(c, token, prompt, typedcard.DecisionCommand{
+	if roomID, card, ok := a.postConnectorCard(c, token, "list_connected_apps", prompt, typedcard.DecisionCommand{
 		ConnectionAuth: &typedcard.ConnectionAuthDecision{Prompt: prompt, AppKey: input.AppKey, Account: requestedAccount, ReusePending: true},
 	}); ok {
 		c.JSON(200, gin.H{"status": "authorization_required", "room_id": roomID, "message_id": card.MessageID, "interaction_id": card.DecisionID})
@@ -128,7 +128,7 @@ func (a *App) requestProviderKey(c *gin.Context, token, appKey string) {
 	} else {
 		appKey = ""
 	}
-	if _, _, ok := a.postConnectorCard(c, token, prompt, typedcard.DecisionCommand{
+	if _, _, ok := a.postConnectorCard(c, token, "list_connected_apps", prompt, typedcard.DecisionCommand{
 		ProviderKey: &typedcard.ProviderKeyDecision{Prompt: prompt, AppKey: appKey},
 	}); ok {
 		a.writeAgentAPIError(c, http.StatusConflict, api.AgentApiErrorCodeProviderKeyRequired,
@@ -147,11 +147,11 @@ func (a *App) askForProviderKey(c *gin.Context, token, appKey string, err error)
 }
 
 // postConnectorCard posts the card that asks the Agent's Human for what a
-// connector command still needs. It writes the error response itself and
-// reports whether the card was posted.
-func (a *App) postConnectorCard(c *gin.Context, token, prompt string, command typedcard.DecisionCommand) (string, typedcard.CreateResult, bool) {
+// command still needs; action is the command's business action. It writes
+// the error response itself and reports whether the card was posted.
+func (a *App) postConnectorCard(c *gin.Context, token, action, prompt string, command typedcard.DecisionCommand) (string, typedcard.CreateResult, bool) {
 	c.Header("Cache-Control", "no-store")
-	auth, err := a.agentAuth.Authorize(c.Request.Context(), token, "list_connected_apps")
+	auth, err := a.agentAuth.Authorize(c.Request.Context(), token, action)
 	if a.writeAgentAuthError(c, "request connector authorization", err) {
 		return "", typedcard.CreateResult{}, false
 	}

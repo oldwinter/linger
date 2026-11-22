@@ -6,6 +6,7 @@ import type { components } from "@linger/wire-contracts/teamhub-public/types";
 import type { CredentialStore } from "./computer-credential.js";
 import type { SavedEnrollment } from "./config.js";
 import type { Module, ModuleContext } from "./modules.js";
+import type { WorkspaceGrantsModule } from "./workspace-grants.js";
 
 type Schemas = components["schemas"];
 type CreateRequest = Schemas["LocalComputerEnrollmentCreateRequest"];
@@ -557,6 +558,9 @@ export class EnrollmentModule implements Module {
       daemonId: enrolled.daemonId,
       ...(nextSaved ? { savedEnrollments: nextSaved } : {}),
     });
+    // Populate the default workspace grant before emitting computer.changed
+    // so the daemon starts with workspace_grants ready for first-online setup.
+    await ctx.get<WorkspaceGrantsModule>("WorkspaceGrants").ensureDefault();
     ctx.bus.emit("computer.changed", enrolled.computerId);
     ctx.log.info("enrollment.completed", { computer_id: enrolled.computerId });
     return { computerId: enrolled.computerId };

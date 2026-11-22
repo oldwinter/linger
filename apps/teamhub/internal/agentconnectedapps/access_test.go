@@ -228,6 +228,56 @@ func TestAccessListsKeepConfirmedWritesHeld(t *testing.T) {
 	}
 }
 
+func TestAccessRunsDiscordReadsAndHoldsDiscordSends(t *testing.T) {
+	for _, slug := range []string{"DISCORDBOT_GET_CONNECTED_GUILD", "DISCORDBOT_LIST_MESSAGES", "DISCORDBOT_LIST_PINNED_MESSAGES"} {
+		if accessOf(slug, nil) != accessRead {
+			t.Errorf("%s only reads the connected guild and must run at once", slug)
+		}
+	}
+	if accessOf("DISCORDBOT_CREATE_MESSAGE", nil) != accessConfirm {
+		t.Error("DISCORDBOT_CREATE_MESSAGE posts to Discord and must wait for confirmation")
+	}
+}
+
+func TestExecuteRunsOutlookCalendarReadsAndDirectWritesAtOnce(t *testing.T) {
+	readSlugs := []string{
+		"OUTLOOK_LIST_CALENDARS",
+		"OUTLOOK_GET_MAILBOX_SETTINGS",
+		"OUTLOOK_GET_CALENDAR_VIEW",
+		"OUTLOOK_LIST_EVENTS",
+		"OUTLOOK_GET_EVENT",
+		"OUTLOOK_GET_CALENDAR_EVENT",
+		"OUTLOOK_GET_CALENDAR_SCHEDULE",
+	}
+	for _, slug := range readSlugs {
+		if accessOf(slug, nil) != accessRead {
+			t.Errorf("%s must be classified as accessRead", slug)
+		}
+		provider, ran, err := executeForTest(t, slug, "outlook", map[string]any{})
+		if err != nil || ran.Confirmation != nil || len(provider.executed) != 1 {
+			t.Fatalf("%s: result=%+v err=%v executed=%v", slug, ran, err, provider.executed)
+		}
+	}
+	writeSlugs := []string{
+		"OUTLOOK_CALENDAR_CREATE_EVENT",
+		"OUTLOOK_UPDATE_CALENDAR_EVENT",
+		"OUTLOOK_UPDATE_CALENDAR_EVENT_IN_CALENDAR",
+		"OUTLOOK_CANCEL_EVENT",
+		"OUTLOOK_CANCEL_CALENDAR_EVENT",
+		"OUTLOOK_DELETE_CALENDAR_EVENT",
+		"OUTLOOK_DELETE_CALENDAR_EVENT_FROM_SPECIFIC_CALENDAR",
+	}
+	for _, slug := range writeSlugs {
+		if accessOf(slug, nil) != accessWrite {
+			t.Errorf("%s must be classified as accessWrite", slug)
+		}
+		provider, ran, err := executeForTest(t, slug, "outlook", map[string]any{})
+		if err != nil || ran.Confirmation != nil || len(provider.executed) != 1 {
+			t.Fatalf("%s: result=%+v err=%v executed=%v", slug, ran, err, provider.executed)
+		}
+	}
+}
+
 func TestExecuteRefusesAnUnknownCallTooLargeForItsCard(t *testing.T) {
 	provider, held, err := executeForTest(t, "GITHUB_STAR_A_REPOSITORY_FOR_THE_AUTHENTICATED_USER", "github", map[string]any{"repo": strings.Repeat("x", maxCardInput)})
 	var domain *Error

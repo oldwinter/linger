@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { settingsMessages } from "@/features/settings/settings.messages";
+import { commonMessages } from "@/i18n/common.messages";
+import { resetLanguageForTest, setLanguage, translate } from "@/i18n/language";
 import { defineGlobalProperty } from "@/test/global-properties";
 
 import {
@@ -24,6 +27,7 @@ import {
 } from "./voice-ui-bridge";
 
 afterEach(() => {
+  resetLanguageForTest();
   resetVoiceUiForTest();
   document.body.innerHTML = "";
   window.history.replaceState(null, "", "/");
@@ -338,15 +342,15 @@ describe("Voice Mode screen actions", () => {
   });
   it("offers visible clickable elements by area and clicks the one chosen", () => {
     document.body.innerHTML = `
-      <nav aria-label="Primary navigation"><a href="/workspace">Workspace</a></nav>
-      <nav aria-label="Room navigation"><button aria-label="Pocket notes"></button></nav>
+      <nav aria-label="Primary navigation" data-voice-area="navigation"><a href="/workspace">Workspace</a></nav>
+      <nav aria-label="Room navigation" data-voice-area="sidebar"><button aria-label="Pocket notes"></button></nav>
       <main>
         <a href="/doc/1">Q3 Budget.xlsx</a>
         <button>Delete room</button>
         <button disabled>Share</button>
         <button style="display:none">Hidden</button>
       </main>
-      <section aria-label="Voice Mode window"><button>End Voice Mode</button></section>
+      <section aria-label="Voice Mode window" data-voice-window><button>End Voice Mode</button></section>
       <div role="dialog"><div role="option">Launch plan</div></div>`;
     const place: Record<string, [number, number]> = {
       Workspace: [10, 100],
@@ -392,15 +396,56 @@ describe("Voice Mode screen actions", () => {
     expect(voiceClick(file.id)).toBeUndefined();
   });
 
+  it("keeps destructive and close buttons apart by their markers in either language", async () => {
+    for (const language of ["en", "zh-CN"] as const) {
+      await setLanguage(language);
+      const settings = translate(settingsMessages.title);
+      const retry = translate(commonMessages.tryAgain);
+      const close = translate(commonMessages.close);
+      // Marked controls are kept out whatever their names say; an unmarked
+      // one is still judged by its English name.
+      const names = [settings, retry, "Tidy up", "Delete room"];
+      document.body.innerHTML = `<main>
+          <button>${settings}</button>
+          <button data-voice-risk="never">${retry}</button>
+          <button data-voice-risk="never">Tidy up</button>
+          <button>Delete room</button>
+        </main>
+        <aside aria-label="Daily report" style="position: fixed">
+          <button aria-label="Pin"></button>
+          <button aria-label="${close}" data-voice-close></button>
+        </aside>`;
+      const box = { top: 100, left: 500, bottom: 120, right: 560 };
+      for (const element of document.querySelectorAll<HTMLElement>(
+        "button, aside",
+      ))
+        element.getBoundingClientRect = () =>
+          ({ ...box, width: 60, height: 20 }) as DOMRect;
+
+      const offered = (options?: { riskyTargets: boolean }) =>
+        collectVoiceElements(120, options)
+          .map(({ name }) => name)
+          .filter((name) => names.includes(name));
+      expect(offered(), language).toEqual([settings]);
+      expect(offered({ riskyTargets: true }), language).toEqual(names);
+      expect(voiceCanClose(), language).toBe(true);
+      // Without its marker the close button is found by its English name only.
+      document
+        .querySelector("[data-voice-close]")!
+        .removeAttribute("data-voice-close");
+      expect(voiceCanClose(), language).toBe(language === "en");
+    }
+  });
+
   it("lists named text fields and fills one as typing would, never a password", () => {
     document.body.innerHTML = `
       <main>
-        <textarea aria-label="Message Room">Draft</textarea>
+        <textarea aria-label="Message Room" data-chat-composer>Draft</textarea>
         <input type="search" placeholder="Search files" />
         <input type="password" aria-label="Password" />
         <input aria-label="Read only" readonly />
       </main>
-      <section aria-label="Voice Mode window"><input aria-label="Box in the voice window" /></section>`;
+      <section aria-label="Voice Mode window" data-voice-window><input aria-label="Box in the voice window" /></section>`;
     for (const element of document.querySelectorAll<HTMLElement>(
       "input, textarea",
     ))
@@ -429,7 +474,7 @@ describe("Voice Mode screen actions", () => {
 
   it("offers the live model risky, hover-only and switch targets, main area first", () => {
     document.body.innerHTML = `
-      <nav aria-label="Primary navigation"><a href="/workspace">Workspace</a></nav>
+      <nav aria-label="Primary navigation" data-voice-area="navigation"><a href="/workspace">Workspace</a></nav>
       <main>
         <button>Delete room</button>
         <div class="hover"><button>Reply</button></div>
@@ -483,7 +528,7 @@ describe("Voice Mode screen actions", () => {
 
   it('marks the open item and the one voice clicked last, for "the next one"', () => {
     document.body.innerHTML = `
-      <nav aria-label="Room navigation">
+      <nav aria-label="Room navigation" data-voice-area="sidebar">
         <a href="/a">Alpha</a>
         <a href="/b" aria-current="page">Beta</a>
         <a href="/c">Gamma</a>

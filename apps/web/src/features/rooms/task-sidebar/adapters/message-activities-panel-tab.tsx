@@ -8,6 +8,7 @@ import {
 } from "@hugeicons/core-free-icons";
 
 import { Icon } from "@/components/ui/icon";
+import { useT } from "@/i18n/use-translation";
 import { RuntimeHistoryView } from "./runtime-history-view";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
@@ -15,6 +16,7 @@ import type { TeamHubMessage } from "@/features/teamhub/teamhub-types";
 
 import { ActorAvatar } from "../../members/actor-avatar";
 import { PanelLoading } from "../panel-loading";
+import { activityPanelMessages as m } from "./activity-panel.messages";
 import { TaskConversationProvider } from "./task-conversation-dialog";
 
 export function MessageActivitiesPanelTab({
@@ -22,7 +24,7 @@ export function MessageActivitiesPanelTab({
   hidden,
   message,
   onBack,
-  backLabel = "Back to Agent info",
+  backLabel,
   roomId,
   tenantId,
 }: {
@@ -34,6 +36,8 @@ export function MessageActivitiesPanelTab({
   roomId: string;
   tenantId: string;
 }) {
+  const t = useT();
+  const back = backLabel ?? t(m.backToAgentInfo);
   const { client } = useTeamHubRuntime();
   const activities = useQuery({
     enabled: !hidden,
@@ -87,10 +91,10 @@ export function MessageActivitiesPanelTab({
         <header className="flex min-h-14 shrink-0 items-center gap-2.5 border-b border-app-border px-4 py-2">
           {onBack ? (
             <button
-              aria-label={backLabel}
+              aria-label={back}
               className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-app-focus"
               onClick={onBack}
-              title={backLabel}
+              title={back}
               type="button"
             >
               <Icon icon={ArrowLeft01Icon} size={16} />
@@ -104,19 +108,19 @@ export function MessageActivitiesPanelTab({
           />
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-sm font-semibold text-foreground">
-              {message.author.display_name} activities
+              {t(m.messageActivities, { name: message.author.display_name })}
             </h2>
-            <p className="truncate text-xs text-app-muted">Activity</p>
+            <p className="truncate text-xs text-app-muted">{t(m.activity)}</p>
           </div>
           <button
-            aria-label="Refresh message activities"
+            aria-label={t(m.refreshMessageActivities)}
             className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-60"
             disabled={loading}
             onClick={() => {
               setRefreshing(true);
               void activities.refetch().finally(() => setRefreshing(false));
             }}
-            title="Refresh"
+            title={t(m.refresh)}
             type="button"
           >
             {refreshing ? (
@@ -143,38 +147,34 @@ export function MessageActivitiesPanelTab({
         >
           {activities.isError ? (
             <ActivityLogState
-              detail="The Message activity log could not be read."
-              title="Activities could not be loaded"
+              detail={t(m.activitiesLoadFailedDetail)}
+              title={t(m.activitiesLoadFailedTitle)}
             />
           ) : loading ? (
-            <PanelLoading label="Loading activities" />
+            <PanelLoading label={t(m.loadingActivities)} />
           ) : activities.data?.status !== "available" ? (
             <ActivityLogState
               detail={activities.data?.reason}
-              title="Message activity log unavailable"
+              title={t(m.activityLogUnavailable)}
             />
           ) : activities.data.records.length > 0 ? (
             <section className="bg-card">
               {!activities.data.has_native_turn ? (
                 <p className="border-b border-app-border px-4 py-2 text-xs text-app-muted">
-                  Only linked tool records are available for this execution.
+                  {t(m.onlyLinkedToolRecords)}
                 </p>
               ) : null}
               {activities.data.truncated ? (
                 <p className="border-b border-app-border px-4 py-2 text-xs text-app-muted">
-                  This unusually large turn was limited to the latest 10,000
-                  records.
+                  {t(m.turnTruncated, { limit: 10_000 })}
                 </p>
               ) : null}
               <RuntimeHistoryView records={activities.data.records} />
             </section>
           ) : (
             <ActivityLogState
-              detail={
-                activities.data.reason ??
-                "Only Runtime records connected by Activity identity are shown."
-              }
-              title="No exact activity log for this Message"
+              detail={activities.data.reason ?? t(m.onlyLinkedRuntimeRecords)}
+              title={t(m.noExactActivityLog)}
             />
           )}
         </div>

@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubRoom } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
+import { chatMessages } from "./chat/chat.messages";
 import {
   roomQueryKey,
   roomQueryOptions,
@@ -51,12 +53,11 @@ export function RoomRejoinBanner({ room }: { room: TeamHubRoom }) {
     enabled: Boolean(room.parent_room_id),
   });
   const join = useRoomParticipation(room);
+  const t = useT();
   const roomName = parent.data?.name ?? room.name;
   return (
     <div className="shrink-0 border-t border-app-border bg-app-surface p-4 text-center">
-      <p className="mb-2 text-sm text-app-muted">
-        You left this room. Rejoin to send and receive messages.
-      </p>
+      <p className="mb-2 text-sm text-app-muted">{t(chatMessages.leftRoom)}</p>
       <Button
         tone="primary"
         className="w-full"
@@ -64,7 +65,9 @@ export function RoomRejoinBanner({ room }: { room: TeamHubRoom }) {
         onClick={() => join.mutate("joined")}
       >
         <Icon icon={Login01Icon} size={16} />
-        {join.isPending ? "Joining..." : `Join ${roomName}`}
+        {join.isPending
+          ? t(chatMessages.joining)
+          : t(chatMessages.joinRoom, { name: roomName })}
       </Button>
       {join.error ? (
         <p role="alert" className="mt-2 text-sm text-app-danger">

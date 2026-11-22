@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
+
+import { documentPageMessages as m } from "./document-page.messages";
+
 export function EditableDocumentTitle({
   autoFocus = false,
   display = "breadcrumb",
@@ -17,6 +22,7 @@ export function EditableDocumentTitle({
   onCommit?: () => void;
   onRename: (name: string) => Promise<void>;
 }) {
+  const t = useT();
   const [editing, setEditing] = useState(autoFocus);
   const [draft, setDraft] = useState<string>();
   const [committedName, setCommittedName] = useState<{
@@ -90,7 +96,7 @@ export function EditableDocumentTitle({
       setError(
         renameError instanceof Error
           ? renameError.message
-          : "The title could not be updated.",
+          : translate(m.titleUpdateFailed),
       );
       return false;
     } finally {
@@ -127,7 +133,7 @@ export function EditableDocumentTitle({
                 setError(undefined);
                 setEditing(true);
               }}
-              title="Rename document"
+              title={t(m.renameDocument)}
               type="button"
             >
               {display === "page" ? (
@@ -170,7 +176,7 @@ export function EditableDocumentTitle({
       }}
     >
       <input
-        aria-label="Document title"
+        aria-label={t(m.documentTitle)}
         className={
           display === "page"
             ? "room-document-page-title block h-auto w-full min-w-0 border-0 bg-transparent px-0 py-0 font-normal text-app-ink outline-none shadow-none focus:border-0 focus:outline-none focus:ring-0"

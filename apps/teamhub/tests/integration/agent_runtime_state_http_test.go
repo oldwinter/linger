@@ -255,6 +255,208 @@ func TestAgentRuntimeStateHTTPContractAndRecoveryChain(t *testing.T) {
 	assertAgentRuntimeHTTPError(t, status, body, http.StatusConflict, "CONTEXT_FENCED")
 }
 
+func TestAgentLocalRunReplyStatus(t *testing.T) {
+	allowParallelIntegrationTest(t)
+	databaseURL := newIntegrationDatabase(t)
+	pool, err := pgxpool.New(t.Context(), databaseURL)
+	if err != nil {
+		t.Fatalf("open Agent Local Run reply status database: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	seedReadyFixtureComputers(t, pool)
+	application, err := newTestApp(context.Background(), config.ForTest(func(c *config.Config) {
+		c.DatabaseURL = databaseURL
+		c.SessionTTL = time.Hour
+		c.CookieName = "teamhub_session"
+		c.TeamHubInternalToken = teamHubInternalToken
+		c.NodeServicesInternalToken = nodeServicesInternalToken
+		c.AgentRunTokenSecret = agentRunTokenSecret
+		c.ArtifactStorageRoot = t.TempDir()
+		c.ArtifactMaxBytes = 1 << 20
+	}), skipping(app.SkillInstall), skipping(app.SkillPackageProbe),
+		skipping(app.RoomDocumentJobs), skipping(app.AgentCredentialSweep), skipping(app.PersonalWikiJobs))
+	if err != nil {
+		t.Fatalf("start TeamHub for reply status test: %v", err)
+	}
+	t.Cleanup(application.Close)
+
+	const (
+		roomID   = "http-reply-status-room"
+		threadID = "http-reply-status-thread"
+		epoch    = "http-reply-status-epoch"
+	)
+	insertRuntimeRoomMembership(t, pool, roomID)
+	insertRuntimeRoomMembershipForAgent(t, pool, threadID, "actor_acme_alice")
+	for _, stmt := range []string{
+		`INSERT INTO messages(id,tenant_id,room_id,author_actor_id,body,segments)
+		 VALUES('reply-status-root','tenant_acme','http-reply-status-room','actor_acme_alice','Root','[{"type":"text","content":"Root"}]')`,
+		`UPDATE rooms SET parent_room_id='http-reply-status-room',root_message_id='reply-status-root'
+		 WHERE id='http-reply-status-thread' AND tenant_id='tenant_acme'`,
+		`INSERT INTO messages(id,tenant_id,room_id,author_actor_id,body,segments)
+		 VALUES('reply-status-thread-msg','tenant_acme','http-reply-status-thread','actor_acme_alice','In thread','[{"type":"text","content":"In thread"}]')`,
+	} {
+		if _, err := pool.Exec(t.Context(), stmt); err != nil {
+			t.Fatalf("seed reply status Room and Thread: %v", err)
+		}
+	}
+
+	handler := application.Handler()
+	status, body := agentRuntimeStateRequest(t, handler, http.MethodPost, "/v0/agent-runtime/contexts", teamHubInternalToken, map[string]any{
+		"target_residency": "active",
+		"ref":              map[string]any{"kind": "meta", "agent_id": testRuntimeAgentID, "room_id": roomID},
+	})
+	if status != http.StatusOK {
+		t.Fatalf("ensure Context status=%d body=%s", status, body)
+	}
+	var ensured struct {
+		Context struct {
+			ContextKey string `json:"context_key"`
+		} `json:"context"`
+	}
+	decode(t, body, &ensured)
+	contextKey := ensured.Context.ContextKey
+
+	status, body = agentRuntimeStateRequest(t, handler, http.MethodPost, "/v0/agent-runtime/epochs", teamHubInternalToken, map[string]any{
+		"epoch": epoch,
+	})
+	if status != http.StatusOK {
+		t.Fatalf("start epoch status=%d body=%s", status, body)
+	}
+
+	queryReplyStatus := func(runID string) (int, []byte) {
+		t.Helper()
+		path := "/v0/agent-runtime/runs/reply-status?context_key=" + url.QueryEscape(contextKey) + "&local_run_id=" + url.QueryEscape(runID)
+		return agentRuntimeStateRequest(t, handler, http.MethodGet, path, teamHubInternalToken, nil)
+	}
+	assertReplied := func(runID string, want bool) {
+		t.Helper()
+		code, raw := queryReplyStatus(runID)
+		if code != http.StatusOK {
+			t.Fatalf("reply status for %s status=%d body=%s", runID, code, raw)
+		}
+		var result teamhubinternal.AgentLocalRunReplyStatus
+		decode(t, raw, &result)
+		if result.Replied != want {
+			t.Fatalf("reply status for %s replied=%v, want %v", runID, result.Replied, want)
+		}
+	}
+	startRun := func(inputID string) string {
+		t.Helper()
+		code, raw := agentRuntimeStateRequest(t, handler, http.MethodPost, "/v0/agent-runtime/trusted-turns", teamHubInternalToken, map[string]any{
+			"context_key": contextKey, "epoch": epoch,
+			"inputs": []any{runtimeHTTPInput(inputID, "question")},
+		})
+		if code != http.StatusOK {
+			t.Fatalf("submit turn %s status=%d body=%s", inputID, code, raw)
+		}
+		var submitted teamhubinternal.SubmitAgentTrustedTurnResult
+		decode(t, raw, &submitted)
+		code, raw = agentRuntimeStateRequest(t, handler, http.MethodPost, "/v0/agent-runtime/runs/claim", teamHubInternalToken, map[string]any{
+			"context_key": contextKey, "epoch": epoch, "claim_id": "claim-" + inputID,
+		})
+		if code != http.StatusOK {
+			t.Fatalf("claim run %s status=%d body=%s", inputID, code, raw)
+		}
+		return submitted.RunId
+	}
+	finishRun := func(runID string) {
+		t.Helper()
+		code, raw := agentRuntimeStateRequest(t, handler, http.MethodPost, "/v0/agent-runtime/runs/finish", teamHubInternalToken, map[string]any{
+			"context_key": contextKey, "epoch": epoch, "run_id": runID,
+			"terminal": map[string]any{"type": "succeeded"},
+		})
+		if code != http.StatusOK {
+			t.Fatalf("finish run %s status=%d body=%s", runID, code, raw)
+		}
+	}
+
+	// Missing Run returns 404 NOT_FOUND.
+	status, body = queryReplyStatus("missing-run")
+	assertAgentRuntimeHTTPError(t, status, body, http.StatusNotFound, "NOT_FOUND")
+
+	// Seed an older finished Run and an older unattributed message before Run 1 starts.
+	run0 := startRun("reply-run-0")
+	finishRun(run0)
+	if _, err := pool.Exec(t.Context(), `
+		INSERT INTO messages(id,tenant_id,room_id,author_actor_id,body,segments,message_kind,created_at)
+		VALUES('msg-before-run','tenant_acme',$1,'actor_acme_official','Old reply',
+		       '[{"type":"text","content":"Old reply"}]'::jsonb,'conversation',clock_timestamp()-interval '1 minute')`, roomID); err != nil {
+		t.Fatalf("insert pre-run message: %v", err)
+	}
+
+	// Run 1: non-conversation messages and delayed messages attributed to another Run do not count;
+	// an attributed conversation message does count.
+	run1 := startRun("reply-run-1")
+	assertReplied(run1, false)
+	for _, stmt := range []struct {
+		id      string
+		kind    string
+		localID string
+		notice  any
+	}{
+		{id: "msg-notice", kind: "room_notice", localID: run1, notice: `{"type":"member_added"}`},
+		{id: "msg-runtime", kind: "agent_runtime", localID: run1, notice: nil},
+		{id: "msg-other-run", kind: "conversation", localID: run0, notice: nil},
+	} {
+		if _, err := pool.Exec(t.Context(), `
+			INSERT INTO messages(id,tenant_id,room_id,author_actor_id,body,segments,message_kind,local_run_id,notice,created_at)
+			VALUES($1,'tenant_acme',$2,'actor_acme_official','Non-reply',
+			       '[{"type":"text","content":"Non-reply"}]'::jsonb,$3,$4,$5::jsonb,clock_timestamp())`,
+			stmt.id, roomID, stmt.kind, stmt.localID, stmt.notice); err != nil {
+			t.Fatalf("insert %s: %v", stmt.id, err)
+		}
+	}
+	assertReplied(run1, false)
+	insertRuntimeRunMessageFixture(t, pool, roomID, "msg-run1-reply", run1, "Direct reply")
+	assertReplied(run1, true)
+	finishRun(run1)
+
+	// Run 2: attributed presentation sequence counts even before items deliver into messages.
+	run2 := startRun("reply-run-2")
+	assertReplied(run2, false)
+	if _, err := pool.Exec(t.Context(), `
+		INSERT INTO agent_presentation_sequences(id,tenant_id,room_id,agent_actor_id,local_run_id,status)
+		VALUES('seq-run2','tenant_acme',$1,'actor_acme_official',$2,'pending')`, roomID, run2); err != nil {
+		t.Fatalf("insert attributed sequence: %v", err)
+	}
+	assertReplied(run2, true)
+	finishRun(run2)
+
+	// Run 3: unattributed presentation sequence created during the Run counts.
+	run3 := startRun("reply-run-3")
+	assertReplied(run3, false)
+	if _, err := pool.Exec(t.Context(), `
+		INSERT INTO agent_presentation_sequences(id,tenant_id,room_id,agent_actor_id,local_run_id,status,created_at)
+		VALUES('seq-run3-unattributed','tenant_acme',$1,'actor_acme_official',NULL,'pending',clock_timestamp())`, roomID); err != nil {
+		t.Fatalf("insert unattributed sequence: %v", err)
+	}
+	assertReplied(run3, true)
+	finishRun(run3)
+
+	// Run 4: unattributed conversation message written during the Run counts.
+	run4 := startRun("reply-run-4")
+	assertReplied(run4, false)
+	if _, err := pool.Exec(t.Context(), `
+		INSERT INTO messages(id,tenant_id,room_id,author_actor_id,body,segments,message_kind,local_run_id,created_at)
+		VALUES('msg-run4-unattributed','tenant_acme',$1,'actor_acme_official','Early reply',
+		       '[{"type":"text","content":"Early reply"}]'::jsonb,'conversation',NULL,clock_timestamp())`, roomID); err != nil {
+		t.Fatalf("insert unattributed message: %v", err)
+	}
+	assertReplied(run4, true)
+	finishRun(run4)
+
+	// Run 5: emoji reaction in a Thread of the Room written during the Run counts.
+	run5 := startRun("reply-run-5")
+	assertReplied(run5, false)
+	if _, err := pool.Exec(t.Context(), `
+		INSERT INTO message_reactions(message_id,tenant_id,room_id,actor_id,reaction_id,created_at)
+		VALUES('reply-status-thread-msg','tenant_acme',$1,'actor_acme_official','thumbs_up',clock_timestamp())`, threadID); err != nil {
+		t.Fatalf("insert thread reaction: %v", err)
+	}
+	assertReplied(run5, true)
+	finishRun(run5)
+}
+
 func agentRuntimeStateRequest(
 	t *testing.T,
 	handler http.Handler,

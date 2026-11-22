@@ -1,10 +1,11 @@
-import { mkdtemp, readFile, writeFile, stat, rm } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { afterEach, expect, it, vi } from "vitest";
 import type { Instance } from "./instance.js";
 import { prepareLocalEnrollment } from "./local-enrollment.js";
+import { expectPrivateFixtureFile } from "./test-support/private-files.js";
 const roots: string[] = [];
 afterEach(async () => {
   vi.unstubAllGlobals();
@@ -88,7 +89,7 @@ it("authorizes through the local owner session, persists one private PKCE token,
   expect(token.origin).toBe(f.instance.origin);
   expect(token.tenant_id).toBe("tenant-one");
   expect(token.code_verifier).toHaveLength(43);
-  expect((await stat(file)).mode & 0o777).toBe(0o600);
+  await expectPrivateFixtureFile(file);
   const enrollment = requests.find((r) =>
     r.url.endsWith("/local-computer-enrollments"),
   )!;

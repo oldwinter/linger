@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -366,10 +367,11 @@ func routineSpecForBinding(ctx context.Context, queries *store.Queries, binding 
 type pollFetcher func(ctx context.Context, provider *composio.Client, connectedAccountID string, spec ListenerSpec, cursor pollCursor) (pollRead, error)
 
 var pollFetchers = map[string]pollFetcher{
-	ListenerSlack:   fetchSlack,
-	ListenerGmail:   fetchGmail,
-	ListenerOutlook: fetchOutlook,
-	ListenerGCal:    fetchGCal,
+	ListenerSlack:           fetchSlack,
+	ListenerGmail:           fetchGmail,
+	ListenerOutlook:         fetchOutlook,
+	ListenerGCal:            fetchGCal,
+	ListenerOutlookCalendar: fetchOutlookCalendar,
 }
 
 // Slack: per-channel conversations.history with oldest=cursor over every
@@ -631,6 +633,155 @@ func fetchGCal(ctx context.Context, provider *composio.Client, ca string, spec L
 	}
 	read.cursor = cursor
 	return read, nil
+}
+
+const (
+	// Microsoft Graph calendarView/delta binds its token to the initial time
+	// window. Start one day back and cover six months ahead, rolling forward once
+	// less than 30 days of future coverage remain.
+	outlookCalendarWindowPast    = 24 * time.Hour
+	outlookCalendarWindowFuture  = 180 * 24 * time.Hour
+	outlookCalendarWindowRefresh = 30 * 24 * time.Hour
+	// Exchange may stamp lastModifiedDateTime slightly after createdDateTime on a
+	// newly created event.
+	outlookCalendarCreateSkew = 2 * time.Second
+)
+
+// Outlook Calendar: Graph calendarView/delta. Bootstrap persists the
+// observation boundary and bounded window first, then pages to a deltaLink
+// emitting only events changed after the boundary; incremental polls emit
+// created, updated, and cancelled events.
+func fetchOutlookCalendar(ctx context.Context, provider *composio.Client, ca string, spec ListenerSpec, cursor pollCursor) (pollRead, error) {
+	calendarID := spec.CalendarID
+	if calendarID == "" {
+		calendarID = "primary"
+	}
+	channels := maps.Clone(cursor.Channels)
+	if channels == nil {
+		channels = map[string]string{}
+	}
+	cursor.Channels = channels
+	now := time.Now().UTC()
+	if cursor.Channels["since"] == "" {
+		cursor.Channels["since"] = now.Format(time.RFC3339Nano)
+		cursor.Channels["window_start"] = now.Add(-outlookCalendarWindowPast).Format(time.RFC3339)
+		cursor.Channels["window_end"] = now.Add(outlookCalendarWindowFuture).Format(time.RFC3339)
+		// Commit the boundary before any remote request can fail.
+		return pollRead{cursor: cursor, nextPoll: time.Minute}, nil
+	}
+	since, err := time.Parse(time.RFC3339Nano, cursor.Channels["since"])
+	if err != nil {
+		return pollRead{}, err
+	}
+	windowStart, hasStart := parseRFC3339OK(cursor.Channels["window_start"])
+	windowEnd, hasEnd := parseRFC3339OK(cursor.Channels["window_end"])
+	needsWindowRoll := !hasStart || !hasEnd || now.Add(outlookCalendarWindowRefresh).After(windowEnd)
+	if !hasStart || !hasEnd {
+		windowStart = now.Add(-outlookCalendarWindowPast)
+		windowEnd = now.Add(outlookCalendarWindowFuture)
+		cursor.Channels["window_start"] = windowStart.Format(time.RFC3339)
+		cursor.Channels["window_end"] = windowEnd.Format(time.RFC3339)
+	}
+
+	isInitialSync := cursor.V == ""
+	link := cursor.V
+	if cursor.PageToken != "" {
+		link = cursor.PageToken
+	}
+	changes, nextLink, deltaLink, err := provider.ListOutlookCalendarDelta(ctx, ca, calendarID, windowStart, windowEnd, link)
+	if errors.Is(err, composio.ErrOutlookDeltaExpired) {
+		// Retry a lost continuation from the committed delta; if that expires too,
+		// resync from the original observation boundary. Delivery receipts dedup it.
+		if cursor.PageToken != "" {
+			cursor.PageToken = ""
+		} else {
+			cursor.V = ""
+			cursor.Channels["window_start"] = now.Add(-outlookCalendarWindowPast).Format(time.RFC3339)
+			cursor.Channels["window_end"] = now.Add(outlookCalendarWindowFuture).Format(time.RFC3339)
+		}
+		return pollRead{cursor: cursor, nextPoll: time.Minute}, nil
+	}
+	if err != nil {
+		return pollRead{}, err
+	}
+
+	read := pollRead{cursor: cursor}
+	for _, ch := range changes {
+		if ch.ID == "" {
+			return pollRead{}, errors.New("calendar change missing identity")
+		}
+		if ch.Removed {
+			// Graph emits @removed with reason "changed" when an event moves
+			// outside the view window; only deletions represent cancellations.
+			if ch.RemovedReason != "" && !strings.EqualFold(ch.RemovedReason, "deleted") {
+				continue
+			}
+			if isInitialSync {
+				continue
+			}
+			read.events = append(read.events, ListenerEvent{
+				Source:    ListenerOutlookCalendar,
+				EventID:   ch.ID + ":cancelled",
+				EventKind: "cancelled",
+				MessageID: ch.ID,
+			})
+			continue
+		}
+		if isInitialSync && !ch.LastModified.After(since) && !ch.CreatedAt.After(since) {
+			continue
+		}
+		kind := "updated"
+		if ch.IsCancelled {
+			kind = "cancelled"
+		} else if !ch.CreatedAt.IsZero() && (ch.LastModified.IsZero() || ch.LastModified.Sub(ch.CreatedAt) <= outlookCalendarCreateSkew) {
+			kind = "created"
+		}
+		revision := ch.LastModified.UTC().Format(time.RFC3339Nano)
+		if ch.LastModified.IsZero() {
+			if kind == "cancelled" {
+				revision = "cancelled"
+			} else if !ch.CreatedAt.IsZero() {
+				revision = ch.CreatedAt.UTC().Format(time.RFC3339Nano)
+			} else {
+				revision = kind
+			}
+		}
+		read.events = append(read.events, ListenerEvent{
+			Source:      ListenerOutlookCalendar,
+			EventID:     ch.ID + ":" + revision,
+			EventKind:   kind,
+			Summary:     ch.Subject,
+			Start:       ch.Start,
+			End:         ch.End,
+			Description: ch.Description,
+			Location:    ch.Location,
+			Organizer:   ch.Organizer,
+			MessageID:   ch.ID,
+		})
+	}
+	cursor.PageToken = nextLink
+	if deltaLink != "" {
+		if !isInitialSync && needsWindowRoll {
+			// Roll the bounded delta window only after draining pending changes
+			// from the expiring delta so nothing in the last poll interval is lost.
+			cursor.V = ""
+			cursor.Channels["since"] = now.Format(time.RFC3339Nano)
+			cursor.Channels["window_start"] = now.Add(-outlookCalendarWindowPast).Format(time.RFC3339)
+			cursor.Channels["window_end"] = now.Add(outlookCalendarWindowFuture).Format(time.RFC3339)
+			read.nextPoll = time.Minute
+		} else {
+			cursor.V = deltaLink
+		}
+	} else {
+		read.nextPoll = time.Minute
+	}
+	read.cursor = cursor
+	return read, nil
+}
+
+func parseRFC3339OK(raw string) (time.Time, bool) {
+	parsed, err := time.Parse(time.RFC3339, raw)
+	return parsed, err == nil
 }
 
 func fetchListenerPoll(ctx context.Context, provider *composio.Client, ca string, spec ListenerSpec, cursor pollCursor) (pollRead, error) {

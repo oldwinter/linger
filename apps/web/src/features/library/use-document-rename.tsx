@@ -9,6 +9,10 @@ import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubDocumentTreeSummary } from "@/features/teamhub/teamhub-types";
 import { documentQueryKey } from "@/features/rooms/room-queries";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
+
+import { libraryMessages as m } from "./library.messages";
 
 export function canRenameDocument(document: TeamHubDocumentTreeSummary) {
   if (document.status !== "active") return false;
@@ -21,6 +25,7 @@ export function useDocumentRename(tenantId: string) {
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const t = useT();
   const [document, setDocument] = useState<TeamHubDocumentTreeSummary | null>(
     null,
   );
@@ -74,11 +79,7 @@ export function useDocumentRename(tenantId: string) {
       ]);
       setDocument(null);
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "The file could not be renamed.",
-      );
+      setError(cause instanceof Error ? cause.message : t(m.fileNotRenamed));
     } finally {
       setPending(false);
     }
@@ -91,7 +92,7 @@ export function useDocumentRename(tenantId: string) {
         if (!pending) setDocument(null);
       }}
       size="sm"
-      title="Rename file"
+      title={t(m.renameFile)}
       footer={
         <>
           <Button
@@ -100,7 +101,7 @@ export function useDocumentRename(tenantId: string) {
             tone="secondary"
             type="button"
           >
-            Cancel
+            {t(commonMessages.cancel)}
           </Button>
           <Button
             disabled={!name.trim()}
@@ -109,7 +110,7 @@ export function useDocumentRename(tenantId: string) {
             tone="primary"
             type="submit"
           >
-            Rename
+            {t(m.rename)}
           </Button>
         </>
       }
@@ -123,7 +124,7 @@ export function useDocumentRename(tenantId: string) {
         }}
       >
         <label className="block text-sm font-medium text-app-body">
-          File name
+          {t(m.fileName)}
           <input
             // eslint-disable-next-line jsx-a11y/no-autofocus -- the field is focused on purpose because the user just opened this dialog or inline editor
             autoFocus

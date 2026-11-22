@@ -5,12 +5,16 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { teamHubDone } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
 
+import { accountSettingsMessages } from "./account-settings.messages";
 import { ApiKeysSettings } from "./api-keys-settings";
 import { ChangePasswordDialog } from "./change-password-dialog";
 import { SettingsPageHeading } from "./settings-page-heading";
+import { settingsMessages } from "./settings.messages";
 
 export function SecuritySettingsPage() {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [passwordChanged, setPasswordChanged] = useState(false);
@@ -19,15 +23,17 @@ export function SecuritySettingsPage() {
     <div className="mx-auto flex w-full max-w-(--app-settings-width) flex-col gap-8 pb-4">
       <SettingsPageHeading
         description="Manage your sign-in password and server API keys."
-        title="Security"
+        title={t(settingsMessages.security)}
       />
 
       <section className="rounded-2xl border border-border bg-background p-6">
         <div className="flex flex-col justify-center gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm text-foreground">Password</p>
+            <p className="text-sm text-foreground">
+              {t(accountSettingsMessages.password)}
+            </p>
             <p className="text-sm text-muted-foreground">
-              Update the password used to sign in.
+              {t(accountSettingsMessages.passwordHint)}
             </p>
           </div>
           <Button
@@ -36,7 +42,7 @@ export function SecuritySettingsPage() {
               setChangePasswordOpen(true);
             }}
           >
-            Change password
+            {t(accountSettingsMessages.changePassword)}
           </Button>
         </div>
       </section>
@@ -47,7 +53,7 @@ export function SecuritySettingsPage() {
           role="status"
         >
           <Icon icon={Tick02Icon} size={16} />
-          Password changed
+          {t(accountSettingsMessages.passwordChanged)}
         </p>
       ) : null}
 

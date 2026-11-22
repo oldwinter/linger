@@ -34,6 +34,15 @@ import { validatePublishedServiceSource } from "./published-source.js";
 import type { InstallerEvent } from "./events.js";
 import { renameRetrying } from "./fs-retry.js";
 
+const postgresPrograms = [
+  "postgres",
+  "initdb",
+  "pg_ctl",
+  "pg_isready",
+  "psql",
+  "createdb",
+] as const;
+
 export const nativeTargets = [
   "darwin-arm64",
   "linux-x64",
@@ -262,6 +271,8 @@ type Artifact = (
   maxBytes: number;
   /** Release archives are gzip tarballs unless they say otherwise. */
   format?: "zip";
+  /** Install UTF-8 process manifests beside the Windows PostgreSQL tools. */
+  windowsPostgres?: boolean;
   /** What a bundled archive holds, for its errors. */
   label?: string;
 };
@@ -364,7 +375,11 @@ export async function acquireNativeArtifact(
   signal.throwIfAborted();
   await privateDirectory(base);
   return withInstanceLock({ root: base } as Instance, async () => {
-    const directory = path.join(base, artifact.digest);
+    // Older installers verify the unmodified archive under its bare digest.
+    const directory = path.join(
+      base,
+      artifact.windowsPostgres ? `${artifact.digest}-utf8` : artifact.digest,
+    );
     const exists = await lstat(directory).catch((error) => {
       if (error.code === "ENOENT") return;
       throw error;
@@ -453,6 +468,24 @@ export async function acquireNativeArtifact(
           },
         });
       if (archiveError) throw archiveError;
+      if (artifact.windowsPostgres) {
+        // initdb relaunches itself and starts postgres through narrow Win32 APIs.
+        for (const program of postgresPrograms)
+          await writeFile(
+            path.join(stage, "bin", `${program}.exe.manifest`),
+            `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity name="Linger.PostgreSQL.${program}" version="1.0.0.0" type="win32"/>
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
+    </windowsSettings>
+  </application>
+</assembly>
+`,
+            { flag: "wx" },
+          );
+      }
       await writeFile(
         path.join(stage, ".simplex-files.json"),
         JSON.stringify(await tree(stage)),
@@ -525,6 +558,7 @@ export async function prepareNativeDependencies(options: {
 }): Promise<{
   env: NodeJS.ProcessEnv;
   postgresBin: string;
+  postgresConfigurationExecutable?: string;
   toolchainRoot: string;
   /** Package registries to install from, in order of preference. */
   registries: string[];
@@ -656,6 +690,7 @@ export async function prepareNativeDependencies(options: {
         : { url: postgres.url!, mirrors: postgres.mirrors }),
       algorithm: "sha256",
       digest: postgres.sha256,
+      windowsPostgres: windows,
       maxBytes: postgres.bytes,
     },
   );
@@ -695,13 +730,7 @@ export async function prepareNativeDependencies(options: {
     await rename(temporary, file);
     await chmod(file, 0o700);
   }
-  for (const executable of [
-    "postgres",
-    "initdb",
-    "pg_ctl",
-    "psql",
-    "createdb",
-  ]) {
+  for (const executable of postgresPrograms) {
     const info = await lstat(path.join(pg, "bin", `${executable}${exe}`));
     if (
       !info.isFile() ||
@@ -813,7 +842,22 @@ export async function prepareNativeDependencies(options: {
         "A verified private native tool could not execute the required version on this host.",
       );
   }
-  return { env, postgresBin: path.join(pg, "bin"), toolchainRoot, registries };
+  return {
+    env,
+    postgresBin: path.join(pg, "bin"),
+    // Keep the service identity of a running server from this exact archive.
+    ...(windows && {
+      postgresConfigurationExecutable: path.join(
+        nativeRoot,
+        "components",
+        postgres.sha256,
+        "bin",
+        "postgres.exe",
+      ),
+    }),
+    toolchainRoot,
+    registries,
+  };
 }
 /**
  * The verified LiveKit server and ffmpeg for this computer, from

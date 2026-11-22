@@ -16,6 +16,7 @@ import {
   parseAgentToDaemonEnvelope,
 } from "@linger/wire-contracts/runner-gateway/validator";
 import {
+  FIRST_BYOK_ENDPOINT_COMPUTER_VERSION,
   FIRST_MODEL_SOURCE_COMPUTER_VERSION,
   isComputerVersionAtLeast,
   LocalBrowserConnectionError,
@@ -332,6 +333,17 @@ export class RunnerLocalCapabilities {
     ) {
       throw new LocalComputerCapabilityError(
         "Local Computer must be upgraded to switch model sources",
+      );
+    }
+    if (
+      command.byok &&
+      !isComputerVersionAtLeast(
+        connection.hello.daemon_version,
+        FIRST_BYOK_ENDPOINT_COMPUTER_VERSION,
+      )
+    ) {
+      throw new LocalComputerCapabilityError(
+        "Local Computer must be upgraded to use a BYOK endpoint",
       );
     }
     const timeoutMs =

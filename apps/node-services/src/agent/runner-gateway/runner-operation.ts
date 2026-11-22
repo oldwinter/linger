@@ -437,9 +437,12 @@ export class RunnerOperationState {
       runtime: request.runtime,
       session_options: request.session_options,
       session: request.session,
-      // The Daemon prepares the same MCP config the reviewed Run will use.
+      // The Daemon prepares the same hooks and MCP config the Run will use.
       ...(request.run_context.permission_review === true
         ? { permission_review: true as const }
+        : {}),
+      ...(request.run_context.stop_hook === true
+        ? { stop_hook: true as const }
         : {}),
       mcp_relays: request.run_resources.mcp_servers,
     });
@@ -621,12 +624,13 @@ export class RunnerOperationState {
   }
 
   get resumable(): boolean {
-    // Codex announces its thread before the first input is durably in its
-    // history. Any model output, thinking included, comes after Codex
-    // recorded that input.
+    // Codex and Antigravity announce their session before the first input
+    // is durably in its history; an Antigravity session with no prompt yet
+    // cannot be loaded at all. Any model output, thinking included, comes
+    // after the runtime recorded that input.
     return (
       Boolean(this.#yieldSessionId) &&
-      (this.start.runtime_type !== "codex" || this.#observedNativeWork)
+      (!namesOwnSession(this.start.runtime_type) || this.#observedNativeWork)
     );
   }
 
@@ -659,6 +663,14 @@ export class RunnerOperationState {
 
   retainCancellation(reason: string): void {
     if (this.#terminal) {
+      return;
+    }
+    // Any other cancellation after a yield request stops the Run. The
+    // Computer may have declined the yield, so resending it would not stop
+    // the Run, and a yield terminal would resume it.
+    if (this.#yieldRequested && reason !== "scheduler_yield") {
+      this.#yieldRequested = false;
+      this.#cancelCommand = createCancel(this.start, this.#createId(), reason);
       return;
     }
     this.#cancelCommand ??= createCancel(this.start, this.#createId(), reason);
@@ -977,7 +989,7 @@ export class RunnerOperationState {
         const error =
           this.#yieldRequested && id && envelope.reason === "scheduler_yield"
             ? new ProviderRunYieldedError(
-                runtime === "codex"
+                namesOwnSession(runtime)
                   ? { threadId: id }
                   : {
                       provider: runtime,
@@ -1384,6 +1396,12 @@ const encodedBytes = (value: unknown): number => {
     );
   }
 };
+
+// Codex and Antigravity name their own sessions and keep them as a thread
+// id; Claude and Pi run a session id that Linger materialized.
+function namesOwnSession(runtime: string): boolean {
+  return runtime === "codex" || runtime === "antigravity";
+}
 
 const assertNever = (value: never): never => {
   throw new RunnerGatewayProtocolError(

@@ -187,7 +187,13 @@ describe("Connected apps", () => {
     expect(searchInput).toHaveClass("placeholder:text-app-placeholder");
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
-    ).toEqual(["Mail & Calendar", "Meetings", "Productivity", "Messaging"]);
+    ).toEqual([
+      "Mail & Calendar",
+      "Meetings",
+      "Productivity",
+      "Messaging",
+      "Web search",
+    ]);
     const sectionApps = (name: string) =>
       within(screen.getByRole("region", { name }))
         .getAllByRole("article")
@@ -575,17 +581,26 @@ describe("Connected apps", () => {
     ).toBeVisible();
   });
 
-  it("hides a pending Discord account that never finished connecting", async () => {
+  it("shows an unconfirmed Discord connection and checks it again", async () => {
     const runtime = await testRuntime();
     const template = (await runtime.client.listExternalConnections())
       .connections[0]!;
-    const pending = {
+    const unconfirmed = {
       ...template,
       id: "pending-discord",
       identity_label: "Discord server",
       provider: "discord" as const,
+      revision: 4,
       status: "pending" as const,
       status_error_code: "discord_guild_required",
+    };
+    const duplicate = {
+      ...template,
+      id: "duplicate-discord",
+      identity_label: "Duplicate server",
+      provider: "discord" as const,
+      status: "pending" as const,
+      status_error_code: "duplicate_remote_principal",
     };
     const catalog = await runtime.client.listExternalApps();
     vi.spyOn(runtime.client, "listExternalApps").mockResolvedValue({
@@ -598,23 +613,69 @@ describe("Connected apps", () => {
       ),
     });
     vi.spyOn(runtime.client, "listExternalConnections").mockResolvedValue({
-      connections: [pending],
+      connections: [unconfirmed, duplicate],
     });
-    vi.spyOn(runtime.client, "getExternalConnection").mockResolvedValue(
-      pending,
-    );
-    renderPage(runtime, "/apps?app=discord");
-    const dialog = await screen.findByRole("dialog", { name: "Discord" });
+    const check = vi
+      .spyOn(runtime.client, "createExternalConnectionStatusCheck")
+      .mockResolvedValue({
+        ...unconfirmed,
+        status_check_requested_at: "2026-11-19T00:00:00.000Z",
+      });
+    renderPage(runtime);
+
+    const card = await screen.findByRole("button", { name: "Discord" });
     expect(
-      within(dialog).queryByText("Discord server"),
-    ).not.toBeInTheDocument();
+      await within(card).findByText("Couldn't confirm connection"),
+    ).toBeVisible();
+    expect(within(card).queryByText("Connected")).toBeNull();
     expect(
-      screen.queryByText(/Discord could not verify the authorized Server/),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Discord Server ID")).toBeNull();
-    expect(
-      within(dialog).getByRole("button", { name: "Connect Discord" }),
+      screen.getByRole("button", { name: "Connect Discord" }),
     ).toBeEnabled();
+
+    fireEvent.click(card);
+    const dialog = await screen.findByRole("dialog", { name: "Discord" });
+    expect(within(dialog).getByText("Discord server")).toBeVisible();
+    expect(within(dialog).queryByText("Duplicate server")).toBeNull();
+    expect(
+      within(dialog).getByText(
+        "Discord is authorized, but the Server couldn't be confirmed. Check again, or disconnect and reconnect.",
+      ),
+    ).toBeVisible();
+    expect(
+      within(dialog).getByRole("button", { name: "Disconnect Discord server" }),
+    ).toBeVisible();
+    fireEvent.click(
+      within(dialog).getByRole("button", {
+        name: "Check again Discord server",
+      }),
+    );
+    await waitFor(() =>
+      expect(check).toHaveBeenCalledWith("pending-discord", 4),
+    );
+  });
+
+  it("asks to check again when another provider check is unconfirmed", async () => {
+    const runtime = await testRuntime();
+    const existing = (await runtime.client.listExternalConnections())
+      .connections[0]!;
+    vi.spyOn(runtime.client, "listExternalConnections").mockResolvedValue({
+      connections: [
+        {
+          ...existing,
+          status: "pending",
+          status_error_code: "provider_identity_unavailable",
+        },
+      ],
+    });
+
+    renderPage(runtime, "/apps?app=gmail");
+
+    const dialog = await screen.findByRole("dialog", { name: "Gmail" });
+    expect(
+      within(dialog).getByText(
+        "The connection couldn't be confirmed yet. Check again.",
+      ),
+    ).toBeVisible();
   });
 
   it("lists a Gmail account that failed authorization for reconnecting", async () => {

@@ -389,6 +389,11 @@ func (c *Client) ExecuteTool(ctx context.Context, connectedAccountID, userID, to
 	if binding.UserID != "" && binding.UserID != userID {
 		return ToolExecution{}, ErrConnectionScope
 	}
+	// Composio rejects "arguments": null, and a persisted no-argument action
+	// decodes back as a nil map, so a tool without arguments sends {}.
+	if arguments == nil {
+		arguments = map[string]any{}
+	}
 	request := struct {
 		ConnectedAccountID string         `json:"connected_account_id"`
 		UserID             string         `json:"user_id"`

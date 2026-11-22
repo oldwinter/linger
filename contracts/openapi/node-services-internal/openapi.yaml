@@ -1095,7 +1095,7 @@ paths:
                 change.
               schema:
                 type: string
-                const: "2"
+                const: "3"
           content:
             text/markdown:
               schema:

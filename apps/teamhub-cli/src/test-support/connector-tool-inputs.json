@@ -1444,21 +1444,6 @@
       }
     }
   },
-  "GITHUB_GET_AN_ISSUE": {
-    "type": "object",
-    "required": ["owner", "repo", "issue_number"],
-    "properties": {
-      "repo": {
-        "type": "string"
-      },
-      "owner": {
-        "type": "string"
-      },
-      "issue_number": {
-        "type": "integer"
-      }
-    }
-  },
   "GITHUB_GET_A_PULL_REQUEST": {
     "type": "object",
     "required": ["owner", "repo", "pull_number"],
@@ -1500,6 +1485,21 @@
       },
       "owner": {
         "type": "string"
+      }
+    }
+  },
+  "GITHUB_GET_AN_ISSUE": {
+    "type": "object",
+    "required": ["owner", "repo", "issue_number"],
+    "properties": {
+      "repo": {
+        "type": "string"
+      },
+      "owner": {
+        "type": "string"
+      },
+      "issue_number": {
+        "type": "integer"
       }
     }
   },
@@ -3728,6 +3728,173 @@
       }
     }
   },
+  "OUTLOOK_CALENDAR_CREATE_EVENT": {
+    "type": "object",
+    "required": ["subject", "start_datetime", "end_datetime", "time_zone"],
+    "properties": {
+      "body": {
+        "type": "string",
+        "default": ""
+      },
+      "is_html": {
+        "type": "boolean",
+        "default": false
+      },
+      "show_as": {
+        "type": "string",
+        "default": "busy"
+      },
+      "subject": {
+        "type": "string"
+      },
+      "user_id": {
+        "type": "string",
+        "default": "me"
+      },
+      "location": {
+        "type": "string",
+        "default": ""
+      },
+      "time_zone": {
+        "type": "string"
+      },
+      "categories": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": []
+      },
+      "importance": {
+        "type": "string",
+        "default": "normal"
+      },
+      "is_all_day": {
+        "type": "boolean",
+        "default": false
+      },
+      "recurrence": {
+        "type": "object",
+        "properties": {
+          "range": {
+            "type": "object",
+            "required": ["type", "startDate"],
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "endDate": {
+                "type": "string"
+              },
+              "startDate": {
+                "type": "string"
+              },
+              "recurrenceTimeZone": {
+                "type": "string"
+              },
+              "numberOfOccurrences": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false
+          },
+          "pattern": {
+            "type": "object",
+            "required": ["type", "interval"],
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "index": {
+                "type": "string"
+              },
+              "month": {
+                "type": "integer"
+              },
+              "interval": {
+                "type": "integer"
+              },
+              "dayOfMonth": {
+                "type": "integer"
+              },
+              "daysOfWeek": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "firstDayOfWeek": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "calendar_id": {
+        "type": "string"
+      },
+      "end_datetime": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d{1,7})?$"
+      },
+      "attendees_info": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "default": []
+      },
+      "start_datetime": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d{1,7})?$"
+      },
+      "is_online_meeting": {
+        "type": "boolean",
+        "default": false
+      },
+      "online_meeting_provider": {
+        "type": "string"
+      }
+    }
+  },
+  "OUTLOOK_CANCEL_CALENDAR_EVENT": {
+    "type": "object",
+    "required": ["user_id", "calendar_id", "event_id"],
+    "properties": {
+      "Comment": {
+        "type": "string"
+      },
+      "user_id": {
+        "type": "string"
+      },
+      "event_id": {
+        "type": "string"
+      },
+      "calendar_id": {
+        "type": "string"
+      }
+    }
+  },
+  "OUTLOOK_CANCEL_EVENT": {
+    "type": "object",
+    "required": ["user_id", "event_id"],
+    "properties": {
+      "Comment": {
+        "type": "string"
+      },
+      "user_id": {
+        "type": "string"
+      },
+      "event_id": {
+        "type": "string"
+      }
+    }
+  },
   "OUTLOOK_CREATE_ATTACHMENT_UPLOAD_SESSION": {
     "type": "object",
     "required": ["message_id", "attachment_item"],
@@ -3898,6 +4065,34 @@
       }
     }
   },
+  "OUTLOOK_DELETE_CALENDAR_EVENT": {
+    "type": "object",
+    "required": ["event_id"],
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "default": "me"
+      },
+      "event_id": {
+        "type": "string"
+      }
+    }
+  },
+  "OUTLOOK_DELETE_CALENDAR_EVENT_FROM_SPECIFIC_CALENDAR": {
+    "type": "object",
+    "required": ["calendar_id", "event_id"],
+    "properties": {
+      "user_id": {
+        "type": "string"
+      },
+      "event_id": {
+        "type": "string"
+      },
+      "calendar_id": {
+        "type": "string"
+      }
+    }
+  },
   "OUTLOOK_DOWNLOAD_OUTLOOK_ATTACHMENT": {
     "type": "object",
     "required": ["message_id", "attachment_id", "file_name"],
@@ -3920,6 +4115,175 @@
       }
     }
   },
+  "OUTLOOK_GET_CALENDAR_EVENT": {
+    "type": "object",
+    "required": ["calendar_id", "event_id"],
+    "properties": {
+      "user_id": {
+        "type": "string"
+      },
+      "event_id": {
+        "type": "string"
+      },
+      "calendar_id": {
+        "type": "string"
+      },
+      "include_sensitivity_label": {
+        "type": "boolean",
+        "default": false
+      }
+    }
+  },
+  "OUTLOOK_GET_CALENDAR_SCHEDULE": {
+    "type": "object",
+    "required": ["schedules", "start_time", "end_time"],
+    "properties": {
+      "user_id": {
+        "type": "string"
+      },
+      "end_time": {
+        "type": "object",
+        "required": ["dateTime", "timeZone"],
+        "properties": {
+          "dateTime": {
+            "type": "string"
+          },
+          "timeZone": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "schedules": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "start_time": {
+        "type": "object",
+        "required": ["dateTime", "timeZone"],
+        "properties": {
+          "dateTime": {
+            "type": "string"
+          },
+          "timeZone": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "availability_view_interval": {
+        "type": "integer",
+        "default": 30,
+        "maximum": 1440,
+        "minimum": 5
+      }
+    }
+  },
+  "OUTLOOK_GET_CALENDAR_VIEW": {
+    "type": "object",
+    "required": ["start_datetime", "end_datetime"],
+    "properties": {
+      "top": {
+        "type": "integer",
+        "default": 20,
+        "maximum": 1000,
+        "minimum": 1
+      },
+      "skip": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "select": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": [
+          "id",
+          "subject",
+          "start",
+          "end",
+          "location",
+          "attendees",
+          "organizer",
+          "isAllDay",
+          "isCancelled",
+          "showAs",
+          "onlineMeeting",
+          "onlineMeetingProvider",
+          "importance",
+          "responseStatus",
+          "isOnlineMeeting",
+          "webLink",
+          "bodyPreview",
+          "recurrence",
+          "categories",
+          "sensitivity"
+        ]
+      },
+      "orderby": {
+        "type": "string"
+      },
+      "user_id": {
+        "type": "string",
+        "default": "me"
+      },
+      "timezone": {
+        "type": "string",
+        "default": "UTC"
+      },
+      "page_token": {
+        "type": "string"
+      },
+      "calendar_id": {
+        "type": "string"
+      },
+      "end_datetime": {
+        "type": "string"
+      },
+      "start_datetime": {
+        "type": "string"
+      },
+      "include_sensitivity_label": {
+        "type": "boolean",
+        "default": false
+      }
+    }
+  },
+  "OUTLOOK_GET_EVENT": {
+    "type": "object",
+    "required": ["event_id"],
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "default": "me"
+      },
+      "event_id": {
+        "type": "string"
+      },
+      "include_sensitivity_label": {
+        "type": "boolean",
+        "default": false
+      }
+    }
+  },
+  "OUTLOOK_GET_MAILBOX_SETTINGS": {
+    "type": "object",
+    "properties": {
+      "select": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "user_id": {
+        "type": "string",
+        "default": "me"
+      }
+    }
+  },
   "OUTLOOK_GET_MESSAGE": {
     "type": "object",
     "required": ["message_id"],
@@ -3936,6 +4300,95 @@
       },
       "message_id": {
         "type": "string"
+      },
+      "include_sensitivity_label": {
+        "type": "boolean",
+        "default": false
+      }
+    }
+  },
+  "OUTLOOK_LIST_CALENDARS": {
+    "type": "object",
+    "properties": {
+      "top": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "skip": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "filter": {
+        "type": "string"
+      },
+      "select": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "orderby": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "user_id": {
+        "type": "string",
+        "default": "me"
+      },
+      "page_token": {
+        "type": "string"
+      }
+    }
+  },
+  "OUTLOOK_LIST_EVENTS": {
+    "type": "object",
+    "properties": {
+      "top": {
+        "type": "integer",
+        "default": 10,
+        "maximum": 999,
+        "minimum": 1
+      },
+      "skip": {
+        "type": "integer",
+        "default": 0,
+        "minimum": 0
+      },
+      "filter": {
+        "type": "string",
+        "default": ""
+      },
+      "select": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "orderby": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "user_id": {
+        "type": "string",
+        "default": "me"
+      },
+      "timezone": {
+        "type": "string",
+        "default": "UTC"
+      },
+      "page_token": {
+        "type": "string"
+      },
+      "calendar_id": {
+        "type": "string"
+      },
+      "expand_recurring_events": {
+        "type": "boolean",
+        "default": false
       },
       "include_sensitivity_label": {
         "type": "boolean",
@@ -4226,6 +4679,316 @@
       "save_to_sent_items": {
         "type": "boolean",
         "default": true
+      }
+    }
+  },
+  "OUTLOOK_UPDATE_CALENDAR_EVENT": {
+    "type": "object",
+    "required": ["event_id"],
+    "properties": {
+      "body": {
+        "type": "object",
+        "required": ["contentType", "content"],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "show_as": {
+        "type": "string"
+      },
+      "subject": {
+        "type": "string"
+      },
+      "user_id": {
+        "type": "string",
+        "default": "me"
+      },
+      "event_id": {
+        "type": "string"
+      },
+      "location": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object",
+            "additionalProperties": true
+          }
+        ]
+      },
+      "attendees": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["emailAddress", "type"],
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "emailAddress": {
+              "type": "object",
+              "required": ["address"],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "default": ""
+                },
+                "address": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "time_zone": {
+        "type": "string"
+      },
+      "categories": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "recurrence": {
+        "type": "object",
+        "properties": {
+          "range": {
+            "type": "object",
+            "required": ["type", "startDate"],
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "endDate": {
+                "type": "string"
+              },
+              "startDate": {
+                "type": "string"
+              },
+              "recurrenceTimeZone": {
+                "type": "string"
+              },
+              "numberOfOccurrences": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false
+          },
+          "pattern": {
+            "type": "object",
+            "required": ["type", "interval"],
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "index": {
+                "type": "string"
+              },
+              "month": {
+                "type": "integer"
+              },
+              "interval": {
+                "type": "integer"
+              },
+              "dayOfMonth": {
+                "type": "integer"
+              },
+              "daysOfWeek": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "firstDayOfWeek": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "end_datetime": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d{1,7})?$"
+      },
+      "start_datetime": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d{1,7})?$"
+      }
+    }
+  },
+  "OUTLOOK_UPDATE_CALENDAR_EVENT_IN_CALENDAR": {
+    "type": "object",
+    "required": ["calendar_id", "event_id"],
+    "properties": {
+      "body": {
+        "type": "object",
+        "required": ["contentType", "content"],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "show_as": {
+        "type": "string"
+      },
+      "subject": {
+        "type": "string"
+      },
+      "user_id": {
+        "type": "string"
+      },
+      "event_id": {
+        "type": "string"
+      },
+      "location": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object",
+            "additionalProperties": true
+          }
+        ]
+      },
+      "attendees": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["emailAddress", "type"],
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "emailAddress": {
+              "type": "object",
+              "required": ["address"],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "default": ""
+                },
+                "address": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "time_zone": {
+        "type": "string"
+      },
+      "categories": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "importance": {
+        "type": "string"
+      },
+      "is_all_day": {
+        "type": "boolean"
+      },
+      "recurrence": {
+        "type": "object",
+        "properties": {
+          "range": {
+            "type": "object",
+            "required": ["type", "startDate"],
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "endDate": {
+                "type": "string"
+              },
+              "startDate": {
+                "type": "string"
+              },
+              "recurrenceTimeZone": {
+                "type": "string"
+              },
+              "numberOfOccurrences": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false
+          },
+          "pattern": {
+            "type": "object",
+            "required": ["type", "interval"],
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "index": {
+                "type": "string"
+              },
+              "month": {
+                "type": "integer"
+              },
+              "interval": {
+                "type": "integer"
+              },
+              "dayOfMonth": {
+                "type": "integer"
+              },
+              "daysOfWeek": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "firstDayOfWeek": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "calendar_id": {
+        "type": "string"
+      },
+      "sensitivity": {
+        "type": "string"
+      },
+      "end_datetime": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d{1,7})?$"
+      },
+      "is_reminder_on": {
+        "type": "boolean"
+      },
+      "start_datetime": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d{1,7})?$"
+      },
+      "is_online_meeting": {
+        "type": "boolean"
+      },
+      "reminder_minutes_before_start": {
+        "type": "integer"
       }
     }
   },

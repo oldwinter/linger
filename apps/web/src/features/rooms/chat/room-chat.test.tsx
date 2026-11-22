@@ -339,7 +339,7 @@ describe("Room Chat", () => {
       expect.objectContaining({
         actorId: "actor-codex",
         kind: "agentActivity",
-        title: "Activity · Codex",
+        title: "Codex",
       }),
     );
     const opened = openPanelTab.mock.calls.at(-1)?.[0] as {
@@ -981,5 +981,28 @@ describe("Room Chat replied Run", () => {
       await screen.findByText("Source Message is unavailable."),
     ).toBeVisible();
     expect(await screen.findByText(/Reviewed the checklist/)).toBeVisible();
+  });
+
+  it.each([
+    { empty: false, label: "non-empty" },
+    { empty: true, label: "empty" },
+  ])("records room.chat_ready on mount for $label Rooms", async ({ empty }) => {
+    const markSpy = vi.spyOn(performance, "mark");
+    const runtime = createTestTeamHubRuntime();
+    if (empty) {
+      runtime.server.on("GET", "/v0/rooms/{roomId}/messages", () => ({
+        items: [],
+        page: { has_more: false },
+        snapshot_room_seq: 0,
+      }));
+    }
+    const queryClient = await loadedRoomChatQueryClient(runtime);
+    await act(async () => {
+      await renderRoomChat(runtime, queryClient);
+    });
+    await waitFor(() =>
+      expect(markSpy).toHaveBeenCalledWith("room.chat_ready"),
+    );
+    markSpy.mockRestore();
   });
 });

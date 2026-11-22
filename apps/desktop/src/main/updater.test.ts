@@ -416,7 +416,10 @@ describe("updateInstallFor", () => {
         "/Applications/Linger.app/Contents/MacOS/Linger",
         none,
       ),
-    ).toEqual({ kind: "app-bundle", appBundle: "/Applications/Linger.app" });
+    ).toEqual({
+      kind: "app-bundle",
+      appBundle: path.resolve("/Applications/Linger.app"),
+    });
     const installed = "C:\\Users\\a\\AppData\\Local\\Programs\\Linger";
     expect(
       updateInstallFor(
@@ -438,7 +441,7 @@ describe("updateInstallFor", () => {
 describe("appBundleOf", () => {
   it("finds the app bundle around the executable", () => {
     expect(appBundleOf("/Applications/Linger.app/Contents/MacOS/Linger")).toBe(
-      "/Applications/Linger.app",
+      path.resolve("/Applications/Linger.app"),
     );
     expect(appBundleOf("/usr/lib/electron/electron")).toBeUndefined();
   });

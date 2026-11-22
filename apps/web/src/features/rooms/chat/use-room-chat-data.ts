@@ -7,7 +7,7 @@ import {
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
-import { loadAllManifestPages } from "@/features/rooms/members/agent-resource-catalog";
+import { loadAllManifestPages } from "../members/manifest-pages";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {

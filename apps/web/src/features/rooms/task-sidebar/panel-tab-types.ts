@@ -55,6 +55,11 @@ export const PANEL_COLLECTION_TAB_IDS = {
   url: "url:preview",
 } as const;
 
+/**
+ * The names collection tabs are saved with. They stay English because earlier
+ * versions show the saved name; the tab strip words these tabs from their kind
+ * (see panel-tab-label.ts).
+ */
 export const PANEL_COLLECTION_TAB_TITLES = {
   file: "Files",
   thread: "Anotherme",

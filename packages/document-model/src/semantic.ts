@@ -369,7 +369,10 @@ function applyBlockOperation(
   ) {
     return conflict("invalid_structure");
   }
-  if (hasIDCollision(root, replacements, new Set(targetIDs))) {
+  const removedIDs = collectIDs(
+    range.siblings.slice(range.start, range.start + range.width),
+  );
+  if (hasIDCollision(root, replacements, removedIDs)) {
     throw invalidSemantic("Replacement Block IDs already exist");
   }
   range.siblings.splice(range.start, range.width, ...replacements);

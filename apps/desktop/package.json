@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@linger/local-installation": "workspace:*",
+    "@linger/service-kit": "workspace:*",
     "@linger/wire-contracts": "workspace:*",
     "yazl": "3.3.1",
     "zod": "4.4.3"

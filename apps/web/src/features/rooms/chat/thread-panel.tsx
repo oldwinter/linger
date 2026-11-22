@@ -27,6 +27,9 @@ import type {
   TeamHubMessage,
   TeamHubRoom,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 
 import { AgentAvatarStatusContext } from "../members/agent-avatar-status-context";
 import { useRoomOutletContext } from "../room-connectivity";
@@ -42,6 +45,7 @@ import {
   createDirectRoomMessagePresenter,
   withDirectRoomWireBody,
 } from "./direct-room-message";
+import { chatMessages } from "./chat.messages";
 import { isTimelineMessage } from "./message-grouping";
 import {
   MessageRow,
@@ -118,6 +122,7 @@ function ThreadPanelContent({
   rootMessage,
   tenantId,
 }: ThreadPanelProps) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const composition = roomMessageSender(client);
   const parentRoomId = rootMessage.room_id;
@@ -361,7 +366,7 @@ function ThreadPanelContent({
 
   return (
     <aside
-      aria-label="Message Thread"
+      aria-label={t(chatMessages.messageThread)}
       className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col app-work-surface"
     >
       <header className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-app-border px-3">
@@ -370,7 +375,7 @@ function ThreadPanelContent({
           ref={headingRef}
           tabIndex={-1}
         >
-          Thread
+          {t(chatMessages.thread)}
         </h2>
         {headerSummary ? (
           <p
@@ -431,7 +436,8 @@ function ThreadPanelContent({
         <ThreadPendingReplies
           actorId={currentActorId}
           actorName={
-            rowContext.actorDisplayNames[currentActorId ?? ""] ?? "You"
+            rowContext.actorDisplayNames[currentActorId ?? ""] ??
+            t(commonMessages.you)
           }
           lastAuthorId={replies.at(-1)?.author.id}
           messages={conversation.pendingMessages}
@@ -458,7 +464,7 @@ function ThreadPanelContent({
         parentRoom={parentRoom.data}
       >
         <MessageComposer
-          ariaLabel="Reply in Thread"
+          ariaLabel={t(chatMessages.replyInThread)}
           attachmentDraftKey={
             threadRoomId
               ? `${accountId}:${tenantId}:${threadRoomId}`
@@ -477,10 +483,10 @@ function ThreadPanelContent({
           onStageAttachment={conversation.delivery.stageAttachment}
           placeholder={
             threadRoomId
-              ? "Reply in this Thread"
+              ? t(chatMessages.replyInThisThread)
               : threadOpenError
                 ? "Thread could not be opened"
-                : "Opening Thread…"
+                : t(chatMessages.openingThread)
           }
           ref={composerRef}
         />
@@ -643,7 +649,8 @@ function useThreadCardDecision(
   );
 
   return async (decision: RoomCardDecision) => {
-    if (!controller) throw new Error("Thread is still opening.");
+    if (!controller)
+      throw new Error(translate(chatMessages.threadStillOpening));
     await controller.decide(decision);
   };
 }

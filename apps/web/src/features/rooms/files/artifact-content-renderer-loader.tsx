@@ -3,11 +3,15 @@ import { lazy, Suspense, useEffect } from "react";
 
 import { ReadOnlyBlockNoteDocumentLoader } from "@/components/read-only-blocknote-document-loader";
 import type { ReadOnlyMarkdownPresentation } from "@/components/read-only-markdown-presentation";
+import { translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 
 import type { ArtifactReadingPosition } from "./artifact-preview-cache";
 import type { ArtifactContentRendererProps } from "./artifact-content-renderer";
 import type { ArtifactRendererKind } from "./artifact-renderer-policy";
 import { DataPreviewAdapterLoader } from "./data-preview-adapter-loader";
+import { filePreviewMessages as m } from "./file-preview.messages";
 import { MediaPreviewAdapterLoader } from "./media-preview-adapter-loader";
 import { OfficePreviewAdapterLoader } from "./office-preview-adapter-loader";
 import { PdfPreviewAdapterLoader } from "./pdf-preview-adapter-loader";
@@ -34,10 +38,11 @@ export function ArtifactContentRendererLoader({
   kind,
   ...props
 }: ArtifactContentRendererLoaderProps) {
+  const t = useT();
   if (kind === "markdown") {
     return (
       <ReadOnlyBlockNoteDocumentLoader
-        ariaLabel="Read-only Markdown document"
+        ariaLabel={t(m.readOnlyMarkdown)}
         assetBaseUrl={props.previewUrl}
         markdown={props.textContent ?? ""}
         presentation={props.presentation}
@@ -55,7 +60,10 @@ export function ArtifactContentRendererLoader({
         readingPosition={props.readingPosition}
       />
     ) : (
-      <UnavailablePreview label={"Office"} onError={props.onError} />
+      <UnavailablePreview
+        message={m.officeContentUnavailable}
+        onError={props.onError}
+      />
     );
   }
 
@@ -68,7 +76,10 @@ export function ArtifactContentRendererLoader({
         readingPosition={props.readingPosition}
       />
     ) : (
-      <UnavailablePreview label={"PDF"} onError={props.onError} />
+      <UnavailablePreview
+        message={m.pdfContentUnavailable}
+        onError={props.onError}
+      />
     );
   }
 
@@ -82,7 +93,10 @@ export function ArtifactContentRendererLoader({
         sourceSizeBytes={props.sourceSizeBytes}
       />
     ) : (
-      <UnavailablePreview label={"table"} onError={props.onError} />
+      <UnavailablePreview
+        message={m.tableContentUnavailable}
+        onError={props.onError}
+      />
     );
   }
 
@@ -97,7 +111,10 @@ export function ArtifactContentRendererLoader({
         sourceSizeBytes={props.sourceSizeBytes}
       />
     ) : (
-      <UnavailablePreview label={"media"} onError={props.onError} />
+      <UnavailablePreview
+        message={m.mediaContentUnavailable}
+        onError={props.onError}
+      />
     );
   }
 
@@ -109,7 +126,7 @@ export function ArtifactContentRendererLoader({
           role="status"
         >
           <Spinner size={16} />
-          Loading renderer...
+          {t(m.loadingRenderer)}
         </div>
       }
     >
@@ -125,22 +142,22 @@ export function ArtifactContentRendererLoader({
  * Download and Retry.
  */
 function UnavailablePreview({
-  label,
+  message,
   onError,
 }: {
-  label: string;
+  message: Message<string>;
   onError?: (message: string) => void;
 }) {
-  const message = `This ${label} preview could not start because its content was unavailable.`;
+  const t = useT();
   useEffect(() => {
-    onError?.(message);
+    onError?.(translate(message));
   }, [message, onError]);
   return (
     <div
       className="flex h-full min-h-[420px] items-center justify-center bg-app-surface-soft p-8 text-center text-sm text-app-muted"
       role="alert"
     >
-      {message}
+      {t(message)}
     </div>
   );
 }

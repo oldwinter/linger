@@ -37,6 +37,90 @@ export function serverSwitch(
   };
 }
 
+export type WindowLoadReason =
+  | "boot"
+  | "local_ready"
+  | "resume_ready"
+  | "server_changed"
+  | "port_moved"
+  | "retry"
+  | "prewarm";
+
+export interface WindowLoadState {
+  readonly currentUrl?: string;
+  readonly pendingTargetOrigin?: string;
+  readonly showingShellPage: "none" | "starting" | "offline" | "start-failed";
+  readonly loadFailed: boolean;
+}
+
+export interface WindowLoadDecision {
+  readonly action: "load" | "noop";
+  readonly targetUrl?: string;
+  readonly reason: WindowLoadReason;
+}
+
+// Decides whether the main window should load `nextOrigin` or treat it as a
+// no-op, avoiding duplicate reloads on hot start while recovering from shell
+// pages or failed loads.
+export function windowLoadDecision(
+  state: WindowLoadState,
+  currentServerUrl: string | undefined,
+  nextOrigin: string,
+  options: { movedFrom?: string; reason: WindowLoadReason },
+): WindowLoadDecision {
+  const targetOrigin = parseServerUrl(nextOrigin);
+  const sw = targetOrigin
+    ? serverSwitch(currentServerUrl, targetOrigin, options.movedFrom)
+    : undefined;
+  const { reason } = options;
+  if (!targetOrigin) return { action: "noop", reason };
+
+  // Keep the current server when a non-explicit load targets another server,
+  // such as a background local resume while the user is on a remote server.
+  if (
+    currentServerUrl !== undefined &&
+    !sameOrigin(currentServerUrl, targetOrigin) &&
+    reason !== "server_changed" &&
+    reason !== "local_ready" &&
+    !(
+      sw?.moved &&
+      options.movedFrom !== undefined &&
+      sameOrigin(currentServerUrl, options.movedFrom)
+    )
+  ) {
+    return { action: "noop", reason };
+  }
+
+  if (
+    reason !== "retry" &&
+    !state.loadFailed &&
+    state.showingShellPage === "none" &&
+    ((state.currentUrl !== undefined &&
+      sameOrigin(state.currentUrl, targetOrigin)) ||
+      (state.pendingTargetOrigin !== undefined &&
+        sameOrigin(state.pendingTargetOrigin, targetOrigin)))
+  ) {
+    return { action: "noop", reason };
+  }
+
+  return { action: "load", targetUrl: targetOrigin, reason };
+}
+// The page names the floating voice window it opens with this `window.open`
+// target prefix (a suffix keeps a closing window from being reused).
+export const VOICE_WINDOW_TARGET = "linger-voice-window";
+
+// Whether a `window.open` is the voice window: an empty page the server's own
+// page fills in itself. Anything else the page opens is denied.
+export const voiceWindowRequest = (
+  details: { url: string; frameName: string },
+  serverUrl: string | undefined,
+  fromUrl: string,
+): boolean =>
+  details.url === "about:blank" &&
+  details.frameName.startsWith(VOICE_WINDOW_TARGET) &&
+  serverUrl !== undefined &&
+  sameOrigin(fromUrl, serverUrl);
+
 export type NavigationDecision = "allow" | "external" | "deny";
 
 // App pages are reachable only from app pages: the server's pages must not
@@ -115,9 +199,61 @@ export const parseServerUrl = (value: string): string | undefined => {
   }
 };
 
-// A page opened in the app's preview panel is framed by the app. Many sites
-// refuse every frame (X-Frame-Options, CSP frame-ancestors) and the panel
-// stays blank, so the window drops those two rules for its own frames. The
+// The Web link preview panel names its frame with this prefix. For such a
+// frame the window keeps the site's framing rules and, when they refuse the
+// frame, tells the page so it can offer the system browser instead; a site
+// that refuses frames usually needs a sign-in the frame does not have.
+// Frames without the name, from Web builds before it, keep framableHeaders.
+export const PREVIEW_FRAME_PREFIX = "linger-url-preview:";
+
+const frameAncestorSources = (policy: string): string[] | undefined => {
+  for (const directive of policy.split(";")) {
+    const [name, ...sources] = directive.trim().split(/\s+/);
+    if (name?.toLowerCase() === "frame-ancestors") return sources;
+  }
+  return undefined;
+};
+
+// Whether a response refuses to be framed by the app's page at
+// ancestorProtocol. CSP frame-ancestors, when present, overrides
+// X-Frame-Options, as in Chromium. Only * or a scheme source matching the
+// app's scheme (http: also matches https:) allows the frame; a host source
+// never names the Linger server.
+export const refusesFraming = (
+  headers: Record<string, string[]>,
+  ancestorProtocol: string,
+): boolean => {
+  const values = (wanted: string): string[] =>
+    Object.entries(headers).flatMap(([name, value]) =>
+      name.toLowerCase() === wanted ? value : [],
+    );
+  const allowing = new Set([
+    "*",
+    ancestorProtocol,
+    ...(ancestorProtocol === "https:" ? ["http:"] : []),
+  ]);
+  const ancestors = values("content-security-policy").flatMap((policy) => {
+    const sources = frameAncestorSources(policy);
+    return sources ? [sources] : [];
+  });
+  if (ancestors.length)
+    return ancestors.some(
+      (sources) =>
+        !sources.some((source) => allowing.has(source.toLowerCase())),
+    );
+  return values("x-frame-options").some((value) =>
+    value
+      .split(",")
+      .some((option) =>
+        ["deny", "sameorigin"].includes(option.trim().toLowerCase()),
+      ),
+  );
+};
+
+// Frames of the app without the PREVIEW_FRAME_PREFIX name, such as a preview
+// panel from an older Web build or a frame nested in a previewed page, would
+// stay blank where a site refuses every frame (X-Frame-Options, CSP
+// frame-ancestors), so the window drops those two rules for them. The
 // panel's frame is sandboxed and cannot navigate or script the app.
 export const framableHeaders = (
   headers: Record<string, string[]>,

@@ -307,15 +307,7 @@ const buildTeamhubCli = async () => {
   );
   await writeFile(
     "dist/teamhub-cli/teamhub",
-    `#!/bin/sh
-# Runs the bundled teamhub CLI with the Node built into Linger.
-dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-app="$dir/../../../../MacOS/Linger"
-[ -x "$app" ] || app="$dir/../../../../Linger.exe"
-[ -x "$app" ] || app="$dir/../../../../linger"
-[ -x "$app" ] || app="\${LINGER_NODE:-node}"
-ELECTRON_RUN_AS_NODE=1 exec "$app" --use-env-proxy "$dir/teamhub.js" "$@"
-`,
+    (await readFile("scripts/teamhub.sh", "utf8")).replace(/\r\n/g, "\n"),
     { mode: 0o755 },
   );
   // The same for cmd and PowerShell on Windows, which run `teamhub.cmd`; Git

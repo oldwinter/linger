@@ -284,6 +284,204 @@ describe("RunnerGateway", () => {
     },
   );
 
+  it("yields an Antigravity Run only after native work, keeping its session as a thread", async () => {
+    const gateway = createTestRunnerGateway({
+      createId: sequenceIds(),
+      operationCancelTimeoutMs: 10,
+    });
+    const peer = new RecordingPeer();
+    const connection = await acceptReadyConnection(
+      gateway,
+      peer,
+      {
+        ...hello([], 1),
+        runtimes: ["antigravity"],
+        runtime_diagnostics: runtimeDiagnostics({
+          link: "api",
+          ready: ["antigravity"],
+        }),
+      },
+      { ...defaultAgentPlacement(), runtime: { type: "antigravity" } },
+    );
+    try {
+      const target = runTarget();
+      const task = await gateway.startOperation({
+        ...target,
+        request: { ...target.request, runtime: { type: "antigravity" } },
+        runKind: "task",
+      });
+      const start = peer.sent.find(
+        (command) => command.type === "operation.start",
+      )!;
+      const chat = gateway.startOperation({
+        ...target,
+        ...readyContextScope("chat"),
+        request: { ...target.request, runtime: { type: "antigravity" } },
+        runKind: "chat",
+      });
+      chat.then(
+        (interactive) => interactive.result.catch(() => undefined),
+        () => undefined,
+      );
+      await connection.receive(
+        event(start, 1, {
+          type: "operation.accepted",
+          command_id: start.command_id,
+          runner_pid: 100,
+        }),
+      );
+      await connection.receive(
+        event(start, 2, {
+          type: "operation.event",
+          event: {
+            type: "run.started",
+            turn_id: "turn-task",
+            session: { threadId: "task-session", canYield: true },
+          },
+        }),
+      );
+      // The session exists before its prompt, which Antigravity cannot load.
+      expect(await settlesWithin(chat, 10)).toBe(false);
+      expect(peer.sent.some((command) => command.type === "cancel")).toBe(
+        false,
+      );
+      await connection.receive(
+        event(start, 3, {
+          type: "operation.event",
+          event: {
+            type: "tool.called",
+            call_id: "read",
+            tool_name: "read",
+            input: {},
+          },
+        }),
+      );
+      await vi.waitFor(() =>
+        expect(
+          peer.sent.find((command) => command.type === "cancel"),
+        ).toMatchObject({
+          operation_id: start.operation_id,
+          reason: "scheduler_yield",
+        }),
+      );
+      const yielded = task.result.then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      await connection.receive(
+        event(start, 4, {
+          type: "operation.cancelled",
+          reason: "scheduler_yield",
+        }),
+      );
+      expect(await yielded).toMatchObject({
+        session: { threadId: "task-session" },
+      });
+      expect(await yielded).not.toHaveProperty("session.sessionId");
+    } finally {
+      connection.disconnect();
+    }
+  });
+
+  it("stops a Run whose Computer declined a yield", async () => {
+    const gateway = createTestRunnerGateway({
+      createId: sequenceIds(),
+      operationCancelTimeoutMs: 1_000,
+    });
+    const peer = new RecordingPeer();
+    const connection = await acceptReadyConnection(
+      gateway,
+      peer,
+      {
+        ...hello([], 1),
+        runtimes: ["antigravity"],
+        runtime_diagnostics: runtimeDiagnostics({
+          link: "api",
+          ready: ["antigravity"],
+        }),
+      },
+      { ...defaultAgentPlacement(), runtime: { type: "antigravity" } },
+    );
+    try {
+      const target = runTarget();
+      const task = await gateway.startOperation({
+        ...target,
+        request: { ...target.request, runtime: { type: "antigravity" } },
+        runKind: "task",
+      });
+      const start = peer.sent.find(
+        (command) => command.type === "operation.start",
+      )!;
+      const chat = gateway.startOperation({
+        ...target,
+        ...readyContextScope("chat"),
+        request: { ...target.request, runtime: { type: "antigravity" } },
+        runKind: "chat",
+      });
+      chat.then(
+        (interactive) => interactive.result.catch(() => undefined),
+        () => undefined,
+      );
+      await connection.receive(
+        event(start, 1, {
+          type: "operation.accepted",
+          command_id: start.command_id,
+          runner_pid: 100,
+        }),
+      );
+      await connection.receive(
+        event(start, 2, {
+          type: "operation.event",
+          event: {
+            type: "run.started",
+            turn_id: "turn-task",
+            session: { threadId: "task-session", canYield: true },
+          },
+        }),
+      );
+      await connection.receive(
+        event(start, 3, {
+          type: "operation.event",
+          event: {
+            type: "tool.called",
+            call_id: "read",
+            tool_name: "read",
+            input: {},
+          },
+        }),
+      );
+      const cancels = () =>
+        peer.sent.flatMap((command) =>
+          command.type === "cancel" ? [command] : [],
+        );
+      await vi.waitFor(() =>
+        expect(cancels().map((command) => command.reason)).toEqual([
+          "scheduler_yield",
+        ]),
+      );
+      // The Computer declined the yield and the Run goes on; Stop must
+      // reach it as a Stop, not as the same yield again.
+      const stopped = expect(task.result).rejects.toMatchObject({
+        code: "cancelled",
+      });
+      const stopping = task.cancel("user_stop");
+      await vi.waitFor(() =>
+        expect(cancels().map((command) => command.reason)).toEqual([
+          "scheduler_yield",
+          "user_stop",
+        ]),
+      );
+      expect(cancels()[1]!.command_id).not.toBe(cancels()[0]!.command_id);
+      await connection.receive(
+        event(start, 4, { type: "operation.cancelled", reason: "user_stop" }),
+      );
+      await stopping;
+      await stopped;
+    } finally {
+      connection.disconnect();
+    }
+  });
+
   it("keeps a user-stopped Task's place through the cancel timeout and a later chat", async () => {
     const gateway = createTestRunnerGateway({
       createId: sequenceIds(),

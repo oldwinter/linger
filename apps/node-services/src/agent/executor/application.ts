@@ -57,7 +57,10 @@ import {
 import { createUserMemoryTracker } from "../agent-features/user-memory/index.js";
 import type { Flashback } from "../../flashback.js";
 import type { FlashbackSettings } from "../agent-features/flashback/index.js";
-import { RunWakeDispatcher } from "../agent-features/inbox-source/index.js";
+import {
+  RunWakeDispatcher,
+  type RunWakeKind,
+} from "../agent-features/inbox-source/index.js";
 import {
   createTeamHubContextRuntimeState,
   readRuntimeSessionCheckpoint,
@@ -216,11 +219,11 @@ export interface AgentManagerApplicationOptions {
     readonly isLocalComputerExecutionReady: (computerId: string) => boolean;
     readonly canReadDetachedHistory?: (
       computerId: string,
-      runtimeType: "codex" | "claude" | "pi",
+      runtimeType: "codex" | "claude" | "pi" | "antigravity",
     ) => boolean;
     readonly supportsSessionCompaction?: (
       computerId: string,
-      runtimeType: "codex" | "claude" | "pi",
+      runtimeType: "codex" | "claude" | "pi" | "antigravity",
     ) => boolean;
     readonly subscribeLocalComputerReady?: (
       listener: (computerId: string) => void,
@@ -493,6 +496,20 @@ export const createAgentManagerApplication = (
       ...(options.proactive ? { proactive: options.proactive } : {}),
       ...(options.taskProgress ? { taskProgress: options.taskProgress } : {}),
       ...(options.replyRhythm ? { replyRhythm: options.replyRhythm } : {}),
+      ...(stateBackend.kind === "teamhub"
+        ? {
+            roomReplyGuard: {
+              hasRunReplied: async (contextKey, runId, signal) =>
+                (
+                  await stateBackend.client.getRunReplyStatus(
+                    contextKey,
+                    runId,
+                    signal,
+                  )
+                ).replied,
+            },
+          }
+        : {}),
       ...(agentMemoryServices
         ? { agentMemory: agentMemoryServices.featureDeps }
         : {}),
@@ -550,6 +567,12 @@ export const createAgentManagerApplication = (
 
   const agentManager = new ExecutorRegistry<LocalRuntimeSettings>({
     features,
+    ...(runWakes
+      ? {
+          redeliverWake: (contextKey: string, kind: RunWakeKind) =>
+            runWakes.wake(contextKey, kind),
+        }
+      : {}),
     identityResolver: options.identityResolver,
     ghostStore,
     contextStore,

@@ -14,7 +14,7 @@ import (
 func TestInstalledToolsRejectCorruptOrRedirectedAssets(t *testing.T) {
 	root := t.TempDir()
 	toolRoot := filepath.Join(root, "cli", "computer-tools")
-	entries := []string{"node_modules/@playwright/mcp/cli.js", "extensions/pi-mcp.mjs"}
+	entries := append([]string{"node_modules/@playwright/mcp/cli.js", "extensions/pi-mcp.mjs"}, quickJSAssets...)
 	assets := []map[string]any{}
 	for _, name := range entries {
 		p := filepath.Join(toolRoot, name)
@@ -31,7 +31,7 @@ func TestInstalledToolsRejectCorruptOrRedirectedAssets(t *testing.T) {
 	node := filepath.Join(root, "runtime", "bin", "node")
 	_ = os.MkdirAll(filepath.Dir(node), 0o700)
 	_ = os.WriteFile(node, []byte("fixture"), 0o700)
-	manifest := map[string]any{"schema_version": 1, "versions": map[string]string{"playwright": "0.0.83", "pi": "1.2.0", "cua": "0.35.4"}, "playwright_entry": entries[0], "pi_extension": entries[1], "assets": assets}
+	manifest := map[string]any{"schema_version": 1, "versions": map[string]string{"playwright": "0.0.83", "pi": "1.2.0", "cua": "0.35.4", "quickjs": "3.6.2"}, "playwright_entry": entries[0], "pi_extension": entries[1], "assets": assets}
 	write := func() {
 		t.Helper()
 		data, _ := json.Marshal(manifest)
@@ -75,7 +75,7 @@ func TestInstalledToolsRejectCorruptOrRedirectedAssets(t *testing.T) {
 func TestInstalledToolsIgnoreFileManagerMetadata(t *testing.T) {
 	root := t.TempDir()
 	tools := filepath.Join(root, "cli", "computer-tools")
-	entries := []string{"node_modules/@playwright/mcp/cli.js", "extensions/pi-mcp.mjs"}
+	entries := append([]string{"node_modules/@playwright/mcp/cli.js", "extensions/pi-mcp.mjs"}, quickJSAssets...)
 	assets := make([]map[string]any, 0, len(entries))
 	for _, name := range entries {
 		file := filepath.Join(tools, filepath.FromSlash(name))
@@ -87,7 +87,7 @@ func TestInstalledToolsIgnoreFileManagerMetadata(t *testing.T) {
 		}
 		assets = append(assets, map[string]any{"path": name, "size_bytes": 7})
 	}
-	manifest, err := json.Marshal(map[string]any{"schema_version": 1, "versions": map[string]string{"playwright": "0.0.83", "pi": "1.2.0", "cua": "0.35.4"}, "playwright_entry": entries[0], "pi_extension": entries[1], "assets": assets})
+	manifest, err := json.Marshal(map[string]any{"schema_version": 1, "versions": map[string]string{"playwright": "0.0.83", "pi": "1.2.0", "cua": "0.35.4", "quickjs": "3.6.2"}, "playwright_entry": entries[0], "pi_extension": entries[1], "assets": assets})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestInstalledToolsFollowTheBundleDepsLinks(t *testing.T) {
 	root := t.TempDir()
 	deps := filepath.Join(root, "deps-0123456789abcdef")
 	bundle := filepath.Join(root, "lib-fedcba9876543210-1")
-	entries := []string{"node_modules/@playwright/mcp/cli.js", "extensions/pi-mcp.mjs"}
+	entries := append([]string{"node_modules/@playwright/mcp/cli.js", "extensions/pi-mcp.mjs"}, quickJSAssets...)
 	assets := []map[string]any{}
 	for _, name := range entries {
 		p := filepath.Join(deps, "computer-tools", name)
@@ -155,7 +155,7 @@ func TestInstalledToolsFollowTheBundleDepsLinks(t *testing.T) {
 		sum := sha256.Sum256([]byte("fixture"))
 		assets = append(assets, map[string]any{"path": name, "size_bytes": 7, "sha256": hex.EncodeToString(sum[:])})
 	}
-	data, _ := json.Marshal(map[string]any{"schema_version": 1, "versions": map[string]string{"playwright": "0.0.83", "pi": "1.2.0", "cua": "0.35.4"}, "playwright_entry": entries[0], "pi_extension": entries[1], "assets": assets})
+	data, _ := json.Marshal(map[string]any{"schema_version": 1, "versions": map[string]string{"playwright": "0.0.83", "pi": "1.2.0", "cua": "0.35.4", "quickjs": "3.6.2"}, "playwright_entry": entries[0], "pi_extension": entries[1], "assets": assets})
 	if err := os.WriteFile(filepath.Join(deps, "computer-tools", "manifest.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestWindowsInstalledToolsUseExtractedBundle(t *testing.T) {
 	}
 	root := t.TempDir()
 	tools := filepath.Join(root, "cli", "computer-tools")
-	entries := []string{"node_modules/@playwright/mcp/cli.js", "extensions/pi-mcp.mjs"}
+	entries := append([]string{"node_modules/@playwright/mcp/cli.js", "extensions/pi-mcp.mjs"}, quickJSAssets...)
 	assets := make([]map[string]any, 0, len(entries))
 	for _, name := range entries {
 		file := filepath.Join(tools, filepath.FromSlash(name))
@@ -199,7 +199,7 @@ func TestWindowsInstalledToolsUseExtractedBundle(t *testing.T) {
 		}
 		assets = append(assets, map[string]any{"path": name, "size_bytes": 7})
 	}
-	manifest, err := json.Marshal(map[string]any{"schema_version": 1, "versions": map[string]string{"playwright": "0.0.83", "pi": "1.2.0", "cua": "0.35.4"}, "playwright_entry": entries[0], "pi_extension": entries[1], "assets": assets})
+	manifest, err := json.Marshal(map[string]any{"schema_version": 1, "versions": map[string]string{"playwright": "0.0.83", "pi": "1.2.0", "cua": "0.35.4", "quickjs": "3.6.2"}, "playwright_entry": entries[0], "pi_extension": entries[1], "assets": assets})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +243,7 @@ func TestInstalledToolsInTheDesktopLayout(t *testing.T) {
 		t.Fatalf("desktop without tools: %+v %v", result, err)
 	}
 	tools := ToolsDirectory(executable)
-	entries := []string{"node_modules/@playwright/mcp/cli.js", "extensions/pi-mcp.mjs"}
+	entries := append([]string{"node_modules/@playwright/mcp/cli.js", "extensions/pi-mcp.mjs"}, quickJSAssets...)
 	assets := make([]map[string]any, 0, len(entries))
 	for _, name := range entries {
 		file := filepath.Join(tools, filepath.FromSlash(name))
@@ -255,7 +255,7 @@ func TestInstalledToolsInTheDesktopLayout(t *testing.T) {
 		}
 		assets = append(assets, map[string]any{"path": name, "size_bytes": 7})
 	}
-	manifest, err := json.Marshal(map[string]any{"schema_version": 1, "versions": map[string]string{"playwright": "0.0.83", "pi": "1.2.0", "cua": "0.35.4"}, "playwright_entry": entries[0], "pi_extension": entries[1], "assets": assets})
+	manifest, err := json.Marshal(map[string]any{"schema_version": 1, "versions": map[string]string{"playwright": "0.0.83", "pi": "1.2.0", "cua": "0.35.4", "quickjs": "3.6.2"}, "playwright_entry": entries[0], "pi_extension": entries[1], "assets": assets})
 	if err != nil {
 		t.Fatal(err)
 	}

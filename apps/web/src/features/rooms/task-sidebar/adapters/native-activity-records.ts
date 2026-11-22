@@ -1,4 +1,7 @@
 import type { TeamHubMessageActivityRecord } from "@/features/teamhub/teamhub-types";
+import type { Translate } from "@/i18n/language";
+
+import { runPanelMessages as m } from "./run-panel.messages";
 
 // Reads native Runtime history records of every Runtime's shape: Codex
 // response items, Claude Code transcript lines and Pi session messages.
@@ -44,13 +47,16 @@ function isString(value: unknown): value is string {
   return typeof value === "string";
 }
 
-export function activityMessageText(record: TeamHubMessageActivityRecord) {
+export function activityMessageText(
+  t: Translate,
+  record: TeamHubMessageActivityRecord,
+) {
   const payload = nativePayload(record);
   return (
     stringValue(payload?.message) ??
     stringValue(payload?.text) ??
     textContent(payload?.content) ??
-    "No message text recorded"
+    t(m.noMessageText)
   );
 }
 
@@ -104,14 +110,13 @@ export function contentBlockRecords(
 }
 
 export function reasoningText(
+  t: Translate,
   record: TeamHubMessageActivityRecord,
 ): string | undefined {
   const payload = nativePayload(record);
   const block = nativeContentBlock(record, payload);
   if (block?.type === "thinking" || block?.type === "redacted_thinking") {
-    return (
-      thinkingSummary(block) ?? "Thinking recorded · private content hidden"
-    );
+    return thinkingSummary(block) ?? t(m.thinkingHidden);
   }
   return stringValue(payload?.text) ?? textContent(payload?.summary);
 }

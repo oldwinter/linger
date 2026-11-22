@@ -305,6 +305,52 @@ When using the private token-file probe, verify the target page before and after
 
 **Reuse:** `browser-connection-dialog.test.tsx` and `TestUserChromeLive`.
 
+## New Runtime acceptance
+
+Run this recipe whenever a Runtime is added to the Computer, and again when an
+existing Runtime's adapter changes how it reports tools, permissions, sessions
+or failures. A single delivered reply only proves the entry path. Drive every
+step on a deployment that ships the adapter under test, and repeat each prompt
+on a Claude Code Agent on the same Computer as the baseline.
+
+**Setup:** Install the Runtime's CLI on the Computer and sign it in. Confirm
+the Computer reports the target release's `app-sha256` and the Runtime as
+ready. Create one Agent on the new Runtime and one on Claude Code, each in its
+own Room. Record `TEAMHUB_PERMISSION_REVIEW` as in
+[Runtime permission decisions](tasks.md#runtime-permission-decisions).
+
+**Journey:** Send each prompt below to both Agents, waiting for each Run to end.
+
+1. Direct commands: send a message, add an emoji reaction, and send a card
+   with an attachment. Read and write a Document, search knowledge, search
+   the web, and read and write a local file in the workspace.
+2. A confirm command, such as `agent update`, produces an approval card;
+   approve one and deny another.
+3. A judged command, such as `image-gen`, goes to TeamHub's remote review.
+4. A background Task that ends by delivering a file to the Room.
+5. Multi-step research that ends in a new Document.
+6. A follow-up message sent while the previous Run still works.
+7. A long command line, over 200 characters, and content in a non-Latin
+   script in the prompt, tool input and reply.
+8. A request the Runtime must fail, such as a missing file, and one that ends
+   by user Stop.
+
+**Pass:** Every step ends with the requested effect, and the delivered message,
+Document or file matches the request. The working indicator appears in the
+composer within about one second of sending, as for Claude Code; record the
+delay for both Agents. Each tool call shows a readable name and its outcome.
+A confirm or judged command waits for its decision, and a denied action has
+no effect. A failed or stopped Run shows a specific reason, not an
+unclassified error. The follow-up reaches the same session, and the next Run
+resumes it.
+
+**Evidence:** For each step, record the Room, Run ID, Runtime, model, elapsed
+time to the working indicator, terminal status and the effect checked. Check
+`runtime-presentation-runs` for the message and `daemon.log` for a failed
+Operation. Report any step that differs from the Claude Code baseline, even
+when the step passes. A Runtime the deployment cannot run is a blocker, not
+a skipped step.
+
 ## Source-built Computer
 
 `bash scripts/dev-local-computer.sh start|status|stop` drives a Daemon against `pnpm dev`.

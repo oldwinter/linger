@@ -190,7 +190,9 @@ describe("Room Chat", () => {
       testQueryClient(),
       "/t/tenant-northstar/rooms/room-dm-codex/chat",
     );
-    expect(await screen.findByText("Local Computer is offline")).toBeVisible();
+    expect(
+      await screen.findByText("Offline computer is offline."),
+    ).toBeVisible();
     expect(screen.getByText("Agent unavailable")).toBeVisible();
     expect(screen.getByLabelText("Message Room")).toBeEnabled();
   });

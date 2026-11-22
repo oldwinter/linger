@@ -3,12 +3,19 @@ import { useState } from "react";
 
 import { Icon } from "@/components/ui/icon";
 import { ActorAvatar } from "@/features/rooms/members/actor-avatar";
+import {
+  availabilityLabel,
+  availabilitySummary,
+} from "@/features/rooms/members/agent-availability-text";
 import type { TeamHubTenantAgent } from "@/features/teamhub/teamhub-types";
+import type { Translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
 
 import { availabilityOf, type AgentAvailability } from "./agent-availability";
 import { Hint } from "./computer-hint";
 import { appNames } from "./computer-readiness";
+import { computersMessages } from "./computers.messages";
 
 /** Two rows of five avatars, the last slot showing the rest. */
 const collapsedCount = 9;
@@ -38,18 +45,19 @@ export function AgentChips({
   agents: TeamHubTenantAgent[];
   onOpenAgent: (actorId: string) => void;
 }) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   if (agents.length === 0)
     return (
       <p className="flex items-center gap-2 px-2 py-2 text-sm text-muted-foreground">
         <Icon icon={BotIcon} size={16} />
-        No Agents on this computer yet. Create one from Chats.
+        {t(computersMessages.noAgents)}
       </p>
     );
   const sorted = [...agents].sort(
     (left, right) =>
-      statusOrder[availabilityOf(agentAvailabilities, left).status] -
-        statusOrder[availabilityOf(agentAvailabilities, right).status] ||
+      statusOrder[availabilityOf(agentAvailabilities, left, t).status] -
+        statusOrder[availabilityOf(agentAvailabilities, right, t).status] ||
       left.actor.display_name.localeCompare(right.actor.display_name),
   );
   const visible = expanded ? sorted : sorted.slice(0, collapsedCount);
@@ -59,7 +67,7 @@ export function AgentChips({
       {visible.map((agent) => (
         <AgentChip
           agent={agent}
-          availability={availabilityOf(agentAvailabilities, agent)}
+          availability={availabilityOf(agentAvailabilities, agent, t)}
           key={agent.actor.id}
           onOpen={() => onOpenAgent(agent.actor.id)}
         />
@@ -74,7 +82,7 @@ export function AgentChips({
             {expanded ? "–" : `+${hidden}`}
           </span>
           <span className="text-xs text-muted-foreground">
-            {expanded ? "Less" : "More"}
+            {t(expanded ? computersMessages.less : computersMessages.more)}
           </span>
         </button>
       ) : null}
@@ -91,10 +99,11 @@ function AgentChip({
   availability: AgentAvailability;
   onOpen: () => void;
 }) {
+  const t = useT();
   const tone = chipTone(availability);
   return (
     <Hint
-      text={`${agent.actor.display_name} · ${availabilityText(agent, availability)}`}
+      text={`${agent.actor.display_name} · ${availabilityText(agent, availability, t)}`}
     >
       <button className={tileClassName} onClick={onOpen} type="button">
         <span
@@ -155,23 +164,31 @@ function chipTone(
 function availabilityText(
   agent: TeamHubTenantAgent,
   availability: AgentAvailability,
+  t: Translate,
 ) {
   const runtimeType =
     availability.localRuntimeStatus?.runtime_type ??
     agent.runtime.placement?.runtime_type;
   const app = runtimeType ? appNames[runtimeType] : undefined;
-  const reason = availability.currentActivity?.summary;
+  const wording = {
+    current_activity: availability.currentActivity,
+    label: availability.label,
+    reason: availability.reason,
+    status: availability.status,
+  };
+  const label = availabilityLabel(wording, t);
+  const reason = availabilitySummary(wording, t);
   if (availability.status === "online") {
     const tasks = availability.activeTaskCount;
     return [
-      availability.label,
+      label,
       app,
-      tasks ? `${tasks} task${tasks === 1 ? "" : "s"} running` : null,
+      tasks ? t(computersMessages.tasksRunning, { count: tasks }) : null,
     ]
       .filter(Boolean)
       .join(" · ");
   }
   if (needsSignIn(availability) && app)
-    return `${availability.label} · ${app} sign-in needed`;
-  return reason ? `${availability.label} · ${reason}` : availability.label;
+    return `${label} · ${t(computersMessages.appSignInNeeded, { app })}`;
+  return reason ? `${label} · ${reason}` : label;
 }

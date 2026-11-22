@@ -3,6 +3,8 @@ import { formatDateTime } from "@/lib/date-format";
 import { useMemo, useState } from "react";
 
 import { Icon } from "@/components/ui/icon";
+import { formatLocale } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 
 import type {
   TeamHubActor,
@@ -10,7 +12,9 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 
 import { AgentProfileContent } from "../../members/actor-profile";
+import { agentInfoMessages } from "../../members/agent-info.messages";
 import { useRoomMessageRunStatuses } from "../../runtime-status/use-room-message-run-statuses";
+import { sidePanelMessages } from "../side-panel.messages";
 import {
   agentInfoActivityEntries,
   type AgentInfoActivityEntry,
@@ -27,9 +31,10 @@ export function AgentInfoPanelTab({
   roomId: string;
   tenantId: string;
 }) {
+  const t = useT();
   return (
     <div
-      aria-label="Agent info"
+      aria-label={t(sidePanelMessages.agentInfo)}
       className={hidden ? "hidden" : "h-full min-h-0 overflow-hidden"}
       data-testid="panel-tab-agent-info"
       hidden={hidden || undefined}
@@ -61,6 +66,7 @@ export function AgentActivityLog({
   roomMessages: readonly TeamHubMessage[];
   tenantId: string;
 }) {
+  const t = useT();
   const [page, setPage] = useState(0);
   const promptIds = useMemo(
     () => roomMessages.map((message) => message.id),
@@ -80,9 +86,9 @@ export function AgentActivityLog({
   const currentPage = Math.min(page, pageCount - 1);
   const visible = entries.slice(currentPage * 10, (currentPage + 1) * 10);
   return (
-    <section className="p-4" aria-label="Agent activity history">
+    <section className="p-4" aria-label={t(agentInfoMessages.activityHistory)}>
       <p className="mb-3 text-xs text-app-muted">
-        Recent activity in this conversation
+        {t(agentInfoMessages.recentActivity)}
       </p>
       {visible.length ? (
         <ul className="overflow-hidden rounded-xl border border-app-border">
@@ -92,7 +98,10 @@ export function AgentActivityLog({
               className="border-t border-app-border first:border-t-0"
             >
               <button
-                aria-label={`View ${agentName} activity: ${entry.promptText}`}
+                aria-label={t(agentInfoMessages.viewAgentActivity, {
+                  name: agentName,
+                  prompt: entry.promptText,
+                })}
                 onClick={() => onView(entry)}
                 type="button"
                 className="flex w-full items-center gap-3 px-3 py-3 text-left hover:bg-app-hover focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app-focus"
@@ -105,13 +114,17 @@ export function AgentActivityLog({
                     dateTime={entry.createdAt}
                     className="mt-1 block text-xs text-app-muted"
                   >
-                    {formatDateTime(entry.createdAt, {
-                      month: "short",
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      hour12: false,
-                    })}
+                    {formatDateTime(
+                      entry.createdAt,
+                      {
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        hour12: false,
+                      },
+                      formatLocale(),
+                    )}
                   </time>
                 </span>
                 <Icon
@@ -125,12 +138,12 @@ export function AgentActivityLog({
         </ul>
       ) : (
         <p className="py-8 text-center text-xs text-app-muted" role="status">
-          No recent activity
+          {t(agentInfoMessages.noRecentActivity)}
         </p>
       )}
       {pageCount > 1 ? (
         <nav
-          aria-label="Activity pages"
+          aria-label={t(agentInfoMessages.activityPages)}
           className="mt-4 flex items-center justify-between text-xs"
         >
           <button
@@ -139,7 +152,7 @@ export function AgentActivityLog({
             disabled={currentPage === 0}
             onClick={() => setPage(currentPage - 1)}
           >
-            Previous
+            {t(agentInfoMessages.previous)}
           </button>
           <span className="text-app-muted">
             {currentPage + 1} / {pageCount}
@@ -150,7 +163,7 @@ export function AgentActivityLog({
             disabled={currentPage === pageCount - 1}
             onClick={() => setPage(currentPage + 1)}
           >
-            Next
+            {t(agentInfoMessages.next)}
           </button>
         </nav>
       ) : null}

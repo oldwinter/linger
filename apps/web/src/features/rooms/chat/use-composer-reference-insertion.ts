@@ -1,4 +1,6 @@
 import type { TeamHubActorRef } from "@/features/teamhub/teamhub-types";
+import { translate } from "@/i18n/language";
+import { composerMessages } from "./composer.messages";
 import type { MessageComposerProps } from "./message-composer";
 import {
   formatDocumentToken,
@@ -77,7 +79,7 @@ export function useComposerReferenceInsertion({
     if (!mentionQuery) return;
     if (document.requiresRoomBinding) {
       if (!resolveDocumentLink || !document.tenantId) {
-        setMessageError("Document cannot be shared in this Room.");
+        setMessageError(translate(composerMessages.documentCannotBeShared));
         return;
       }
       const selection = mentionQuery;
@@ -116,9 +118,7 @@ export function useComposerReferenceInsertion({
           ]);
         })
         .catch(() =>
-          setMessageError(
-            "Document could not be shared in this Room. Check your access and try again.",
-          ),
+          setMessageError(translate(composerMessages.documentShareFailed)),
         )
         .finally(() => {
           resolvingDocumentLinksRef.current = Math.max(

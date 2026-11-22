@@ -19,6 +19,7 @@ function args(
 }
 const reader: CommandInputReader = {
   cwd: "/work",
+  localPath: (source) => source,
   text: async (source) => (source === "body.md" ? "Hello\n\nworld" : source),
   json: async (source) => JSON.parse(source),
 };

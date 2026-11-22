@@ -27,6 +27,8 @@ import type {
   TeamHubTenantAgent,
   TeamHubTenantAgentAvailabilitySnapshot,
   TeamHubTeamMdDocument,
+  TeamHubWebSearchBackend,
+  TeamHubWebSearchBackendList,
   TeamHubWorkItem,
 } from "@/features/teamhub/teamhub-types";
 
@@ -46,6 +48,7 @@ export interface TeamHubTestSeed {
   documentVersions: Map<string, TeamHubDocumentVersion>;
   eventsByRoom: Map<string, TeamHubRoomEvent[]>;
   externalSources: ReturnType<typeof createExternalSourceSeed>;
+  webSearch: TeamHubWebSearchBackendList;
   identity: TeamHubCurrentIdentity;
   localComputers: TeamHubLocalComputerPage["items"];
   membersByRoom: Map<string, TeamHubRoomMember[]>;
@@ -665,6 +668,7 @@ export function createTeamHubTestSeed(): TeamHubTestSeed {
     documentVersions: seededDocuments.versions,
     eventsByRoom,
     externalSources: createExternalSourceSeed(),
+    webSearch: createWebSearchSeed(),
     identity,
     localComputers,
     membersByRoom,
@@ -1741,5 +1745,110 @@ export function createExternalSourceSeed() {
     githubRepositories,
     googleCalendars,
     notionResources,
+  };
+}
+
+/**
+ * The web search backends TeamHub lists before any key is saved: DuckDuckGo
+ * is the default, You.com also works without a key, and direct opens pages.
+ */
+export function createWebSearchSeed(): TeamHubWebSearchBackendList {
+  const keyed: Omit<TeamHubWebSearchBackend, "description" | "id" | "name"> = {
+    commands: ["search", "open"],
+    filters: ["recency", "site"],
+    keyless: false,
+    key_state: "none",
+    max_limit: 20,
+    max_sites: 10,
+    official_key_check: true,
+    quota: { from: "unavailable", reason: "no_key" },
+    status: "key_required",
+    tier: "key",
+  };
+  return {
+    backends: [
+      {
+        ...keyed,
+        commands: ["search"],
+        free_tier: "100 searches a day without a key",
+        description: "Web search API for AI agents and LLMs.",
+        id: "you",
+        key_url: "https://you.com/platform",
+        keyless: true,
+        name: "You.com",
+        quota: { from: "unavailable", reason: "not_reported" },
+        status: "ready",
+        tier: "free",
+        tier_text: "Limited and lower quality results",
+      },
+      {
+        ...keyed,
+        description: "The real-time search engine for AI agents.",
+        free_tier: "1,000 credits a month",
+        id: "tavily",
+        key_url: "https://app.tavily.com/home",
+        name: "Tavily",
+      },
+      {
+        ...keyed,
+        commands: ["search"],
+        description: "Web search API with an index of 40+ billion pages.",
+        free_tier: "$5 credit a month",
+        id: "brave",
+        key_url: "https://api-dashboard.search.brave.com",
+        name: "Brave Search",
+        official_key_check: false,
+      },
+      {
+        ...keyed,
+        description: "Web data API for AI agents.",
+        free_tier: "1,000 credits a month",
+        id: "firecrawl",
+        key_url: "https://www.firecrawl.dev/app/api-keys",
+        name: "Firecrawl",
+      },
+      {
+        ...keyed,
+        description: "Search API for AI agents that need real-time web data.",
+        free_tier: "$10 credit a month",
+        id: "exa",
+        key_url: "https://dashboard.exa.ai/api-keys",
+        name: "Exa",
+        official_key_check: false,
+      },
+      {
+        ...keyed,
+        commands: ["search"],
+        description: "Private search from the Internet privacy company.",
+        id: "duckduckgo",
+        keyless: true,
+        max_limit: 10,
+        max_sites: 1,
+        name: "DuckDuckGo",
+        official_key_check: false,
+        quota: { from: "unavailable", reason: "not_reported" },
+        status: "ready",
+        tier: "free",
+        tier_text: "Free, no key: blocks searches that come too often",
+      },
+      {
+        ...keyed,
+        commands: ["open"],
+        description: "Reads pages from the Agent's own computer.",
+        filters: [],
+        id: "direct",
+        keyless: true,
+        max_limit: 0,
+        max_sites: 0,
+        name: "Direct",
+        official_key_check: false,
+        quota: { from: "unavailable", reason: "not_reported" },
+        status: "ready",
+        tier: "none",
+      },
+    ],
+    can_save_keys: true,
+    default_open: "direct",
+    default_search: "duckduckgo",
   };
 }

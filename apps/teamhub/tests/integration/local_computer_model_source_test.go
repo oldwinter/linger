@@ -51,9 +51,10 @@ func (c *modelSourceComputers) TestLocalComputerByok(_ context.Context, _ roomag
 	c.tested = append(c.tested, request)
 	input := request.Byok
 	if input.ApiKey == nil || *input.ApiKey != modelSourceTestAPIKey {
-		return nodeservicesinternal.ByokTestResult{}, &roomagent.ModelSourceError{Code: "BYOK_AUTH_FAILED"}
+		return nodeservicesinternal.ByokTestResult{}, &roomagent.ModelSourceError{Code: "BYOK_AUTH_FAILED",
+			Message: input.BaseUrl + input.Path + input.Endpoint + " rejected the API key (HTTP 401)."}
 	}
-	return nodeservicesinternal.ByokTestResult{Ok: true, Protocol: "anthropic", BaseUrl: input.BaseUrl, ModelId: input.ModelId, ContextWindow: 200000}, nil
+	return nodeservicesinternal.ByokTestResult{Ok: true, Protocol: input.Protocol, Url: input.BaseUrl + input.Path + input.Endpoint, ModelId: input.ModelId, ContextWindow: 200000}, nil
 }
 
 func (c *modelSourceComputers) ListLocalComputerByokModels(_ context.Context, _ roomagent.ModelSourceTarget, endpoint nodeservicesinternal.ByokEndpointInput) (nodeservicesinternal.ByokModelList, error) {
@@ -61,7 +62,7 @@ func (c *modelSourceComputers) ListLocalComputerByokModels(_ context.Context, _ 
 		return nodeservicesinternal.ByokModelList{}, &roomagent.ModelSourceError{Code: "BYOK_AUTH_FAILED"}
 	}
 	window := 131072
-	return nodeservicesinternal.ByokModelList{BaseUrl: endpoint.BaseUrl, Models: []nodeservicesinternal.ByokModel{{Id: "vendor/model", ContextWindow: &window}}}, nil
+	return nodeservicesinternal.ByokModelList{Url: endpoint.BaseUrl + endpoint.Path + "/models", Models: []nodeservicesinternal.ByokModel{{Id: "vendor/model", ContextWindow: &window}}}, nil
 }
 
 func (c *modelSourceComputers) appliedSnapshot() []nodeservicesinternal.ModelSourceApplyCommand {
@@ -149,7 +150,8 @@ func TestLocalComputerModelSourceSwitchMovesAgentsAndEndsChosenWork(t *testing.T
 		t.Fatalf("member view: %d %s", status, body)
 	}
 	byokSwitch := map[string]any{"mode": "byok", "runtime": "claude", "byok": map[string]any{
-		"base_url": "https://api.example.com", "api_key": modelSourceTestAPIKey, "model_id": "vendor/model",
+		"base_url": "https://api.example.com", "path": "/api/v3", "endpoint": "/messages", "protocol": "anthropic",
+		"api_key": modelSourceTestAPIKey, "model_id": "vendor/model",
 	}}
 	status, _, body = env.request(bob, http.MethodPost, base, byokSwitch, "")
 	if status != http.StatusForbidden || !containsJSONText(body, "MODEL_SOURCE_FORBIDDEN") {
@@ -160,23 +162,29 @@ func TestLocalComputerModelSourceSwitchMovesAgentsAndEndsChosenWork(t *testing.T
 		t.Fatalf("subscription on pi: %d %s", status, body)
 	}
 
-	status, _, body = env.request(alice, http.MethodPost, base+"/test", map[string]any{"runtime": "claude", "byok": byokSwitch["byok"]}, "")
-	if status != http.StatusOK || !containsJSONText(body, `"context_window":200000`) || containsJSONText(body, modelSourceTestAPIKey) {
+	status, _, body = env.request(alice, http.MethodPost, base+"/test", map[string]any{"byok": byokSwitch["byok"]}, "")
+	if status != http.StatusOK || !containsJSONText(body, `"context_window":200000`) ||
+		!containsJSONText(body, `"url":"https://api.example.com/api/v3/messages"`) || containsJSONText(body, modelSourceTestAPIKey) {
 		t.Fatalf("BYOK test: %d %s", status, body)
 	}
 	status, _, body = env.request(alice, http.MethodPost, base+"/test", byokSwitch["byok"], "")
 	if status != http.StatusBadRequest {
-		t.Fatalf("BYOK test without a Runtime: %d %s", status, body)
+		t.Fatalf("BYOK test without its envelope: %d %s", status, body)
 	}
-	status, _, body = env.request(alice, http.MethodPost, base+"/test", map[string]any{"runtime": "claude", "byok": map[string]any{"base_url": "https://api.example.com", "api_key": "wrong", "model_id": "vendor/model"}}, "")
-	if status != http.StatusConflict || !containsJSONText(body, "BYOK_AUTH_FAILED") {
+	status, _, body = env.request(alice, http.MethodPost, base+"/test", map[string]any{"byok": map[string]any{"base_url": "https://api.example.com", "path": "v1", "endpoint": "/messages", "protocol": "anthropic", "model_id": "vendor/model"}}, "")
+	if status != http.StatusBadRequest {
+		t.Fatalf("BYOK test with a path that is not a path: %d %s", status, body)
+	}
+	status, _, body = env.request(alice, http.MethodPost, base+"/test", map[string]any{"byok": map[string]any{"base_url": "https://api.example.com", "path": "/v1", "endpoint": "/messages", "protocol": "anthropic", "api_key": "wrong", "model_id": "vendor/model"}}, "")
+	if status != http.StatusConflict || !containsJSONText(body, "BYOK_AUTH_FAILED") ||
+		!containsJSONText(body, "https://api.example.com/v1/messages rejected the API key (HTTP 401).") {
 		t.Fatalf("BYOK test with a wrong key: %d %s", status, body)
 	}
-	status, _, body = env.request(alice, http.MethodPost, base+"/models", map[string]any{"base_url": "https://api.example.com/v1", "api_key": modelSourceTestAPIKey}, "")
+	status, _, body = env.request(alice, http.MethodPost, base+"/models", map[string]any{"base_url": "https://api.example.com", "path": "/v1", "endpoint": "/chat/completions", "protocol": "openai-chat", "api_key": modelSourceTestAPIKey}, "")
 	if status != http.StatusOK || !containsJSONText(body, `"context_window":131072`) || containsJSONText(body, modelSourceTestAPIKey) {
 		t.Fatalf("BYOK models: %d %s", status, body)
 	}
-	status, _, body = env.request(bob, http.MethodPost, base+"/models", map[string]any{"base_url": "https://api.example.com/v1", "api_key": modelSourceTestAPIKey}, "")
+	status, _, body = env.request(bob, http.MethodPost, base+"/models", map[string]any{"base_url": "https://api.example.com", "path": "/v1", "endpoint": "/chat/completions", "protocol": "openai-chat", "api_key": modelSourceTestAPIKey}, "")
 	if status != http.StatusForbidden {
 		t.Fatalf("member BYOK models: %d %s", status, body)
 	}

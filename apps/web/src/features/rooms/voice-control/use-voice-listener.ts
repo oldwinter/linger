@@ -4,7 +4,7 @@ import { useCallback, useEffect } from "react";
 import type { TeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubVoiceSession } from "@/features/teamhub/teamhub-types";
 
-import { isVoiceAbortError } from "./microphone-devices";
+import { isVoiceAbortError, VoiceMicrophoneError } from "./microphone-devices";
 import { describeError, withTimeout } from "./voice-control-helpers";
 import { connectVoiceListener } from "./voice-listener-connection";
 import type { VoiceControlState, VoiceTarget } from "./use-voice-control-state";
@@ -78,7 +78,7 @@ export function useVoiceListener({
       const operation = withTimeout(
         pendingConnection,
         voiceConnectTimeoutMs,
-        "Microphone connection timed out",
+        () => new VoiceMicrophoneError("timeout"),
       ).catch(async (error: unknown) => {
         if (refs.connectionControllerRef.current === controller) {
           await cleanupMedia();

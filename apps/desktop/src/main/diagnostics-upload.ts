@@ -5,7 +5,9 @@ import https from "node:https";
 
 import { z } from "zod";
 
+import type { Translate } from "../i18n/language.js";
 import type { SetupDiagnosticsSend } from "../shared/setup.js";
+import { dialogMessages as m } from "./dialogs.messages.js";
 
 // Sends the diagnostics zip to a receiver that implements
 // docs/diagnostics-upload.md: one POST asks for a report id and a
@@ -389,17 +391,23 @@ export const formatBytes = (bytes: number): string =>
 // start failure page; the setup page draws the same facts itself.
 export const consentText = (
   state: Extract<SetupDiagnosticsSend, { phase: "confirm" }>,
+  t: Translate,
   shown = 12,
 ): { readonly message: string; readonly detail: string } => {
   const files = state.files.slice(0, shown).map((file) => `  ${file}`);
   if (state.files.length > shown)
-    files.push(`  and ${state.files.length - shown} more`);
+    files.push(
+      `  ${t(m.sendConsentMore, { count: state.files.length - shown })}`,
+    );
   return {
-    message: `Send diagnostics to ${state.host}?`,
+    message: t(m.sendConsent, { host: state.host }),
     detail: [
-      `${state.files.length} files, ${formatBytes(state.bytes)}: logs and settings of this app and of Linger on this computer.`,
-      "Passwords, tokens, keys and your home folder path are removed first; credential files and your data are never included.",
-      `Only the people who run ${state.host} can read the report.`,
+      t(m.sendConsentFiles, {
+        count: state.files.length,
+        size: formatBytes(state.bytes),
+      }),
+      t(m.sendConsentRedacted),
+      t(m.sendConsentReaders, { host: state.host }),
       "",
       ...files,
     ].join("\n"),

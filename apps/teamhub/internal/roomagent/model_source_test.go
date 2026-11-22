@@ -39,7 +39,8 @@ func TestHTTPGatewayAppliesModelSourceAndMapsRefusals(t *testing.T) {
 	runtime := nodeservicesinternal.ModelSourceRuntime("codex")
 	key := "sk-test"
 	command := nodeservicesinternal.ModelSourceApplyCommand{Mode: "byok", Runtime: &runtime, Byok: &nodeservicesinternal.ByokInput{
-		BaseUrl: "https://api.example.com/v1", ApiKey: &key, ModelId: "gpt-5.5",
+		BaseUrl: "https://api.example.com", Path: "/v1", Endpoint: "/responses", Protocol: "openai-responses",
+		ApiKey: &key, ModelId: "gpt-5.5",
 	}}
 
 	status, answer = http.StatusOK, `{"mode":"byok","runtime":"codex","runtime_model":"localmodels-byok","reasoning_effort":"high","byok":{"configured":true,"key_saved":true}}`
@@ -64,7 +65,7 @@ func TestHTTPGatewayAppliesModelSourceAndMapsRefusals(t *testing.T) {
 		var refusal *ModelSourceError
 		switch {
 		case test.want != nil && !errors.Is(err, test.want),
-			test.code != "" && (!errors.As(err, &refusal) || refusal.Code != test.code),
+			test.code != "" && (!errors.As(err, &refusal) || refusal.Code != test.code || refusal.Message != "no"),
 			test.want == nil && test.code == "" && (err == nil || errors.As(err, &refusal)):
 			t.Fatalf("status %d: err=%v", test.status, err)
 		}
@@ -80,11 +81,12 @@ func TestHTTPGatewayListsByokModelsFromTheComputer(t *testing.T) {
 			t.Fatalf("%s %s", r.Method, r.URL.Path)
 		}
 		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["api_key"] != "sk-test" || body["base_url"] != "https://api.example.com/v1" {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["api_key"] != "sk-test" ||
+			body["base_url"] != "https://api.example.com" || body["path"] != "/api/paas/v4" || body["protocol"] != "openai-chat" {
 			t.Fatalf("body=%v err=%v", body, err)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"base_url":"https://api.example.com","models":[{"id":"glm-5","name":"GLM 5","context_window":131072}]}`))
+		_, _ = w.Write([]byte(`{"url":"https://api.example.com/api/paas/v4/models","models":[{"id":"glm-5","name":"GLM 5","context_window":131072}]}`))
 	}))
 	t.Cleanup(server.Close)
 	gateway, err := NewHTTPGateway(server.URL, "service-secret", server.Client())
@@ -94,8 +96,10 @@ func TestHTTPGatewayListsByokModelsFromTheComputer(t *testing.T) {
 	key := "sk-test"
 	list, err := gateway.ListLocalComputerByokModels(context.Background(),
 		ModelSourceTarget{TenantID: "tenant_1", OwnerActorID: "actor_owner", ComputerID: "computer_1"},
-		nodeservicesinternal.ByokEndpointInput{BaseUrl: "https://api.example.com/v1", ApiKey: &key})
-	if err != nil || list.BaseUrl != "https://api.example.com" || len(list.Models) != 1 ||
+		nodeservicesinternal.ByokEndpointInput{
+			BaseUrl: "https://api.example.com", Path: "/api/paas/v4", Endpoint: "/chat/completions", Protocol: "openai-chat", ApiKey: &key,
+		})
+	if err != nil || list.Url != "https://api.example.com/api/paas/v4/models" || len(list.Models) != 1 ||
 		list.Models[0].ContextWindow == nil || *list.Models[0].ContextWindow != 131072 {
 		t.Fatalf("list=%+v err=%v", list, err)
 	}

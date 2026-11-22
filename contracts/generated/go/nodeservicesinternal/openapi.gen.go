@@ -1532,20 +1532,38 @@ type BrowserConnectionStatusState string
 // BrowserProfile A Chrome profile directory name inside the user's Chrome data directory.
 type BrowserProfile = string
 
-// ByokEndpointInput A BYOK endpoint address and key, enough to list its models. The API key is never persisted in TeamHub or Agent Service.
+// ByokEndpointInput A BYOK endpoint address and key, enough to list its models at base_url + path + /models with protocol's key header. The API key is never persisted in TeamHub or Agent Service.
 type ByokEndpointInput struct {
-	ApiKey        *string `json:"api_key,omitempty"`
-	BaseUrl       string  `json:"base_url"`
-	ReuseSavedKey *bool   `json:"reuse_saved_key,omitempty"`
+	ApiKey  *string `json:"api_key,omitempty"`
+	BaseUrl string  `json:"base_url"`
+
+	// Endpoint A path appended to a BYOK base URL: empty, or whole segments each led by one slash, so it can only extend the base URL's path.
+	Endpoint ByokUrlPath `json:"endpoint"`
+
+	// Path A path appended to a BYOK base URL: empty, or whole segments each led by one slash, so it can only extend the base URL's path.
+	Path ByokUrlPath `json:"path"`
+
+	// Protocol Wire format of a BYOK upstream endpoint. The owner's client derives it from the end of the request address, else from the Runtime's own format; the Computer does not probe for it.
+	Protocol      ByokProtocol `json:"protocol"`
+	ReuseSavedKey *bool        `json:"reuse_saved_key,omitempty"`
 }
 
-// ByokInput Upstream endpoint configuration supplied by the Computer owner. The API key is never persisted in TeamHub or Agent Service; only the Local Computer stores it in a private 0600 file.
+// ByokInput Upstream endpoint configuration supplied by the Computer owner. Requests go to base_url + path + endpoint in protocol, and models are listed at base_url + path + /models. The API key is never persisted in TeamHub or Agent Service; only the Local Computer stores it in a private 0600 file.
 type ByokInput struct {
 	ApiKey        *string `json:"api_key,omitempty"`
 	BaseUrl       string  `json:"base_url"`
 	ContextWindow *int    `json:"context_window,omitempty"`
-	ModelId       string  `json:"model_id"`
-	ReuseSavedKey *bool   `json:"reuse_saved_key,omitempty"`
+
+	// Endpoint A path appended to a BYOK base URL: empty, or whole segments each led by one slash, so it can only extend the base URL's path.
+	Endpoint ByokUrlPath `json:"endpoint"`
+	ModelId  string      `json:"model_id"`
+
+	// Path A path appended to a BYOK base URL: empty, or whole segments each led by one slash, so it can only extend the base URL's path.
+	Path ByokUrlPath `json:"path"`
+
+	// Protocol Wire format of a BYOK upstream endpoint. The owner's client derives it from the end of the request address, else from the Runtime's own format; the Computer does not probe for it.
+	Protocol      ByokProtocol `json:"protocol"`
+	ReuseSavedKey *bool        `json:"reuse_saved_key,omitempty"`
 }
 
 // ByokModel A model a BYOK endpoint lists.
@@ -1559,46 +1577,54 @@ type ByokModel struct {
 
 // ByokModelList The models a BYOK endpoint lists, sorted by id.
 type ByokModelList struct {
-	// BaseUrl The address that listed them.
-	BaseUrl string      `json:"base_url"`
-	Models  []ByokModel `json:"models"`
+	Models []ByokModel `json:"models"`
+
+	// Url The address that listed them.
+	Url string `json:"url"`
 }
 
-// ByokProtocol Wire format the Computer found a BYOK upstream endpoint answers, trying the active Runtime's own format first.
+// ByokProtocol Wire format of a BYOK upstream endpoint. The owner's client derives it from the end of the request address, else from the Runtime's own format; the Computer does not probe for it.
 type ByokProtocol string
 
-// ByokSummary Redacted BYOK configuration metadata reported by the Computer.
+// ByokSummary Redacted BYOK configuration metadata reported by the Computer. path and endpoint are omitted when empty: a configured summary without them appends nothing there.
 type ByokSummary struct {
 	BaseUrl       *string `json:"base_url,omitempty"`
 	Configured    bool    `json:"configured"`
 	ContextWindow *int    `json:"context_window,omitempty"`
-	KeySaved      bool    `json:"key_saved"`
-	ModelId       *string `json:"model_id,omitempty"`
 
-	// Protocol Wire format the Computer found a BYOK upstream endpoint answers, trying the active Runtime's own format first.
+	// Endpoint A path appended to a BYOK base URL: empty, or whole segments each led by one slash, so it can only extend the base URL's path.
+	Endpoint *ByokUrlPath `json:"endpoint,omitempty"`
+	KeySaved bool         `json:"key_saved"`
+	ModelId  *string      `json:"model_id,omitempty"`
+
+	// Path A path appended to a BYOK base URL: empty, or whole segments each led by one slash, so it can only extend the base URL's path.
+	Path *ByokUrlPath `json:"path,omitempty"`
+
+	// Protocol Wire format of a BYOK upstream endpoint. The owner's client derives it from the end of the request address, else from the Runtime's own format; the Computer does not probe for it.
 	Protocol *ByokProtocol `json:"protocol,omitempty"`
 }
 
-// ByokTestRequest A BYOK endpoint to verify from the Computer for the Runtime that would serve it, which decides the order wire formats are tried.
+// ByokTestRequest A BYOK endpoint to verify with one request from the Computer.
 type ByokTestRequest struct {
-	// Byok Upstream endpoint configuration supplied by the Computer owner. The API key is never persisted in TeamHub or Agent Service; only the Local Computer stores it in a private 0600 file.
+	// Byok Upstream endpoint configuration supplied by the Computer owner. Requests go to base_url + path + endpoint in protocol, and models are listed at base_url + path + /models. The API key is never persisted in TeamHub or Agent Service; only the Local Computer stores it in a private 0600 file.
 	Byok ByokInput `json:"byok"`
-
-	// Runtime Agent runtime harness driving turns on the Computer.
-	Runtime ModelSourceRuntime `json:"runtime"`
 }
 
-// ByokTestResult Outcome of probing an upstream BYOK endpoint from the Local Computer.
+// ByokTestResult Outcome of one request to an upstream BYOK endpoint from the Local Computer.
 type ByokTestResult struct {
-	// BaseUrl The address that answered, which can add or drop the /anthropic of a gateway that serves OpenAI under /v1 and Anthropic under /anthropic.
-	BaseUrl       string `json:"base_url"`
 	ContextWindow int    `json:"context_window"`
 	ModelId       string `json:"model_id"`
 	Ok            bool   `json:"ok"`
 
-	// Protocol Wire format the Computer found a BYOK upstream endpoint answers, trying the active Runtime's own format first.
+	// Protocol Wire format of a BYOK upstream endpoint. The owner's client derives it from the end of the request address, else from the Runtime's own format; the Computer does not probe for it.
 	Protocol ByokProtocol `json:"protocol"`
+
+	// Url The address the request went to.
+	Url string `json:"url"`
 }
+
+// ByokUrlPath A path appended to a BYOK base URL: empty, or whole segments each led by one slash, so it can only extend the base URL's path.
+type ByokUrlPath = string
 
 // CancelAgentRunRequest defines model for CancelAgentRunRequest.
 type CancelAgentRunRequest struct {
@@ -2295,7 +2321,7 @@ type ModelCallResult struct {
 
 // ModelSourceApplyCommand Internal command sent from TeamHub to Agent Service to switch a Computer's model source.
 type ModelSourceApplyCommand struct {
-	// Byok Upstream endpoint configuration supplied by the Computer owner. The API key is never persisted in TeamHub or Agent Service; only the Local Computer stores it in a private 0600 file.
+	// Byok Upstream endpoint configuration supplied by the Computer owner. Requests go to base_url + path + endpoint in protocol, and models are listed at base_url + path + /models. The API key is never persisted in TeamHub or Agent Service; only the Local Computer stores it in a private 0600 file.
 	Byok *ByokInput `json:"byok,omitempty"`
 
 	// LocalModelId Stable localmodels library id: catalog id and variant, such as qwen3-4b:Q4_K_M.
@@ -2316,7 +2342,7 @@ type ModelSourceRuntime string
 
 // ModelSourceStatus Active model source and redacted BYOK metadata on one Local Computer.
 type ModelSourceStatus struct {
-	// Byok Redacted BYOK configuration metadata reported by the Computer.
+	// Byok Redacted BYOK configuration metadata reported by the Computer. path and endpoint are omitted when empty: a configured summary without them appends nothing there.
 	Byok       ByokSummary `json:"byok"`
 	GatewayUrl *string     `json:"gateway_url,omitempty"`
 

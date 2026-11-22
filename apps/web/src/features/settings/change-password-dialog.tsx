@@ -4,6 +4,10 @@ import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { ModalDialog } from "@/components/ui/modal-dialog";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
+
+import { accountSettingsMessages } from "./account-settings.messages";
 
 export function ChangePasswordDialog({
   changePassword,
@@ -17,6 +21,7 @@ export function ChangePasswordDialog({
   onChanged: () => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const formId = useId();
   const mismatchId = useId();
   const formRef = useRef<HTMLFormElement>(null);
@@ -62,14 +67,14 @@ export function ChangePasswordDialog({
 
   return (
     <ModalDialog
-      description="Confirm your current password before choosing a new one. Other browsers and devices will be signed out; this browser stays signed in."
+      description={t(accountSettingsMessages.changePasswordDescription)}
       onClose={requestClose}
       size="md"
-      title="Change password"
+      title={t(accountSettingsMessages.changePassword)}
       footer={
         <>
           <Button disabled={mutation.isPending} onClick={requestClose}>
-            Cancel
+            {t(commonMessages.cancel)}
           </Button>
           <Button
             disabled={!canSubmit}
@@ -78,7 +83,7 @@ export function ChangePasswordDialog({
             tone="primary"
             type="submit"
           >
-            Change password
+            {t(accountSettingsMessages.changePassword)}
           </Button>
         </>
       }
@@ -92,7 +97,7 @@ export function ChangePasswordDialog({
         <fieldset className="space-y-4" disabled={mutation.isPending}>
           <Field
             autoComplete="current-password"
-            label="Current password"
+            label={t(accountSettingsMessages.currentPassword)}
             onChange={(event) => {
               resetFailure();
               setCurrentPassword(event.target.value);
@@ -102,7 +107,7 @@ export function ChangePasswordDialog({
           />
           <Field
             autoComplete="new-password"
-            label="New password"
+            label={t(accountSettingsMessages.newPassword)}
             onChange={(event) => {
               resetFailure();
               setNewPassword(event.target.value);
@@ -118,7 +123,7 @@ export function ChangePasswordDialog({
                 }
               : {})}
             autoComplete="new-password"
-            label="Confirm new password"
+            label={t(accountSettingsMessages.confirmNewPassword)}
             onChange={(event) => {
               resetFailure();
               setConfirmation(event.target.value);
@@ -134,7 +139,7 @@ export function ChangePasswordDialog({
             id={mismatchId}
             role="alert"
           >
-            Passwords do not match.
+            {t(accountSettingsMessages.passwordsDoNotMatch)}
           </p>
         ) : null}
         {mutation.error ? (

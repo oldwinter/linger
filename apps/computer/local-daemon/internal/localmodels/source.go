@@ -133,6 +133,19 @@ func isManagedGatewayProfilePath(stateDir, candidate string) bool {
 	return false
 }
 
+// runtimeProfileKeys names the environment variable that selects each
+// Runtime's profile directory.
+var runtimeProfileKeys = map[string]string{"codex": "CODEX_HOME", "claude": "CLAUDE_CONFIG_DIR", "pi": "PI_CODING_AGENT_DIR"}
+
+// GatewayRuntime reports whether a Runtime with this effective environment
+// reaches its model through the localmodels gateway, serving local models or a
+// BYOK endpoint, rather than its own provider: its profile is one localmodels
+// manages. Such models have no provider-hosted web search.
+func GatewayRuntime(environment map[string]string, stateDir, runtimeType string) bool {
+	key, ok := runtimeProfileKeys[runtimeType]
+	return ok && isManagedGatewayProfilePath(stateDir, environment[key])
+}
+
 // OverlayEnvironment computes the effective Runtime discovery/execution
 // environment by applying stateDir/model-source.json over base without
 // restarting the Daemon.
@@ -245,6 +258,13 @@ type ModelSource struct {
 	applyTimeout  time.Duration
 	onApplied     func(context.Context) map[string][]RuntimeModelOption
 	mu            sync.Mutex
+	// remountedAt and remountErr are the last gateway remount's finish time
+	// and outcome, under mu, so Runs that waited for it share its outcome.
+	remountedAt time.Time
+	remountErr  error
+	// waiting, when set, runs once a Run has noted when it started waiting
+	// for mu, so a test can release the lock after every Run waits on it.
+	waiting func()
 }
 
 // NewModelSource constructs a ModelSource controller for the given localmodels Tool.
@@ -278,8 +298,13 @@ func NewModelSource(options ModelSourceOptions) *ModelSource {
 	}
 }
 
+// byokStdinPayload sends path and endpoint even when empty: an empty one
+// appends nothing, which localmodels tells apart from a missing field.
 type byokStdinPayload struct {
 	BaseURL       string  `json:"baseUrl"`
+	Path          string  `json:"path"`
+	Endpoint      string  `json:"endpoint"`
+	Protocol      string  `json:"protocol"`
 	APIKey        string  `json:"apiKey,omitempty"`
 	ModelID       string  `json:"modelId"`
 	ContextWindow *uint64 `json:"contextWindow,omitempty"`
@@ -292,6 +317,9 @@ func encodeByokStdin(input *wire.ByokConfigInput) ([]byte, error) {
 	}
 	return json.Marshal(byokStdinPayload{
 		BaseURL:       input.BaseURL,
+		Path:          input.Path,
+		Endpoint:      input.Endpoint,
+		Protocol:      input.Protocol,
 		APIKey:        input.APIKey,
 		ModelID:       input.ModelID,
 		ContextWindow: input.ContextWindow,
@@ -339,34 +367,27 @@ func (m *ModelSource) Status(ctx context.Context) (wire.ModelSourceStatus, error
 		if unsupported := unsupportedSourceCommand(exitCode, stdout); unsupported != nil {
 			return wire.ModelSourceStatus{}, unsupported
 		}
-		return wire.ModelSourceStatus{}, parseToolFailure(stdout, CodeToolFailed, "Could not read model source status on this Computer.")
+		return wire.ModelSourceStatus{}, parseToolFailure(stdout, CodeToolFailed, "Could not read model source status on this Computer.", "")
 	}
 	return parseSourceStatus(stdout)
 }
 
-// TestByok probes a BYOK upstream endpoint for runtime, finding the wire
-// format and address it answers, without persisting credentials or mutating
-// the active model source.
-func (m *ModelSource) TestByok(ctx context.Context, runtime string, input wire.ByokConfigInput) (wire.ByokTestResult, error) {
-	if !slices.Contains([]string{"claude", "codex", "pi"}, runtime) {
-		return wire.ByokTestResult{}, &ModelSourceError{
-			Code:    "MODEL_SOURCE_INVALID",
-			Message: "Unsupported AI runtime.",
-		}
-	}
+// TestByok sends one request to the BYOK endpoint's address in its wire
+// format, without persisting credentials or mutating the active model source.
+func (m *ModelSource) TestByok(ctx context.Context, input wire.ByokConfigInput) (wire.ByokTestResult, error) {
 	var doc struct {
 		Protocol      string `json:"protocol"`
-		BaseURL       string `json:"base_url"`
+		URL           string `json:"url"`
 		ModelID       string `json:"model_id"`
 		ContextWindow uint64 `json:"context_window"`
 	}
-	if err := m.runEndpointCommand(ctx, input, modelSourceCheckSchema, &doc, "check", "--runtime", runtime); err != nil {
+	if err := m.runEndpointCommand(ctx, input, modelSourceCheckSchema, &doc, "check"); err != nil {
 		return wire.ByokTestResult{}, err
 	}
 	return wire.ByokTestResult{
 		Ok:            true,
 		Protocol:      doc.Protocol,
-		BaseURL:       doc.BaseURL,
+		URL:           doc.URL,
 		ModelID:       doc.ModelID,
 		ContextWindow: doc.ContextWindow,
 	}, nil
@@ -436,7 +457,7 @@ func (m *ModelSource) runEndpointCommand(ctx context.Context, input wire.ByokCon
 		}
 		return &ModelSourceError{
 			Code:      code,
-			Message:   clip(msg, 500),
+			Message:   clip(redactSecret(msg, input.APIKey), 500),
 			Retryable: code == "BYOK_UNREACHABLE",
 		}
 	}
@@ -483,32 +504,19 @@ func (m *ModelSource) Apply(ctx context.Context, apply ModelSourceApply) (wire.M
 
 	runCtx, cancel := context.WithTimeout(ctx, m.applyTimeout)
 	defer cancel()
-	args := []string{
-		"-P", "-s", "-m", "localmodels", "source", "apply",
-		"--mode", apply.Mode,
-		"--base-dir", m.tool.BaseDirectory,
-		"--json",
-	}
-	if apply.Runtime != "" {
-		args = append(args, "--runtime", apply.Runtime)
-	}
-	if apply.LocalModelID != "" {
-		args = append(args, "--model", apply.LocalModelID)
-	}
-	if m.harnessRoot != "" {
-		args = append(args, "--harness-root", m.harnessRoot)
-	}
-	if node := m.resolveNodePath(); node != "" {
-		args = append(args, "--node", node)
-	}
-	if len(stdin) > 0 {
-		args = append(args, "--config-stdin")
-	}
+	args := m.applyArgs(apply.Mode, apply.Runtime, apply.LocalModelID, len(stdin) > 0)
 	stdout, exitCode, runErr := m.runTool(runCtx, "source_apply", args, stdin)
 	if runErr != nil {
+		if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+			return wire.ModelSourceStatus{}, &ModelSourceError{
+				Code:      "MODEL_SOURCE_TIMEOUT",
+				Message:   "Model source switch timed out on this Computer.",
+				Retryable: true,
+			}
+		}
 		return wire.ModelSourceStatus{}, &ModelSourceError{
 			Code:      CodeToolFailed,
-			Message:   "Model source switch timed out or could not run on this Computer.",
+			Message:   "Model source switch could not run on this Computer.",
 			Retryable: true,
 		}
 	}
@@ -516,7 +524,11 @@ func (m *ModelSource) Apply(ctx context.Context, apply ModelSourceApply) (wire.M
 		if unsupported := unsupportedSourceCommand(exitCode, stdout); unsupported != nil {
 			return wire.ModelSourceStatus{}, unsupported
 		}
-		return wire.ModelSourceStatus{}, parseToolFailure(stdout, CodeToolFailed, "Could not switch model source on this Computer.")
+		apiKey := ""
+		if apply.Byok != nil {
+			apiKey = apply.Byok.APIKey
+		}
+		return wire.ModelSourceStatus{}, parseToolFailure(stdout, CodeToolFailed, "Could not switch model source on this Computer.", apiKey)
 	}
 	status, err := parseSourceStatus(stdout)
 	if err != nil {
@@ -531,6 +543,33 @@ func (m *ModelSource) Apply(ctx context.Context, apply ModelSourceApply) (wire.M
 	}
 	status.RuntimeModel, status.ReasoningEffort = agentRuntimeModel(status.Runtime, status.RuntimeModel, catalogs[status.Runtime])
 	return status, nil
+}
+
+// applyArgs builds one `source apply`. Without a configuration on stdin, a
+// BYOK apply mounts the configuration localmodels saved.
+func (m *ModelSource) applyArgs(mode, runtime, localModelID string, configStdin bool) []string {
+	args := []string{
+		"-P", "-s", "-m", "localmodels", "source", "apply",
+		"--mode", mode,
+		"--base-dir", m.tool.BaseDirectory,
+		"--json",
+	}
+	if runtime != "" {
+		args = append(args, "--runtime", runtime)
+	}
+	if localModelID != "" {
+		args = append(args, "--model", localModelID)
+	}
+	if m.harnessRoot != "" {
+		args = append(args, "--harness-root", m.harnessRoot)
+	}
+	if node := m.resolveNodePath(); node != "" {
+		args = append(args, "--node", node)
+	}
+	if configStdin {
+		args = append(args, "--config-stdin")
+	}
+	return args
 }
 
 // agentRuntimeModel picks the model the Computer's Agents run after a switch:
@@ -648,7 +687,7 @@ func unsupportedSourceCommand(exitCode int, stdout []byte) error {
 	return nil
 }
 
-func parseToolFailure(stdout []byte, fallbackCode, fallbackMessage string) error {
+func parseToolFailure(stdout []byte, fallbackCode, fallbackMessage, secret string) error {
 	var errDoc struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
@@ -668,11 +707,22 @@ func parseToolFailure(stdout []byte, fallbackCode, fallbackMessage string) error
 		}
 		return &ModelSourceError{
 			Code:      code,
-			Message:   clip(msg, 500),
+			Message:   clip(redactSecret(msg, secret), 500),
 			Retryable: code == "BYOK_UNREACHABLE" || code == "NETWORK_UNAVAILABLE",
 		}
 	}
 	return &ModelSourceError{Code: fallbackCode, Message: fallbackMessage, Retryable: true}
+}
+
+func redactSecret(text, secret string) string {
+	trimmed := strings.TrimSpace(secret)
+	if trimmed == "" || text == "" {
+		return text
+	}
+	if secret != trimmed {
+		text = strings.ReplaceAll(text, secret, "[REDACTED]")
+	}
+	return strings.ReplaceAll(text, trimmed, "[REDACTED]")
 }
 
 // runTool executes localmodels with stdout in a temporary file and stderr on

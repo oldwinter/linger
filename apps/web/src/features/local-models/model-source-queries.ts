@@ -13,7 +13,6 @@ export type ModelSourceSwitchRequest = Schemas["ModelSourceSwitchRequest"];
 export type ByokInput = Schemas["ByokInput"];
 export type ByokTestRequest = Schemas["ByokTestRequest"];
 export type ByokEndpointInput = Schemas["ByokEndpointInput"];
-export type ByokModel = Schemas["ByokModel"];
 
 const modelSourcePath =
   "/v0/tenants/{tenantId}/local-computers/{computerId}/model-source";
@@ -64,10 +63,7 @@ export function switchModelSource(
   );
 }
 
-/**
- * Probes a BYOK endpoint from the Computer without saving it, finding the
- * wire format it answers for the Runtime.
- */
+/** Sends one request to a BYOK endpoint's address from the Computer, without saving it. */
 export function testByokEndpoint(
   client: TeamHubClient,
   tenantId: string,
@@ -83,38 +79,19 @@ export function testByokEndpoint(
 }
 
 /**
- * The models a BYOK endpoint lists, asked from the Computer. `keyRevision`
- * stands in for the API key, which stays out of the query key; it changes
- * whenever the owner enters a different key.
+ * The models a BYOK endpoint lists at its base URL + path + /models, asked
+ * from the Computer each time the owner asks for them.
  */
-export function byokModelsQueryOptions(
+export function listByokModels(
   client: TeamHubClient,
   tenantId: string,
   computerId: string,
-  endpoint: ByokEndpointInput,
-  keyRevision: number,
+  body: ByokEndpointInput,
 ) {
-  return queryOptions({
-    enabled: endpoint.base_url !== "",
-    gcTime: 0,
-    queryFn: ({ signal }) =>
-      teamHubData(
-        client.api.POST(modelSourceModelsPath, {
-          body: endpoint,
-          params: { path: { computerId, tenantId } },
-          signal,
-        }),
-      ),
-    queryKey: [
-      "teamhub",
-      tenantId,
-      "byok-models",
-      computerId,
-      endpoint.base_url,
-      keyRevision,
-    ] as const,
-    refetchOnWindowFocus: false,
-    retry: false,
-    staleTime: Number.POSITIVE_INFINITY,
-  });
+  return teamHubData(
+    client.api.POST(modelSourceModelsPath, {
+      body,
+      params: { path: { computerId, tenantId } },
+    }),
+  );
 }

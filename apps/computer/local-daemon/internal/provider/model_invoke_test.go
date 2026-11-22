@@ -48,7 +48,7 @@ func disabledFeatures(args []string) []string {
 }
 
 func TestCodexModelInvokeArgsPinEffortIsolationAndNoPrompt(t *testing.T) {
-	args := codexModelInvokeArgs(ModelInvokeStructured, "low", "/tmp/call/work", "/tmp/call/schema.json", "/tmp/call/last.txt")
+	args := codexModelInvokeArgs(ModelInvokeStructured, "low", "", "/tmp/call/work", "/tmp/call/schema.json", "/tmp/call/last.txt")
 	if args[0] != "exec" || !slices.Contains(args, "--skip-git-repo-check") || !slices.Contains(args, "--ephemeral") ||
 		!slices.Contains(args, "--ignore-rules") || argValue(args, "--sandbox") != "read-only" ||
 		argValue(args, "--color") != "never" || argValue(args, "-C") != "/tmp/call/work" ||
@@ -76,12 +76,13 @@ func TestCodexModelInvokeArgsPinEffortIsolationAndNoPrompt(t *testing.T) {
 		t.Fatalf("argv ends with %q", last)
 	}
 
-	text := codexModelInvokeArgs(ModelInvokeText, "high", "/w", "", "/l")
-	if slices.Contains(text, "--output-schema") || !slices.Contains(text, `model_reasoning_effort="high"`) {
+	text := codexModelInvokeArgs(ModelInvokeText, "high", "gpt-account-default", "/w", "", "/l")
+	if slices.Contains(text, "--output-schema") || !slices.Contains(text, `model_reasoning_effort="high"`) ||
+		argValue(text, "-m") != "gpt-account-default" || slices.Contains(args, "-m") {
 		t.Fatalf("text args = %q", text)
 	}
 
-	workspace := codexModelInvokeArgs(ModelInvokeWorkspace, "medium", "/w", "", "/l")
+	workspace := codexModelInvokeArgs(ModelInvokeWorkspace, "medium", "", "/w", "", "/l")
 	if argValue(workspace, "--sandbox") != "workspace-write" {
 		t.Fatalf("workspace args = %q", workspace)
 	}
@@ -300,6 +301,9 @@ func TestModelInvokerClassifiesFailures(t *testing.T) {
 		{stderr: "Reading prompt from stdin...\nError: Unknown feature flag: sleep_tool\n", outcome: ModelInvokeRuntimeIncompatible},
 		{stderr: "error: unexpected argument '--ignore-rules' found\n", outcome: ModelInvokeRuntimeIncompatible},
 		{event: `{"type":"turn.failed","error":{"message":"401 Unauthorized: token expired"}}`, outcome: ModelInvokeAuthRequired},
+		// A model the account cannot use fails the same way on every attempt,
+		// so it is not reported as a transient failure.
+		{event: modelNotFoundEvent, outcome: ModelInvokeRuntimeIncompatible},
 		{stderr: "Error: stream disconnected before completion\n", outcome: ModelInvokeFailed},
 	} {
 		fixture := newCodexInvokeFixture(t, func(_ context.Context, command *exec.Cmd) error {
@@ -313,6 +317,80 @@ func TestModelInvokerClassifiesFailures(t *testing.T) {
 		if result.Outcome != test.outcome || result.Reason == "" {
 			t.Fatalf("%q: result = %+v", test.stderr+test.event, result)
 		}
+	}
+}
+
+// modelNotFoundEvent is how codex exec --json reports a model the signed-in
+// account cannot use: the API error body is the event's message.
+const modelNotFoundEvent = `{"type":"turn.failed","error":{"message":"{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-builtin' model is not supported when using Codex with a ChatGPT account.\",\"code\":\"model_not_found\"}}"}}`
+
+func TestModelInvokerReportsAnUnavailableModelReadably(t *testing.T) {
+	fixture := newCodexInvokeFixture(t, func(_ context.Context, command *exec.Cmd) error {
+		_, _ = io.WriteString(command.Stdout, modelNotFoundEvent+"\n")
+		return errors.New("exit status 1")
+	})
+	result := fixture.invoker.Invoke(context.Background(), structuredRequest())
+	if result.Outcome != ModelInvokeRuntimeIncompatible ||
+		result.Reason != "The model is not available to this account: The 'gpt-builtin' model is not supported when using Codex with a ChatGPT account." {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+// writeCodexConfig replaces the fixture's config.toml.
+func writeCodexConfig(t *testing.T, fixture codexInvokeFixture, config string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(fixture.source, "config.toml"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// withDefaultModel makes the fixture's Codex catalog mark model as default.
+func withDefaultModel(fixture *codexInvokeFixture, model string) {
+	lookup := fixture.invoker.Lookup
+	fixture.invoker.Lookup = func(ctx context.Context, runtimeType string) (ModelInvokeRuntime, bool, error) {
+		installed, ok, err := lookup(ctx, runtimeType)
+		installed.DefaultModel = model
+		return installed, ok, err
+	}
+}
+
+func TestCodexModelInvokeRunsTheCatalogDefaultWhenConfigNamesNoModel(t *testing.T) {
+	// Without -m, Codex runs its built-in default, which this account rejects.
+	var args []string
+	fixture := newCodexInvokeFixture(t, func(_ context.Context, command *exec.Cmd) error {
+		args = command.Args
+		if argValue(command.Args, "-m") == "" {
+			_, _ = io.WriteString(command.Stdout, modelNotFoundEvent+"\n")
+			return errors.New("exit status 1")
+		}
+		return os.WriteFile(argValue(command.Args, "-o"), []byte(`{"answer":"ok"}`), 0o600)
+	})
+	writeCodexConfig(t, fixture, "")
+	withDefaultModel(&fixture, "gpt-account-default")
+	result := fixture.invoker.Invoke(context.Background(), structuredRequest())
+	if result.Outcome != ModelInvokeCompleted || result.Model != "gpt-account-default" || argValue(args, "-m") != "gpt-account-default" {
+		t.Fatalf("result = %+v, args = %q", result, args)
+	}
+
+	// A model the user configured, directly or through the active profile,
+	// still decides.
+	for _, config := range []string{
+		"model = \"fixture-model\"\n",
+		"profile = \"fast\"\n[profiles.fast]\nmodel = \"fixture-model\"\n",
+	} {
+		writeCodexConfig(t, fixture, config)
+		fixture.invoker.Invoke(context.Background(), structuredRequest())
+		if slices.Contains(args, "-m") {
+			t.Fatalf("config %q: args = %q", config, args)
+		}
+	}
+
+	// A catalog that marks no default leaves the choice to Codex.
+	writeCodexConfig(t, fixture, "")
+	withDefaultModel(&fixture, "")
+	fixture.invoker.Invoke(context.Background(), structuredRequest())
+	if slices.Contains(args, "-m") {
+		t.Fatalf("args = %q", args)
 	}
 }
 

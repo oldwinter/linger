@@ -1,5 +1,9 @@
 import type { ReactNode } from "react";
 
+import { useT } from "@/i18n/use-translation";
+
+import { agentLiveActivitiesMessages as m } from "./agent-live-activities.messages";
+
 export interface AgentLiveActivity {
   id: string;
   label: string;
@@ -28,9 +32,10 @@ export function AgentLiveActivities({
 }: {
   activities: readonly AgentLiveActivity[];
 }) {
+  const t = useT();
   if (!activities.length) return null;
   return (
-    <AgentInfoSection title="Live activities">
+    <AgentInfoSection title={t(m.title)}>
       <ul className="space-y-2">
         {activities.map((activity) => (
           <li

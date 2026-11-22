@@ -247,6 +247,65 @@ describe("RunnerGateway", () => {
     connection.disconnect();
   });
 
+  it("registers a Runtime that first appears in a diagnostics update", async () => {
+    const gateway = createTestRunnerGateway({ heartbeatIntervalMs: 60_000 });
+    const peer = new RecordingPeer();
+    const connection = await gateway.acceptConnection(
+      authenticatedPrincipal(),
+      {
+        ...hello(),
+        runtime_registrations: [
+          {
+            tenant_id: "tenant-acme",
+            owner_actor_id: "actor-alice",
+            provider_type: "codex",
+            status: "online",
+            revision: 1,
+            capabilities: ["turn"],
+            runtime_diagnostics: { status: "ready" },
+          },
+        ],
+      },
+      peer,
+    );
+    try {
+      // The Computer left Antigravity out until agy was installed.
+      await connection.receive({
+        type: "runner.runtime_diagnostics",
+        protocol_version: "2",
+        runner_id: "runner-local",
+        sent_at: "2026-07-29T00:00:15.000Z",
+        revision: 2,
+        runtime_diagnostics: runtimeDiagnostics({
+          ready: ["codex", "antigravity"],
+        }),
+      });
+      const registrations = peer.registrationSnapshots.at(-1)!.registrations;
+      expect(
+        registrations.find(
+          ({ registration_id }) =>
+            registration_id === testRegistrationId("antigravity"),
+        ),
+      ).toMatchObject({
+        observation: {
+          tenant_id: "tenant-acme",
+          owner_actor_id: "actor-alice",
+          provider_type: "antigravity",
+          status: "online",
+          revision: 2,
+          capabilities: ["turn"],
+        },
+      });
+      expect(
+        registrations.filter(
+          ({ observation }) => observation.provider_type === "codex",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      connection.disconnect();
+    }
+  });
+
   it("proves the Daemon Identity and names Runtime Registrations on every hello", async () => {
     const verify = vi.fn();
     const gateway = createTestRunnerGateway({

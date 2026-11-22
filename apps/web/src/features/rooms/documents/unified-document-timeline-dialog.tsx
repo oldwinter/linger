@@ -1,4 +1,4 @@
-import { dateTimeFormat } from "@/lib/date-format";
+import { formatDateTime } from "@/lib/date-format";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Cancel01Icon,
@@ -17,14 +17,17 @@ import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { documentQueryKey } from "@/features/rooms/room-queries";
 import type { TeamHubDocumentHistoryEntry } from "@/features/teamhub/teamhub-types";
 import { ActorAvatar } from "@/features/rooms/members/actor-avatar";
+import { formatLocale, translate, type Translate } from "@/i18n/language";
+import { useT, useTranslation } from "@/i18n/use-translation";
 
 import { diffDocumentLines } from "./document-history-diff";
 import { historyRevisionMarkdown } from "./document-history-revision";
+import { documentPageMessages as m } from "./document-page.messages";
 
-const dateFormatter = dateTimeFormat({
+const checkpointDate: Intl.DateTimeFormatOptions = {
   dateStyle: "medium",
   timeStyle: "short",
-});
+};
 
 export function UnifiedDocumentTimelineDialog({
   canWrite = true,
@@ -39,6 +42,7 @@ export function UnifiedDocumentTimelineDialog({
   onClose: () => void;
   tenantId: string;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(
     null,
@@ -109,7 +113,9 @@ export function UnifiedDocumentTimelineDialog({
     onSuccess: async (result) => {
       setConfirmRestoreOpen(false);
       setRestoreFeedback(
-        result.status === "already_current" ? "Already current." : "Restored.",
+        result.status === "already_current"
+          ? translate(m.alreadyCurrent)
+          : translate(m.restored),
       );
       if (result.status === "restored") {
         await Promise.all([
@@ -124,16 +130,19 @@ export function UnifiedDocumentTimelineDialog({
   const isLatestCheckpoint = selectedHistoryIndex === 0;
   return (
     <ModalDialog
-      ariaLabel="Page history"
+      ariaLabel={t(m.pageHistory)}
       className="fixed inset-0 z-50 m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden border-0 bg-popover p-0 shadow-lg backdrop:bg-[var(--app-overlay)] backdrop:backdrop-blur-sm sm:inset-0 sm:m-auto sm:h-[min(640px,82dvh)] sm:w-[calc(100%-2.5rem)] sm:max-w-3xl sm:rounded-lg"
       onClose={onClose}
     >
       <div className="flex h-full min-h-0 flex-col">
         <header className="flex min-h-14 shrink-0 items-center justify-between gap-3 border-b border-app-border px-4">
-          <h2 className="text-sm font-semibold text-app-ink">Page history</h2>
+          <h2 className="text-sm font-semibold text-app-ink">
+            {t(m.pageHistory)}
+          </h2>
           <div>
             <Button
-              aria-label="Close Page history"
+              aria-label={t(m.closePageHistory)}
+              data-voice-close
               onClick={onClose}
               size="icon"
               tone="ghost"
@@ -146,7 +155,7 @@ export function UnifiedDocumentTimelineDialog({
           <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_minmax(0,2fr)] max-sm:landscape:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] max-sm:landscape:grid-rows-1 sm:grid-cols-[200px_minmax(0,1fr)] sm:grid-rows-1">
             <aside className="workspace-scrollbar min-h-0 overflow-y-auto border-b border-app-border p-3 max-sm:landscape:border-r max-sm:landscape:border-b-0 sm:border-r sm:border-b-0">
               <TimelineList
-                empty="No page history saved yet."
+                empty={t(m.noPageHistory)}
                 error={history.error}
                 items={history.data?.items ?? []}
                 onSelect={(id) => {
@@ -240,7 +249,7 @@ function useHistoryMarkdown(
         }),
       );
       if (content.history_entry.id !== entry.id) {
-        throw new Error("History Revision identity is inconsistent.");
+        throw new Error(translate(m.revisionInconsistent));
       }
       return historyRevisionMarkdown(
         content.state_bytes,
@@ -282,19 +291,24 @@ function HistoryPreview({
   restoreFeedback: string | null;
   restorePending: boolean;
 }) {
+  const { language, t } = useTranslation();
   return (
     <section
-      aria-label="History preview"
+      aria-label={t(m.historyPreview)}
       className="flex min-h-0 min-w-0 flex-col"
     >
       {entry ? (
         <div className="flex min-h-12 shrink-0 items-center justify-between gap-3 border-b border-app-border px-4">
           <div className="min-w-0">
             <p className="truncate text-sm font-medium text-app-ink">
-              {dateFormatter.format(new Date(entry.created_at))}
+              {formatDateTime(
+                entry.created_at,
+                checkpointDate,
+                formatLocale(language),
+              )}
             </p>
             <p className="truncate text-xs text-app-muted">
-              {historyActors(entry)}
+              {historyActors(entry, t)}
             </p>
           </div>
           {previousEntry ? (
@@ -306,7 +320,7 @@ function HistoryPreview({
                 }
                 type="checkbox"
               />
-              Highlight changes
+              {t(m.highlightChanges)}
             </label>
           ) : null}
         </div>
@@ -314,7 +328,7 @@ function HistoryPreview({
       <div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto">
         {!entry ? (
           <div className="flex h-full items-center justify-center p-8 text-center text-sm text-app-muted">
-            Select a checkpoint to preview it.
+            {t(m.selectCheckpoint)}
           </div>
         ) : loading ? (
           <div
@@ -322,7 +336,7 @@ function HistoryPreview({
             role="status"
           >
             <Spinner size={16} />
-            Loading checkpoint...
+            {t(m.loadingCheckpoint)}
           </div>
         ) : error ? (
           <p className="p-8 text-center text-sm text-app-danger" role="alert">
@@ -333,7 +347,7 @@ function HistoryPreview({
         ) : markdown ? (
           <div className="mx-auto max-w-[760px] px-6 py-8">
             <ReadOnlyBlockNoteDocumentLoader
-              ariaLabel="Historical Document content"
+              ariaLabel={t(m.historicalContent)}
               markdown={markdown}
             />
           </div>
@@ -342,10 +356,10 @@ function HistoryPreview({
             {diff ? (
               <span className="flex items-center gap-2">
                 <Icon icon={Tick02Icon} size={14} />
-                This checkpoint is identical to the previous checkpoint.
+                {t(m.checkpointIdentical)}
               </span>
             ) : (
-              "This checkpoint has no content."
+              t(m.checkpointEmpty)
             )}
           </div>
         )}
@@ -365,6 +379,7 @@ function HistoryPreview({
             ) : null}
           </div>
           <Button
+            data-voice-risk="confirm"
             disabled={restorePending || isLatest}
             onClick={onRestore}
             title={isLatest ? "Already the latest checkpoint" : undefined}
@@ -375,7 +390,7 @@ function HistoryPreview({
             ) : (
               <Icon icon={RotateLeft01Icon} size={14} />
             )}
-            Restore checkpoint
+            {t(m.restoreCheckpoint)}
           </Button>
         </div>
       ) : null}
@@ -414,10 +429,10 @@ function HistoryDiff({
   );
 }
 
-function historyActors(entry: TeamHubDocumentHistoryEntry) {
+function historyActors(entry: TeamHubDocumentHistoryEntry, t: Translate) {
   const actors =
     entry.contributors.length > 0 ? entry.contributors : [entry.created_by];
-  return actors.map((actor) => actor.display_name).join(", ");
+  return actors.map((actor) => actor.display_name).join(t(m.listSeparator));
 }
 
 function TimelineList({
@@ -435,6 +450,7 @@ function TimelineList({
   pending: boolean;
   selectedId?: string;
 }) {
+  const { language, t } = useTranslation();
   if (pending) {
     return (
       <p
@@ -442,7 +458,7 @@ function TimelineList({
         role="status"
       >
         <Spinner size={16} />
-        Loading timeline...
+        {t(m.loadingTimeline)}
       </p>
     );
   }
@@ -477,7 +493,11 @@ function TimelineList({
             />
             <span className="min-w-0">
               <strong className="block truncate text-sm font-medium text-app-ink">
-                {dateFormatter.format(new Date(item.created_at))}
+                {formatDateTime(
+                  item.created_at,
+                  checkpointDate,
+                  formatLocale(language),
+                )}
               </strong>
               <span className="mt-0.5 block text-xs text-app-muted">
                 {item.created_by.display_name}

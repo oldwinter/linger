@@ -2,6 +2,8 @@ import path from "node:path";
 import { expect, it, vi } from "vitest";
 import {
   windowsPrivatePath,
+  windowsPrivateRefusal,
+  WINDOWS_PRIVATE_PATH_UNSAFE,
   WINDOWS_PRIVATE_SCRIPT,
 } from "./windows-private.js";
 it("sends paths through stdin and runs a fixed encoded ACL program", async () => {
@@ -79,4 +81,35 @@ it("ignores inherit-only ACEs only for effective ancestor permissions", () => {
   );
   expect(target).not.toContain("PropagationFlags");
   expect(target).toContain("SHARED_ACCESS");
+});
+it("hands on the code and reason of a refusal, and nothing else", async () => {
+  const run = vi.fn().mockResolvedValue({
+    code: 1,
+    stdout: "UNSAFE_PARENT_ACCESS",
+    stderr: "",
+  });
+  const error: unknown = await windowsPrivatePath(
+    "D:\\Apps\\Linger",
+    "directory",
+    true,
+    run,
+  ).catch((error: unknown) => error);
+  const refusal = {
+    code: WINDOWS_PRIVATE_PATH_UNSAFE,
+    reason: "UNSAFE_PARENT_ACCESS",
+  };
+  expect(windowsPrivateRefusal(error)).toEqual(refusal);
+  // The copy another process receives as JSON reads the same.
+  expect(windowsPrivateRefusal(JSON.parse(JSON.stringify(refusal)))).toEqual(
+    refusal,
+  );
+  for (const other of [
+    undefined,
+    "UNSAFE_PARENT_ACCESS",
+    new Error("is inside a folder"),
+    { code: "EACCES", reason: "UNSAFE_PARENT_ACCESS" },
+    { code: WINDOWS_PRIVATE_PATH_UNSAFE, reason: "SOMETHING_ELSE" },
+    { code: WINDOWS_PRIVATE_PATH_UNSAFE, reason: "toString" },
+  ])
+    expect(windowsPrivateRefusal(other)).toBeUndefined();
 });

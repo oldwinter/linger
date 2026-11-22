@@ -12,13 +12,14 @@ import { teamHubDone } from "@/features/teamhub/teamhub-api";
 import { announceTeamHubAuthenticationRequired } from "@/features/teamhub/teamhub-authentication";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
+import { authMessages } from "./auth.messages";
 import { safeAuthenticationReturnTo } from "./authentication-return-to";
 import { clearInterruptedPage } from "./interrupted-page";
 import { clearLocalAuthenticatedState } from "./local-authenticated-state";
 
-export const LOGOUT_ERROR_MESSAGE = "Could not confirm logout. Please retry.";
+/** The English source; the confirmation itself follows the language on screen. */
 export const LOGOUT_UNSAVED_DOCUMENT_MESSAGE =
-  "Some Document edits are not saved yet. Log out and discard them?";
+  authMessages.logoutUnsavedDocuments.source;
 
 export interface PendingLogoutConfirmation {
   readonly cancel: () => void;

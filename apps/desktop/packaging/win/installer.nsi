@@ -182,6 +182,10 @@ Function StopEarlierLinger
   IfFileExists "$INSTDIR\Linger.exe" 0 done
   InitPluginsDir
   File "/oname=$PLUGINSDIR\stop.mjs" "${STAGE}\resources\app\dist\installer\installer.js"
+  ; The temporary script reads distribution.json beside itself. Use the
+  ; installed release's pins, since those are the tools it started.
+  IfFileExists "$INSTDIR\resources\app\dist\installer\distribution.json" 0 +2
+  CopyFiles /SILENT "$INSTDIR\resources\app\dist\installer\distribution.json" "$PLUGINSDIR"
   StrCpy $R0 "$PLUGINSDIR\stop.mjs"
   Call StopLinger
   done:

@@ -82,7 +82,7 @@ export class ReplyDelivery {
  * along with, a Routine wake, a Task callback and another Agent's Message may
  * rightly go unanswered.
  */
-function awaitsReply(message: Message): boolean {
+export function awaitsReply(message: Message): boolean {
   const notification = (message as unknown as Record<string, unknown>)
     .acceptedNotification;
   if (!isRecord(notification) || !Array.isArray(notification.messages))

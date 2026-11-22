@@ -186,7 +186,7 @@ func refreshRuntimeAuthentication(ctx context.Context, current DiscoveryResult, 
 			// validate a replacement executable, never an auth-only probe.
 			continue
 		}
-		if (diagnostic.Type == "codex" || diagnostic.Type == "pi") && diagnostic.Status == "error" && diagnostic.ModelCatalogError != "" {
+		if (diagnostic.Type == "codex" || diagnostic.Type == "pi" || diagnostic.Type == "antigravity") && diagnostic.Status == "error" && diagnostic.ModelCatalogError != "" {
 			continue
 		}
 		if diagnostic.ExecutablePath == "" || (diagnostic.Status != "ready" && diagnostic.Status != "authentication_required" &&
@@ -213,9 +213,9 @@ func refreshRuntimeAuthentication(ctx context.Context, current DiscoveryResult, 
 		} else {
 			diagnostic.Error = &DiagnosticError{Code: outcome.Code, Message: outcome.Message}
 		}
-		if diagnostic.Type == "pi" && diagnostic.Status == "ready" {
+		if (diagnostic.Type == "pi" || diagnostic.Type == "antigravity") && diagnostic.Status == "ready" {
 			catalogCtx, cancel := context.WithTimeout(ctx, boundedAuthTimeout(options.Timeout))
-			diagnostic.Models, diagnostic.ModelCatalogError = discoverRuntimeModels(catalogCtx, "pi", diagnostic.ExecutablePath, environment)
+			diagnostic.Models, diagnostic.ModelCatalogError = probedRuntimeModels(catalogCtx, diagnostic.Type, diagnostic.ExecutablePath, environment, outcome)
 			cancel()
 			if diagnostic.ModelCatalogError != "" {
 				diagnostic.Status, diagnostic.authProbeFailed = "error", false

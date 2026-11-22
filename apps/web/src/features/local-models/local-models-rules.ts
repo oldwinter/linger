@@ -1,6 +1,8 @@
+import type { Translate } from "@/i18n/language";
 import { formatBytes } from "@/lib/format-bytes";
 
 import { architectureCopy, capabilityCopy } from "./local-models-copy";
+import { localModelsMessages as m } from "./local-models.messages";
 import type {
   LocalModel,
   LocalModelPool,
@@ -102,22 +104,49 @@ function gpuName(view: LocalModelsView, pool: LocalModelPool) {
 }
 
 /** A pool's full name: "GPU 0 · RTX 4090", "System memory", "Unified memory". */
-export function poolLabel(view: LocalModelsView, pool: LocalModelPool) {
-  if (pool.kind === "system") return "System memory";
-  if (pool.kind === "unified") return "Unified memory";
+export function poolLabel(
+  view: LocalModelsView,
+  pool: LocalModelPool,
+  t: Translate,
+) {
+  if (pool.kind === "system") return t(m.poolSystem);
+  if (pool.kind === "unified") return t(m.poolUnified);
   const name = gpuName(view, pool);
-  return name ? `GPU ${pool.gpu_index} · ${name}` : `GPU ${pool.gpu_index}`;
+  return name
+    ? t(m.gpuIndexNamed, { index: gpuIndex(pool), name })
+    : t(m.gpuIndex, { index: gpuIndex(pool) });
+}
+
+/** A GPU's number as the Computer reports it, never grouped like a count. */
+function gpuIndex(pool: LocalModelPool) {
+  return String(pool.gpu_index);
 }
 
 /**
  * A pool's short name for status lines: "GPU 0", "system memory", "memory".
  * Undefined without a pool, so no placement is shown.
  */
-export function placeName(view: LocalModelsView, poolId: string | undefined) {
+export function placeName(
+  view: LocalModelsView,
+  poolId: string | undefined,
+  t: Translate,
+) {
   const pool = poolOf(view, poolId);
   if (!pool) return undefined;
-  if (pool.kind === "gpu") return `GPU ${pool.gpu_index}`;
-  return pool.kind === "system" ? "system memory" : "memory";
+  if (pool.kind === "gpu") return t(m.gpuIndex, { index: gpuIndex(pool) });
+  return t(pool.kind === "system" ? m.placeSystem : m.placeMemory);
+}
+
+/** The same short name where it stands alone: "GPU 0", "System memory", "Memory". */
+export function placeTitle(
+  view: LocalModelsView,
+  poolId: string | undefined,
+  t: Translate,
+) {
+  const pool = poolOf(view, poolId);
+  if (!pool) return undefined;
+  if (pool.kind === "gpu") return t(m.gpuIndex, { index: gpuIndex(pool) });
+  return t(pool.kind === "system" ? m.poolSystem : m.placeMemoryTitle);
 }
 
 /**
@@ -125,8 +154,8 @@ export function placeName(view: LocalModelsView, poolId: string | undefined) {
  * small model and an empty pool compare at a glance with the rest: 0.6 GB and
  * 0 GB, not 614.4 MB and 0 B.
  */
-export function formatGigabytes(bytes: number) {
-  return `${Math.round((bytes / 1024 ** 3) * 10) / 10} GB`;
+export function formatGigabytes(bytes: number, t: Translate) {
+  return t(m.gigabytes, { value: Math.round((bytes / 1024 ** 3) * 10) / 10 });
 }
 
 export function poolFreeBytes(pool: LocalModelPool) {
@@ -400,26 +429,27 @@ export function downloadPercent(model: LocalModel) {
 }
 
 /** Context length in thousands of tokens, as model cards write it: 128K. */
-export function contextLabel(tokens: number) {
-  if (tokens < 1024) return `${tokens} tokens`;
-  return `${Math.round(tokens / 1024)}K tokens`;
+export function contextLabel(tokens: number, t: Translate) {
+  if (tokens < 1024) return t(m.contextTokens, { tokens });
+  return t(m.contextKiloTokens, { thousands: Math.round(tokens / 1024) });
 }
 
-/** Agent names joined for a sentence. */
-export function agentNames(entry: Pick<LocalModelView, "used_by">) {
-  return entry.used_by.map((user) => user.name).join(", ");
+/** Names in one line, separated the way the language lists them. */
+export function joinList(items: readonly string[], t: Translate) {
+  return items.join(t(m.listSeparator));
 }
 
 /** Compact Agent count chip for a model on the Computer, or undefined when unused. */
 export function usedByBadge(
   entry: Pick<ModelEntry, "model" | "status" | "used_by">,
+  t: Translate,
   names?: readonly string[],
 ): string | undefined {
   const count = names ? names.length : entry.used_by.length;
   if (!isModelOnComputer(entry.model, entry.status) || !count) {
     return undefined;
   }
-  return count === 1 ? "1 Agent" : `${count} Agents`;
+  return t(m.agentCount, { count });
 }
 
 export type LocalModelCapability = NonNullable<
@@ -442,29 +472,32 @@ export function modelCapabilities(model: LocalModel): LocalModelCapability[] {
 }
 
 /** Parameter scale and activation topology for details: "30B · 3B active (MoE)". */
-export function parametersLabel(model: LocalModel) {
+export function parametersLabel(model: LocalModel, t: Translate) {
   const scale = [
     model.parameters,
-    model.active_parameters ? `${model.active_parameters} active` : undefined,
+    model.active_parameters
+      ? t(m.activeParameters, { parameters: model.active_parameters })
+      : undefined,
   ]
     .filter(Boolean)
     .join(" · ");
-  const arch = model.architecture
-    ? architectureCopy(model.architecture)
+  const architecture = model.architecture
+    ? architectureCopy(model.architecture, t)
     : undefined;
-  if (scale && arch) return `${scale} (${arch})`;
-  return scale || arch;
+  if (scale && architecture)
+    return t(m.parametersWithArchitecture, { architecture, scale });
+  return scale || architecture;
 }
 
-function allModelBadges(model: LocalModel): string[] {
+function allModelBadges(model: LocalModel, t: Translate): string[] {
   const badges: string[] = [];
   if (model.active_parameters) {
-    badges.push(`${model.active_parameters} active`);
+    badges.push(t(m.activeParameters, { parameters: model.active_parameters }));
   } else if (model.parameters) {
     badges.push(model.parameters);
   }
   for (const capability of modelCapabilities(model)) {
-    badges.push(capabilityCopy(capability));
+    badges.push(capabilityCopy(capability, t));
   }
   return badges;
 }
@@ -477,8 +510,11 @@ export interface CollapsedRowBadges {
 }
 
 /** Concise badges and any `+N` overflow tooltip for the collapsed row, built once from structured fields. */
-export function collapsedRowBadges(model: LocalModel): CollapsedRowBadges {
-  const badges = allModelBadges(model);
+export function collapsedRowBadges(
+  model: LocalModel,
+  t: Translate,
+): CollapsedRowBadges {
+  const badges = allModelBadges(model, t);
   if (badges.length <= visibleBadgeCount) {
     return { badges };
   }
@@ -487,30 +523,37 @@ export function collapsedRowBadges(model: LocalModel): CollapsedRowBadges {
       ...badges.slice(0, visibleBadgeCount),
       `+${badges.length - visibleBadgeCount}`,
     ],
-    overflowTitle: badges.slice(visibleBadgeCount).join(", "),
+    overflowTitle: joinList(badges.slice(visibleBadgeCount), t),
   };
 }
 
-function formatRemainingTime(seconds: number) {
-  if (seconds < 60) return `${seconds}s left`;
+function formatRemainingTime(seconds: number, t: Translate) {
+  if (seconds < 60) return t(m.secondsLeft, { seconds });
   const totalMinutes = Math.ceil(seconds / 60);
-  if (totalMinutes < 60) return `${totalMinutes}m left`;
+  if (totalMinutes < 60) return t(m.minutesLeft, { minutes: totalMinutes });
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
-  return minutes > 0 ? `${hours}h ${minutes}m left` : `${hours}h left`;
+  return minutes > 0
+    ? t(m.hoursMinutesLeft, { hours, minutes })
+    : t(m.hoursLeft, { hours });
 }
 
 /** Live download progress summary: "checking file", or "25% · 50 MB/s · 5m left". */
-export function downloadStatusDetail(model: LocalModel) {
+export function downloadStatusDetail(model: LocalModel, t: Translate) {
   const download = model.download;
-  if (download?.step === "verify") return "checking file";
-  const parts = [`${downloadPercent(model)}%`];
+  if (download?.step === "verify") return t(m.checkingFile);
+  const parts = [t(m.percent, { percent: downloadPercent(model) })];
   if (download?.bytes_per_second && download.bytes_per_second > 0) {
-    parts.push(`${formatBytes(download.bytes_per_second)}/s`);
+    parts.push(
+      t(m.perSecond, { size: formatBytes(download.bytes_per_second) }),
+    );
     const remaining = download.total_bytes - download.done_bytes;
     if (remaining > 0) {
       parts.push(
-        formatRemainingTime(Math.ceil(remaining / download.bytes_per_second)),
+        formatRemainingTime(
+          Math.ceil(remaining / download.bytes_per_second),
+          t,
+        ),
       );
     }
   }
@@ -518,13 +561,19 @@ export function downloadStatusDetail(model: LocalModel) {
 }
 
 /** Measured generation and prompt-processing throughput for model details. */
-export function speedLabel(model: LocalModel) {
+export function speedLabel(model: LocalModel, t: Translate) {
   const parts: string[] = [];
   if (model.tokens_per_second && model.tokens_per_second > 0) {
-    parts.push(`${Math.round(model.tokens_per_second)} tokens/s`);
+    parts.push(
+      t(m.tokensPerSecond, { speed: Math.round(model.tokens_per_second) }),
+    );
   }
   if (model.prompt_tokens_per_second && model.prompt_tokens_per_second > 0) {
-    parts.push(`${Math.round(model.prompt_tokens_per_second)} prompt tokens/s`);
+    parts.push(
+      t(m.promptTokensPerSecond, {
+        speed: Math.round(model.prompt_tokens_per_second),
+      }),
+    );
   }
   return parts.length ? parts.join(" · ") : undefined;
 }

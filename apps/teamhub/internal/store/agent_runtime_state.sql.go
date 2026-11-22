@@ -731,6 +731,106 @@ func (q *Queries) GetAgentLocalRunContextKey(ctx context.Context, runID string) 
 	return context_key, err
 }
 
+const getAgentLocalRunReplyDelivered = `-- name: GetAgentLocalRunReplyDelivered :one
+WITH target_run AS (
+    SELECT run.run_id, run.started_at, run.finished_at,
+           context.tenant_id, context.agent_actor_id, context.room_id
+    FROM agent_local_runs run
+    JOIN agent_execution_contexts context ON context.context_key=run.context_key
+    WHERE run.context_key=$1::text
+      AND run.run_id=$2::text
+),
+room_scope AS (
+    SELECT target_run.room_id AS id
+    FROM target_run
+    WHERE target_run.room_id IS NOT NULL
+    UNION ALL
+    SELECT thread.id
+    FROM target_run
+    JOIN rooms thread
+      ON thread.parent_room_id=target_run.room_id
+     AND thread.deleted_at IS NULL
+    WHERE target_run.room_id IS NOT NULL
+)
+SELECT (
+    EXISTS (
+        SELECT 1
+        FROM messages message
+        WHERE message.local_run_id=target_run.run_id
+          AND message.message_kind='conversation'
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM agent_presentation_sequences sequence
+        WHERE sequence.local_run_id=target_run.run_id
+    )
+    OR (
+        target_run.started_at IS NOT NULL
+        AND target_run.room_id IS NOT NULL
+        AND EXISTS (
+            SELECT 1
+            FROM messages message
+            WHERE message.tenant_id=target_run.tenant_id
+              AND message.author_actor_id=target_run.agent_actor_id
+              AND message.message_kind='conversation'
+              AND message.local_run_id IS NULL
+              AND message.created_at>=target_run.started_at
+              AND (target_run.finished_at IS NULL OR message.created_at<=target_run.finished_at)
+              AND message.room_id IN (SELECT id FROM room_scope)
+        )
+    )
+    OR (
+        target_run.started_at IS NOT NULL
+        AND target_run.room_id IS NOT NULL
+        AND EXISTS (
+            SELECT 1
+            FROM agent_presentation_sequences sequence
+            WHERE sequence.tenant_id=target_run.tenant_id
+              AND sequence.agent_actor_id=target_run.agent_actor_id
+              AND sequence.local_run_id IS NULL
+              AND sequence.created_at>=target_run.started_at
+              AND (target_run.finished_at IS NULL OR sequence.created_at<=target_run.finished_at)
+              AND sequence.room_id IN (SELECT id FROM room_scope)
+        )
+    )
+    OR (
+        target_run.started_at IS NOT NULL
+        AND target_run.room_id IS NOT NULL
+        AND EXISTS (
+            SELECT 1
+            FROM message_reactions reaction
+            WHERE reaction.tenant_id=target_run.tenant_id
+              AND reaction.actor_id=target_run.agent_actor_id
+              AND reaction.created_at>=target_run.started_at
+              AND (target_run.finished_at IS NULL OR reaction.created_at<=target_run.finished_at)
+              AND reaction.room_id IN (SELECT id FROM room_scope)
+        )
+    )
+)::boolean AS replied
+FROM target_run
+`
+
+type GetAgentLocalRunReplyDeliveredParams struct {
+	ContextKey string `json:"context_key"`
+	RunID      string `json:"run_id"`
+}
+
+// Checks whether TeamHub persisted a visible reply from the Run: a
+// conversation Message or decision card attributed to the Run, a queued
+// presentation sequence attributed to the Run, or an unattributed conversation
+// Message, presentation sequence, or emoji Reaction written by the Agent in
+// the Room or its Threads during the Run. Excluding rows attributed to another
+// Run prevents delayed bubbles from an earlier sequence from satisfying this
+// Run. The unattributed sequence and reaction branches have no (room_id,
+// created_at) index; this query runs only on the suspected-missing-reply path
+// and exits early on the indexed local_run_id checks for attributed replies.
+func (q *Queries) GetAgentLocalRunReplyDelivered(ctx context.Context, arg GetAgentLocalRunReplyDeliveredParams) (bool, error) {
+	row := q.db.QueryRow(ctx, getAgentLocalRunReplyDelivered, arg.ContextKey, arg.RunID)
+	var replied bool
+	err := row.Scan(&replied)
+	return replied, err
+}
+
 const getAgentRunStatus = `-- name: GetAgentRunStatus :one
 SELECT run.run_id,run.context_key,run.status,run.status_room_id::text AS status_room_id,
        run.created_at,run.updated_at,

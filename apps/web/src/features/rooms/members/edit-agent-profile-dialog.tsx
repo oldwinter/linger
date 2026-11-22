@@ -5,6 +5,8 @@ import { type FormEvent, useId, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ModalDialog } from "@/components/ui/modal-dialog";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubActor } from "@/features/teamhub/teamhub-types";
@@ -18,6 +20,7 @@ import {
   type AgentAvatarKey,
 } from "./agent-avatar";
 import { AgentAvatarEditor } from "./agent-avatar-picker";
+import { agentInfoMessages } from "./agent-info.messages";
 import { agentNameControlSize } from "./agent-name-control";
 
 export function EditAgentProfileDialog({
@@ -40,6 +43,7 @@ export function EditAgentProfileDialog({
   onSave: (input: { name: string }) => void;
 }) {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const queryClient = useQueryClient();
   const formId = useId();
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -102,16 +106,20 @@ export function EditAgentProfileDialog({
     <ModalDialog
       description={
         canEditName
-          ? "Update your Agent's name and avatar."
-          : "Update your Agent's avatar."
+          ? t(agentInfoMessages.profileDescription)
+          : t(agentInfoMessages.avatarDescription)
       }
       onClose={onClose}
       size="md"
-      title={canEditName ? "Edit profile" : "Edit avatar"}
+      title={t(
+        canEditName
+          ? agentInfoMessages.editProfile
+          : agentInfoMessages.editAvatar,
+      )}
       footer={
         <>
-          <Button onClick={onClose} type="button">
-            {canEdit ? "Cancel" : "Close"}
+          <Button data-voice-close onClick={onClose} type="button">
+            {t(canEdit ? commonMessages.cancel : commonMessages.close)}
           </Button>
           {canEdit ? (
             <Button
@@ -125,7 +133,7 @@ export function EditAgentProfileDialog({
               tone="primary"
               type="submit"
             >
-              Save
+              {t(commonMessages.save)}
             </Button>
           ) : null}
         </>
@@ -148,26 +156,26 @@ export function EditAgentProfileDialog({
           {canEditName ? (
             <div className="mt-5 flex h-8 max-w-full items-center justify-center gap-0.5 rounded-md border border-transparent px-0.5 transition-[background-color,border-color,box-shadow] duration-150 hover:bg-muted/70 focus-within:border-foreground focus-within:bg-card focus-within:ring-2 focus-within:ring-ring">
               <input
-                aria-label="Agent name"
+                aria-label={t(agentInfoMessages.agentName)}
                 className="agent-profile-name-control h-7 w-auto max-w-[280px] shrink-0 border-0 bg-transparent px-1 text-center outline-none placeholder:text-app-placeholder focus-visible:ring-0"
                 disabled={disabled}
                 maxLength={120}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Agent name"
+                placeholder={t(agentInfoMessages.agentName)}
                 ref={nameInputRef}
                 size={agentNameControlSize(name)}
                 value={name}
               />
               {canEditName ? (
                 <button
-                  aria-label="Edit agent name"
+                  aria-label={t(agentInfoMessages.editAgentName)}
                   className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-app-focus disabled:opacity-45"
                   disabled={disabled}
                   onClick={() => {
                     nameInputRef.current?.focus();
                     nameInputRef.current?.select();
                   }}
-                  title="Edit agent name"
+                  title={t(agentInfoMessages.editAgentName)}
                   type="button"
                 >
                   <Icon icon={PencilEdit02Icon} size={16} />
@@ -178,7 +186,7 @@ export function EditAgentProfileDialog({
         </div>
         {error || saveAvatar.error ? (
           <p className="mt-4 text-sm text-app-danger" role="alert">
-            {error ?? "The avatar could not be saved. Try again."}
+            {error ?? t(agentInfoMessages.avatarSaveFailed)}
           </p>
         ) : null}
       </form>

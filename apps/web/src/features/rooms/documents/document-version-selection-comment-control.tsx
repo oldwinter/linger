@@ -3,6 +3,9 @@ import { Icon } from "@/components/ui/icon";
 import { useEffect, useState, type MutableRefObject } from "react";
 
 import { Button } from "@/components/ui/button";
+import { useT } from "@/i18n/use-translation";
+
+import { documentCommentsMessages as m } from "./document-comments.messages";
 
 interface VersionSelection {
   left: number;
@@ -19,6 +22,7 @@ export function DocumentVersionSelectionCommentControl({
   onComment: (quotedText: string) => void;
   rootRef: MutableRefObject<HTMLElement | null>;
 }) {
+  const t = useT();
   const [selection, setSelection] = useState<VersionSelection | null>(null);
 
   useEffect(() => {
@@ -88,7 +92,7 @@ export function DocumentVersionSelectionCommentControl({
       style={{ left: selection.left, top: selection.top }}
     >
       <Button
-        aria-label="Add comment to selected text"
+        aria-label={t(m.addCommentToSelection)}
         className="bg-app-hover text-app-ink"
         onClick={() => {
           onComment(selection.quotedText);
@@ -96,7 +100,7 @@ export function DocumentVersionSelectionCommentControl({
         }}
         onMouseDown={(event) => event.preventDefault()}
         size="compactIcon"
-        title="Add comment"
+        title={t(m.addComment)}
         tone="ghost"
       >
         <Icon icon={Comment01Icon} />

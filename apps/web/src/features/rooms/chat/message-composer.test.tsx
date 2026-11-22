@@ -193,11 +193,9 @@ describe("MessageComposer", () => {
     fireEvent.change(editor, { target: { selectionStart: 1, value: "@" } });
     expect(screen.getByRole("option", { name: /Alice/ })).toBeVisible();
     fireEvent.compositionStart(editor);
-    expect(editor).toHaveAttribute("data-composing", "true");
     fireEvent.keyDown(editor, { key: "Enter", isComposing: true });
     fireEvent.compositionEnd(editor);
 
-    expect(editor).not.toHaveAttribute("data-composing");
     expect(editor).toHaveValue("@");
     expect(screen.getByRole("option", { name: /Alice/ })).toBeVisible();
     expect(onSend).not.toHaveBeenCalled();
@@ -379,6 +377,62 @@ describe("MessageComposer", () => {
     fireEvent.keyDown(editor, { key: "Enter" });
     expect(editor.style.height).toBe("");
     expect(editor).toHaveStyle({ overflowY: "hidden" });
+  });
+
+  it("keeps an Agent mention drawn while an input method composes after it", () => {
+    const codex = {
+      display_name: "Codex",
+      id: "actor-codex",
+      kind: "agent" as const,
+      tenant_id: "tenant-1",
+    };
+    const { container } = render(
+      <MessageComposer mentionOptions={[codex]} onSend={vi.fn()} />,
+    );
+    const editor = screen.getByLabelText<HTMLTextAreaElement>("Message Room");
+
+    fireEvent.change(editor, { target: { value: "@Cod" } });
+    fireEvent.click(screen.getByRole("option", { name: /Codex/ }));
+    const committed = editor.value;
+    editor.setSelectionRange(committed.length, committed.length);
+    fireEvent.compositionStart(editor);
+    fireEvent.compositionUpdate(editor, { data: "a" });
+    fireEvent.input(editor, {
+      target: {
+        selectionStart: committed.length + 1,
+        value: `${committed}a`,
+      },
+    });
+
+    expect(container.querySelector(".composer-agent-mention")).not.toBeNull();
+    expect(
+      container.querySelector(".message-composer-composition"),
+    ).toHaveTextContent("a");
+    fireEvent.compositionEnd(editor);
+    expect(container.querySelector(".message-composer-composition")).toBeNull();
+    expect(container.querySelector(".composer-agent-mention")).not.toBeNull();
+  });
+
+  it("underlines the word an input method recomposes before the caret", () => {
+    const { container } = render(<MessageComposer onSend={vi.fn()} />);
+    const editor = screen.getByLabelText<HTMLTextAreaElement>("Message Room");
+
+    fireEvent.change(editor, {
+      target: { selectionStart: 11, value: "say hello x" },
+    });
+    // The keyboard takes back "hello" while the caret sits after it.
+    editor.setSelectionRange(9, 9);
+    fireEvent.compositionStart(editor);
+    fireEvent.compositionUpdate(editor, { data: "hello" });
+    fireEvent.input(editor, {
+      target: { selectionStart: 9, value: "say hello x" },
+    });
+
+    expect(
+      container.querySelector(".message-composer-composition"),
+    ).toHaveTextContent(/^hello$/u);
+    fireEvent.compositionEnd(editor);
+    expect(container.querySelector(".message-composer-composition")).toBeNull();
   });
 
   it("submits selected Actor identities and Files as one composition", () => {

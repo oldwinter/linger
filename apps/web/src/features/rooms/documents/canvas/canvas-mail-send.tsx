@@ -11,8 +11,12 @@ import { externalConnectionsQueryOptions } from "@/features/apps/connected-apps-
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import { TeamHubError } from "@/features/teamhub/teamhub-error";
+import { translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 import type { RoomDocumentEditor } from "../room-document-comment-schema";
 import { type CanvasDocument, canvasText } from "./canvas-document";
+import { canvasMessages } from "./canvas.messages";
 
 export type MailCanvasState = components["schemas"]["MailCanvasState"];
 
@@ -44,12 +48,13 @@ export function mailCanvasQueryOptions(
   });
 }
 
-export const progressLabel: Partial<Record<MailCanvasState["status"], string>> =
-  {
-    queued: "Preparing…",
-    uploading: "Uploading to Gmail…",
-    sending: "Sending…",
-  };
+export const progressLabel: Partial<
+  Record<MailCanvasState["status"], Message<string>>
+> = {
+  queued: canvasMessages.preparing,
+  uploading: canvasMessages.uploadingToGmail,
+  sending: canvasMessages.sending,
+};
 
 /**
  * Sending a gmail canvas: what is saved in Linger is uploaded to Gmail and
@@ -61,6 +66,7 @@ export function useMailCanvasSend(
   documentId: string,
   saved: boolean,
 ) {
+  const t = useT();
   const queryClient = useQueryClient();
   const connections = useQuery(externalConnectionsQueryOptions(client));
   const accounts =
@@ -82,8 +88,10 @@ export function useMailCanvasSend(
   );
   const mutation = useMutation({
     mutationFn: async () => {
-      if (!account) throw new Error("Connect Gmail before sending.");
-      if (!mail.data) throw new Error("The email is still loading.");
+      if (!account)
+        throw new Error(translate(canvasMessages.connectGmailBeforeSending));
+      if (!mail.data)
+        throw new Error(translate(canvasMessages.emailStillLoading));
       // The digest of the email as this card last showed it: if anything
       // changed since, TeamHub refuses and the card shows the new version.
       return teamHubData(
@@ -116,7 +124,7 @@ export function useMailCanvasSend(
     mutation.isPending || (status !== undefined && inFlight.has(status));
   const problem = mutation.error
     ? mutation.error instanceof TeamHubError && mutation.error.status === 409
-      ? mutation.error.message || "The email changed. Review it and send again."
+      ? mutation.error.message || t(canvasMessages.emailChanged)
       : mutation.error.message
     : decline.error
       ? decline.error.message
@@ -132,11 +140,11 @@ export function useMailCanvasSend(
     Boolean(mail.data?.to.trim()) &&
     (status === "draft" || status === "failed" || status === "unknown");
   const note = busy
-    ? (progressLabel[status ?? "queued"] ?? "Preparing…")
+    ? t(progressLabel[status ?? "queued"] ?? canvasMessages.preparing)
     : !account && connections.isSuccess
-      ? "Connect Gmail to send"
+      ? t(canvasMessages.connectGmailToSend)
       : !saved
-        ? "Saving…"
+        ? t(canvasMessages.saving)
         : undefined;
   return {
     account,

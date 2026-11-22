@@ -50,7 +50,8 @@ func (s *Service) agentRepresentedHumanIdentity(
 
 func listedTenantAgentAvailability(row store.ListTenantAgentsForAccountRow) httpapi.TenantAgentAvailability {
 	return httpapi.TenantAgentAvailability{
-		Status: httpapi.TenantAgentAvailabilityStatusOnline, Label: "Online", ActiveTaskCount: row.ActiveTaskCount,
+		Status: httpapi.TenantAgentAvailabilityStatusOnline, Label: "Online",
+		Reason: availabilityReason(httpapi.TenantAgentAvailabilityReasonOnline), ActiveTaskCount: row.ActiveTaskCount,
 	}
 }
 
@@ -98,18 +99,18 @@ func availabilityWithLocalRuntimeStatus(
 	connectionUncertain := status.ConnectionStatus == "reconnecting" || status.ConnectionStatus == "unknown"
 	if availability.Status != httpapi.TenantAgentAvailabilityStatusError &&
 		(status.Status == "unknown" || (status.Status == "ready" && connectionUncertain)) {
-		label := "Status unavailable"
+		label, reason := "Status unavailable", httpapi.TenantAgentAvailabilityReasonStatusUnavailable
 		if status.ConnectionStatus == "reconnecting" {
-			label = "Reconnecting"
+			label, reason = "Reconnecting", httpapi.TenantAgentAvailabilityReasonReconnecting
 		}
 		return httpapi.TenantAgentAvailability{
 			Status: httpapi.TenantAgentAvailabilityStatusUnknown,
-			Label:  label, ActiveTaskCount: availability.ActiveTaskCount,
+			Label:  label, Reason: availabilityReason(reason), ActiveTaskCount: availability.ActiveTaskCount,
 			CurrentActivity: availability.CurrentActivity,
 		}
 	}
 	if status.Status == "authentication_required" {
-		projected := offlineAgentAvailability("Authentication required")
+		projected := offlineAgentAvailability(httpapi.TenantAgentAvailabilityReasonAuthenticationRequired, "Authentication required")
 		projected.ActiveTaskCount = availability.ActiveTaskCount
 		return projected
 	}
@@ -119,7 +120,7 @@ func availabilityWithLocalRuntimeStatus(
 	}
 	if status.ComputerStatus == "offline" || status.ErrorCode == "LOCAL_COMPUTER_OFFLINE" {
 		// The Agent waits for its Computer and runs there once it connects.
-		projected := offlineAgentAvailability("Waiting for the computer to connect")
+		projected := offlineAgentAvailability(httpapi.TenantAgentAvailabilityReasonWaitingForComputer, "Waiting for the computer to connect")
 		projected.ActiveTaskCount = availability.ActiveTaskCount
 		return projected
 	}
@@ -127,9 +128,16 @@ func availabilityWithLocalRuntimeStatus(
 	if summary == "" {
 		summary = "Local Runtime needs attention"
 	}
+	reason := httpapi.TenantAgentAvailabilityReasonRuntimeError
+	switch status.Status {
+	case "not_installed":
+		reason = httpapi.TenantAgentAvailabilityReasonRuntimeNotInstalled
+	case "incompatible":
+		reason = httpapi.TenantAgentAvailabilityReasonRuntimeIncompatible
+	}
 	return httpapi.TenantAgentAvailability{
 		Status: httpapi.TenantAgentAvailabilityStatusError,
-		Label:  "Needs attention", ActiveTaskCount: availability.ActiveTaskCount,
+		Label:  "Needs attention", Reason: availabilityReason(reason), ActiveTaskCount: availability.ActiveTaskCount,
 		CurrentActivity: &httpapi.TenantAgentCurrentActivity{
 			Summary: truncateActivity(summary),
 		},
@@ -194,7 +202,8 @@ func ValidAgentRuntimeConfig(runtime httpapi.AgentRuntimeConfig) bool {
 func validLocalRuntimeType(runtimeType httpapi.LocalRuntimeType) bool {
 	return runtimeType == httpapi.LocalRuntimeTypeCodex ||
 		runtimeType == httpapi.LocalRuntimeTypeClaude ||
-		runtimeType == httpapi.LocalRuntimeTypePi
+		runtimeType == httpapi.LocalRuntimeTypePi ||
+		runtimeType == httpapi.LocalRuntimeTypeAntigravity
 }
 
 func agentRuntimeConfig(registration store.AgentRegistration) httpapi.AgentRuntimeConfig {
@@ -246,14 +255,20 @@ func listedTenantAgentModel(
 	)
 }
 
-func offlineAgentAvailability(summary string) httpapi.TenantAgentAvailability {
+func offlineAgentAvailability(reason httpapi.TenantAgentAvailabilityReason, summary string) httpapi.TenantAgentAvailability {
 	return httpapi.TenantAgentAvailability{
 		Status: httpapi.TenantAgentAvailabilityStatusOffline,
-		Label:  "Offline",
+		Label:  "Offline", Reason: availabilityReason(reason),
 		CurrentActivity: &httpapi.TenantAgentCurrentActivity{
 			Summary: summary,
 		},
 	}
+}
+
+// availabilityReason is the code clients word; Label and the summary stay
+// the English wording for clients that do not know it.
+func availabilityReason(reason httpapi.TenantAgentAvailabilityReason) *httpapi.TenantAgentAvailabilityReason {
+	return &reason
 }
 
 func truncateActivity(value string) string {

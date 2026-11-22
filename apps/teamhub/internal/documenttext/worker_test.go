@@ -119,7 +119,7 @@ func TestWorkerSyncsNativeAndFileDocuments(t *testing.T) {
 			request.Header.Get("X-Source-Representation-Format") != "pdf" {
 			t.Errorf("source headers = %v", request.Header)
 		}
-		_, _ = writer.Write([]byte("Invoice\x00total: **1,200 USD**\n\n| item | qty |\n| --- | --- |\n| widget | 3 |"))
+		_, _ = writer.Write([]byte("Invoice\x00total: **1,200 USD**\n\n| item | qty |\n| --- | --- |\n| widget | 3 |\n| room\\_id | C:\\\\temp |"))
 	})
 	worker := NewWorker(queries, documents, objects, normalizer, nil)
 
@@ -142,7 +142,7 @@ func TestWorkerSyncsNativeAndFileDocuments(t *testing.T) {
 		t.Fatalf("native upsert = %+v", got)
 	}
 	if got := byDocument["doc_file"]; got.Status != StatusReady || got.SourceID != "ver_1" ||
-		got.SearchText != "Invoice total: 1,200 USD item qty widget 3" || !got.MarkdownSha256.Valid {
+		got.SearchText != "Invoice total: 1,200 USD item qty widget 3 room_id C:\\temp" || !got.MarkdownSha256.Valid {
 		t.Fatalf("file upsert = %+v", got)
 	}
 	if got := byDocument["doc_scan"]; got.Status != StatusNoText || got.SearchText != "" || got.Markdown != "" || got.MarkdownSha256.Valid {

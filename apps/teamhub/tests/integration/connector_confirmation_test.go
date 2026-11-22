@@ -400,6 +400,9 @@ type confirmationToolProvider struct {
 func (p *confirmationToolProvider) SearchTools(context.Context, composio.ToolSearchRequest) ([]composio.Tool, error) {
 	return nil, nil
 }
+func (p *confirmationToolProvider) GetDiscordChannelGuild(context.Context, string, string) (string, error) {
+	return "", errors.New("unexpected Discord channel lookup")
+}
 func (p *confirmationToolProvider) GetConnectionStatusForToolkit(context.Context, string, string) (composio.ConnectionStatus, error) {
 	return composio.ConnectionActive, nil
 }

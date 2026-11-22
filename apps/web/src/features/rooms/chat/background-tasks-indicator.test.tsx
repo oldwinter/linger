@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import type { TestRouteRequest } from "@/test/teamhub-test-server";
 import type { TeamHubRoomBackgroundTask } from "@/features/teamhub/teamhub-types";
+import { translate } from "@/i18n/language";
 import {
   BackgroundTasksIndicator,
   BackgroundTasksPill,
@@ -236,8 +237,8 @@ describe("BackgroundTasksIndicator", () => {
 
 describe("runningFor", () => {
   it("uses the coarsest unit that fits", () => {
-    expect(runningFor("2026-10-28T14:30:30Z", now)).toBe("just now");
-    expect(runningFor("2026-10-28T12:00:00Z", now)).toBe("2 h");
-    expect(runningFor("2026-10-25T14:31:00Z", now)).toBe("3 d");
+    expect(runningFor("2026-10-28T14:30:30Z", now, translate)).toBe("just now");
+    expect(runningFor("2026-10-28T12:00:00Z", now, translate)).toBe("2 h");
+    expect(runningFor("2026-10-25T14:31:00Z", now, translate)).toBe("3 d");
   });
 });

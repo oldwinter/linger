@@ -12,6 +12,7 @@ import {
   teamHubErrorResponse,
   type TestRouteMethod,
 } from "@/test/teamhub-test-server";
+import { defineGlobalProperty } from "@/test/global-properties";
 import {
   useQuery,
   useQueryClient,
@@ -643,6 +644,23 @@ describe("Library Documents", () => {
     const files = await screen.findByLabelText("My pages documents");
     expect(await within(files).findByText("Visible in Planning")).toBeVisible();
     expect(within(files).getByText("No linked context")).toBeVisible();
+  });
+
+  it("lists the Personal Wiki once beside the Rooms a Document is visible in", async () => {
+    const runtime = await signedInRuntime();
+    const linked = seedNativeDocument(runtime, "wiki-row");
+    linked.title = "Wiki plan";
+    linked.from = [
+      { binding_kind: "room", context_id: "room-all", label: "Planning" },
+      { binding_kind: "wiki_page", context_id: "wiki-1" },
+      { binding_kind: "wiki_source", context_id: "wiki-1", label: "Wiki" },
+    ];
+    renderPage(runtime);
+
+    const files = await screen.findByLabelText("My pages documents");
+    expect(
+      await within(files).findByText("Visible in Planning, Personal Wiki"),
+    ).toBeVisible();
   });
 
   it("renders Workspace file rows with owner, time, download, and more actions", async () => {
@@ -2343,7 +2361,7 @@ describe("Library Documents", () => {
     const bravo = seedNativeDocument(runtime, "copy-links-bravo");
     bravo.title = "Bravo plan";
     const writeText = vi.fn(() => Promise.resolve());
-    Object.assign(navigator, { clipboard: { writeText } });
+    defineGlobalProperty(navigator, "clipboard", { value: { writeText } });
     renderPage(runtime);
 
     const files = await screen.findByLabelText("My pages documents");
@@ -2380,15 +2398,14 @@ describe("Library Documents", () => {
   it("reports a refused copy and keeps the selection for a retry", async () => {
     const runtime = await signedInRuntime();
     seedNativeDocument(runtime, "copy-failure-alpha");
-    Object.assign(navigator, {
-      clipboard: {
+    defineGlobalProperty(navigator, "clipboard", {
+      value: {
         writeText: vi.fn(() =>
           Promise.reject(new Error("Clipboard is denied")),
         ),
       },
     });
-    Object.defineProperty(document, "execCommand", {
-      configurable: true,
+    defineGlobalProperty(document, "execCommand", {
       value: vi.fn(() => false),
     });
     renderPage(runtime);
@@ -2830,7 +2847,7 @@ describe("Copy folder contents", () => {
     });
     buried.title = "Buried";
     const writeText = vi.fn(() => Promise.resolve());
-    Object.assign(navigator, { clipboard: { writeText } });
+    defineGlobalProperty(navigator, "clipboard", { value: { writeText } });
     renderPage(runtime);
 
     fireEvent.click(
@@ -2892,15 +2909,14 @@ describe("Copy folder contents", () => {
       parent_id: folder.id,
     });
     spec.title = "Spec";
-    Object.assign(navigator, {
-      clipboard: {
+    defineGlobalProperty(navigator, "clipboard", {
+      value: {
         writeText: vi.fn(() =>
           Promise.reject(new Error("Clipboard is denied")),
         ),
       },
     });
-    Object.defineProperty(document, "execCommand", {
-      configurable: true,
+    defineGlobalProperty(document, "execCommand", {
       value: vi.fn(() => false),
     });
     renderPage(runtime);

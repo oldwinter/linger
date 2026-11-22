@@ -1,1 +1,4 @@
 patches/*.patch -whitespace
+
+# The test runner must be able to strip the hashbang when importing this script.
+scripts/local-computer-node-distributions.mjs text eol=lf

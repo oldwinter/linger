@@ -205,13 +205,31 @@ describe("Web static host cache policy", () => {
     expect(response.headers.get("access-control-allow-origin")).toBe("*");
   });
 
-  it("keeps the SPA document revalidatable", async () => {
-    const response = await fetch(`${baseUrl}/login`, {
-      headers: { accept: "text/html", connection: "close" },
-    });
+  it("never lets the HTTP cache replay the SPA document", async () => {
+    for (const requestPath of ["/login", "/", "/index.html"]) {
+      const response = await fetch(`${baseUrl}${requestPath}`, {
+        headers: { accept: "text/html", connection: "close" },
+      });
 
-    expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("no-cache");
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+    }
+  });
+
+  it("forbids caching a missing asset so a rollout miss does not stick", async () => {
+    for (const [requestPath, accept] of [
+      ["/assets/index-old111.js", "*/*"],
+      ["/assets/index-old111.js", "text/html"],
+      ["/unknown.png", "*/*"],
+      ["/agents", "application/json"],
+    ] as const) {
+      const response = await fetch(`${baseUrl}${requestPath}`, {
+        headers: { accept, connection: "close" },
+      });
+
+      expect(response.status).toBe(404);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+    }
   });
 
   it("answers a revalidation with the current page after an update", async () => {
@@ -343,7 +361,7 @@ describe("Web static host content negotiation", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-encoding")).toBe("br");
     expect(response.headers.get("content-type")).toContain("text/html");
-    expect(response.headers.get("cache-control")).toBe("no-cache");
+    expect(response.headers.get("cache-control")).toBe("no-store");
     await expect(response.text()).resolves.toBe(indexDocument);
   });
 

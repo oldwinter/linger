@@ -203,6 +203,10 @@ func (p *piProcess) read() {
 			p.route(frame)
 			continue
 		}
+		if head.Type == "extension_ui_request" {
+			p.answerDialog(frame)
+			continue
+		}
 		var event piEventFrame
 		if json.Unmarshal(frame, &event) != nil {
 			continue

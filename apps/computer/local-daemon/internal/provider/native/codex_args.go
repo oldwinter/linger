@@ -95,6 +95,10 @@ func codexExecutionArgs(profile Profile, spec RunSpec, home string, logger *slog
 	user := NormalizeCodexLaunchArgs(lists[0], lists[1], logger)
 	launch := append(append([]string{}, profile.CodexConfigArgs...), user...)
 	args := CodexAppServerArgs(profile.CodexToolVersion, launch...)
+	if spec.WithoutNativeWebTools {
+		// After every user override, which cannot turn it back on.
+		args = append(args, "--config", `web_search="disabled"`)
+	}
 	if codexSupportsImmediateUnload(profile.CodexToolVersion, home) {
 		args = append(args, "-c", "thread_unload_delay_secs=0")
 	}

@@ -2,9 +2,13 @@ import { MinusSignIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
 import { useEffect, useState } from "react";
 
+import { translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
+
 import type { ArtifactRendererKind } from "./artifact-renderer-policy";
 import { renderMermaidSvg } from "../mermaid-preview-adapter";
 import { MermaidSvgPreview } from "../mermaid-svg-preview";
+import { filePreviewMessages as m } from "./file-preview.messages";
 
 export interface ArtifactContentRendererProps {
   filename: string;
@@ -26,6 +30,7 @@ export function ArtifactContentRenderer({
   previewUrl,
   textContent,
 }: ArtifactContentRendererProps) {
+  const t = useT();
   if (kind === "text") {
     return (
       <pre
@@ -44,7 +49,7 @@ export function ArtifactContentRenderer({
           className="block h-full min-h-0 w-full border-0 bg-app-surface"
           sandbox="allow-scripts"
           src={previewUrl}
-          title={`Preview ${filename}`}
+          title={t(m.previewFile, { name: filename })}
         />
       );
     }
@@ -94,6 +99,7 @@ function ImagePreview({
   filename: string;
   objectUrl: string;
 }) {
+  const t = useT();
   const [zoom, setZoom] = useState(1);
   const zoomPercentage = Math.round(zoom * 100);
 
@@ -126,7 +132,7 @@ function ImagePreview({
       </div>
       <div className="absolute bottom-3 right-3 flex h-8 items-center overflow-hidden rounded-md bg-popover shadow-md">
         <button
-          aria-label="Zoom image out"
+          aria-label={t(m.zoomImageOut)}
           className="flex h-8 w-8 items-center justify-center text-app-muted transition-colors hover:bg-accent hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-35"
           disabled={zoom <= 0.5}
           onClick={() => updateZoom(zoom - 0.1)}
@@ -135,7 +141,7 @@ function ImagePreview({
           <Icon icon={MinusSignIcon} size={14} />
         </button>
         <button
-          aria-label="Reset image zoom"
+          aria-label={t(m.resetImageZoom)}
           className="h-8 min-w-12 border-x border-app-border px-2 text-xs font-medium tabular-nums text-app-body transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           onClick={() => setZoom(1)}
           type="button"
@@ -143,7 +149,7 @@ function ImagePreview({
           {zoomPercentage}%
         </button>
         <button
-          aria-label="Zoom image in"
+          aria-label={t(m.zoomImageIn)}
           className="flex h-8 w-8 items-center justify-center text-app-muted transition-colors hover:bg-accent hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-35"
           disabled={zoom >= 2}
           onClick={() => updateZoom(zoom + 0.1)}
@@ -165,6 +171,7 @@ function MermaidPreview({
   onError?: (message: string) => void;
   source: string;
 }) {
+  const t = useT();
   const [rendered, setRendered] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -183,7 +190,7 @@ function MermaidPreview({
           const message =
             renderError instanceof Error
               ? renderError.message
-              : "Mermaid could not render this diagram.";
+              : translate(m.mermaidRenderFailed);
           setError(message);
           onError?.(message);
         }
@@ -200,7 +207,7 @@ function MermaidPreview({
     return (
       <div className="flex min-h-full items-center justify-center p-6 text-center">
         <div>
-          <p className="text-sm font-semibold">Diagram preview failed</p>
+          <p className="text-sm font-semibold">{t(m.diagramPreviewFailed)}</p>
           <p className="mt-1 max-w-lg text-xs text-app-subtle">{error}</p>
         </div>
       </div>
@@ -210,11 +217,11 @@ function MermaidPreview({
   if (!rendered) {
     return (
       <div
-        aria-label="Rendering Mermaid diagram"
+        aria-label={t(m.renderingMermaid)}
         className="flex min-h-full items-center justify-center text-sm text-app-subtle"
         role="status"
       >
-        Rendering diagram...
+        {t(m.renderingDiagram)}
       </div>
     );
   }
@@ -222,7 +229,7 @@ function MermaidPreview({
   return (
     <MermaidSvgPreview
       key={rendered}
-      title={`Preview ${filename}`}
+      title={t(m.previewFile, { name: filename })}
       svg={rendered}
     />
   );
@@ -235,12 +242,13 @@ function SandboxedFrame({
   filename: string;
   source: string;
 }) {
+  const t = useT();
   return (
     <iframe
       className="h-full min-h-[420px] w-full border-0 bg-app-surface"
       sandbox=""
       srcDoc={source}
-      title={`Preview ${filename}`}
+      title={t(m.previewFile, { name: filename })}
     />
   );
 }
@@ -250,7 +258,8 @@ function createSandboxDocument(body: string) {
 }
 
 function PreviewUnavailable() {
+  const t = useT();
   return (
-    <p className="text-sm text-app-subtle">Preview content is unavailable.</p>
+    <p className="text-sm text-app-subtle">{t(m.previewContentUnavailable)}</p>
   );
 }

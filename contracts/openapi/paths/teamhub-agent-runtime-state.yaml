@@ -407,6 +407,29 @@ getRun:
       "500":
         $ref: "../components/common.yaml#/components/responses/InternalError"
 
+getRunReplyStatus:
+  get:
+    tags: [Agent Runtime State]
+    operationId: getAgentLocalRunReplyStatus
+    parameters:
+      - $ref: "#/components/parameters/ContextKey"
+      - $ref: "#/components/parameters/LocalRunId"
+    responses:
+      "200":
+        description: Whether TeamHub recorded a visible reply for the Local Run.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/agent-runtime-state.yaml#/components/schemas/AgentLocalRunReplyStatus"
+      "400":
+        $ref: "../components/common.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"
+      "404":
+        $ref: "../components/common.yaml#/components/responses/NotFound"
+      "500":
+        $ref: "../components/common.yaml#/components/responses/InternalError"
+
 claimRun:
   post:
     tags: [Agent Runtime State]

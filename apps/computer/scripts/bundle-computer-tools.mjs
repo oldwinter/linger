@@ -26,7 +26,22 @@ export const COMPUTER_TOOL_VERSIONS = Object.freeze({
   playwright: "0.0.83",
   pi: "1.2.0",
   cua: "0.35.4",
+  quickjs: "3.6.2",
 });
+// The entry imports the three sibling modules. Plain scripts need no
+// optional QuickJS extensions; the bundled Pi also loads the base VM.
+const quickjsFiles = [
+  "LICENSE",
+  "package.json",
+  "quickjs.wasm",
+  "dist/index.js",
+  "dist/extensions.js",
+  "dist/version.js",
+  "dist/wasi-shim.js",
+];
+export const QUICKJS_TOOL_ASSETS = Object.freeze(
+  quickjsFiles.map((name) => `node_modules/quickjs-wasi/${name}`),
+);
 // Pinned Cua desktop drivers per release target. Windows drives the signed-in
 // desktop through the standalone driver; it needs no app bundle or SDK.
 const cuaArchive = (name, sha256, entry, required) =>
@@ -103,6 +118,15 @@ async function stagePackages(destination) {
       dereference: false,
       filter: (entry) => {
         const parts = path.relative(source, entry).split(path.sep);
+        if (
+          name === "quickjs-wasi" &&
+          manifest.version === COMPUTER_TOOL_VERSIONS.quickjs
+        ) {
+          const relative = parts.join("/");
+          return (
+            !relative || relative === "dist" || quickjsFiles.includes(relative)
+          );
+        }
         return (
           !parts.some((part) =>
             [
@@ -141,6 +165,7 @@ async function stagePackages(destination) {
     }
   }
   for (const [name, version] of [
+    ["quickjs-wasi", COMPUTER_TOOL_VERSIONS.quickjs],
     ["@playwright/mcp", COMPUTER_TOOL_VERSIONS.playwright],
     ["@earendil-works/pi-coding-agent", COMPUTER_TOOL_VERSIONS.pi],
   ]) {
@@ -409,6 +434,7 @@ export async function validatedComputerToolAssets(bundle, target) {
   for (const required of [
     manifest.playwright_entry,
     manifest.pi_extension,
+    ...QUICKJS_TOOL_ASSETS,
     ...(CUA_ARCHIVES[target]?.required ?? []),
   ]) {
     if (!required || !expected.some((asset) => asset.path === required))

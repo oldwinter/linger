@@ -125,6 +125,16 @@ export interface ProviderRunContext {
   readonly sourceInboxIds: readonly string[];
 }
 
+export interface RuntimeStopHookEvent {
+  readonly runtime?: string;
+  readonly attempt: number;
+  readonly stopHookActive: boolean;
+}
+
+export type RuntimeStopHookDecision =
+  | { readonly action: "allow" }
+  | { readonly action: "block"; readonly reason: string };
+
 export interface ExecutionSpec {
   /** Process-local monotonic acceptance time; never persisted or sent over the wire. */
   acceptedAtMonotonicMs?: number;
@@ -132,6 +142,11 @@ export interface ExecutionSpec {
   runKind?: RunKind;
   /** Revalidate the live claim after readmission and before resuming its native session. */
   beforeYieldResume?: () => Promise<void>;
+  /** Evaluated before a Runtime finishes a turn when stop interception is active. */
+  onStopHook?: (
+    event: RuntimeStopHookEvent,
+    signal: AbortSignal,
+  ) => Promise<RuntimeStopHookDecision>;
   signal?: AbortSignal;
   resources?: ProviderResourceBundle;
   runContext?: ProviderRunContext;
@@ -466,7 +481,7 @@ export interface RuntimeExecutionFailure {
     | "response_too_large"
     | "unclassified";
   /** Absent when the failure was observed without a selected Runtime. */
-  runtime_type?: "codex" | "claude" | "pi";
+  runtime_type?: "codex" | "claude" | "pi" | "antigravity";
   runtime_version?: string;
 }
 

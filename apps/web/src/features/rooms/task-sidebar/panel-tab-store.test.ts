@@ -364,7 +364,7 @@ describe("panel tab store", () => {
     expect(next.tabs[next.activeTabId!]?.actorId).toBe("agent-created");
     expect(next.tabs[next.activeTabId!]?.kind).toBe("agentInfo");
     expect(next.tabs[next.activeTabId!]?.activityRunStatusId).toBeUndefined();
-    expect(next.tabs[next.activeTabId!]?.title).toBe("Agent · Slide Expert");
+    expect(next.tabs[next.activeTabId!]?.title).toBe("Slide Expert");
     expect(next.openTabIds).not.toContain(
       panelTabKey("agentInfo", { actorId: "previous-agent" }),
     );

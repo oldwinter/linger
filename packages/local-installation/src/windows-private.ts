@@ -5,7 +5,43 @@ import { runProcess } from "./process.js";
 // contents, user-controlled PowerShell, or credentials appear in argv/output.
 export const WINDOWS_PRIVATE_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
+# This fixed Windows PowerShell script uses only its own built-in modules.
+# A caller's PowerShell 7 modules can prevent Get-Acl from loading.
+$env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules')
 [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
+# Administrators enabled in this token, or in the elevated token UAC links to
+# it (an administrator running without elevation). Only the rare second case
+# compiles the check.
+function Test-Administrator {
+  if ([Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { return $true }
+  Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class LingerLinkedToken {
+  [DllImport("advapi32.dll")] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+  [DllImport("advapi32.dll")] static extern bool GetTokenInformation(IntPtr token, int infoClass, out IntPtr info, int length, out int returned);
+  [DllImport("advapi32.dll")] static extern bool CheckTokenMembership(IntPtr token, byte[] sid, out bool member);
+  [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
+  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+  public static bool IsAdministrator(byte[] administrators) {
+    IntPtr token, linked;
+    int returned;
+    bool member;
+    if (!OpenProcessToken(GetCurrentProcess(), 0x0008, out token)) return false;
+    bool found = GetTokenInformation(token, 19, out linked, IntPtr.Size, out returned);
+    CloseHandle(token);
+    if (!found) return false;
+    bool checkedMember = CheckTokenMembership(linked, administrators, out member);
+    CloseHandle(linked);
+    return checkedMember && member;
+  }
+}
+'@
+  $administrators = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+  $binary = [byte[]]::new($administrators.BinaryLength)
+  $administrators.GetBinaryForm($binary, 0)
+  return [LingerLinkedToken]::IsAdministrator($binary)
+}
 try {
   $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
   $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
@@ -13,7 +49,13 @@ try {
   $item = Get-Item -LiteralPath $request.path -Force
   if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or ($item.PSIsContainer -ne ($request.kind -eq 'directory'))) { throw 'UNSAFE_TYPE' }
   $acl = Get-Acl -LiteralPath $item.FullName
-  if ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { throw 'UNSAFE_OWNER' }
+  # What an elevated process (Run as administrator, the built-in
+  # Administrator) creates is owned by Administrators. For an administrator
+  # that owner counts as the user, as in Git for Windows: the ancestor check
+  # below already lets the group own and replace every parent folder, and an
+  # administrator can take ownership of any file, so it trusts no one new.
+  $owner = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+  if ($owner -ne $sid.Value -and !($owner -eq $admins -and (Test-Administrator))) { throw 'UNSAFE_OWNER' }
   $parent = $item.Directory
   if ($item.PSIsContainer) { $parent = $item.Parent }
   while ($parent) {
@@ -21,12 +63,19 @@ try {
     $parentAcl = Get-Acl -LiteralPath $parent.FullName
     $owner = $parentAcl.GetOwner([Security.Principal.SecurityIdentifier]).Value
     if ($owner -notin @($sid.Value, $system, $admins, 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')) { throw 'UNSAFE_PARENT_OWNER' }
+    # An ancestor is unsafe when another account can put a different folder
+    # where the private one is. Delete lets its holder rename or remove the
+    # folder that grants it; a volume root can be neither, and its stock ACL
+    # grants Delete to Authenticated Users. Replacing a child of the root or
+    # rewriting the root's ACL stays refused.
+    $replace = 'DeleteSubdirectoriesAndFiles,ChangePermissions,TakeOwnership'
+    if ($parent.Parent) { $replace = "Delete,$replace" }
     foreach ($rule in $parentAcl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
       # InheritOnly ACEs do not authorize mutation of this ancestor. They are
       # still checked below when present on the private target itself.
       if ($rule.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) { continue }
       if ($rule.AccessControlType -eq 'Allow' -and $rule.IdentityReference.Value -notin @($sid.Value, $system, $admins, 'S-1-3-0', 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464') -and
-          ($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]'Delete,DeleteSubdirectoriesAndFiles,ChangePermissions,TakeOwnership')) { throw 'UNSAFE_PARENT_ACCESS' }
+          ($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]$replace)) { throw 'UNSAFE_PARENT_ACCESS' }
     }
     $parent = $parent.Parent
   }
@@ -108,14 +157,37 @@ export const WINDOWS_PRIVATE_PATH_UNSAFE = "WINDOWS_PRIVATE_PATH_UNSAFE";
 // The ACL program's reason codes, worded for the error message.
 const WINDOWS_PRIVATE_REASONS = {
   UNSAFE_TYPE: "is a link, or not the expected file or folder",
-  UNSAFE_OWNER:
-    "is owned by another account, such as Administrators after Linger ran as administrator",
+  UNSAFE_OWNER: "is owned by another account",
   UNSAFE_PARENT_LINK: "is inside a linked folder",
   UNSAFE_PARENT_OWNER: "is inside a folder another account owns",
-  UNSAFE_PARENT_ACCESS: "is inside a folder other accounts may change",
+  UNSAFE_PARENT_ACCESS:
+    "is inside a folder other accounts on this computer can rename or replace",
   INHERITED_ACCESS: "takes its permissions from its parent folder",
   SHARED_ACCESS: "is shared with other accounts",
   MISSING_OWNER_ACCESS: "does not give your account access",
   UNCHECKED: "could not be checked",
 } as const;
 export type WindowsPrivateReason = keyof typeof WINDOWS_PRIVATE_REASONS;
+/** The code and reason of a windowsPrivatePath refusal. */
+export interface WindowsPrivateRefusal {
+  readonly code: typeof WINDOWS_PRIVATE_PATH_UNSAFE;
+  readonly reason: WindowsPrivateReason;
+}
+/**
+ * The code and reason of a refusal from windowsPrivatePath, from the error
+ * itself or from a copy of the two passed between processes; undefined for
+ * anything else.
+ */
+export function windowsPrivateRefusal(
+  value: unknown,
+): WindowsPrivateRefusal | undefined {
+  const { code, reason } = (value ?? {}) as {
+    code?: unknown;
+    reason?: unknown;
+  };
+  return code === WINDOWS_PRIVATE_PATH_UNSAFE &&
+    typeof reason === "string" &&
+    Object.hasOwn(WINDOWS_PRIVATE_REASONS, reason)
+    ? { code, reason: reason as WindowsPrivateReason }
+    : undefined;
+}

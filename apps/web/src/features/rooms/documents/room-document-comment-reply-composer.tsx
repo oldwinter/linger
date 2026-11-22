@@ -1,8 +1,10 @@
 import type { TeamHubActorRef } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
 
 import { commentBodyFromComposition } from "./room-document-comment-body";
 import { DocumentMentionMessageComposer } from "./room-document-comment-composer";
 import type { TeamHubDocumentThreadStore } from "./room-document-comments";
+import { documentCommentsMessages as m } from "./document-comments.messages";
 
 export function RoomDocumentCommentReplyComposer({
   mentionOptions,
@@ -13,10 +15,11 @@ export function RoomDocumentCommentReplyComposer({
   threadId: string;
   threadStore: TeamHubDocumentThreadStore;
 }) {
+  const t = useT();
   return (
     <div className="room-document-comment-reply">
       <DocumentMentionMessageComposer
-        ariaLabel="Reply to Document comment"
+        ariaLabel={t(m.replyToComment)}
         mentionOptions={mentionOptions}
         onSubmit={async (composition) => {
           await threadStore.addComment({
@@ -24,7 +27,7 @@ export function RoomDocumentCommentReplyComposer({
             threadId,
           });
         }}
-        placeholder="Reply..."
+        placeholder={t(m.replyPlaceholder)}
       />
     </div>
   );

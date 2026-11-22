@@ -49,11 +49,7 @@ export default defineConfig({
               }
             : {}),
           ...(productionStartupProof && index === 0
-            ? {
-                command:
-                  "pnpm --filter @linger/web run build:assets && pnpm --filter @linger/web exec node e2e/room-startup-production-server.mjs",
-                timeout: 300_000,
-              }
+            ? { timeout: 300_000 }
             : {}),
           cwd: fileURLToPath(new URL("../../..", import.meta.url)),
         })),

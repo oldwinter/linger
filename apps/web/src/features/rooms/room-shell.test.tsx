@@ -888,6 +888,18 @@ describe("Room shell Tenant transition", () => {
     await act(async () => releaseProfile());
     await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
   });
+
+  it("records room.shell_visible on first shell commit", async () => {
+    const markSpy = vi.spyOn(performance, "mark");
+    await renderAccountShell({
+      initialEntry: "/t/tenant-northstar/rooms/room-all/chat",
+    });
+    // The mark is a passive effect, which may run after the shell's DOM is
+    // found on a loaded runner.
+    await waitFor(() =>
+      expect(markSpy).toHaveBeenCalledWith("room.shell_visible"),
+    );
+  });
 });
 
 function VoiceTargetProbe() {

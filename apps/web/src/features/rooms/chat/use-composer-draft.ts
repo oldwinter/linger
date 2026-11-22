@@ -2,10 +2,12 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import type { TeamHubMessageSkillReference } from "@/features/teamhub/teamhub-message-content";
 import type { TeamHubActorRef } from "@/features/teamhub/teamhub-types";
+import { translate } from "@/i18n/language";
 import type {
   RoomComposerDocumentContext,
   RoomComposerDocumentReference,
 } from "../room-drafts";
+import { composerMessages } from "./composer.messages";
 import type { MessageComposerDraft } from "./message-composer";
 import {
   activeDocumentReferences,
@@ -203,18 +205,27 @@ export type ComposerReferences = ReturnType<
 >;
 
 export function messageLengthError() {
-  return `Message must be ${TEAMHUB_MESSAGE_MAX_LENGTH.toLocaleString()} characters or fewer.`;
+  return translate(composerMessages.messageTooLong, {
+    limit: TEAMHUB_MESSAGE_MAX_LENGTH,
+  });
 }
 
 /** Names unavailable mentions; `nextStep` tells the user how to proceed. */
 export function unavailableMentionsError(
   mentions: TeamHubActorRef[],
-  nextStep: (noun: string) => string,
+  nextStep: "remove" | "review",
 ) {
-  const names = mentions.map(formatMentionToken).join(", ");
-  const verb = mentions.length === 1 ? "is" : "are";
-  const noun = mentions.length === 1 ? "mention" : "mentions";
-  return `${names} ${verb} not available in this Room. ${nextStep(noun)}`;
+  return translate(
+    nextStep === "remove"
+      ? composerMessages.unavailableMentionsRemove
+      : composerMessages.unavailableMentionsReview,
+    {
+      count: mentions.length,
+      names: mentions
+        .map(formatMentionToken)
+        .join(translate(composerMessages.listSeparator)),
+    },
+  );
 }
 
 export function findDocumentOption(

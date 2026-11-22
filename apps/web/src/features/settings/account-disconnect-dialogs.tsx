@@ -6,6 +6,10 @@ import { accountIdentityText } from "@/features/apps/connection-state";
 import { externalConnectionsQueryKey } from "@/features/apps/connected-apps-queries";
 import { type TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { TeamHubExternalConnection } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
+
+import { accountSettingsMessages } from "./account-settings.messages";
 
 export function DisconnectAccountDialog({
   client,
@@ -16,6 +20,7 @@ export function DisconnectAccountDialog({
   connection: TeamHubExternalConnection;
   onClose: () => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const disconnect = useMutation({
     mutationFn: () =>
@@ -37,18 +42,14 @@ export function DisconnectAccountDialog({
   return (
     <ModalDialog
       closeOnBackdrop={!disconnect.isPending}
-      description={
-        <>
-          {accountIdentityText(
-            connection.provider,
-            connection.identity_label,
-          ) ?? connection.provider}
-          . Agent access and source cleanup stay on Apps.
-        </>
-      }
+      description={t(accountSettingsMessages.disconnectDescription, {
+        account:
+          accountIdentityText(connection.provider, connection.identity_label) ??
+          connection.provider,
+      })}
       onClose={requestClose}
       size="sm"
-      title="Disconnect account?"
+      title={t(accountSettingsMessages.disconnectTitle)}
       footer={
         <>
           <Button
@@ -56,7 +57,7 @@ export function DisconnectAccountDialog({
             onClick={requestClose}
             size="compact"
           >
-            Cancel
+            {t(commonMessages.cancel)}
           </Button>
           <Button
             loading={disconnect.isPending}
@@ -64,7 +65,7 @@ export function DisconnectAccountDialog({
             size="compact"
             tone="danger"
           >
-            Disconnect
+            {t(accountSettingsMessages.disconnect)}
           </Button>
         </>
       }

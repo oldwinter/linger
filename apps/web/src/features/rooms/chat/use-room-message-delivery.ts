@@ -1,16 +1,23 @@
 import { type QueryKey, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { createTeamHubIdempotencyKey } from "@/features/teamhub/teamhub-client";
-import { classifyTeamHubCommandFailure } from "@/features/teamhub/teamhub-command-outcome";
+import { TeamHubError } from "@/features/teamhub/teamhub-error";
 import type { TeamHubMessagePresentation } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMessage } from "@/features/teamhub/teamhub-types";
+import type { Translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 import {
   releaseLocalImage,
   rememberLocalMessageImage,
 } from "@/features/rooms/files/local-message-images";
 
+import { composerMessages } from "./composer.messages";
 import type { MessageComposition } from "./message-composer";
+import {
+  describePendingMessageFailure,
+  type PendingMessageFailure,
+} from "./pending-message-failure";
 import {
   browserRoomMessageOutbox,
   type PersistedRoomMessageIntent,
@@ -23,6 +30,12 @@ import type { RoomMessageSender } from "./room-message-sender";
 import { roomDiagnostic } from "@/lib/room-diagnostics";
 
 type OutgoingMessage = PersistedRoomMessageIntent;
+
+/** Why saved Messages could not be read back or brought up to date. */
+interface OutboxFailure {
+  reason: "normalization_failed" | "restore_failed";
+  detail: string;
+}
 
 type RoomMessageComposition = MessageComposition & {
   wireBody?: string;
@@ -65,7 +78,8 @@ export function useRoomMessageDelivery({
 }) {
   const queryClient = useQueryClient();
   const [outgoing, setOutgoing] = useState<OutgoingMessage[]>([]);
-  const [outboxError, setOutboxError] = useState<string>();
+  const t = useT();
+  const [outboxFailure, setOutboxFailure] = useState<OutboxFailure>();
   const [presentations, setPresentations] = useState<
     Record<string, TeamHubMessagePresentation>
   >({});
@@ -91,7 +105,7 @@ export function useRoomMessageDelivery({
       tenantId: outboxTenantId,
     };
     let canceled = false;
-    setOutboxError(undefined);
+    setOutboxFailure(undefined);
     async function restore() {
       try {
         const restored = await outbox.list(scope);
@@ -116,10 +130,16 @@ export function useRoomMessageDelivery({
           (result): result is PromiseRejectedResult =>
             result.status === "rejected",
         );
-        setOutboxError(outboxNormalizationFailureMessage(failure?.reason));
+        setOutboxFailure({
+          detail: storageFailureDetail(failure?.reason),
+          reason: "normalization_failed",
+        });
       } catch (error) {
         if (canceled) return;
-        setOutboxError(outboxRestoreFailureMessage(error));
+        setOutboxFailure({
+          detail: storageFailureDetail(error),
+          reason: "restore_failed",
+        });
       }
     }
     void restore();
@@ -466,12 +486,21 @@ export function useRoomMessageDelivery({
     [composition, roomId],
   );
 
+  // The stored intents carry reasons; the sentences are made here, so they
+  // follow the language on screen.
+  const shownOutgoing = useMemo(
+    () => outgoing.map((intent) => withFailureText(intent, t)),
+    [outgoing, t],
+  );
+
   return {
     cancelAttachment,
     cancelMessage,
     enqueueMessage,
-    outboxError,
-    outgoing,
+    outboxError: outboxFailure
+      ? describeOutboxFailure(outboxFailure, t)
+      : undefined,
+    outgoing: shownOutgoing,
     presentations,
     retryMessage,
     sendMessage,
@@ -479,18 +508,40 @@ export function useRoomMessageDelivery({
   };
 }
 
+/** What the browser said about a storage failure, when it said anything. */
 function storageFailureDetail(error: unknown) {
-  return error instanceof Error && error.message.trim()
-    ? `: ${error.message.trim()}`
-    : ".";
+  return error instanceof Error ? error.message.trim() : "";
 }
 
-function outboxRestoreFailureMessage(error: unknown) {
-  return `Saved Messages could not be restored from browser storage${storageFailureDetail(error)} Reload or check browser storage before sending.`;
+function describeOutboxFailure(
+  { detail, reason }: OutboxFailure,
+  t: Translate,
+) {
+  if (reason === "restore_failed")
+    return detail
+      ? t(composerMessages.outboxRestoreFailedDetail, { detail })
+      : t(composerMessages.outboxRestoreFailed);
+  return detail
+    ? t(composerMessages.outboxNormalizationFailedDetail, { detail })
+    : t(composerMessages.outboxNormalizationFailed);
 }
 
-function outboxNormalizationFailureMessage(error: unknown) {
-  return `Saved Messages were restored, but their interrupted delivery state could not be updated${storageFailureDetail(error)} They remain available in this tab; retry after checking browser storage.`;
+/** The intent as a row shows it: its failure worded in the language on screen. */
+function withFailureText(intent: OutgoingMessage, t: Translate) {
+  if (!intent.failure) return intent;
+  const error = describePendingMessageFailure(intent.failure, t);
+  return error ? { ...intent, error } : intent;
+}
+
+/** A failure this client words itself; any earlier sentence is dropped. */
+function clientFailure(
+  reason: PendingMessageFailure["reason"],
+  detail?: string,
+): Pick<OutgoingMessage, "error" | "failure"> {
+  return {
+    error: undefined,
+    failure: detail ? { detail, reason } : { reason },
+  };
 }
 
 function canceledAfterNetworkStartedIntent(
@@ -498,7 +549,7 @@ function canceledAfterNetworkStartedIntent(
 ): OutgoingMessage {
   return {
     ...intent,
-    error: "Message could not be sent. Try sending it again.",
+    ...clientFailure("delivery_may_have_reached"),
     heldByPerson: true,
     status: "unknown",
   };
@@ -510,7 +561,7 @@ function outboxCleanupFailedIntent(
 ): OutgoingMessage {
   return {
     ...intent,
-    error: `This Message was sent, but its local retry record could not be cleared${storageFailureDetail(error)} Retry to reconcile it safely.`,
+    ...clientFailure("outbox_cleanup_failed", storageFailureDetail(error)),
     status: "unknown",
   };
 }
@@ -521,7 +572,7 @@ function outboxCancelFailedIntent(
 ): OutgoingMessage {
   return {
     ...intent,
-    error: `Delivery was canceled, but its local retry record could not be cleared${storageFailureDetail(error)} Try cancel again.`,
+    ...clientFailure("outbox_cancel_failed", storageFailureDetail(error)),
     status: "failed",
   };
 }
@@ -536,6 +587,7 @@ function sendingIntent(intent: OutgoingMessage): OutgoingMessage {
       status: "staging",
     })),
     error: undefined,
+    failure: undefined,
     status: "sending",
   };
 }
@@ -544,34 +596,10 @@ function failedIntent(
   intent: OutgoingMessage,
   error: unknown,
 ): OutgoingMessage {
-  const failure = classifyTeamHubCommandFailure(
-    error,
-    "this Message was committed",
-    "Retry checks the same intent.",
-  );
-  return {
-    ...intent,
-    attachments: intent.attachments.map((attachment) => ({
-      ...attachment,
-      error: failure.message,
-      status: "failed",
-    })),
-    error: failure.message,
-    status: failure.kind,
-  };
-}
-
-function outboxPersistenceFailedIntent(
-  intent: OutgoingMessage,
-  error: unknown,
-): OutgoingMessage {
-  const detail = error instanceof Error ? error.message.trim() : "";
-  const message =
-    error instanceof DOMException && error.name === "QuotaExceededError"
-      ? "This Message could not be saved locally because browser storage is full. Free storage and retry."
-      : detail
-        ? `This Message could not be saved locally: ${detail}`
-        : "This Message could not be saved locally. Check browser storage and retry.";
+  // TeamHub's refusal is final and says why in its own words; anything else
+  // leaves the outcome open, which is a reason this client words itself.
+  const refused = error instanceof TeamHubError;
+  const message = refused ? error.message : undefined;
   return {
     ...intent,
     attachments: intent.attachments.map((attachment) => ({
@@ -579,7 +607,27 @@ function outboxPersistenceFailedIntent(
       error: message,
       status: "failed",
     })),
-    error: message,
+    ...(refused
+      ? { error: message, failure: undefined }
+      : clientFailure("delivery_unconfirmed")),
+    status: refused ? "failed" : "unknown",
+  };
+}
+
+function outboxPersistenceFailedIntent(
+  intent: OutgoingMessage,
+  error: unknown,
+): OutgoingMessage {
+  return {
+    ...intent,
+    attachments: intent.attachments.map((attachment) => ({
+      ...attachment,
+      error: undefined,
+      status: "failed",
+    })),
+    ...(error instanceof DOMException && error.name === "QuotaExceededError"
+      ? clientFailure("local_storage_full")
+      : clientFailure("local_save_failed", storageFailureDetail(error))),
     status: "failed",
   };
 }
@@ -588,8 +636,7 @@ function normalizeRestoredIntent(intent: PersistedRoomMessageIntent) {
   if (intent.status !== "sending") return intent;
   return {
     ...intent,
-    error:
-      "Delivery was interrupted. Retry to confirm whether this Message was sent.",
+    ...clientFailure("delivery_interrupted"),
     status: "unknown" as const,
   };
 }

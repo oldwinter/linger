@@ -6,11 +6,21 @@ import type {
   TeamHubActorRef,
   TeamHubMessage,
 } from "@/features/teamhub/teamhub-types";
+import type { Message } from "@/i18n/messages";
+import { RichMessage, useT } from "@/i18n/use-translation";
 
 import { AgentChangeFields } from "../cards/agent-change-fields";
 import { ActorAvatar } from "../members/actor-avatar";
+import { chatMessages } from "./chat.messages";
 
 type RoomNotice = NonNullable<TeamHubMessage["notice"]>;
+
+const fieldNames: Record<string, Message<string>> = {
+  description: chatMessages.noticeFieldDescription,
+  instructions: chatMessages.noticeFieldInstructions,
+  name: chatMessages.noticeFieldName,
+  prompt: chatMessages.noticeFieldPrompt,
+};
 
 const linkClass =
   "text-app-info hover:text-app-info-hover hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app-info";
@@ -76,9 +86,10 @@ function NoticeLine({
   onOpenDirectChat?: (actorId: string) => void;
   onOpenProfile: (actorId: string) => void;
 }) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   const detailsId = useId();
-  const profileLink = (actorId: string, label = "View profile") => (
+  const profileLink = (actorId: string) => (
     <>
       <Separator />
       <button
@@ -86,27 +97,44 @@ function NoticeLine({
         onClick={() => onOpenProfile(actorId)}
         type="button"
       >
-        {label}
+        {t(chatMessages.viewProfile)}
       </button>
     </>
   );
+  // The sentence of a notice names its actors; the translation places them.
+  const authorName = () => <ActorName actor={author} />;
 
   switch (notice.type) {
     case "agent_created": {
       const approver = notice.approved_by;
+      const tags = {
+        agent: () => <ActorName actor={notice.agent} />,
+        author: authorName,
+      };
+      const names = {
+        agent: notice.agent.display_name,
+        author: author.display_name,
+      };
       return (
         <Pill icon={UserAdd01Icon}>
-          <ActorName actor={author} />
-          <Words>created</Words>
-          <ActorName actor={notice.agent} />
-          {approver ? (
-            <Words>
-              {approver.id === currentActorId
-                ? "after your approval"
-                : `after ${approver.display_name}'s approval`}
-            </Words>
+          {!approver ? (
+            <RichMessage
+              message={chatMessages.noticeAgentCreated}
+              tags={tags}
+              values={names}
+            />
+          ) : approver.id === currentActorId ? (
+            <RichMessage
+              message={chatMessages.noticeAgentCreatedAfterYourApproval}
+              tags={tags}
+              values={names}
+            />
           ) : (
-            <Words>and added it to this Room</Words>
+            <RichMessage
+              message={chatMessages.noticeAgentCreatedAfterApproval}
+              tags={tags}
+              values={{ ...names, approver: approver.display_name }}
+            />
           )}
           {approver && onOpenDirectChat ? (
             <>
@@ -116,7 +144,7 @@ function NoticeLine({
                 onClick={() => onOpenDirectChat(notice.agent.id)}
                 type="button"
               >
-                Open direct chat
+                {t(chatMessages.openDirectChat)}
               </button>
             </>
           ) : (
@@ -128,28 +156,44 @@ function NoticeLine({
     case "member_added":
       return (
         <Pill icon={UserAdd01Icon}>
-          <ActorName actor={author} />
-          <Words>added</Words>
-          <ActorName actor={notice.member} />
-          <Words>to this Room</Words>
+          <RichMessage
+            message={chatMessages.noticeMemberAdded}
+            tags={{
+              author: authorName,
+              member: () => <ActorName actor={notice.member} />,
+            }}
+            values={{
+              author: author.display_name,
+              member: notice.member.display_name,
+            }}
+          />
         </Pill>
       );
     case "agent_profile_changed": {
       const before =
         notice.changes.find((change) => change.field === "name")?.before ??
         notice.agent.display_name;
+      const agentName = () => <ActorName actor={notice.agent} />;
       if (notice.initialized) {
         return (
           <Pill icon={UserEdit01Icon}>
             {author.id === notice.agent.id ? (
-              <Words>{before} set up its identity as</Words>
+              <RichMessage
+                message={chatMessages.noticeAgentSetUpOwnIdentity}
+                tags={{ agent: agentName }}
+                values={{ agent: notice.agent.display_name, before }}
+              />
             ) : (
-              <>
-                <ActorName actor={author} />
-                <Words>set up {before} as</Words>
-              </>
+              <RichMessage
+                message={chatMessages.noticeAgentSetUpBy}
+                tags={{ agent: agentName, author: authorName }}
+                values={{
+                  agent: notice.agent.display_name,
+                  author: author.display_name,
+                  before,
+                }}
+              />
             )}
-            <ActorName actor={notice.agent} />
             {profileLink(notice.agent.id)}
           </Pill>
         );
@@ -161,11 +205,23 @@ function NoticeLine({
       return (
         <>
           <Pill icon={UserEdit01Icon}>
-            <ActorName actor={author} />
-            <Words>updated</Words>
-            <ActorName actor={notice.agent} />
+            <RichMessage
+              message={chatMessages.noticeAgentUpdated}
+              tags={{ agent: agentName, author: authorName }}
+              values={{
+                agent: notice.agent.display_name,
+                author: author.display_name,
+              }}
+            />
             <Separator />
-            <Words>{fields.join(", ")}</Words>
+            <Words>
+              {fields
+                .map((field) => {
+                  const name = fieldNames[field];
+                  return name ? t(name) : field;
+                })
+                .join(t(chatMessages.listSeparator))}
+            </Words>
             <Separator />
             <button
               aria-controls={detailsId}
@@ -174,7 +230,9 @@ function NoticeLine({
               onClick={() => setExpanded((open) => !open)}
               type="button"
             >
-              {expanded ? "Hide changes" : "Show changes"}
+              {expanded
+                ? t(chatMessages.hideChanges)
+                : t(chatMessages.showChanges)}
             </button>
           </Pill>
           {expanded ? (
@@ -187,14 +245,14 @@ function NoticeLine({
               ) : null}
               {notice.instructions_changed ? (
                 <p className="m-0 text-app-muted">
-                  Instructions updated
+                  {t(chatMessages.instructionsUpdated)}
                   <Separator />
                   <button
                     className={linkClass}
                     onClick={() => onOpenProfile(notice.agent.id)}
                     type="button"
                   >
-                    View in Agent Info
+                    {t(chatMessages.viewInAgentInfo)}
                   </button>
                 </p>
               ) : null}

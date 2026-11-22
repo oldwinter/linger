@@ -9,9 +9,11 @@ import type {
   TeamHubExternalApp,
   TeamHubExternalConnection,
 } from "@/features/teamhub/teamhub-types";
+import { RichMessage, useT } from "@/i18n/use-translation";
 
 import { AppLogoTile } from "./app-logo";
 import { externalAppsQueryOptions } from "./connected-apps-queries";
+import { connectorMessages as m } from "./connectors.messages";
 import { openOAuthUrl } from "./oauth-popup";
 import { ComposioKeyForm } from "./provider-key-form";
 import { ComposioKeyGuide } from "./provider-key-guide";
@@ -21,6 +23,11 @@ import {
 } from "./use-create-external-connection";
 
 export type ConnectAppFlow = ReturnType<typeof useConnectAppFlow>;
+
+/** Variable and file names inside a sentence. */
+const CODE_TAGS = {
+  code: (text: string) => <code className="font-mono">{text}</code>,
+};
 
 /**
  * The one way to connect an app. With a connection provider it creates the
@@ -86,20 +93,19 @@ export function ConnectAppStatus({
   flow: ConnectAppFlow;
 }) {
   const { connection, setupApp } = flow;
+  const t = useT();
   return (
     <>
       {connection.error && !isComposioKeyRejected(connection.error) ? (
         <p className={cn("text-xs text-app-danger", className)} role="alert">
           {connection.error instanceof Error
             ? connection.error.message
-            : "Connection could not be started."}
+            : t(m.connectionNotStarted)}
         </p>
       ) : null}
       {connection.blockedConnectUrl ? (
         <div className={cn("text-xs", className)} role="status">
-          <p className="text-foreground">
-            Your browser blocked the authorization popup.
-          </p>
+          <p className="text-foreground">{t(m.popupBlocked)}</p>
           <Button
             className="mt-1.5"
             onClick={() => {
@@ -110,7 +116,7 @@ export function ConnectAppStatus({
             size="compact"
             tone="primary"
           >
-            Open authorization window
+            {t(m.openAuthorizationWindow)}
           </Button>
         </div>
       ) : null}
@@ -122,11 +128,9 @@ export function ConnectAppStatus({
             flow.configured && !flow.keyRejected
               ? undefined
               : flow.keyRejected
-                ? flow.canSaveKey
-                  ? "Composio no longer accepts the saved API key. Save a new key to keep connecting apps."
-                  : "Composio rejected this deployment's API key."
+                ? t(flow.canSaveKey ? m.keyNoLongerAccepted : m.keyRejected)
                 : flow.canSaveKey
-                  ? `Connect ${setupApp.display_name} securely through Composio. Add your API key once to enable your connectors.`
+                  ? t(m.connectThroughComposio, { app: setupApp.display_name })
                   : undefined
           }
           onClose={flow.closeSetup}
@@ -138,7 +142,7 @@ export function ConnectAppStatus({
                 small
                 url={setupApp.logo_url}
               />
-              Connect {setupApp.display_name}
+              {t(m.connectApp, { app: setupApp.display_name })}
             </span>
           }
         >
@@ -151,7 +155,7 @@ export function ConnectAppStatus({
                 }}
                 tone="primary"
               >
-                Connect {setupApp.display_name}
+                {t(m.connectApp, { app: setupApp.display_name })}
               </Button>
             ) : flow.canSaveKey ? (
               <>
@@ -160,10 +164,7 @@ export function ConnectAppStatus({
               </>
             ) : flow.keyRejected ? (
               <p className="text-app-muted">
-                Update <code className="font-mono">COMPOSIO_API_KEY</code> where
-                the server reads it. When Linger is installed on this computer,
-                that is <code className="font-mono">user.env</code>; reopen the
-                Linger app afterwards.
+                <RichMessage message={m.updateServerKey} tags={CODE_TAGS} />
               </p>
             ) : (
               <ConnectorsNotConfiguredMessage />
@@ -178,13 +179,7 @@ export function ConnectAppStatus({
 export function ConnectorsNotConfiguredMessage() {
   return (
     <p className="text-app-muted">
-      Connecting Gmail, GitHub, Slack, Notion and other apps needs a Composio
-      API key. When Linger is installed on this computer, set{" "}
-      <code className="font-mono">COMPOSIO_API_KEY</code> in{" "}
-      <code className="font-mono">user.env</code>, then reopen the Linger app.
-      On a server you run yourself, set it there, or set{" "}
-      <code className="font-mono">TEAMHUB_SECRET_ENCRYPTION_KEY</code> to save
-      the key here.
+      <RichMessage message={m.notConfigured} tags={CODE_TAGS} />
     </p>
   );
 }

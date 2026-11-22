@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { z } from "zod";
 
+import { LANGUAGES } from "../i18n/language.js";
 import { isUploadUrl } from "./diagnostics-upload.js";
 
 const workspaceGrant = z.object({
@@ -38,6 +39,10 @@ const desktopConfig = z.object({
   // or server switch renews the same Computer ID for the same account.
   savedEnrollments: z.record(z.string(), savedEnrollment).optional(),
   workspaceGrants: z.array(workspaceGrant).default([]),
+  // The language the Web client last chose, which the shell's own text
+  // follows; unset until the person chooses one (language.ts). A value
+  // this version does not offer is dropped, not the whole file.
+  language: z.enum(LANGUAGES).optional().catch(undefined),
   // Always-on mode: keep the system awake even when idle.
   preventSleep: z.boolean().default(false),
   // macOS permissions whose system prompt was shown once.

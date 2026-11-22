@@ -14,6 +14,9 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { commonMessages } from "@/i18n/common.messages";
+import { translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 import type {
   TeamHubDocument,
   TeamHubDocumentVersion,
@@ -33,6 +36,7 @@ import {
 } from "./artifact-preview-loader";
 import { PreviewSessionExpiryNotice } from "./preview-session-expiry-notice";
 import { resolveArtifactPreviewMediaType } from "./artifact-renderer-policy";
+import { filePreviewMessages as m } from "./file-preview.messages";
 
 export type DocumentPreviewTarget = Pick<
   TeamHubDocument,
@@ -60,6 +64,7 @@ export function ArtifactPreviewSurface({
   variant?: "default" | "sidebar";
   versionId?: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const [preview, setPreview] = useState<LoadedArtifactPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +85,7 @@ export function ArtifactPreviewSurface({
     setPreview(null);
 
     if (!versionId) {
-      setError("This File has no published Version.");
+      setError(translate(m.noPublishedVersion));
       activeTransferRef.current = null;
       return () => controller.abort();
     }
@@ -105,7 +110,7 @@ export function ArtifactPreviewSurface({
           setError(
             loadError instanceof Error
               ? loadError.message
-              : "File preview could not be loaded.",
+              : translate(m.previewLoadFailed),
           );
         }
       })
@@ -154,7 +159,7 @@ export function ArtifactPreviewSurface({
         setError(
           downloadError instanceof Error
             ? downloadError.message
-            : "File download failed.",
+            : translate(m.downloadFailed),
         );
       }
     } finally {
@@ -225,11 +230,11 @@ export function ArtifactPreviewSurface({
             role="status"
           >
             <Spinner size={16} />
-            Loading preview...
+            {t(m.loadingPreview)}
           </div>
         ) : preview.decision.kind === "download" ? (
           <PreviewFallback
-            description={preview.decision.reason ?? "Preview is unavailable."}
+            description={preview.decision.reason ?? t(m.previewUnavailable)}
             downloadPending={isDownloading}
             filename={preview.version.filename}
             onDownload={() => void download()}
@@ -269,24 +274,25 @@ function ArtifactPreviewSidebarActions({
   openDocumentHref?: string;
   preview: LoadedArtifactPreview | null;
 }) {
+  const t = useT();
   return (
     <div className="absolute right-2 top-2 z-10 flex items-center gap-0.5 rounded-md bg-popover p-0.5 opacity-0 shadow-md transition-opacity group-hover/artifact:opacity-100 focus-within:opacity-100">
       {openDocumentHref ? (
         <a
-          aria-label="Open document"
+          aria-label={t(m.openDocument)}
           className="flex size-7 items-center justify-center rounded-sm text-app-muted transition-colors hover:bg-accent hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           href={openDocumentHref}
-          title="Open document"
+          title={t(m.openDocument)}
         >
           <Icon icon={LinkSquare02Icon} size={14} />
         </a>
       ) : null}
       <button
-        aria-label={`Download ${displayName}`}
+        aria-label={t(m.downloadFile, { name: displayName })}
         className="flex size-7 items-center justify-center rounded-sm text-app-muted transition-colors hover:bg-accent hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
         disabled={!preview || isDownloading}
         onClick={onDownload}
-        title="Download"
+        title={t(m.download)}
         type="button"
       >
         <Icon icon={Download04Icon} size={14} />
@@ -316,25 +322,28 @@ function ArtifactPreviewHeader({
   onToggleFullScreen?: () => void;
   preview: LoadedArtifactPreview | null;
 }) {
+  const t = useT();
   return (
     <header className="flex h-[58px] shrink-0 items-center justify-between gap-3 border-b border-app-border px-3 sm:px-4">
       <div className="min-w-0">
         <h2 className="truncate text-sm font-semibold">{displayName}</h2>
         {preview ? (
           <p className="mt-0.5 text-[12px] text-app-subtle">
-            Version {preview.version.version_number} ·{" "}
-            {formatBytes(preview.version.size_bytes)} ·{" "}
-            {preview.version.media_type}
+            {t(m.versionDetails, {
+              mediaType: preview.version.media_type,
+              size: formatBytes(preview.version.size_bytes),
+              version: preview.version.version_number,
+            })}
           </p>
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-1">
         {openDocumentHref ? (
           <a
-            aria-label="Open document"
+            aria-label={t(m.openDocument)}
             className="ui-button-icon relative inline-flex shrink-0 items-center justify-center border border-transparent bg-transparent text-app-muted transition-colors duration-150 hover:bg-app-selected hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus focus-visible:ring-offset-1"
             href={openDocumentHref}
-            title="Open document"
+            title={t(m.openDocument)}
           >
             <Icon icon={LinkSquare02Icon} />
           </a>
@@ -343,11 +352,11 @@ function ArtifactPreviewHeader({
           <DocumentActionsMenu actions={documentActions} />
         ) : null}
         <Button
-          aria-label={`Download ${displayName}`}
+          aria-label={t(m.downloadFile, { name: displayName })}
           disabled={!preview || isDownloading}
           onClick={onDownload}
           size="icon"
-          title="Download"
+          title={t(m.download)}
           tone="ghost"
         >
           <Icon icon={Download04Icon} />
@@ -355,10 +364,10 @@ function ArtifactPreviewHeader({
         {onToggleFullScreen ? (
           <span className="hidden sm:block">
             <Button
-              aria-label={fullScreen ? "Exit full screen" : "Open full screen"}
+              aria-label={t(fullScreen ? m.exitFullScreen : m.openFullScreen)}
               onClick={onToggleFullScreen}
               size="icon"
-              title={fullScreen ? "Exit full screen" : "Full screen"}
+              title={t(fullScreen ? m.exitFullScreen : m.fullScreen)}
               tone="ghost"
             >
               {fullScreen ? (
@@ -371,10 +380,11 @@ function ArtifactPreviewHeader({
         ) : null}
         {onClose ? (
           <Button
-            aria-label="Close file preview"
+            aria-label={t(m.closeFilePreview)}
+            data-voice-close
             onClick={onClose}
             size="icon"
-            title="Close"
+            title={t(commonMessages.close)}
             tone="ghost"
           >
             <Icon icon={Cancel01Icon} />
@@ -398,6 +408,7 @@ function PreviewFallback({
   onDownload?: () => void;
   onRetry?: () => void;
 }) {
+  const t = useT();
   return (
     <div className="flex h-full items-center justify-center p-6 text-center">
       <div className="max-w-sm">
@@ -409,19 +420,19 @@ function PreviewFallback({
         <div className="mt-5 flex items-center justify-center gap-2">
           {onRetry ? (
             <Button
-              aria-label={`Retry preview ${filename}`}
+              aria-label={t(m.retryPreview, { name: filename })}
               onClick={onRetry}
-              title={`Retry preview ${filename}`}
+              title={t(m.retryPreview, { name: filename })}
               tone="secondary"
             >
               <Icon icon={RefreshIcon} />
-              Retry
+              {t(commonMessages.retry)}
             </Button>
           ) : null}
           {onDownload ? (
             <Button disabled={downloadPending} onClick={onDownload}>
               <Icon icon={Download04Icon} />
-              {downloadPending ? "Downloading..." : "Download"}
+              {t(downloadPending ? m.downloading : m.download)}
             </Button>
           ) : null}
         </div>

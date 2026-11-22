@@ -159,8 +159,13 @@ const agentFrames = [
     kind: "model_source",
     ...localCapability,
     action: "test",
-    runtime: "claude",
-    byok: { base_url: "https://api.example.com/v1", model_id: "vendor/model" },
+    byok: {
+      base_url: "https://open.bigmodel.cn",
+      path: "/api/paas/v4",
+      endpoint: "/chat/completions",
+      protocol: "openai-chat",
+      model_id: "vendor/model",
+    },
   },
   {
     type: "prepare",

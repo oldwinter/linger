@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { personalProfileQueryOptions } from "@/features/settings/personal-profile-queries";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
+
+import { wikiMessages as m } from "./wiki.messages";
 
 /** The Wiki header's page-level Edit action for the Profile tab; the Profile
  * page shows its form while the URL carries `edit=1`. */
@@ -12,6 +15,7 @@ export function WikiProfileEditButton({ tenantId }: { tenantId: string }) {
   const { client } = useTeamHubRuntime();
   const profile = useQuery(personalProfileQueryOptions(client, tenantId));
   const [searchParams, setSearchParams] = useSearchParams();
+  const t = useT();
   if (!profile.data?.current || searchParams.get("edit") === "1") return null;
   const building = Boolean(profile.data.building_since);
   return (
@@ -20,13 +24,11 @@ export function WikiProfileEditButton({ tenantId }: { tenantId: string }) {
       disabled={building}
       onClick={() => setSearchParams({ edit: "1" })}
       size="compact"
-      title={
-        building ? "Another Me is updating your profile" : "Edit your profile"
-      }
+      title={t(building ? m.updatingProfile : m.editYourProfile)}
       tone="ghost"
     >
       <Icon icon={PencilEdit02Icon} size={14} className="shrink-0" />
-      Edit profile
+      {t(m.editProfile)}
     </Button>
   );
 }

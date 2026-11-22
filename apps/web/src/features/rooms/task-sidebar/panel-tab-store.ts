@@ -165,7 +165,7 @@ export function ensureDefaultAgentInfoTab(
   return openPanelTab(scope, {
     kind: "agentInfo",
     actorId: agent.id,
-    title: `Agent · ${agent.display_name}`,
+    title: agent.display_name,
   });
 }
 
@@ -182,7 +182,7 @@ export function retargetAgentInfoTab(
   return openPanelTab(scope, {
     actorId: toPeer.id,
     kind: "agentInfo",
-    title: `Agent · ${toPeer.display_name}`,
+    title: toPeer.display_name,
   });
 }
 

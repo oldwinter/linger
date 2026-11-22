@@ -3,9 +3,14 @@ import { BubbleChatIcon } from "@hugeicons/core-free-icons";
 import { Fragment, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
+
 import { meetingActionChecklist } from "./meeting-action-checklist";
 import { followUpProgress, followUpTexts } from "./meeting-follow-ups";
 import type { MeetingOutcome, MeetingTopic } from "./meeting-overview";
+import { meetingsExtrasMessages } from "./meetings-extras.messages";
+import { meetingsMessages as m } from "./meetings.messages";
 import { topicStartSeconds } from "./topic-playback";
 
 /**
@@ -20,6 +25,9 @@ const topicTints = [
   "bg-bubblegum-500/10 text-bubblegum-700",
 ] as const;
 
+// Section headings and the None observed line stay as the stored page words
+// them: they are its fixed format, and the table of contents and section
+// links are keyed on them.
 /** Shares the knowledge document's column and H2 around these sections. */
 const sectionFrame = "mb-3 w-full";
 const sectionHeadingText =
@@ -121,6 +129,7 @@ export function MeetingOverviewCard({
   onReadSpoken?: (range: string) => Promise<string[]>;
   topics: MeetingTopic[];
 }) {
+  const t = useT();
   const [spoken, setSpoken] = useState<
     | { lines: string[] | "empty" | "failed" | "loading"; time: string }
     | undefined
@@ -133,12 +142,14 @@ export function MeetingOverviewCard({
   );
   return (
     <section
-      aria-label="Meeting overview"
+      aria-label={t(m.overview)}
       className={cn("@container", sectionFrame)}
     >
-      <h2 className={sectionHeading}>Meeting Summary</h2>
+      <h2 className={sectionHeading}>
+        {t(meetingsExtrasMessages.meetingSummary)}
+      </h2>
       <ol
-        aria-label="Topics"
+        aria-label={t(m.topics)}
         className={cn(
           "grid grid-cols-1 gap-3 rounded-xl border border-app-border bg-app-surface p-4 md:p-5 @lg:grid-cols-2",
           !longTopics && "@3xl:grid-cols-3",
@@ -229,10 +240,11 @@ export function MeetingKeywords({
   keywords: string[];
   title: string;
 }) {
+  const t = useT();
   return (
     <section aria-label={title} className={sectionFrame}>
       <h2 className={sectionHeading}>{title}</h2>
-      <ul className="flex flex-wrap gap-1.5" aria-label="Keywords">
+      <ul className="flex flex-wrap gap-1.5" aria-label={t(m.keywords)}>
         {keywords.map((keyword) => (
           <li
             className="rounded-full border border-app-border bg-app-surface px-2.5 py-0.5 text-[14px] leading-5 text-app-body"
@@ -252,6 +264,17 @@ const outcomeTints: Record<NonNullable<MeetingOutcome["label"]>, string> = {
     "border-(--app-status-success-border) bg-(--app-status-success-surface) text-(--app-status-success-text)",
   Action:
     "border-(--app-status-warning-border) bg-(--app-status-warning-surface) text-(--app-status-warning-text)",
+};
+
+// The stored page marks each entry in English; the tag names its kind in
+// the language on screen.
+const outcomeNames: Record<
+  NonNullable<MeetingOutcome["label"]>,
+  Message<string>
+> = {
+  Decision: m.outcomeDecision,
+  Completed: m.outcomeCompleted,
+  Action: m.outcomeAction,
 };
 
 /**
@@ -281,6 +304,7 @@ export function MeetingOutcomes({
   outcomes: MeetingOutcome[];
   title: string;
 }) {
+  const t = useT();
   const checklist = meetingActionChecklist(outcomes);
   const items = new Set(followUpTexts(outcomes));
   const progress = checks
@@ -317,7 +341,7 @@ export function MeetingOutcomes({
       ) : null}
       {outcomes.length === 0 ? (
         <p className="text-[15px] leading-relaxed text-app-body">
-          None observed.
+          {t(meetingsExtrasMessages.noneObserved)}
         </p>
       ) : null}
       <ul className="space-y-2.5 text-[15px] leading-relaxed text-app-body">
@@ -344,7 +368,7 @@ export function MeetingOutcomes({
                     outcomeTints[item.label],
                   )}
                 >
-                  {item.label}
+                  {t(outcomeNames[item.label])}
                 </span>
               ) : null}
               <div

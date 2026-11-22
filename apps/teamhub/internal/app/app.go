@@ -70,6 +70,7 @@ import (
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/voicekey"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/voicemedia"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/voicequicknotes"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/websearch"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/workitem"
 	httpapi "github.com/simplexai-labs/linger/contracts-go/teamhubpublic"
 )
@@ -120,6 +121,8 @@ type App struct {
 	voiceMedia               voicemedia.Plane
 	// voiceKeys resolves the Soniox and xAI keys at each use.
 	voiceKeys *voicekey.Service
+	// webSearch runs the Agents' web searches with the saved keys.
+	webSearch *websearch.Service
 	// reconcileVoiceWorkers wakes the Node Services voice workers after a key
 	// is saved and reports whether they are ready; nil without a Node Services
 	// link.
@@ -218,7 +221,10 @@ type Deps struct {
 	VoiceMedia             voicemedia.Plane
 	// VoiceKeyChecker checks a voice provider key before it is saved; nil
 	// asks the provider's API.
-	VoiceKeyChecker     voicekey.Checker
+	VoiceKeyChecker voicekey.Checker
+	// WebSearch points web search at fake providers; zero fields use the
+	// providers' APIs.
+	WebSearch           websearch.Endpoints
 	PersonalProfile     personalprofile.Generator
 	PersonalInsight     personalinsight.Generator
 	ProactiveEventJudge proactive.EventJudge
@@ -523,6 +529,9 @@ func newApp(cfg config.Config, deps Deps, pool *pgxpool.Pool, signingKey []byte,
 // feature reads only the ones registered before it.
 func (a *App) registerFeatures(ctx context.Context, cfg config.Config, deps Deps, core coreServices) error {
 	if err := a.registerVoice(cfg, deps, core.artifacts); err != nil {
+		return err
+	}
+	if err := a.registerWebSearch(cfg, deps); err != nil {
 		return err
 	}
 	a.reminders = reminder.New(a.pool)

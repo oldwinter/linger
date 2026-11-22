@@ -43,7 +43,7 @@ LIMIT 50;
 -- name: ListDelegatedTaskPendingApprovals :many
 -- Approvals the Task's AlterEgo is waiting on: Runtime permission cards of
 -- its Context and the other approvals it asked for. Connection, computer
--- permission and Document access cards are not approvals.
+-- permission, web search key and Document access cards are not approvals.
 SELECT CASE WHEN decision.kind='runtime_permission' THEN 'permission' ELSE 'connector' END::text AS kind,
        decision.id,
        COALESCE(decision.view->>'title','')::text AS title,
@@ -52,7 +52,7 @@ FROM decisions decision
 WHERE decision.tenant_id=sqlc.arg(tenant_id)::text
   AND decision.alter_ego_task_id=sqlc.arg(task_id)::text
   AND decision.status='pending'
-  AND decision.kind NOT IN ('connection_auth','provider_key','browser_connection','computer_permission','document_access')
+  AND decision.kind NOT IN ('connection_auth','provider_key','browser_connection','computer_permission','document_access','search_key')
   AND (decision.kind<>'runtime_permission' OR decision.request->>'context_key'=sqlc.arg(context_key)::text)
 ORDER BY decision.created_at,decision.id;
 

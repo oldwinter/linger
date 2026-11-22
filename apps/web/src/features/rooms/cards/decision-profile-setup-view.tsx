@@ -32,14 +32,18 @@ import {
   type TeamHubClient,
 } from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { translate, type Translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 import type {
   TeamHubExternalApp,
   TeamHubExternalConnection,
   TeamHubMessageAttachmentUpload,
 } from "@/features/teamhub/teamhub-types";
 
+import { decisionCardHeading } from "./card-prompts";
 import { CardActions, CardError } from "./approval-card-parts";
 import { CardBox, CardDone } from "./card-shell";
+import { cardsMessages } from "./cards.messages";
 import { connectedAppDisplayName } from "./connected-app-names";
 import type { DecisionMessageCard } from "./decision-card";
 import type { RoomCardDecision } from "./room-message-card-contract";
@@ -86,10 +90,14 @@ function SetupCard({
   children?: ReactNode;
   error?: string | null;
 }) {
-  const done = card.status === "pending" ? null : setupDone(card);
+  const t = useT();
+  const done = card.status === "pending" ? null : setupDone(card, t);
   return (
     <>
-      <CardBox heading={card.title} label="AnotherMe setup">
+      <CardBox
+        heading={decisionCardHeading(card, t)}
+        label={t(cardsMessages.labelAnotherMeSetup)}
+      >
         {children}
         {done ? (
           <CardDone icon={done.icon} text={done.text} tone={done.tone} />
@@ -103,50 +111,71 @@ function SetupCard({
 }
 
 /** How an answered setup card ended, in a few words. */
-function setupDone(card: Card) {
+function setupDone(card: Card, t: Translate) {
   const decision =
     card.status === "answered" ? card.answer?.decision : undefined;
   const links = card.answer?.links?.length ?? 0;
   const files = card.answer?.attachment_upload_ids?.length ?? 0;
-  const shared = [
-    links ? plural(links, "link") : "",
-    files ? plural(files, "file") : "",
-  ]
-    .filter(Boolean)
-    .join(" and ");
+  const linkCount = t(cardsMessages.linkCount, { count: links });
+  const fileCount = t(cardsMessages.fileCount, { count: files });
   if (decision === "connected")
-    return { icon: Tick02Icon, text: "Connected", tone: "success" as const };
+    return {
+      icon: Tick02Icon,
+      text: t(cardsMessages.connected),
+      tone: "success" as const,
+    };
   if (decision === "done")
     return {
       icon: Tick02Icon,
-      text: shared ? `Shared ${shared}` : "Nothing shared",
+      text:
+        links && files
+          ? t(cardsMessages.sharedLinksAndFiles, {
+              files: fileCount,
+              links: linkCount,
+            })
+          : links || files
+            ? t(cardsMessages.sharedItems, {
+                items: links ? linkCount : fileCount,
+              })
+            : t(cardsMessages.nothingShared),
       tone: "success" as const,
     };
   if (decision === "skipped")
-    return { icon: Cancel01Icon, text: "Skipped", tone: "muted" as const };
-  return { icon: Clock01Icon, text: "Expired", tone: "muted" as const };
+    return {
+      icon: Cancel01Icon,
+      text: t(cardsMessages.skipped),
+      tone: "muted" as const,
+    };
+  return {
+    icon: Clock01Icon,
+    text: t(cardsMessages.expired),
+    tone: "muted" as const,
+  };
 }
 
 /** What an answered sources card shared. */
 function SharedSources({ card }: { card: Card }) {
+  const t = useT();
   const links = card.answer?.links ?? [];
   const fileCount = card.answer?.attachment_upload_ids?.length ?? 0;
   if (card.answer?.decision !== "done" || (!links.length && !fileCount))
     return null;
   return (
-    <section aria-label="Shared sources" className={listClassName}>
+    <section
+      aria-label={t(cardsMessages.sharedSources)}
+      className={listClassName}
+    >
       {links.map((url) => (
         <SourceRow icon={Link01Icon} key={url} label={linkLabel(url)} />
       ))}
       {fileCount ? (
-        <SourceRow icon={File01Icon} label={plural(fileCount, "file")} />
+        <SourceRow
+          icon={File01Icon}
+          label={t(cardsMessages.fileCount, { count: fileCount })}
+        />
       ) : null}
     </section>
   );
-}
-
-function plural(count: number, noun: string) {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
 function useSetupDecision({ card, messageId, onDecision }: Props) {
@@ -170,10 +199,10 @@ function useSetupDecision({ card, messageId, onDecision }: Props) {
       setError(
         caught instanceof TeamHubError &&
           caught.code === "ATTACHMENT_UPLOAD_UNAVAILABLE"
-          ? "A file is no longer available. Remove it and upload it again."
+          ? translate(cardsMessages.fileNoLongerAvailable)
           : caught instanceof Error
             ? caught.message
-            : "Card decision failed.",
+            : translate(cardsMessages.cardDecisionFailed),
       );
     } finally {
       setSubmitting(false);
@@ -183,6 +212,7 @@ function useSetupDecision({ card, messageId, onDecision }: Props) {
 }
 
 function ProfileSetupApps(props: Props) {
+  const t = useT();
   const { card, currentActorId } = props;
   const { client } = useTeamHubRuntime();
   const catalog = useQuery(externalAppsQueryOptions(client));
@@ -206,8 +236,11 @@ function ProfileSetupApps(props: Props) {
           <SetupReplies
             decision={decision}
             replies={[
-              { decision: "connected", label: "Connected" },
-              { decision: "skipped", label: "Skip for now" },
+              {
+                decision: "connected",
+                label: t(cardsMessages.replyConnected),
+              },
+              { decision: "skipped", label: t(cardsMessages.skipForNow) },
             ]}
           />
         ) : undefined
@@ -215,7 +248,10 @@ function ProfileSetupApps(props: Props) {
       card={card}
       error={decision.error}
     >
-      <section aria-label="Connect your apps" className={listClassName}>
+      <section
+        aria-label={t(cardsMessages.connectYourApps)}
+        className={listClassName}
+      >
         {[...apps, ...(expanded ? moreApps : [])].map((key) => (
           <SetupAppRow
             app={catalogApp(key)}
@@ -249,7 +285,7 @@ function ProfileSetupApps(props: Props) {
                 </span>
               ))}
             </span>
-            <span className="flex-1">More</span>
+            <span className="flex-1">{t(cardsMessages.more)}</span>
             <Icon icon={ArrowDown01Icon} size={14} />
           </button>
         ) : null}
@@ -273,6 +309,7 @@ function SetupAppRow({
   interactive: boolean;
   showConnections: boolean;
 }) {
+  const t = useT();
   const flow = useConnectAppFlow();
   const name = appName(app, appKey);
   const active = showConnections
@@ -301,16 +338,16 @@ function SetupAppRow({
             />
             <span className="truncate">
               {accountIdentityText(active.provider, active.identity_label) ??
-                "Connected"}
+                t(cardsMessages.connected)}
             </span>
           </span>
         ) : verifying && showConnections ? (
           <span className="text-xs text-muted-foreground" role="status">
-            Verifying connection…
+            {t(cardsMessages.verifyingConnection)}
           </span>
         ) : app && showConnections ? (
           <Button
-            aria-label={`Connect ${name}`}
+            aria-label={t(cardsMessages.connectApp, { name })}
             disabled={
               !interactive || !flow.canStart(app) || flow.connection.isPending
             }
@@ -318,11 +355,15 @@ function SetupAppRow({
             size="large"
             tone="subtle"
           >
-            {pending ? "Continue" : "Connect"}
+            {t(
+              pending
+                ? cardsMessages.continueConnecting
+                : cardsMessages.connect,
+            )}
           </Button>
         ) : showConnections && catalogLoaded && !app ? (
           <span className="text-xs text-muted-foreground">
-            Not available yet
+            {t(cardsMessages.notAvailableYet)}
           </span>
         ) : null}
       </div>
@@ -344,6 +385,7 @@ type SourceItem =
     };
 
 function ProfileSetupSources(props: Props) {
+  const t = useT();
   const { card, currentActorId, roomId } = props;
   const { client } = useTeamHubRuntime();
   const [items, setItems] = useState<SourceItem[]>([]);
@@ -372,11 +414,11 @@ function ProfileSetupSources(props: Props) {
 
   function validateLink(link: string) {
     return !isProfileSourceLink(link)
-      ? "Enter a full link that starts with http:// or https://."
+      ? translate(cardsMessages.linkInvalid)
       : links.includes(link)
-        ? "That link is already added."
+        ? translate(cardsMessages.linkAlreadyAdded)
         : links.length >= MAX_LINKS
-          ? `You can add up to ${MAX_LINKS} links.`
+          ? translate(cardsMessages.linkLimit, { max: MAX_LINKS })
           : null;
   }
 
@@ -410,7 +452,10 @@ function ProfileSetupSources(props: Props) {
     } catch (caught) {
       if (controller.signal.aborted) return;
       updateFile(id, {
-        error: caught instanceof Error ? caught.message : "Upload failed.",
+        error:
+          caught instanceof Error
+            ? caught.message
+            : translate(cardsMessages.uploadFailed),
       });
     }
   }
@@ -419,7 +464,7 @@ function ProfileSetupSources(props: Props) {
     const room = MAX_FILES - files.length;
     setInputError(
       selected.length > room
-        ? `You can upload up to ${MAX_FILES} files.`
+        ? translate(cardsMessages.fileLimit, { max: MAX_FILES })
         : null,
     );
     const added = selected.slice(0, Math.max(room, 0)).map((file) => ({
@@ -470,8 +515,8 @@ function ProfileSetupSources(props: Props) {
               });
             }}
             replies={[
-              { decision: "done", label: "That's all" },
-              { decision: "skipped", label: "Skip" },
+              { decision: "done", label: t(cardsMessages.thatsAll) },
+              { decision: "skipped", label: t(cardsMessages.skip) },
             ]}
           />
         ) : undefined
@@ -481,7 +526,10 @@ function ProfileSetupSources(props: Props) {
     >
       {canDecide ? (
         <>
-          <section aria-label="Website or files" className={listClassName}>
+          <section
+            aria-label={t(cardsMessages.websiteOrFiles)}
+            className={listClassName}
+          >
             {items.map((item) =>
               item.kind === "link" ? (
                 <LinkRow
@@ -507,12 +555,17 @@ function ProfileSetupSources(props: Props) {
                       ) : (
                         <span className="text-xs text-app-muted tabular-nums">
                           {item.upload
-                            ? `Uploaded · ${formatFileSize(item.file.size)}`
+                            ? t(cardsMessages.uploadedSize, {
+                                size: formatFileSize(item.file.size),
+                              })
                             : `${Math.round(item.progress * 100)}%`}
                         </span>
                       )}
                       <Button
-                        aria-label={`Remove ${item.file.name}`}
+                        data-voice-risk="never"
+                        aria-label={t(cardsMessages.removeItem, {
+                          name: item.file.name,
+                        })}
                         onClick={() => removeFile(item.id)}
                         size="compactIcon"
                         tone="ghost"
@@ -526,7 +579,7 @@ function ProfileSetupSources(props: Props) {
             )}
             <div className={rowClassName}>
               <input
-                aria-label="Paste a link"
+                aria-label={t(cardsMessages.pasteLink)}
                 className="h-8 min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-app-placeholder"
                 onChange={(event) => {
                   setDraft(event.target.value);
@@ -538,7 +591,7 @@ function ProfileSetupSources(props: Props) {
                   event.preventDefault();
                   addLink();
                 }}
-                placeholder="Paste a link"
+                placeholder={t(cardsMessages.pasteLink)}
                 value={draft}
               />
               <Button
@@ -547,7 +600,7 @@ function ProfileSetupSources(props: Props) {
                 size="large"
                 tone="subtle"
               >
-                Add link
+                {t(cardsMessages.addLink)}
               </Button>
               <Button
                 disabled={files.length >= MAX_FILES}
@@ -555,10 +608,10 @@ function ProfileSetupSources(props: Props) {
                 size="large"
                 tone="subtle"
               >
-                Upload files
+                {t(cardsMessages.uploadFiles)}
               </Button>
               <input
-                aria-label="Upload files"
+                aria-label={t(cardsMessages.uploadFiles)}
                 className="hidden"
                 multiple
                 onChange={(event) => {
@@ -572,8 +625,8 @@ function ProfileSetupSources(props: Props) {
           </section>
           <p className="pb-1 text-xs text-app-muted" role="status">
             {items.length
-              ? "Added here. Select That's all to share with Another Me."
-              : "Add a link or upload a file, then select That's all to share."}
+              ? t(cardsMessages.sourcesAddedHint)
+              : t(cardsMessages.sourcesEmptyHint)}
           </p>
           {inputError ? (
             <p className="pb-1 text-xs text-app-danger" role="alert">
@@ -589,15 +642,19 @@ function ProfileSetupSources(props: Props) {
 }
 
 function LinkRow({ url, onRemove }: { url: string; onRemove: () => void }) {
+  const t = useT();
   return (
     <SourceRow
       icon={Link01Icon}
       label={linkLabel(url)}
       trailing={
         <>
-          <span className="text-xs text-app-muted">Added</span>
+          <span className="text-xs text-app-muted">
+            {t(cardsMessages.added)}
+          </span>
           <Button
-            aria-label={`Remove ${url}`}
+            data-voice-risk="never"
+            aria-label={t(cardsMessages.removeItem, { name: url })}
             onClick={onRemove}
             size="compactIcon"
             tone="ghost"

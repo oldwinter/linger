@@ -10,6 +10,8 @@ import {
   writeSelectedVoiceRoom,
 } from "./voice-control-storage";
 import type { VoiceControlState } from "./use-voice-control-state";
+import { translate } from "@/i18n/language";
+import { recordingMessages as m } from "./recording.messages";
 
 /** Resolves the recording target Room and its hardware VoiceSession. */
 export function useVoiceTarget(
@@ -38,9 +40,7 @@ export function useVoiceTarget(
           }),
         );
         if (room.kind !== "direct" || room.direct_peer?.kind !== "agent")
-          throw new Error(
-            "Select the recording target again in the Agent direct chat",
-          );
+          throw new Error(translate(m.selectTargetAgain));
         if (refs.targetRef.current && !activeRoomOverride)
           return refs.targetRef.current;
         const resolved = {
@@ -59,7 +59,7 @@ export function useVoiceTarget(
         }),
       );
       if (!target.agent_actor_id || !target.room_id) {
-        throw new Error("Your AnotherMe is not ready for recording");
+        throw new Error(translate(m.anotherMeNotReady));
       }
       const actor = await teamHubData(
         runtime.client.api.GET("/v0/tenants/{tenantId}/actors/{actorId}", {
@@ -133,9 +133,7 @@ export function useVoiceTargetSelection(
   return useCallback(
     (roomId: string) => {
       if (refs.targetChangeRef.current)
-        return Promise.reject(
-          new Error("Switching recording target. Please wait"),
-        );
+        return Promise.reject(new Error(translate(m.switchingTarget)));
       const operation = (async () => {
         if (refs.targetRef.current?.roomId === roomId) return;
         if (
@@ -143,25 +141,21 @@ export function useVoiceTargetSelection(
           refs.startPromiseRef.current ||
           refs.enablePromiseRef.current
         )
-          throw new Error(
-            "Stop the current recording before switching targets",
-          );
+          throw new Error(translate(m.stopBeforeSwitching));
         const room = await teamHubData(
           runtime.client.api.GET("/v0/rooms/{roomId}", {
             params: { path: { roomId } },
           }),
         );
         if (room.kind !== "direct" || room.direct_peer?.kind !== "agent")
-          throw new Error("Start recording in the Agent direct chat");
+          throw new Error(translate(m.startInDirectChat));
         // Recheck after the authorization read: a recording may have started meanwhile.
         if (
           isActiveCapture(refs.captureRef.current) ||
           refs.startPromiseRef.current ||
           refs.enablePromiseRef.current
         )
-          throw new Error(
-            "Stop the current recording before switching targets",
-          );
+          throw new Error(translate(m.stopBeforeSwitching));
         await disable();
         const session = refs.voiceSessionRef.current;
         if (session)

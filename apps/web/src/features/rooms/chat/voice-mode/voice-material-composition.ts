@@ -5,6 +5,8 @@ import {
 } from "../message-composer-references";
 import type { VoiceDocumentSelection } from "../../room-drafts";
 import { formatMentionToken } from "../message-mentions";
+import { translate } from "@/i18n/language";
+import { voiceChatMessages as m } from "./voice-chat.messages";
 
 /** Build a normal Message: visible excerpt text plus existing Document segments. */
 export function withVoiceMaterials(
@@ -66,9 +68,7 @@ export function withVoiceMaterials(
   // Quoted material first, then what the user said about it.
   const body = [...excerpts, composition.body].filter(Boolean).join("\n\n");
   if (body.length > 50_000)
-    throw new Error(
-      "Your voice message and references exceed 50,000 characters. Remove a selection or shorten the draft.",
-    );
+    throw new Error(translate(m.messageTooLong, { characters: 50_000 }));
   return {
     ...composition,
     body,

@@ -35,6 +35,8 @@ import {
 } from "./live/voice-live-transport";
 import { closeVoicePip } from "./voice-pip";
 import { roomMessageSender } from "../room-message-sender";
+import { translate } from "@/i18n/language";
+import { voiceSessionMessages as m } from "./voice-session.messages";
 
 interface LiveView {
   connection?: VoiceLiveConnection;
@@ -138,7 +140,7 @@ export function runVoiceModeSession({
         resumeListening: false,
       });
     const release = await tryAcquireVoicePublisherLease(tenantId);
-    if (!release) throw new Error("The microphone is active in another tab.");
+    if (!release) throw new Error(translate(m.microphoneOtherTab));
     return async () => release();
   };
   const openLive = (
@@ -174,7 +176,11 @@ export function runVoiceModeSession({
         fallBack();
         fail(
           new VoiceModeReopen(
-            `Live voice stopped; continuing as dictation. ${error instanceof Error ? error.message : ""}`.trim(),
+            error instanceof Error && error.message.trim()
+              ? translate(m.continuingAsDictationWithReason, {
+                  reason: error.message.trim(),
+                })
+              : translate(m.continuingAsDictation),
           ),
         );
       },

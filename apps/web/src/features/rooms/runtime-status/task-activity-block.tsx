@@ -13,8 +13,11 @@ import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubTaskExecution } from "@/features/teamhub/teamhub-types";
 import { tenantWorkItemTargetQueryOptions } from "@/features/work-items/work-item-queries";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 
 import { RunningDots } from "../task-sidebar/running-dots";
+import { runtimeStatusMessages as m } from "./runtime-status.messages";
 import type { TaskCommand } from "./task-command";
 
 interface TaskActivityLinks {
@@ -38,11 +41,11 @@ export function TaskActivityLinksProvider({
   );
 }
 
-const VERBS: Record<TaskCommand["operation"], string> = {
-  create: "Started",
-  send: "Sent to",
-  stop: "Stopped",
-  check: "Checked on tasks",
+const VERBS: Record<TaskCommand["operation"], Message<string>> = {
+  create: m.taskStarted,
+  send: m.taskSentTo,
+  stop: m.taskStopped,
+  check: m.tasksChecked,
 };
 const GLYPHS = {
   create: TaskAdd01Icon,
@@ -66,6 +69,7 @@ export function TaskActivityBlock({
   failed?: boolean;
   taskId?: string;
 }) {
+  const t = useT();
   const links = useContext(TaskActivityLinksContext);
   const { client } = useTeamHubRuntime();
   const tenantId = links?.tenantId ?? "";
@@ -103,11 +107,13 @@ export function TaskActivityBlock({
     <>
       <Icon className="shrink-0" icon={GLYPHS[command.operation]} size={15} />
       <span className={`shrink-0 ${active ? "town-shimmer-text" : ""}`}>
-        {VERBS[command.operation]}
+        {t(VERBS[command.operation])}
       </span>
       <span className="min-w-0 flex-1 truncate text-app-ink">{title}</span>
       {failed ? (
-        <span className="shrink-0 text-app-danger">Failed</span>
+        <span className="shrink-0 text-app-danger">
+          {t(m.taskStatusFailed)}
+        </span>
       ) : execution.data ? (
         <TaskState execution={execution.data} />
       ) : null}
@@ -118,7 +124,7 @@ export function TaskActivityBlock({
     <li className="runtime-activity-step text-app-muted">
       {open ? (
         <button
-          aria-label={`Open task ${title}`}
+          aria-label={t(m.openTask, { title: title ?? "" })}
           className={`${rowClass} rounded-md hover:text-app-body focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app-focus`}
           onClick={open}
           type="button"
@@ -138,9 +144,10 @@ export function TaskActivityBlock({
 }
 
 function TaskState({ execution }: { execution: TeamHubTaskExecution }) {
+  const t = useT();
   return execution.status === "running" ? (
     <span
-      aria-label="Task running"
+      aria-label={t(m.taskRunning)}
       className="flex shrink-0 items-center text-app-info"
       role="img"
     >
@@ -157,16 +164,19 @@ export function TaskStatusPill({
 }: {
   status: TeamHubTaskExecution["status"];
 }) {
+  const t = useT();
   switch (status) {
     case "running":
-      return <StatusPill tone="neutral">Running</StatusPill>;
+      return <StatusPill tone="neutral">{t(m.taskStatusRunning)}</StatusPill>;
     case "waiting_for_approval":
-      return <StatusPill tone="warning">Needs approval</StatusPill>;
+      return (
+        <StatusPill tone="warning">{t(m.taskStatusNeedsApproval)}</StatusPill>
+      );
     case "idle":
-      return <StatusPill tone="success">Finished</StatusPill>;
+      return <StatusPill tone="success">{t(m.taskStatusFinished)}</StatusPill>;
     case "failed":
-      return <StatusPill tone="danger">Failed</StatusPill>;
+      return <StatusPill tone="danger">{t(m.taskStatusFailed)}</StatusPill>;
     case "canceled":
-      return <StatusPill>Stopped</StatusPill>;
+      return <StatusPill>{t(m.taskStatusStopped)}</StatusPill>;
   }
 }

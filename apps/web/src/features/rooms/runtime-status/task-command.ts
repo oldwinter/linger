@@ -20,7 +20,8 @@ const OPERATIONS = new Set<TaskCommand["operation"]>([
 ]);
 
 export function parseTaskCommand(command: string): TaskCommand | undefined {
-  const words = shellWords(command);
+  const { line, body } = splitQuotedHeredoc(command);
+  const words = shellWords(line);
   const start = words.findIndex(
     (word, index) =>
       (word === "teamhub" || word.endsWith("/teamhub")) &&
@@ -46,10 +47,13 @@ export function parseTaskCommand(command: string): TaskCommand | undefined {
       index += 1;
     }
   }
+  const message =
+    flags.get("--message") ??
+    (flags.get("--message-file") === "-" ? body : undefined);
   return {
     operation,
     ...(flags.has("--name") ? { name: flags.get("--name") } : {}),
-    ...(flags.has("--message") ? { message: flags.get("--message") } : {}),
+    ...(message === undefined ? {} : { message }),
     ...(flags.has("--task-id") ? { taskId: flags.get("--task-id") } : {}),
   };
 }
@@ -60,6 +64,24 @@ export function parseTaskCommand(command: string): TaskCommand | undefined {
  */
 export function createdTaskId(output: string | undefined) {
   return output?.match(/\bworkitem_[0-9a-f]{32}\b/)?.[0];
+}
+
+/**
+ * Separates a command from the body of its quoted heredoc (`<<'EOF'`), the
+ * stdin a `--message-file -` reads. A quoted heredoc's body is literal, so it
+ * is exactly the text the command received.
+ */
+function splitQuotedHeredoc(command: string): { line: string; body?: string } {
+  const operator = /<<[ \t]*(['"])([A-Za-z_][A-Za-z0-9_]*)\1/u.exec(command);
+  const start = operator ? command.indexOf("\n", operator.index) : -1;
+  if (!operator || start < 0) return { line: command };
+  const lines = command.slice(start + 1).split("\n");
+  const end = lines.indexOf(operator[2]!);
+  if (end < 0) return { line: command };
+  return {
+    line: command.slice(0, start),
+    body: lines.slice(0, end).join("\n"),
+  };
 }
 
 /** Splits a command line into words, honoring single and double quotes. */

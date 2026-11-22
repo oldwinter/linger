@@ -227,7 +227,8 @@ func runtimeFixtures(configuredPaths map[string]string) []runtimeDiagnostic {
 		claude = runtimeDiagnostic{Type: "claude", Status: "ready", Available: true, EntryPath: configuredPaths["claude"], ExecutablePath: "/canonical/claude"}
 	}
 	pi := runtimeDiagnostic{Type: "pi", Status: "not_installed", ErrorMessage: "Runtime executable not found"}
-	return []runtimeDiagnostic{codex, claude, pi}
+	antigravity := runtimeDiagnostic{Type: "antigravity", Status: "not_installed", ErrorMessage: "Runtime executable not found"}
+	return []runtimeDiagnostic{codex, claude, pi, antigravity}
 }
 
 func onlyRuntime(runtimeType string) []runtimeDiagnostic {

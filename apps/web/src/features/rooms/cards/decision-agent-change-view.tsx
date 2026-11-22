@@ -2,8 +2,10 @@ import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import { useState } from "react";
 
 import { Icon } from "@/components/ui/icon";
+import { useT } from "@/i18n/use-translation";
 
 import { AgentChangeFields } from "./agent-change-fields";
+import { cardsMessages } from "./cards.messages";
 import type { DecisionMessageCard } from "./decision-card";
 
 type AgentChangeView = NonNullable<DecisionMessageCard["agent_change"]>;
@@ -31,6 +33,7 @@ export function AgentChangeDecisionView({ view }: { view: AgentChangeView }) {
  * replaces.
  */
 function InstructionsChange({ change }: { change: AgentChange }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const replacing = change.before !== undefined;
   const expandable =
@@ -40,13 +43,17 @@ function InstructionsChange({ change }: { change: AgentChange }) {
   return (
     <>
       <InstructionsText
-        label={replacing ? "New instructions" : "Instructions"}
+        label={t(
+          replacing
+            ? cardsMessages.newInstructions
+            : cardsMessages.instructions,
+        )}
         open={open}
         text={change.after}
       />
       {open && replacing ? (
         <InstructionsText
-          label="Current instructions"
+          label={t(cardsMessages.currentInstructions)}
           open
           text={change.before ?? ""}
         />
@@ -63,7 +70,9 @@ function InstructionsChange({ change }: { change: AgentChange }) {
             icon={ArrowDown01Icon}
             size={14}
           />
-          {open ? "Show less" : "Show full instructions"}
+          {t(
+            open ? cardsMessages.showLess : cardsMessages.showFullInstructions,
+          )}
         </button>
       ) : null}
     </>
@@ -79,6 +88,7 @@ function InstructionsText({
   open: boolean;
   text: string;
 }) {
+  const t = useT();
   return (
     <section
       aria-label={label}
@@ -88,7 +98,7 @@ function InstructionsText({
       <p
         className={`whitespace-pre-wrap [overflow-wrap:anywhere] text-app-ink ${open ? "max-h-64 overflow-auto" : "line-clamp-4"}`}
       >
-        {text || "None"}
+        {text || t(cardsMessages.none)}
       </p>
     </section>
   );

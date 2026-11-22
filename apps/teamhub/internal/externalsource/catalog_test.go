@@ -135,7 +135,7 @@ func TestAppCatalogRejectsKeysOutsideTheFixedList(t *testing.T) {
 func TestAppCatalogMarksProactiveReminderAppsOnlyWhenConnectable(t *testing.T) {
 	service := New(nil, &composio.Client{})
 	service.managed = configuredManagedCatalog(t)
-	for key, want := range map[string]bool{"gmail": true, "outlook": true, "notion": false, "linear": false} {
+	for key, want := range map[string]bool{"gmail": true, "outlook": true, "google_calendar": true, "outlook_calendar": true, "notion": false, "linear": false} {
 		app, ok := service.catalogApp(key)
 		if !ok {
 			t.Fatalf("missing app %s", key)

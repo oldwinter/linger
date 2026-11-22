@@ -15,7 +15,7 @@ const card: Card = {
   decision_id: "auth-1",
   kind: "connection_auth",
   status: "pending",
-  title: "Create a Notion page for this plan.",
+  title: "Please connect and authorize your Notion account so I can continue.",
   connection_auth: { app_key: "notion" },
   expires_at: "2999-01-01T00:00:00Z",
   decision_owner: { id: "alice", display_name: "Alice", kind: "human" },
@@ -108,11 +108,13 @@ describe("Chat connection authorization", () => {
     expect(
       screen.getByRole("heading", {
         level: 3,
-        name: "Create a Notion page for this plan.",
+        name: "Please connect and authorize your Notion account so I can continue.",
       }),
     ).toBeVisible();
     expect(
-      screen.getAllByText("Create a Notion page for this plan."),
+      screen.getAllByText(
+        "Please connect and authorize your Notion account so I can continue.",
+      ),
     ).toHaveLength(1);
     expect(document.querySelector(".card-prompt")).toBeNull();
     expect(screen.queryByText(/Asks you|Authorizing/)).not.toBeInTheDocument();
@@ -129,9 +131,9 @@ describe("Chat connection authorization", () => {
     );
   });
 
-  it("shows a long agent prompt as the heading, never on a button", async () => {
+  it("shows the long ask as the heading, never on a button", async () => {
     const prompt =
-      "If you like, please authorize your Notion connection. Once authorized, I can read or act on only the pages or databases you name.";
+      "Please connect and authorize your Notion account so I can continue.";
     await setup({
       ...card,
       title: prompt,

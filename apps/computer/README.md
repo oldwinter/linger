@@ -26,7 +26,7 @@ linger-computer login
 `linger-computer login` authorizes the computer in the browser and starts the
 Daemon. A server connection token from the Web app works too:
 `linger-computer login --token-stdin`. Then use `linger-computer daemon status`,
-`linger-computer runtime check <codex|claude|pi>`, and `linger-computer doctor`;
+`linger-computer runtime check <codex|claude|pi|antigravity>`, and `linger-computer doctor`;
 `linger-computer --help` lists every command.
 
 ## Optional integrations

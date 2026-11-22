@@ -3,7 +3,9 @@ import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
+import { translate } from "@/i18n/language";
 import { bucketStart } from "./wiki-graph-model";
+import { wikiTimelineMessages as m } from "./wiki-timeline.messages";
 
 export type PeriodReportKind = "daily" | "weekly";
 
@@ -42,7 +44,7 @@ async function listReports(
         entries.set(entry.id, entry);
     if (!page.next_cursor) return [...entries.values()];
     if (seen.has(page.next_cursor))
-      throw new Error("Report pagination returned a repeated cursor.");
+      throw new Error(translate(m.repeatedCursor));
     seen.add(page.next_cursor);
     cursor = page.next_cursor;
   }
@@ -68,7 +70,7 @@ export function usePeriodReport(
   return useQuery({
     queryKey: ["teamhub", tenantId, "personal-memory", kind, day],
     queryFn: () => {
-      if (!entry) throw new Error("Report is unavailable.");
+      if (!entry) throw new Error(translate(m.reportUnavailable));
       return teamHubData(
         client.api.GET("/v0/tenants/{tenantId}/memory/{entryId}", {
           params: { path: { tenantId, entryId: entry.id } },

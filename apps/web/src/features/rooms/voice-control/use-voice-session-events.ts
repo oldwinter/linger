@@ -8,6 +8,8 @@ import {
   mergeVoiceTranscriptItems,
 } from "./voice-control-helpers";
 import type { VoiceControlState } from "./use-voice-control-state";
+import { translate } from "@/i18n/language";
+import { recordingMessages as m } from "./recording.messages";
 
 const partialTranscriptStaleMs = 10_000;
 
@@ -95,9 +97,7 @@ export function useVoiceSessionEvents(
         refs.eventStreamLiveRef.current = false;
         refs.voiceAccessLostRef.current = true;
         setTranscriptStatus("idle");
-        setListenerError(
-          "Voice session access has expired. Sign in again or check your access to the target Agent.",
-        );
+        setListenerError(translate(m.accessExpired));
         setListenerStatus("error");
         void cleanupMedia();
         refs.publisherLeaseRef.current?.();

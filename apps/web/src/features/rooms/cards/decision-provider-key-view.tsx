@@ -15,14 +15,17 @@ import { externalAppsQueryOptions } from "@/features/apps/connected-apps-queries
 import { ComposioKeyForm } from "@/features/apps/provider-key-form";
 import { ComposioKeyGuide } from "@/features/apps/provider-key-guide";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 
+import { decisionCardHeading } from "./card-prompts";
 import { CardActions, CardError, CardRow } from "./approval-card-parts";
 import { CardBox, CardDone, type ReceiptTone } from "./card-shell";
+import { cardsMessages } from "./cards.messages";
 import { connectedAppDisplayName } from "./connected-app-names";
 import type { DecisionMessageCard } from "./decision-card";
 import type { RoomCardDecision } from "./room-message-card-contract";
-
-const label = "Composio API key requested";
 
 /**
  * Asks the Agent's Human for the deployment's Composio API key, which every
@@ -41,6 +44,7 @@ export function ProviderKeyDecision({
   messageId: string;
   onDecision: (decision: RoomCardDecision) => Promise<void> | void;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const catalog = useQuery(externalAppsQueryOptions(client));
   const [open, setOpen] = useState(false);
@@ -48,6 +52,9 @@ export function ProviderKeyDecision({
   const [error, setError] = useState("");
   const owner = currentActorId === card.decision_owner.id;
   const appKey = card.provider_key?.app_key;
+  const appName = appKey
+    ? catalog.data?.apps.find((app) => app.key === appKey)?.display_name
+    : undefined;
 
   async function decline() {
     setBusy(true);
@@ -63,7 +70,7 @@ export function ProviderKeyDecision({
       setError(
         cause instanceof Error
           ? cause.message
-          : "The card could not be updated.",
+          : translate(cardsMessages.cardUpdateFailed),
       );
     } finally {
       setBusy(false);
@@ -73,18 +80,27 @@ export function ProviderKeyDecision({
   const result = card.status === "pending" ? null : keyResult(card);
   return (
     <>
-      <CardBox heading={card.title} label={label}>
+      <CardBox
+        heading={decisionCardHeading(card, t, { app: appName })}
+        label={t(cardsMessages.labelComposioKey)}
+      >
         <CardRow
           detail={
             appKey
-              ? `Needed to connect ${connectedAppDisplayName(appKey)}`
-              : "Every connected app needs it"
+              ? t(cardsMessages.neededToConnect, {
+                  app: connectedAppDisplayName(appKey),
+                })
+              : t(cardsMessages.everyAppNeedsIt)
           }
           icon={<Icon icon={Key01Icon} size={16} />}
-          title="Composio API key"
+          title={t(cardsMessages.composioApiKey)}
         />
         {result ? (
-          <CardDone icon={result.icon} text={result.text} tone={result.tone} />
+          <CardDone
+            icon={result.icon}
+            text={t(result.text)}
+            tone={result.tone}
+          />
         ) : owner ? (
           <CardActions>
             <Button
@@ -93,7 +109,7 @@ export function ProviderKeyDecision({
               size="large"
               tone="primary"
             >
-              Add key
+              {t(cardsMessages.addKey)}
             </Button>
             <Button
               disabled={busy}
@@ -101,7 +117,7 @@ export function ProviderKeyDecision({
               size="large"
               tone="subtle"
             >
-              Not now
+              {t(cardsMessages.notNow)}
             </Button>
           </CardActions>
         ) : null}
@@ -111,10 +127,12 @@ export function ProviderKeyDecision({
         <ModalDialog
           className="app-key-dialog"
           closeOnBackdrop
-          description={`${card.requester.display_name} continues once the key is saved.`}
+          description={t(cardsMessages.continuesOnceKeySaved, {
+            agent: card.requester.display_name,
+          })}
           onClose={() => setOpen(false)}
           size="md"
-          title="Add a Composio API key"
+          title={t(cardsMessages.addComposioKeyTitle)}
         >
           <div className="space-y-4 px-5 py-5 text-sm text-app-body">
             {catalog.data?.provider_key.can_save === false ? (
@@ -135,12 +153,20 @@ export function ProviderKeyDecision({
 /** How a settled key request ended, in a few words. */
 function keyResult(card: DecisionMessageCard): {
   icon: IconSvgElement;
-  text: string;
+  text: Message<string>;
   tone: ReceiptTone;
 } {
   if (card.answer?.decision === "configured")
-    return { icon: Tick02Icon, text: "Key added", tone: "success" };
+    return { icon: Tick02Icon, text: cardsMessages.keyAdded, tone: "success" };
   if (card.status === "denied")
-    return { icon: Cancel01Icon, text: "No key added", tone: "muted" };
-  return { icon: AlertCircleIcon, text: "Not completed", tone: "danger" };
+    return {
+      icon: Cancel01Icon,
+      text: cardsMessages.noKeyAdded,
+      tone: "muted",
+    };
+  return {
+    icon: AlertCircleIcon,
+    text: cardsMessages.notCompleted,
+    tone: "danger",
+  };
 }

@@ -362,6 +362,24 @@ func (s *Service) GetLocalRun(ctx context.Context, contextKey, runID string) (Lo
 	return localRunFromRow(ctx, queries, row)
 }
 
+// GetLocalRunReplyStatus reports whether TeamHub persisted a visible reply for
+// the Local Run in its collaboration Room.
+func (s *Service) GetLocalRunReplyStatus(ctx context.Context, contextKey, runID string) (bool, error) {
+	if s == nil || s.pool == nil || contextKey == "" || runID == "" {
+		return false, ErrInvalid
+	}
+	replied, err := store.New(s.pool).GetAgentLocalRunReplyDelivered(ctx, store.GetAgentLocalRunReplyDeliveredParams{
+		ContextKey: contextKey, RunID: runID,
+	})
+	if isNoRows(err) {
+		return false, ErrNotFound
+	}
+	if err != nil {
+		return false, err
+	}
+	return replied, nil
+}
+
 func (s *Service) ContextHasPendingWork(ctx context.Context, contextKey string) (bool, error) {
 	if s == nil || s.pool == nil || contextKey == "" {
 		return false, ErrInvalid

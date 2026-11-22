@@ -85,6 +85,7 @@ Options:
   --codex-path <path>          Use this Codex executable
   --claude-path <path>         Use this Claude Code executable
   --pi-path <path>             Use this Pi executable
+  --antigravity-path <path>    Use this Antigravity (agy) executable
   --config <path>              Use another Computer config file
 `
 	if commandHelp["login"] != want {

@@ -2,6 +2,9 @@ import { Fragment, type PropsWithChildren, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { TeamHubMessage } from "@/features/teamhub/teamhub-types";
+import { useT, useTranslation } from "@/i18n/use-translation";
+
+import { chatMessages } from "./chat.messages";
 
 import {
   formatMessageTime,
@@ -49,11 +52,12 @@ export function ThreadTimeline({
   rootMessage: TeamHubMessage;
   timeline: ReturnType<typeof useRoomTimelineScroll>;
 }>) {
+  const t = useT();
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <div
         aria-busy={opening || undefined}
-        aria-label="Thread timeline"
+        aria-label={t(chatMessages.threadTimeline)}
         data-voice-scroll="thread"
         className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-10 [overflow-anchor:none]"
         data-initial-scroll-ready={timeline.initialScrollReady}
@@ -66,7 +70,7 @@ export function ThreadTimeline({
         {opening ? (
           <div className="mt-4 space-y-3" data-testid="thread-panel-loading">
             <p className="text-[12px] font-medium text-app-muted">
-              Opening Thread…
+              {t(chatMessages.openingThread)}
             </p>
             <div className="h-16 animate-pulse rounded-lg bg-app-hover" />
             <div className="h-16 animate-pulse rounded-lg bg-app-hover" />
@@ -103,14 +107,14 @@ export function ThreadTimeline({
         {replies.length || hasPending ? (
           <div className="my-4 flex items-center gap-2 text-[12px] text-app-subtle">
             <span className="h-px flex-1 bg-app-border" />
-            Replies
+            {t(chatMessages.replies)}
             <span className="h-px flex-1 bg-app-border" />
           </div>
         ) : null}
         {canLoadEarlier ? (
           <div className="mb-3 text-center">
             <Button loading={loadingEarlier} onClick={onLoadEarlier}>
-              Load earlier replies
+              {t(chatMessages.loadEarlierReplies)}
             </Button>
           </div>
         ) : null}
@@ -150,9 +154,10 @@ export function ThreadTimeline({
 }
 
 function ConversationTime({ at }: { at: string }) {
+  const translation = useTranslation();
   return (
     <div className="room-conversation-time text-center text-xs text-app-subtle">
-      <time dateTime={at}>{formatMessageTime(at)}</time>
+      <time dateTime={at}>{formatMessageTime(at, translation)}</time>
     </div>
   );
 }

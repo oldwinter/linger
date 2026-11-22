@@ -22,8 +22,8 @@ runs:
       run: |
         echo "::error::The changes job did not succeed (${CHANGES_RESULT:-not passed}); no check can be skipped."
         exit 1
-    # teamhub runs only Go. computer-go's tests run the managed-tools scripts,
-    # which need the pinned Node but no workspace packages.
+    # TeamHub runs only Go. Computer Go tests exercise the workspace's pinned
+    # QuickJS engine through the managed Node runtime.
     # Each Go check keeps its own build and module cache, so one job's save
     # never replaces another's. Pull requests and merge-queue builds restore
     # main's latest entry; only pushes to main save, and a successful push
@@ -37,8 +37,7 @@ runs:
         set -euo pipefail
         case "$APP" in
           teamhub) is_go=true node=false install=false ;;
-          computer-go) is_go=true node=true install=false ;;
-          desktop | contracts) is_go=true node=true install=true ;;
+          computer-go | desktop | contracts) is_go=true node=true install=true ;;
           packages | teamhub-cli | installer) is_go=false node=true install=true ;;
           *)
             echo "::error::Unknown app: $APP"

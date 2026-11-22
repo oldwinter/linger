@@ -426,7 +426,8 @@ func TestOperationInputBusyReceiptPrecedesConcurrentOutput(t *testing.T) {
 	close(backend.release)
 	d.WaitForOperations()
 	events := stream.snapshotEvents()
-	if len(events) != 5 || events[1].CommandID != secondInput.CommandID || events[4].Type != protocol.EventOperationCompleted {
+	// The empty result after streamed output adds a closing reply message.
+	if len(events) != 6 || events[1].CommandID != secondInput.CommandID || events[5].Type != protocol.EventOperationCompleted {
 		t.Fatalf("concurrent output lost an input receipt or terminal: %+v", events)
 	}
 	for index, event := range events {

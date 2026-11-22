@@ -330,6 +330,23 @@ describe("Runtime model call", () => {
     expect(none.invokeModel.mock.calls[0]![1].runtimeType).toBe("codex");
   });
 
+  it("calls an Antigravity Agent's model through Claude, else Codex", async () => {
+    const antigravity: ModelPlacement = {
+      ...alice,
+      runtimeType: "antigravity",
+    };
+    const claude = setup({ placements: [antigravity], ready: () => true });
+    await claude.modelCall.call({ ...ask, input: "x" });
+    expect(claude.invokeModel.mock.calls[0]![1].runtimeType).toBe("claude");
+
+    const codex = setup({
+      placements: [antigravity],
+      ready: (_computer, runtime) => runtime === "codex",
+    });
+    await codex.modelCall.call({ ...ask, input: "x" });
+    expect(codex.invokeModel.mock.calls[0]![1].runtimeType).toBe("codex");
+  });
+
   it("caches an owner's placement for 30 seconds and drops it when the Computer is offline", async () => {
     const { modelCall, placements, advance } = setup({
       placements: [alice],

@@ -39,6 +39,7 @@ import {
   voiceTextFields,
   voiceFill,
   voiceInPlaceState,
+  voiceRiskyTarget,
   voiceWindowAction,
   type VoiceScrollDirection,
   type VoiceWindowAction,
@@ -73,15 +74,10 @@ const genericField = /^(?:input|textbox|text box|message box|composer)$/iu;
 /**
  * Deleting, sending, leaving, paying, approving or other decisions that
  * cannot be undone: clicked only after the Human said yes to this click.
+ * The control says so with `data-voice-risk` (see voiceRiskyTarget).
  */
-const riskyName =
-  /approve|deny|reject|decline|authori[sz]e|grant|accept|delete|remove|send|submit|leave|exit|quit|pay|purchase|buy|transfer|kick|ban|block|archive|reset|sign ?out|log ?out|discard|revoke|uninstall|destroy/iu;
-
-/** Leaving Voice Mode itself is never confirmed. */
-const leavesVoiceMode = /^(?:exit|leave|end|close) voice(?: mode)?$/iu;
-
-export function riskyTarget(name: string) {
-  return !leavesVoiceMode.test(name.trim()) && riskyName.test(name);
+export function riskyTarget(element: HTMLElement | undefined, name: string) {
+  return voiceRiskyTarget(element, name);
 }
 
 function normalized(text: string) {
@@ -200,7 +196,7 @@ export function readPageTargets(context: VoiceCommandContext, focus = "") {
     add(
       "e",
       { kind: "element", element, name },
-      `${name}${riskyTarget(name) ? " (needs confirmation)" : ""}`,
+      `${name}${riskyTarget(element, name) ? " (needs confirmation)" : ""}`,
     );
   }
   for (const field of voiceTextFields().slice(0, pageTargetLimits.fields))
@@ -649,7 +645,7 @@ async function clickOrOpen(
   if (room) return openRoom(context, room.id);
   if (element) {
     const name = label(element);
-    if (riskyTarget(name) && !confirmed)
+    if (riskyTarget(offeredVoiceElement(element.id), name) && !confirmed)
       return {
         status: "needs_confirmation",
         detail: `"${name}" may not be undoable. First ask the user in the first person whether to click it (e.g. "Should I click ${name} for you?"), and call again with confirmed=true only after they clearly agree to this click; no answer or a different question is not agreement.`,

@@ -3,28 +3,20 @@ import { lazy, Suspense, useState } from "react";
 import { tenantLocalModelsQueryKey } from "@/features/local-models/local-models-queries";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { type TeamHubClient } from "@/features/teamhub/teamhub-client";
-import type {
-  TeamHubAgentReasoningEffort,
-  TeamHubTenantAgent,
-} from "@/features/teamhub/teamhub-types";
+import type { TeamHubTenantAgent } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
 import type { AgentRuntimeUpdateInput } from "../members/edit-agent-runtime-dialog";
 const EditAgentRuntimeDialog = lazy(async () => ({
   default: (await import("../members/edit-agent-runtime-dialog"))
     .EditAgentRuntimeDialog,
 }));
-import { useResolvedAgentModelLabel } from "../members/use-agent-model-selection";
+import {
+  reasoningEffortMessages,
+  useResolvedAgentModelLabel,
+} from "../members/use-agent-model-selection";
 import { tenantAgentsQueryKey } from "../room-queries";
+import { composerMessages } from "./composer.messages";
 import "./direct-agent-model-switch.css";
-
-const EFFORT_LABEL: Record<TeamHubAgentReasoningEffort, string> = {
-  none: "None",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "Extra high",
-  max: "Maximum",
-  ultra: "Ultra",
-};
 
 interface Props {
   client: TeamHubClient;
@@ -42,6 +34,7 @@ export function DirectAgentModelSwitch(props: Props) {
 }
 
 function RuntimeSettingsEntry({ client, registration, tenantId, busy }: Props) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const effort = registration.runtime.reasoning_effort;
@@ -90,7 +83,7 @@ function RuntimeSettingsEntry({ client, registration, tenantId, busy }: Props) {
   });
   const ariaLabel = `Switch model (current: ${label})`;
   const title = effort
-    ? `Switch model (current: ${label}, ${EFFORT_LABEL[effort]})`
+    ? `Switch model (current: ${label}, ${t(reasoningEffortMessages[effort])})`
     : ariaLabel;
   return (
     <div className="agent-model-switch">
@@ -112,7 +105,7 @@ function RuntimeSettingsEntry({ client, registration, tenantId, busy }: Props) {
           <>
             {" "}
             <span className="agent-model-switch-trigger-effort">
-              {EFFORT_LABEL[effort]}
+              {t(reasoningEffortMessages[effort])}
             </span>
           </>
         ) : null}
@@ -121,7 +114,7 @@ function RuntimeSettingsEntry({ client, registration, tenantId, busy }: Props) {
         <Suspense
           fallback={
             <span role="status" className="text-xs text-app-muted">
-              Loading settings…
+              {t(composerMessages.loadingSettings)}
             </span>
           }
         >

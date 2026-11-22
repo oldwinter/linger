@@ -11,6 +11,11 @@ import { ModalDialog } from "@/components/ui/modal-dialog";
 import { Select, SelectItem } from "@/components/ui/select";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import { writeClipboardText } from "@/lib/clipboard";
+import { commonMessages } from "@/i18n/common.messages";
+import { translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
+
+import { documentShareMessages as m } from "./document-share.messages";
 
 const LINK_COPIED_MS = 1200;
 
@@ -21,6 +26,7 @@ export function DocumentLinkSharing({
   client: TeamHubClient;
   documentId: string;
 }) {
+  const t = useT();
   const policy = useQuery({
     queryKey: ["teamhub", "document-link-policy", documentId],
     queryFn: () => client.documentLinks.get(documentId),
@@ -51,7 +57,7 @@ export function DocumentLinkSharing({
         LINK_COPIED_MS,
       );
     } catch {
-      setError("Could not copy the link.");
+      setError(translate(m.sharedLinkCopyFailed));
     }
   }
 
@@ -78,9 +84,7 @@ export function DocumentLinkSharing({
       await policy.refetch();
     } catch (cause) {
       setError(
-        cause instanceof Error
-          ? cause.message
-          : "Link sharing could not be updated.",
+        cause instanceof Error ? cause.message : translate(m.linkUpdateFailed),
       );
       await policy.refetch();
     } finally {
@@ -91,9 +95,9 @@ export function DocumentLinkSharing({
     <section className="mt-5 border-t border-app-border pt-4">
       <div className="flex flex-wrap items-center gap-3">
         <Icon icon={Link01Icon} className="text-app-muted" />
-        <h3 className="mr-auto text-sm font-medium">Anyone with the link</h3>
+        <h3 className="mr-auto text-sm font-medium">{t(m.anyoneWithLink)}</h3>
         <Select
-          aria-label="Link access"
+          aria-label={t(m.linkAccess)}
           value={active ? policy.data!.role : "disabled"}
           disabled={pending || policy.isPending || Boolean(policy.error)}
           onValueChange={(value) =>
@@ -101,14 +105,15 @@ export function DocumentLinkSharing({
           }
           className="h-8 w-auto"
         >
-          <SelectItem value="disabled">Disabled</SelectItem>
-          <SelectItem value="viewer">Can view</SelectItem>
-          <SelectItem value="editor">Can edit</SelectItem>
+          <SelectItem value="disabled">{t(m.linkDisabled)}</SelectItem>
+          <SelectItem value="viewer">{t(m.canView)}</SelectItem>
+          <SelectItem value="editor">{t(m.canEdit)}</SelectItem>
         </Select>
         {active ? (
           <Button
-            aria-label="Reset link"
-            title="Reset link"
+            aria-label={t(m.resetLink)}
+            data-voice-risk="confirm"
+            title={t(m.resetLink)}
             disabled={pending}
             size="compactIcon"
             tone="ghost"
@@ -121,12 +126,12 @@ export function DocumentLinkSharing({
           <>
             {copied ? (
               <span className="text-xs text-app-muted" role="status">
-                Copied
+                {t(commonMessages.copied)}
               </span>
             ) : null}
             <Button
-              aria-label="Copy shared link"
-              title="Copy shared link"
+              aria-label={t(m.copySharedLink)}
+              title={t(m.copySharedLink)}
               size="compactIcon"
               tone="ghost"
               onClick={() => void copySharedLink()}
@@ -144,7 +149,7 @@ export function DocumentLinkSharing({
       ) : null}
       {error || policy.error ? (
         <p role="alert" className="mt-2 text-sm text-app-danger">
-          {error ?? "Link sharing is unavailable."}
+          {error ?? t(m.linkSharingUnavailable)}
         </p>
       ) : null}
       {resetConfirmOpen && active ? (
@@ -158,9 +163,10 @@ export function DocumentLinkSharing({
                 onClick={() => setResetConfirmOpen(false)}
                 tone="secondary"
               >
-                Cancel
+                {t(commonMessages.cancel)}
               </Button>
               <Button
+                data-voice-risk="confirm"
                 disabled={pending}
                 loading={pending}
                 onClick={() => {
@@ -170,7 +176,7 @@ export function DocumentLinkSharing({
                 }}
                 tone="danger"
               >
-                Reset link
+                {t(m.resetLink)}
               </Button>
             </>
           }

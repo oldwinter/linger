@@ -180,7 +180,7 @@ func Load(path string, environment map[string]string) (Config, error) {
 		return Config{}, errors.New("max_concurrent_operations is invalid")
 	}
 	for runtimeType, runtimePath := range value.RuntimePaths {
-		if (runtimeType != "codex" && runtimeType != "claude" && runtimeType != "pi") || !filepath.IsAbs(runtimePath) {
+		if (runtimeType != "codex" && runtimeType != "claude" && runtimeType != "pi" && runtimeType != "antigravity") || !filepath.IsAbs(runtimePath) {
 			return Config{}, errors.New("runtime_paths is invalid")
 		}
 	}

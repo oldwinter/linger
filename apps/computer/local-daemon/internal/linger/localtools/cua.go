@@ -118,7 +118,7 @@ func (m *Manager) openCua(ctx context.Context, op *operation) (*cuaSession, []to
 	client, err := startClientWith(ctx, run, m.options.CuaPath, arguments, op.spec.WorkingDirectory, environment)
 	var session *cuaSession
 	if client != nil {
-		session = &cuaSession{op: op, client: client, label: "linger-" + rand.Text(), servicePID: servicePID, snapshots: newSnapshotRows()}
+		session = &cuaSession{op: op, client: client, label: "linger-" + rand.Text(), servicePID: servicePID, snapshots: newSnapshotRows(&m.cuaInputGeneration)}
 		client.observe = session.snapshots.observe
 	}
 	if err != nil {
@@ -131,6 +131,9 @@ func (m *Manager) openCua(ctx context.Context, op *operation) (*cuaSession, []to
 	var tools []tool
 	for _, item := range catalog {
 		if !cuaTools[item.Name] && (item.Name != "run_script" || runtime.GOOS != "darwin") {
+			continue
+		}
+		if runtime.GOOS == "windows" && windowsHiddenTools[item.Name] {
 			continue
 		}
 		var input map[string]any
@@ -149,7 +152,13 @@ func (m *Manager) openCua(ctx context.Context, op *operation) (*cuaSession, []to
 			}
 			input["required"] = kept
 		}
+		if runtime.GOOS == "windows" && inputTools[item.Name] {
+			windowsSchema(input)
+		}
 		item.InputSchema, _ = json.Marshal(input)
+		if item.Name == "scroll" && runtime.GOOS == "windows" {
+			item.Description = windowsScrollDescription
+		}
 		if inputTools[item.Name] {
 			if runtime.GOOS == "darwin" {
 				item.Description += macInputResult
@@ -205,29 +214,10 @@ var macKeyDescriptions = map[string]string{
 	"type_text": "Type text. It does not press Return, Escape or arrows; use press_key for those.",
 }
 
-// MacToolGuide lists the macOS computer tools' call shapes for every
-// Operation, which always has both tool servers. The model then plans a whole
-// batch without reading each tool's schema first.
-const MacToolGuide = `Computer tools on this Mac (MCP server "computer"):
-- launch_app({bundle_id, urls?}) opens an app in the background and returns its pid and windows. list_windows({pid}) lists an app's windows.
-- get_window_state({pid, window_id?, since?: "latest", query?, max_depth?}) reads a window as text; without window_id it reads the app's focused window, such as a sheet or panel just opened. Row [N] is element_token "<snapshot_id>:N". Read a Save or Open sheet with max_depth: 3: its name field, Where and buttons are within that depth, and its file list is slow to walk.
-- run_actions({actions: [...], read?: {pid, window_id, query?}}) sends inputs in order in one call, then reads the window and returns what changed. The read follows the last step's window, or the app's focused window when that step names none; pass read to choose another. Steps:
-  {tool: "click" | "double_click" | "right_click", pid, window_id, element_token, modifier?: ["cmd"]} on a row of the latest read; cmd-clicks add rows to a selection, so one cmd+c copies several files;
-  {tool: "hotkey", pid, keys: ["cmd", "s"]}, {tool: "press_key", pid, key: "return"}, {tool: "type_text", pid, text} go to the app's focused field, such as a sheet, panel or rename field; a new Save sheet's name field already has focus with its text selected, so type the name without clicking, and text fields refuse click;
-  {tool: "scroll", pid, window_id, direction}.
-  A click, scroll or type_text, in a step or alone, can name its target with role and name instead of element_token: the one element with that role whose label or value is exactly name, apart from white space, or nth (from 0) when several match. It is found when it runs, so one batch can cross pages; finding it reads the window, which stales the tokens of your earlier read, so later steps name their targets the same way.
-- run_script({script}) runs JavaScript that loops, waits and reads between inputs and returns only what you extract. Use it to repeat a flow over several items, such as open each result, read it and close it, in one call instead of a turn per item.
-- bring_to_front({pid, window_id}) raises one window.
-- report_blocker({kind, url}) as soon as a page in the Computer's own browser shows a check only the user may pass (captcha, verification, login_required, rate_limited) or one item that cannot be viewed (content_unavailable). Never try to pass the check.
-The Computer's own browser takes input at a person's pace, within a budget per task and per day, and a script there sends at most 20 inputs: return what you have and look at the window before the next script. A tab that a link in the script opens is the task's and is in front afterwards. The browser tools stay off every site a task opened in that browser.
-Plan as many steps as you can in one run_actions call, as in one script; its read shows their effect, so do not read again before the next input unless you need another window. Keys are often shorter than clicks: in Finder, cmd+shift+g then a path and Return opens a folder, cmd+down opens the selected item, and in the Trash cmd+delete puts the selected item back.
-In Chrome, launch_app({bundle_id: "com.google.Chrome", urls: [url]}) opens a URL in a new tab without bringing Chrome forward; its pages read as empty while the window is covered or on another Space. Add agent_browser: true to use the Computer's own browser window instead: it keeps working while covered, but not on another desktop (Space). Chrome's own toolbar, such as Back and the address bar, refuses background input. The user's everyday Chrome takes no key in any window, not even Return in a search box. Fill fields with set_value, press the page's buttons, and go back through its links. In Safari, Edge or Firefox press escape to close a page overlay, or hotkey cmd+[ to go back. A web control that ignores a background click, such as an option in a menu that opens on hover, takes one click with delivery_mode "foreground" at x,y of a screenshot.
-A menu item in the read, such as File > Put Back, can be clicked directly; do not click a menu bar title first, because an open menu holds the app until it closes. A right_click menu does not show in the read, so select the row with click and use the menu bar item or its keyboard shortcut.
-Before the first shell screenshot, or when one fails or comes back blank, run ` + "`teamhub computer permissions status`" + `; if Screen Recording is missing for Linger, run ` + "`teamhub computer permissions request --permissions screen_recording`" + ` and end your turn — the card wakes you. Never operate System Settings or privacy prompts yourself.
-` + browserToolGuide
-
-// browserToolGuide lists the Playwright browser tools, which Codex also defers.
-const browserToolGuide = `Browser tools (MCP server "browser", when present): browser_navigate({url}), browser_snapshot() reads the page with element refs, browser_click({target}) and browser_type({target, text, submit?}) act on a ref from the latest snapshot, browser_tabs({action: "list" | "new" | "select" | "close"}). Each action returns the page snapshot after it, so call browser_snapshot only to read a page you have not changed.`
+// MacToolGuide describes macOS targeting and permission requirements to the Runtime.
+const MacToolGuide = `Use computer.ui_exec for desktop and browser interaction. Within the script use ui.window for a specific macOS window, ui.page for the managed browser, and ui.computer for native methods. Window actions use the latest observation and return the updated window. Use the full app name and the requested window title to discover the target.
+When a site opened in the Computer's own browser asks for a CAPTCHA, verification or login, reports a rate limit, or makes the requested item unavailable, call ui.computer.report_blocker({kind,url}) and stop. Keep the task on that browser; respect its input pacing and limits. The user's everyday Chrome accepts no synthetic keys. For Save or Open sheets, read the app's focused window and use max_depth: 3.
+Before the first shell screenshot, or when one fails or comes back blank, run ` + "`teamhub computer permissions status`" + `. If Linger lacks Screen Recording permission, run ` + "`teamhub computer permissions request --permissions screen_recording`" + ` and end the turn for the owner's permission card. Never operate System Settings or privacy prompts yourself.`
 
 // macCompactTool is the macOS shape of one Cua tool: the fields the Computer
 // routes, without Cua's delivery modes, scopes and capture ids.
@@ -285,9 +275,8 @@ const macWindowStateDescription = "Read a window as text: its accessibility tree
 // macKeyRouting describes how the Computer delivers macOS keys.
 const macKeyRouting = " The input goes to the focused field of the app with this pid, as a person's keys do: a sheet, panel or rename field that has focus receives it. Pass only pid to follow the app's focus; also pass window_id to require that this window holds the focus. The Computer first brings the app to the front and leaves it there; if the user has since brought another app forward, nothing is sent."
 
-// macInputResult says what a macOS input returns. As in Codex, an input does
-// not read the window: a chain of inputs reads once, when the Agent asks.
-const macInputResult = " The result reports only whether the input was sent; read the window with get_window_state after the inputs whose effect you need."
+// macInputResult describes the readback for explicitly targeted input.
+const macInputResult = " With pid and window_id, the result includes the changed window state and fresh element tokens. Without a window_id, read the focused window when you need the effect."
 
 // cuaQuietEnvironment keeps the pinned driver offline: no telemetry and no
 // update check. Computer upgrades replace it with a reviewed release.
@@ -375,6 +364,17 @@ func (c *cuaSession) call(ctx context.Context, name string, args json.RawMessage
 	arguments, err := cuaCallArguments(args)
 	if err != nil {
 		return nil, err
+	}
+	if runtime.GOOS == "windows" {
+		if err := windowsInputRefusal(name, arguments, func() bool { return c.chromiumTarget(arguments) }); err != nil {
+			return nil, err
+		}
+	}
+	namedWindow := arguments["window_id"] != nil
+	if inputTools[name] && ctx.Value(cuaInternalInput{}) == nil {
+		if err := c.checkWindowToken(arguments); err != nil {
+			return nil, err
+		}
 	}
 	if own, _ := arguments["agent_browser"].(bool); own && name == "launch_app" {
 		// Refused before the launch takes the browser, the pace or the journal.
@@ -508,6 +508,9 @@ func (c *cuaSession) call(ctx context.Context, name string, args json.RawMessage
 		return nil, err
 	}
 	if name == "launch_app" && runtime.GOOS == "darwin" {
+		if c.snapshots != nil {
+			c.snapshots.sent(name)
+		}
 		result, err := c.launchApp(ctx, arguments)
 		confirmed = !errors.Is(err, errOutcomeUnknown)
 		return result, err
@@ -549,6 +552,9 @@ func (c *cuaSession) call(ctx context.Context, name string, args json.RawMessage
 		}
 	}
 	driverMs = time.Since(driverStarted).Milliseconds()
+	if err == nil && runtime.GOOS == "windows" && inputTools[name] {
+		result = windowsRefusedResult(name, result)
+	}
 	if err == nil {
 		result = c.annotateInputResult(name, result)
 	}
@@ -570,7 +576,7 @@ func (c *cuaSession) call(ctx context.Context, name string, args json.RawMessage
 			result = withNote(result, note)
 		}
 	}
-	return c.finishInput(ctx, name, arguments, appKeys, result, err)
+	return c.finishInput(ctx, name, arguments, appKeys, namedWindow, result, err)
 }
 
 // cuaReadTools send no input.
@@ -928,7 +934,7 @@ func (c *cuaSession) rereadWindow(ctx context.Context, name string, arguments ma
 
 // finishInput records what the call changed and shapes its result for the
 // Agent.
-func (c *cuaSession) finishInput(ctx context.Context, name string, arguments map[string]any, appKeys bool, result json.RawMessage, err error) (json.RawMessage, error) {
+func (c *cuaSession) finishInput(ctx context.Context, name string, arguments map[string]any, appKeys, namedWindow bool, result json.RawMessage, err error) (json.RawMessage, error) {
 	if (inputTools[name] || appKeys) && runtime.GOOS == "darwin" {
 		c.stampInput(arguments["pid"])
 	}
@@ -948,7 +954,7 @@ func (c *cuaSession) finishInput(ctx context.Context, name string, arguments map
 		c.op.reads.observe(result)
 		c.readAgentChromeWindow(arguments["pid"], arguments["window_id"])
 	}
-	if err == nil && inputTools[name] && ctx.Value(cuaInternalInput{}) == nil && runtime.GOOS != "darwin" {
+	if err == nil && inputTools[name] && ctx.Value(cuaInternalInput{}) == nil && (runtime.GOOS != "darwin" || namedWindow) {
 		result = c.withWindowState(ctx, arguments, result)
 	}
 	if err == nil && name == "run_script" {
@@ -1047,6 +1053,13 @@ func (c *cuaSession) startSession(ctx context.Context, scope string) error {
 // themselves.
 type cuaInternalInput struct{}
 
+func (c *cuaSession) checkWindowToken(arguments map[string]any) error {
+	if runtime.GOOS == "darwin" && arguments["window_id"] != nil && c.snapshots != nil && c.snapshots.staleWindowToken(arguments) {
+		return fmt.Errorf("COMPUTER_STALE_SNAPSHOT: read the target window again before sending input: %w", errNotSent)
+	}
+	return nil
+}
+
 // runActions sends inputs planned on one snapshot in order and reads the last
 // window once. Each step is its own driver call: an input does not replace the
 // snapshot, so later steps keep their tokens, and a token from an older read
@@ -1071,6 +1084,10 @@ func (c *cuaSession) runActions(ctx context.Context, args json.RawMessage) (json
 			if key == "session" || strings.HasPrefix(key, "_") {
 				return nil, fmt.Errorf("step %d: %s is owned by the Computer", i+1, key)
 			}
+		}
+		// All tokens in the batch were chosen before its first input.
+		if err := c.checkWindowToken(step); err != nil {
+			return nil, fmt.Errorf("step %d: batch was not sent: %w", i+1, err)
 		}
 	}
 	internal := context.WithValue(ctx, cuaInternalInput{}, true)
@@ -1239,7 +1256,12 @@ func (c *cuaSession) withWindowState(ctx context.Context, arguments map[string]a
 		}
 		return view.Content
 	}
-	added := read(map[string]any{"since": "latest", "include_screenshot": false})
+	// A macOS action returns a complete tree. A delta can omit unchanged
+	// buttons that the next decision still needs to address by name.
+	var added []json.RawMessage
+	if runtime.GOOS != "darwin" {
+		added = read(map[string]any{"since": "latest", "include_screenshot": false})
+	}
 	if added == nil {
 		// Cua 0.35.4 can reject its own delta tree; a full read is still text.
 		added = read(map[string]any{"include_screenshot": false})

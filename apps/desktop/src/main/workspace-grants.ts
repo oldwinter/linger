@@ -19,6 +19,7 @@ export class WorkspaceGrantsModule implements Module {
   readonly #options: WorkspaceGrantsOptions;
   #ctx: ModuleContext | undefined;
   #offComputerChanged: (() => void) | undefined;
+  #ensuringDefault: Promise<void> | undefined;
 
   constructor(options: WorkspaceGrantsOptions) {
     this.#options = options;
@@ -27,9 +28,9 @@ export class WorkspaceGrantsModule implements Module {
   async start(ctx: ModuleContext): Promise<void> {
     this.#ctx = ctx;
     this.#offComputerChanged = ctx.bus.on("computer.changed", (computerId) => {
-      if (computerId) void this.#ensureDefault();
+      if (computerId) void this.ensureDefault();
     });
-    if (ctx.config.get().computerId) await this.#ensureDefault();
+    if (ctx.config.get().computerId) await this.ensureDefault();
   }
 
   async stop(): Promise<void> {
@@ -64,6 +65,16 @@ export class WorkspaceGrantsModule implements Module {
     ctx.bus.emit("grants.changed");
     ctx.log.info("workspace_grant.added", { grant_id: grant.grantId });
     return grant;
+  }
+
+  // Ensures the default workspace grant exists before the daemon connects.
+  // Concurrent callers share one in-flight call so duplicate grants are never
+  // added.
+  ensureDefault(): Promise<void> {
+    this.#ensuringDefault ??= this.#ensureDefault().finally(() => {
+      this.#ensuringDefault = undefined;
+    });
+    return this.#ensuringDefault;
   }
 
   async #ensureDefault(): Promise<void> {

@@ -26,6 +26,10 @@ type blockingBinder struct {
 	err         error
 }
 
+func (*blockingBinder) BindUI(context.Context, provider.OperationSpec, mcpproxy.OperationIdentity, *mcpproxy.Set) error {
+	return nil
+}
+
 func (b *blockingBinder) Bind(ctx context.Context, _ provider.OperationSpec, identity mcpproxy.OperationIdentity, set *mcpproxy.Set) error {
 	if identity.OperationID != b.operationID {
 		return nil

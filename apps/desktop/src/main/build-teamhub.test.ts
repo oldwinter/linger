@@ -1,6 +1,6 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, type SpawnOptions } from "node:child_process";
+import { EventEmitter } from "node:events";
 import {
-  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -9,6 +9,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
+import { gzipSync } from "node:zlib";
 
 import { afterEach, expect, it, vi } from "vitest";
 
@@ -18,15 +20,52 @@ import {
   verifyTeamhub,
 } from "../../scripts/build-teamhub.mjs";
 
+// Keep Git's archive and tar's extraction real. Stub only Go compilation:
+// an executable fixture implemented as a Node shebang cannot run on Windows.
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...actual,
+    spawn: (command: string, args: string[], options: SpawnOptions) => {
+      if (command !== "go") return actual.spawn(command, args, options);
+      const child = new EventEmitter() as EventEmitter & {
+        stdout: PassThrough;
+      };
+      child.stdout = new PassThrough();
+      if (args[0] === "env" && args[1] === "GOVERSION") {
+        process.nextTick(() => {
+          child.stdout.end("go1.26.5\n");
+          child.emit("close", 0);
+        });
+      } else {
+        const output = args[args.indexOf("-o") + 1];
+        if (args[0] !== "build" || !args.includes("-o") || !output)
+          throw new Error("Unexpected Go invocation in build fixture");
+        writeFileSync(
+          output,
+          JSON.stringify({
+            args,
+            goos: options.env?.GOOS,
+            goarch: options.env?.GOARCH,
+            cgo: options.env?.CGO_ENABLED,
+            cwd: options.cwd,
+          }),
+        );
+        process.nextTick(() => child.emit("close", 0));
+      }
+      return child;
+    },
+  };
+});
+
 const roots: string[] = [];
 afterEach(() => {
-  vi.unstubAllEnvs();
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true });
 });
 
 // A source package as scripts/prepare-source-archive.mjs makes it, from a
-// one-commit repository, and a `go` on PATH that records each build.
+// one-commit repository.
 const fixture = () => {
   const root = mkdtempSync(path.join(tmpdir(), "build-teamhub-"));
   roots.push(root);
@@ -46,33 +85,28 @@ const fixture = () => {
     "-qm",
     "source",
   );
+  const packageSource = (output: string, ref: string) => {
+    const tar = execFileSync("git", [
+      "-C",
+      repo,
+      "archive",
+      "--format=tar",
+      "--prefix=linger-test/",
+      ref,
+    ]);
+    writeFileSync(output, gzipSync(tar));
+  };
   const archive = path.join(root, "linger-test.tar.gz");
-  execFileSync("sh", [
-    "-c",
-    `git -C "${repo}" archive --format=tar --prefix=linger-test/ HEAD | gzip -n > "${archive}"`,
-  ]);
-  const bin = path.join(root, "bin");
-  mkdirSync(bin);
-  writeFileSync(
-    path.join(bin, "go"),
-    `#!${process.execPath}
-const fs = require("node:fs");
-const args = process.argv.slice(2);
-if (args[0] === "env") { console.log("go1.26.5"); process.exit(0); }
-const out = args[args.indexOf("-o") + 1];
-fs.writeFileSync(out, JSON.stringify({ args, goos: process.env.GOOS, cgo: process.env.CGO_ENABLED, cwd: process.cwd() }));
-`,
-  );
-  chmodSync(path.join(bin, "go"), 0o755);
-  vi.stubEnv("PATH", `${bin}${path.delimiter}${process.env.PATH}`);
-  return { root, archive, commit: git("rev-parse", "HEAD") };
+  packageSource(archive, "HEAD");
+  return { root, archive, packageSource, commit: git("rev-parse", "HEAD") };
 };
 
 it("reads the commit git archive records in a source package", async () => {
   const f = fixture();
   expect(await sourceCommit(f.archive)).toBe(f.commit);
   const plain = path.join(f.root, "plain.tar.gz");
-  execFileSync("tar", ["-czf", plain, "-C", f.root, "bin"]);
+  // Git only adds the global commit header when given a commit, not a tree.
+  f.packageSource(plain, "HEAD^{tree}");
   await expect(sourceCommit(plain)).rejects.toThrow(
     "does not record its commit",
   );
@@ -95,7 +129,7 @@ it("builds each TeamHub command for Windows from the source package", async () =
   const built = JSON.parse(
     readFileSync(path.join(output, "migrate.exe"), "utf8"),
   );
-  expect(built).toMatchObject({ goos: "windows", cgo: "0" });
+  expect(built).toMatchObject({ goos: "windows", goarch: "amd64", cgo: "0" });
   expect(built.args).toEqual([
     "build",
     "-trimpath",

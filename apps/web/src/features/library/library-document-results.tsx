@@ -17,9 +17,16 @@ import type {
   TeamHubDocument,
   TeamHubDocumentTreeSummary,
 } from "@/features/teamhub/teamhub-types";
+import {
+  formatLocale,
+  type Translate,
+  type Translation,
+} from "@/i18n/language";
+import { useT, useTranslation } from "@/i18n/use-translation";
 import { formatDateTime, formatUpdatedAt } from "@/lib/date-format";
 
 import { documentFileName } from "./document-display-name";
+import { documentSourceLabels } from "./document-source-label";
 import {
   type LibraryFolder,
   type LibraryFolderRowActions,
@@ -27,6 +34,7 @@ import {
 } from "./library-folder-browser";
 import type { LibrarySection } from "./library-sidebar";
 import type { PendingDocumentUpload } from "./library-upload-queue";
+import { libraryMessages as m } from "./library.messages";
 import { WorkspaceFileIcon } from "./workspace-file-icon";
 
 /** Library rows come from the smart view (with access sources) or a folder's tree items. */
@@ -50,28 +58,28 @@ export function RecentDocumentCards({
   pending: boolean;
   tenantId: string;
 }) {
+  const translation = useTranslation();
+  const { t } = translation;
   const recentShowUnlinked = anyLinked(documents);
   return (
-    <section aria-label="Recent" className="workspace-recent">
-      <h3 className="workspace-recent-title">Recent</h3>
+    <section aria-label={t(m.recent)} className="workspace-recent">
+      <h3 className="workspace-recent-title">{t(m.recent)}</h3>
       {pending ? (
         <p className="flex items-center gap-2 py-6 text-sm text-app-muted">
           <Spinner size={15} />
-          Loading documents…
+          {t(m.loadingDocuments)}
         </p>
       ) : error ? (
         <p className="py-6 text-sm text-app-danger" role="alert">
-          {error.message || "Recent documents are unavailable."}
+          {error.message || t(m.recentUnavailable)}
         </p>
       ) : documents.length === 0 ? (
-        <p className="py-6 text-sm text-app-muted">
-          No recently updated documents
-        </p>
+        <p className="py-6 text-sm text-app-muted">{t(m.noRecent)}</p>
       ) : (
         <div className="workspace-recent-cards">
           {documents.map((document) => {
             const fileName = documentFileName(document);
-            const context = documentContext(document, recentShowUnlinked);
+            const context = documentContext(document, recentShowUnlinked, t);
             return (
               <article className="workspace-recent-card" key={document.id}>
                 <Link
@@ -94,15 +102,19 @@ export function RecentDocumentCards({
                   </span>
                   <time
                     dateTime={document.updated_at}
-                    title={exactTime(document.updated_at)}
+                    title={exactTime(document.updated_at, translation)}
                   >
-                    {formatUpdatedAt(document.updated_at)}
+                    {formatUpdatedAt(
+                      document.updated_at,
+                      undefined,
+                      translation,
+                    )}
                   </time>
                 </Link>
                 <DocumentActionsMenu
                   actions={documentActions(document)}
                   buttonClassName="workspace-file-action"
-                  label={`Actions for ${document.title}`}
+                  label={t(m.actionsFor, { name: document.title })}
                 />
               </article>
             );
@@ -117,11 +129,22 @@ export function RecentDocumentCards({
  * Where a Document is visible. "No linked context" only says something when
  * some Document beside it does have a source, so a list where none do omits it.
  */
-function documentContext(document: LibraryRowDocument, showUnlinked: boolean) {
+function documentContext(
+  document: LibraryRowDocument,
+  showUnlinked: boolean,
+  t: Translate,
+) {
   if (!document.from) return "";
   if (document.from.length)
-    return `Visible in ${document.from.map((source) => source.label ?? source.binding_kind).join(", ")}`;
-  return showUnlinked ? "No linked context" : "";
+    return t(m.visibleIn, {
+      // Room and Task names, listed as they are, and the Personal Wiki.
+      places: documentSourceLabels(
+        document.from,
+        t,
+        (source) => source.binding_kind,
+      ).join(", "),
+    });
+  return showUnlinked ? t(m.noLinkedContext) : "";
 }
 
 function anyLinked(documents: readonly LibraryRowDocument[]) {
@@ -173,18 +196,19 @@ export function LibraryDocumentResults({
   selectedDocumentIds?: ReadonlySet<string>;
   tenantId: string;
 }) {
+  const t = useT();
   if (pending) {
     return (
       <p className="flex items-center justify-center gap-2 py-16 text-center text-sm text-app-muted">
         <Spinner size={16} />
-        Loading documents…
+        {t(m.loadingDocuments)}
       </p>
     );
   }
   if (error) {
     return (
       <p className="py-16 text-center text-sm text-app-danger" role="alert">
-        {error.message || "Document list is unavailable."}
+        {error.message || t(m.listUnavailable)}
       </p>
     );
   }
@@ -236,7 +260,7 @@ export function LibraryDocumentResults({
   }
   return (
     <div
-      aria-label={`${activeView.label} documents`}
+      aria-label={t(m.viewDocuments, { view: activeView.label })}
       className="workspace-file-list"
     >
       {folders.map((folder) => (
@@ -249,7 +273,10 @@ export function LibraryDocumentResults({
       ))}
       {pendingUploads.map((upload) => (
         <div
-          aria-label={`${upload.filename} upload ${upload.status}`}
+          aria-label={t(
+            upload.status === "uploading" ? m.uploadUploading : m.uploadQueued,
+            { filename: upload.filename },
+          )}
           className="workspace-file-row text-app-muted"
           key={upload.id}
           role="status"
@@ -275,7 +302,7 @@ export function LibraryDocumentResults({
       ))}
       {documents.map((document) => (
         <DocumentRow
-          context={documentContext(document, showUnlinked)}
+          context={documentContext(document, showUnlinked, t)}
           document={document}
           key={document.id}
           actions={documentActions(document)}
@@ -294,8 +321,10 @@ export function LibraryDocumentResults({
 }
 
 /** The full date and time behind a relative label, shown on hover. */
-function exactTime(iso: string) {
-  return Number.isFinite(Date.parse(iso)) ? formatDateTime(iso) : undefined;
+function exactTime(iso: string, translation: Translation) {
+  return Number.isFinite(Date.parse(iso))
+    ? formatDateTime(iso, undefined, formatLocale(translation.language))
+    : undefined;
 }
 
 function DocumentRow({
@@ -315,6 +344,7 @@ function DocumentRow({
   selected: boolean;
   tenantId: string;
 }) {
+  const t = useT();
   const fileName = documentFileName(document);
   return (
     <div className="workspace-file-row">
@@ -346,7 +376,7 @@ function DocumentRow({
       <DocumentActionsMenu
         actions={{ ...actions, onCopyToMyDocuments }}
         buttonClassName="workspace-file-action"
-        label={`Actions for ${document.title}`}
+        label={t(m.actionsFor, { name: document.title })}
       />
     </div>
   );
@@ -357,6 +387,7 @@ function WorkspaceFileMetadata({
 }: {
   document: TeamHubDocumentTreeSummary;
 }) {
+  const translation = useTranslation();
   const owner = document.owner;
   return (
     <div className="workspace-file-metadata">
@@ -375,9 +406,9 @@ function WorkspaceFileMetadata({
       </span>
       <time
         dateTime={document.updated_at}
-        title={exactTime(document.updated_at)}
+        title={exactTime(document.updated_at, translation)}
       >
-        {formatUpdatedAt(document.updated_at)}
+        {formatUpdatedAt(document.updated_at, undefined, translation)}
       </time>
     </div>
   );

@@ -17,11 +17,15 @@ import { Icon } from "@/components/ui/icon";
 import { Spinner } from "@/components/ui/spinner";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
+import { translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 import { formatBytes } from "@/lib/format-bytes";
 import { uploadRoomDocumentAsset } from "../room-document-assets";
 import type { RoomDocumentEditor } from "../room-document-comment-schema";
+import { canvasMessages } from "./canvas.messages";
 
-const maxAttachmentBytes = 15 << 20;
+const maxAttachmentMegabytes = 15;
+const maxAttachmentBytes = maxAttachmentMegabytes << 20;
 
 function fileBlocks(blocks: RoomDocumentEditor["document"]) {
   const files: { id: string; name: string; url: string }[] = [];
@@ -67,6 +71,7 @@ export function CanvasMailAttachments({
   editor: RoomDocumentEditor;
   scope: string;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [attachments, setAttachments] = useState(() =>
     fileBlocks(editor.document),
@@ -101,7 +106,7 @@ export function CanvasMailAttachments({
     setError(undefined);
     try {
       if (files.some((file) => file.size === 0))
-        throw new Error("Empty files cannot be attached.");
+        throw new Error(translate(canvasMessages.emptyAttachment));
       const existing = await Promise.all(
         fileBlocks(editor.document).map((file) =>
           queryClient.ensureQueryData(assetQuery(client, file.url)),
@@ -111,15 +116,18 @@ export function CanvasMailAttachments({
         existing.reduce((sum, asset) => sum + asset.size_bytes, 0) +
         files.reduce((sum, file) => sum + file.size, 0);
       if (total > maxAttachmentBytes)
-        throw new Error("Attachments must total 15 MB or less.");
+        throw new Error(
+          translate(canvasMessages.attachmentsTooLarge, {
+            megabytes: maxAttachmentMegabytes,
+          }),
+        );
       // Insert only durable assets; a failed upload must not leave a file placeholder.
       for (const file of files) {
         if (!active.current || !canEdit.current) return;
         const url = await uploadRoomDocumentAsset(client, documentId, file);
         if (!active.current || !canEdit.current) return;
         const last = editor.document.at(-1);
-        if (!last)
-          throw new Error("The email is no longer available for editing.");
+        if (!last) throw new Error(translate(canvasMessages.emailNotEditable));
         editor.insertBlocks(
           [{ type: "file", props: { name: file.name, url } }],
           last.id,
@@ -131,7 +139,7 @@ export function CanvasMailAttachments({
         setError(
           failure instanceof Error
             ? failure.message
-            : "Could not attach the file. Try again.",
+            : translate(canvasMessages.attachFailed),
         );
     } finally {
       busy.current = false;
@@ -143,7 +151,7 @@ export function CanvasMailAttachments({
     setError(undefined);
     try {
       if (!editor.resolveFileUrl)
-        throw new Error("The attachment is not available for download.");
+        throw new Error(translate(canvasMessages.attachmentUnavailable));
       const url = await editor.resolveFileUrl(file.url);
       if (!active.current) return;
       const link = document.createElement("a");
@@ -155,7 +163,7 @@ export function CanvasMailAttachments({
         setError(
           failure instanceof Error
             ? failure.message
-            : "Could not download the attachment.",
+            : translate(canvasMessages.attachmentDownloadFailed),
         );
     }
   }
@@ -174,10 +182,13 @@ export function CanvasMailAttachments({
       ) : null}
       <AutoHeight>
         {attachments.length > 0 || editable ? (
-          <section aria-label="Email attachments" className="pt-5">
+          <section
+            aria-label={t(canvasMessages.emailAttachments)}
+            className="pt-5"
+          >
             <input
               ref={input}
-              aria-label="Choose attachments"
+              aria-label={t(canvasMessages.chooseAttachments)}
               className="hidden"
               type="file"
               multiple
@@ -207,7 +218,7 @@ export function CanvasMailAttachments({
                     >
                       {file.name ||
                         metadata[index]?.data?.filename ||
-                        "Attachment"}
+                        t(canvasMessages.attachment)}
                     </button>
                     {metadata[index]?.data ? (
                       <span className="block text-xs text-app-muted">
@@ -217,7 +228,14 @@ export function CanvasMailAttachments({
                   </span>
                   {editable ? (
                     <Button
-                      aria-label={`Remove ${file.name || "attachment"}`}
+                      aria-label={
+                        file.name
+                          ? t(canvasMessages.removeAttachment, {
+                              name: file.name,
+                            })
+                          : t(canvasMessages.removeUnnamedAttachment)
+                      }
+                      data-voice-risk="never"
                       tone="ghost"
                       size="compactIcon"
                       onClick={() => {
@@ -233,8 +251,8 @@ export function CanvasMailAttachments({
               {editable ? (
                 <button
                   type="button"
-                  aria-label="Add attachments"
-                  title="Add attachments"
+                  aria-label={t(canvasMessages.addAttachments)}
+                  title={t(canvasMessages.addAttachments)}
                   disabled={uploading}
                   onClick={() => input.current?.click()}
                   className="flex size-16 shrink-0 items-center justify-center rounded-lg border border-dashed border-app-border text-app-muted transition-colors duration-150 hover:border-app-muted hover:bg-accent hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60 motion-reduce:transition-none"
@@ -249,7 +267,7 @@ export function CanvasMailAttachments({
             </div>
             {uploading ? (
               <p role="status" className="pt-2 text-xs text-app-muted">
-                Uploading attachments…
+                {t(canvasMessages.uploadingAttachments)}
               </p>
             ) : null}
             {error ? (

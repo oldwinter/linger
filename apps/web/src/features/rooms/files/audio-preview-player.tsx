@@ -6,6 +6,8 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 import { Icon } from "@/components/ui/icon";
+import { useT } from "@/i18n/use-translation";
+import { filePreviewMessages as m } from "./file-preview.messages";
 
 const RANGE_STYLE =
   "h-1 cursor-pointer appearance-none rounded-full bg-foreground/15 [&::-webkit-slider-thumb]:size-[11px] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-moz-range-thumb]:size-[11px] [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary";
@@ -38,6 +40,7 @@ export function AudioPreviewPlayer({
   onError,
   sourceSizeBytes,
 }: AudioPreviewPlayerProps) {
+  const t = useT();
   const audioRef = useRef<HTMLAudioElement>(null);
   const [duration, setDuration] = useState(0);
   const [time, setTime] = useState(0);
@@ -153,11 +156,13 @@ export function AudioPreviewPlayer({
         {filename}
       </h3>
       <p className="mt-1 text-xs text-app-muted">
-        Audio{duration > 0 ? ` · ${formatTime(duration)}` : ""}
+        {duration > 0
+          ? t(m.audioWithDuration, { duration: formatTime(duration) })
+          : t(m.audio)}
       </p>
       {waveform ? (
         <div
-          aria-label="Audio waveform"
+          aria-label={t(m.audioWaveform)}
           className="mt-9 flex h-[72px] w-full items-center justify-center gap-[3px] overflow-hidden"
           role="img"
         >
@@ -184,7 +189,7 @@ export function AudioPreviewPlayer({
         </div>
       )}
       <input
-        aria-label="Audio position"
+        aria-label={t(m.audioPosition)}
         className={`${RANGE_STYLE} mt-4 w-full disabled:opacity-50`}
         disabled={!duration}
         max={duration || 0}
@@ -200,7 +205,7 @@ export function AudioPreviewPlayer({
       </div>
       <div className="mt-5 flex items-center">
         <button
-          aria-label={playing ? "Pause" : "Play"}
+          aria-label={t(playing ? m.pause : m.play)}
           className="flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app-focus"
           onClick={() => void togglePlayback()}
           type="button"
@@ -210,7 +215,7 @@ export function AudioPreviewPlayer({
       </div>
       {playError ? (
         <p className="mt-3 text-center text-sm text-app-muted" role="alert">
-          Playback could not start. Please try again.
+          {t(m.playbackFailed)}
         </p>
       ) : null}
     </div>

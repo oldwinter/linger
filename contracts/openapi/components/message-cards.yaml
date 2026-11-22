@@ -444,6 +444,40 @@ components:
           type: string
           minLength: 1
           maxLength: 120
+    SearchKeyDecisionView:
+      type: object
+      additionalProperties: false
+      description: >-
+        The view of a search_key decision: the web search backend the card
+        shows. origin is requested when the Agent's command named it, and
+        suggested when the command named none and nothing was usable, so
+        TeamHub picked the first backend in its order that still needs a key.
+        reason says why: no key is saved (missing), the provider refused the
+        saved one (rejected), or the keyless You.com searches are used up
+        (free_limit). The Human may add a key for any other backend instead;
+        saving any web search key answers the card configured with that
+        backend.
+      required: [backend, origin, reason]
+      properties:
+        backend:
+          $ref: "./web-search.yaml#/components/schemas/WebSearchKeyBackend"
+        origin:
+          type: string
+          enum: [requested, suggested]
+          x-enum-varnames:
+            [
+              SearchKeyDecisionViewOriginRequested,
+              SearchKeyDecisionViewOriginSuggested,
+            ]
+        reason:
+          type: string
+          enum: [missing, rejected, free_limit]
+          x-enum-varnames:
+            [
+              SearchKeyDecisionViewReasonMissing,
+              SearchKeyDecisionViewReasonRejected,
+              SearchKeyDecisionViewReasonFreeLimit,
+            ]
     BrowserConnectionDecisionView:
       type: object
       additionalProperties: false
@@ -507,6 +541,7 @@ components:
           browser_connection,
           room_creation,
           computer_permission,
+          search_key,
         ]
       x-enum-varnames:
         [
@@ -521,6 +556,7 @@ components:
           DecisionKindBrowserConnection,
           DecisionKindRoomCreation,
           DecisionKindComputerPermission,
+          DecisionKindSearchKey,
         ]
       description: >-
         profile_setup_apps and profile_setup_sources are the AnotherMe setup
@@ -569,7 +605,8 @@ components:
         they decline. A room_creation
         ends succeeded with its Room created, or denied. A computer_permission
         ends answered once every permission it asks for is granted, denied when
-        its owner declines.
+        its owner declines. A search_key ends answered when someone saves any
+        web search key, denied when its Human declines.
     DecisionAnswer:
       type: object
       additionalProperties: false
@@ -604,7 +641,8 @@ components:
             runtime_permission, connection_auth and room_creation; deny or
             connected (recorded by TeamHub once the owner connects Chrome) for
             browser_connection; deny or configured (recorded by TeamHub once
-            a Composio key is saved) for provider_key; deny or granted (recorded by TeamHub once
+            a Composio key is saved) for provider_key and search_key (with the
+            backend whose key was saved); deny or granted (recorded by TeamHub once
             the Computer reports every permission granted) for
             computer_permission; submit for question; connected or skipped for profile_setup_apps;
             done or skipped for profile_setup_sources.
@@ -616,6 +654,11 @@ components:
         connection_id:
           $ref: "./common.yaml#/components/schemas/Id"
           description: The Connection a connection_auth approval chose.
+        backend:
+          $ref: "./web-search.yaml#/components/schemas/WebSearchKeyBackend"
+          description: >-
+            The web search backend whose key was saved, on a configured
+            search_key answer; it may differ from the backend the card showed.
         answers:
           type: object
           additionalProperties:
@@ -724,6 +767,8 @@ components:
           $ref: "#/components/schemas/RoomCreationDecisionView"
         computer_permission:
           $ref: "#/components/schemas/ComputerPermissionDecisionView"
+        search_key:
+          $ref: "#/components/schemas/SearchKeyDecisionView"
     DecisionRequest:
       type: object
       additionalProperties: false

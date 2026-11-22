@@ -1704,6 +1704,9 @@ export class ContextExecutor<TRuntimeSettings> {
         ...(features.matched.includes(TOOL_APPROVAL_FEATURE_ID)
           ? { permissionReview: true as const }
           : {}),
+        // Enable Runtime stop-hook bridging only when a matched Context
+        // feature declares `onRunBeforeStop`.
+        ...(features.hasRunStopHooks ? { stopHook: true as const } : {}),
         renderDeveloperInstructions: (facts) =>
           instructedAgent(features, this.#ghost.agent, this.record, facts)
             .developerInstructions,
@@ -1825,6 +1828,12 @@ export class ContextExecutor<TRuntimeSettings> {
             ),
           ),
         onRunEvent: (event) => features.onRunEvent(event),
+        ...(features.hasRunStopHooks
+          ? {
+              onRunBeforeStop: (input, signal) =>
+                features.evaluateRunBeforeStop(input, signal),
+            }
+          : {}),
         onRunClaimed: (runId, messages) => {
           for (const message of messages)
             this.#observeInboxInput(message, { kind: "enqueue", runId });

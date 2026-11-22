@@ -5,6 +5,7 @@ import {
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
+import { useT } from "@/i18n/use-translation";
 import {
   useCallback,
   useEffect,
@@ -28,6 +29,7 @@ import {
   usePeriodReports,
   type PeriodReportKind,
 } from "./wiki-period-reports";
+import { wikiTimelineMessages as m } from "./wiki-timeline.messages";
 
 export function WikiGraphReportCards({
   tenantId,
@@ -90,7 +92,8 @@ function PeriodCards({
     moved: boolean;
   } | null>(null);
   const suppressClick = useRef(false);
-  const label = kind === "daily" ? "Daily" : "Weekly";
+  const t = useT();
+  const daily = kind === "daily";
   const entriesByDate = useMemo(
     () =>
       new Map((reports.data ?? []).map((entry) => [reportDate(entry)!, entry])),
@@ -326,11 +329,16 @@ function PeriodCards({
   }
 
   return (
-    <section aria-label={`${label} timeline`} className="wiki-report-timeline">
+    <section
+      aria-label={t(daily ? m.dailyTimeline : m.weeklyTimeline)}
+      className="wiki-report-timeline"
+    >
       <div className="wiki-report-controls">
         <button
           type="button"
-          aria-label={`Previous ${granularity} card`}
+          aria-label={t(
+            granularity === "day" ? m.previousDayCard : m.previousWeekCard,
+          )}
           disabled={scrollEdges.start}
           onClick={() => browseToCard(activeIndex - 1)}
         >
@@ -338,7 +346,7 @@ function PeriodCards({
         </button>
         <button
           type="button"
-          aria-label={`Next ${granularity} card`}
+          aria-label={t(granularity === "day" ? m.nextDayCard : m.nextWeekCard)}
           disabled={scrollEdges.end}
           onClick={() => browseToCard(activeIndex + 1)}
         >
@@ -375,17 +383,17 @@ function PeriodCards({
         <div role="alert" className="wiki-report-error">
           <p>{reports.error.message}</p>
           <button type="button" onClick={() => void reports.refetch()}>
-            Retry reports
+            {t(m.retryReports)}
           </button>
         </div>
       ) : null}
       {reports.isPending ? (
         <p role="status" className="p-6 text-sm text-app-muted">
-          Loading {label} cards…
+          {t(daily ? m.loadingDailyCards : m.loadingWeeklyCards)}
         </p>
       ) : !allCards.length ? (
         <p className="p-6 text-sm text-app-muted">
-          No {label} reports or dated pages yet.
+          {t(daily ? m.noDailyCards : m.noWeeklyCards)}
         </p>
       ) : !cards.length ? (
         <p className="p-6 text-sm text-app-muted">No reports match.</p>
@@ -394,7 +402,7 @@ function PeriodCards({
           {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- pointer dragging for the report track; keyboard scrolling works through its tabIndex */}
           <div
             ref={trackRef}
-            aria-label={`${label} cards`}
+            aria-label={t(daily ? m.dailyCards : m.weeklyCards)}
             className="wiki-report-track workspace-scrollbar"
             // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- keyboard-focusable scroll region so keyboard users can scroll it
             tabIndex={0}

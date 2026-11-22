@@ -5,21 +5,24 @@ import {
 } from "./document-display-name";
 import type { TeamHubDocumentTreeSummary } from "@/features/teamhub/teamhub-types";
 
+import { libraryMessages as m } from "./library.messages";
+
+/** Each type's label is a message, worded when the filter shows it. */
 export const documentFileTypes = [
-  { value: "", label: "All types" },
-  { value: "md", label: "Markdown" },
-  { value: "pdf", label: "PDF" },
-  { value: "word", label: "Word" },
-  { value: "spreadsheet", label: "Spreadsheets (Excel / CSV)" },
-  { value: "presentation", label: "PowerPoint" },
-  { value: "html", label: "HTML" },
-  { value: "text", label: "Plain text" },
-  { value: "image", label: "Images" },
-  { value: "audio", label: "Audio" },
-  { value: "video", label: "Video" },
-  { value: "archive", label: "Archives" },
-  { value: "code", label: "Code" },
-  { value: "others", label: "Others" },
+  { value: "", label: m.typeAll },
+  { value: "md", label: m.typeMarkdown },
+  { value: "pdf", label: m.typePdf },
+  { value: "word", label: m.typeWord },
+  { value: "spreadsheet", label: m.typeSpreadsheet },
+  { value: "presentation", label: m.typePresentation },
+  { value: "html", label: m.typeHtml },
+  { value: "text", label: m.typeText },
+  { value: "image", label: m.typeImage },
+  { value: "audio", label: m.typeAudio },
+  { value: "video", label: m.typeVideo },
+  { value: "archive", label: m.typeArchive },
+  { value: "code", label: m.typeCode },
+  { value: "others", label: m.typeOthers },
 ] as const;
 
 export function documentFileType(

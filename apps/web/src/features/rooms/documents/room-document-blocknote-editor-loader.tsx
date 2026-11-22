@@ -1,4 +1,8 @@
 import { lazy, Suspense, useState } from "react";
+
+import { useT } from "@/i18n/use-translation";
+
+import { documentEditorMessages as m } from "./document-editor.messages";
 import {
   getPreloadedDocumentEditor,
   preloadDocumentEditor,
@@ -15,6 +19,7 @@ const LazyRoomDocumentBlockNoteEditor = lazy(() =>
 export function RoomDocumentBlockNoteEditor(
   props: RoomDocumentBlockNoteEditorProps,
 ) {
+  const t = useT();
   // Keep the selected component type for this mount: switching from lazy to
   // direct after hydration would remount the editor and lose its selection.
   const [Editor] = useState(
@@ -25,7 +30,7 @@ export function RoomDocumentBlockNoteEditor(
       fallback={
         <section
           aria-busy="true"
-          aria-label="Loading Room Document editor"
+          aria-label={t(m.loadingEditor)}
           className="room-document-blocknote min-h-[420px]"
           role="status"
         />

@@ -2,6 +2,8 @@ import { QuoteDownIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { useOptionalVoiceMaterials } from "./voice-materials-context";
+import { useT } from "@/i18n/use-translation";
+import { voiceChatMessages as m } from "./voice-chat.messages";
 
 /**
  * Offers a whole chat file as voice material while Voice Mode is on. Like the
@@ -20,6 +22,7 @@ export function FileVoiceMaterialButton({
   filename: string;
   versionId?: string;
 }) {
+  const t = useT();
   const materials = useOptionalVoiceMaterials();
   // Files need a Document grant, which only their own Room's composer gives.
   if (!materials?.voiceModeEntered || !materials.acceptsDocuments) return null;
@@ -32,9 +35,7 @@ export function FileVoiceMaterialButton({
       data-file-voice-material
     >
       <Button
-        aria-label={
-          added ? `${filename} added to voice` : `Add ${filename} to voice`
-        }
+        aria-label={t(added ? m.fileAdded : m.addFile, { filename })}
         className="shadow-md"
         disabled={added}
         onClick={() =>
@@ -54,7 +55,7 @@ export function FileVoiceMaterialButton({
         ) : (
           <Icon icon={QuoteDownIcon} size={14} />
         )}
-        {added ? "Added to voice" : "Add to voice"}
+        {t(added ? m.addedToVoice : m.addToVoice)}
       </Button>
     </span>
   );

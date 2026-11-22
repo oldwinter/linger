@@ -14,6 +14,9 @@ changes are reviewed. Repository-wide conventions live in
 - Docker with Docker Compose, only for the Compose setup and for TeamHub
   integration tests
 
+For a no-Docker PostgreSQL setup, see
+[Local PostgreSQL 17 for development](docs/local-postgresql.md).
+
 ## Run it locally
 
 From the repository root:

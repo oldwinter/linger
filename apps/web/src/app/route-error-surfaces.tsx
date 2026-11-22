@@ -12,6 +12,12 @@ import { TeamHubError } from "@/features/teamhub/teamhub-client";
 import { Button } from "@/components/ui/button";
 import { BrandMark } from "@/components/ui/brand-mark";
 import { Icon } from "@/components/ui/icon";
+import { navigationMessages } from "@/features/rooms/room-navigation.messages";
+import { settingsMessages } from "@/features/settings/settings.messages";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
+
+import { routePagesMessages } from "./route-pages.messages";
 
 export function FullPageRouteErrorSurface() {
   const { tenantId } = useParams();
@@ -24,6 +30,7 @@ export function PanelRouteErrorSurface() {
 }
 
 function PanelRouteErrorContent() {
+  const t = useT();
   const content = useRouteErrorContent(false);
   const navigate = useNavigate();
 
@@ -39,13 +46,18 @@ function PanelRouteErrorContent() {
           void (content.restricted ? navigate("/") : navigate(0));
         }}
         title={content.title}
-        actionLabel={content.restricted ? "Back to my Rooms" : "Try again"}
+        actionLabel={t(
+          content.restricted
+            ? routePagesMessages.backToRooms
+            : commonMessages.tryAgain,
+        )}
       />
     </main>
   );
 }
 
 function ApplicationRouteErrorSurface({ tenantId }: { tenantId?: string }) {
+  const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
   const { roomId } = useParams();
@@ -62,24 +74,24 @@ function ApplicationRouteErrorSurface({ tenantId }: { tenantId?: string }) {
   return (
     <div className="app-shell flex h-dvh min-h-0 overflow-hidden bg-app-canvas text-app-ink">
       <aside
-        aria-label="Collaboration sidebar"
+        aria-label={t(navigationMessages.sidebar)}
         className="app-navigation hidden shrink-0 bg-app-sidebar md:flex"
       >
         <nav
-          aria-label="Primary navigation"
+          aria-label={t(navigationMessages.primary)}
           className="app-primary-navigation flex w-14 flex-col items-center bg-app-rail py-3"
         >
           <BrandMark className="size-8" />
           <div className="mt-4 flex w-full flex-1 flex-col items-center gap-2">
             <ErrorRailLink
               icon={<Icon icon={Message01Icon} size={16} />}
-              label="Rooms"
+              label={t(routePagesMessages.rooms)}
               to={roomsPath}
             />
             <div className="mt-auto">
               <ErrorRailLink
                 icon={<Icon icon={Settings01Icon} size={16} />}
-                label="Settings"
+                label={t(settingsMessages.title)}
                 to={tenantId ? `/t/${tenantId}/settings` : undefined}
               />
             </div>
@@ -87,19 +99,21 @@ function ApplicationRouteErrorSurface({ tenantId }: { tenantId?: string }) {
         </nav>
         {showRoomList ? (
           <nav
-            aria-label="Room navigation"
+            aria-label={t(routePagesMessages.roomNavigation)}
             className="app-secondary-navigation flex w-[248px] flex-col border-r border-border/60 bg-app-sidebar"
           >
             <div className="px-3 pb-1 pt-4">
               <h2 className="text-lg tracking-normal text-foreground">
-                Messages
+                {t(navigationMessages.messages)}
               </h2>
             </div>
             <div className="px-3 py-4">
-              <p className="text-sm text-muted-foreground">Rooms</p>
+              <p className="text-sm text-muted-foreground">
+                {t(routePagesMessages.rooms)}
+              </p>
               <p className="mt-3 text-sm text-muted-foreground">
                 {content.restricted
-                  ? "Use “Back to my Rooms” to return to your conversations."
+                  ? t(routePagesMessages.backToRoomsHint)
                   : "Use “Try again” to reload this view."}
               </p>
             </div>
@@ -122,7 +136,11 @@ function ApplicationRouteErrorSurface({ tenantId }: { tenantId?: string }) {
               void (content.restricted ? navigate("/") : navigate(0));
             }}
             title={content.title}
-            actionLabel={content.restricted ? "Back to my Rooms" : "Try again"}
+            actionLabel={t(
+              content.restricted
+                ? routePagesMessages.backToRooms
+                : commonMessages.tryAgain,
+            )}
           />
         </main>
       </div>
@@ -192,6 +210,7 @@ function ErrorMessage({
 }
 
 function useRouteErrorContent(fullPage: boolean) {
+  const t = useT();
   const error = useRouteError();
   const status =
     isRouteErrorResponse(error) || error instanceof TeamHubError
@@ -202,11 +221,12 @@ function useRouteErrorContent(fullPage: boolean) {
   if (restricted)
     return {
       restricted: true,
-      title: pathname.includes("/rooms/")
-        ? "This Room is not available to you"
-        : "This page is not available to you",
-      message:
-        "You may not have access, or it may have been deleted. Check that you are signed in to the right account, or ask the person who shared this link to invite you.",
+      title: t(
+        pathname.includes("/rooms/")
+          ? routePagesMessages.roomRestrictedTitle
+          : routePagesMessages.pageRestrictedTitle,
+      ),
+      message: t(routePagesMessages.restrictedBody),
     };
   const message = isRouteErrorResponse(error)
     ? `${error.status} ${error.statusText}`.trim()
@@ -217,6 +237,8 @@ function useRouteErrorContent(fullPage: boolean) {
   return {
     restricted: false,
     message,
-    title: fullPage ? "Linger unavailable" : "This view could not be loaded",
+    title: fullPage
+      ? "Linger unavailable"
+      : t(routePagesMessages.viewLoadFailedTitle),
   };
 }

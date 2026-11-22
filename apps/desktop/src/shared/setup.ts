@@ -6,6 +6,7 @@ import type {
   SetupChoice,
   SetupMemory,
 } from "@linger/local-installation/setup-plan";
+import type { WindowsPrivateRefusal } from "@linger/local-installation/windows-private";
 
 export interface SetupFolder {
   readonly grantId: string;
@@ -22,6 +23,9 @@ export interface SetupLocalServer {
   readonly available: boolean;
   readonly phase: "idle" | "preparing" | "installing" | "ready" | "failed";
   readonly message: string;
+  // While preparing: a restart on a new version or a plain start; the page
+  // words it in its own language.
+  readonly preparing?: "updating" | "starting";
   // While installing: the steps shown, the current one and the overall share
   // done (0-1).
   readonly steps: readonly SetupLocalStep[];
@@ -49,14 +53,18 @@ export interface SetupLocalServer {
   };
   // While the "signin" step shows: the AI runtime's own sign-in.
   readonly signIn?: SetupRuntimeSignIn;
-  // Latest BYOK endpoint check requested from the setup page.
+  // The latest BYOK endpoint test and model listing asked for on the page.
   readonly byokCheck?: SetupByokCheck;
+  readonly byokModels?: SetupByokModels;
   // Once installed: the owner account, for signing in again after logging
   // out.
   readonly account?: SetupLocalAccount;
   // Where the installation moved the earlier Simplex app's data it could
   // not upgrade (~ for the home folder).
   readonly legacyBackup?: string;
+  // While failed because the installer refused a folder as not private
+  // (Windows): its code and reason, for the page to say what to do.
+  readonly refusal?: WindowsPrivateRefusal;
 }
 
 export type SetupByokProtocol =
@@ -64,21 +72,47 @@ export type SetupByokProtocol =
   | "openai-responses"
   | "anthropic";
 
-export interface SetupByokConfig {
+// A BYOK endpoint's address and key: requests go to baseUrl + path +
+// endpoint in protocol, and models are listed at baseUrl + path + /models.
+// The page derives protocol from the end of that address, else from the
+// runtime's own format.
+export interface SetupByokEndpoint {
   readonly baseUrl: string;
+  readonly path: string;
+  readonly endpoint: string;
+  readonly protocol: SetupByokProtocol;
   readonly apiKey?: string;
+}
+
+export interface SetupByokConfig extends SetupByokEndpoint {
   readonly modelId: string;
   readonly runtime: "claude" | "codex" | "pi";
 }
 
+// One request to the endpoint's address from this computer. message is
+// localmodels' own, naming the address and HTTP status.
 export type SetupByokCheck =
-  | { readonly state: "idle" | "checking" }
   | {
       readonly state: "ready";
-      // The wire format the endpoint answered, found by the check.
       readonly protocol: SetupByokProtocol;
+      readonly url: string;
       readonly modelId: string;
       readonly contextWindow: number;
+    }
+  | { readonly state: "failed"; readonly message: string };
+
+export interface SetupByokModel {
+  readonly id: string;
+  readonly name?: string;
+  readonly contextWindow?: number;
+}
+
+// The models the endpoint lists at url.
+export type SetupByokModels =
+  | {
+      readonly state: "ready";
+      readonly url: string;
+      readonly models: readonly SetupByokModel[];
     }
   | { readonly state: "failed"; readonly message: string };
 
@@ -113,7 +147,12 @@ export interface SetupRuntimeSignIn {
   readonly url?: string;
   readonly deviceCode?: string;
   readonly acceptsCode?: boolean;
+  // Why it failed, worded by the page: unavailable, timed_out or ended.
+  // message is the installer's English, for anything else.
+  readonly reason?: "unavailable" | "timed_out" | "ended";
   readonly message?: string;
+  // No browser opened on url; the page offers it to copy.
+  readonly browserFailed?: boolean;
 }
 
 export interface SetupTransfer {
@@ -133,6 +172,10 @@ export interface SetupReason {
   // or RAM on free-memory-required.
   readonly freeBytes?: number;
   readonly requiredBytes?: number;
+  // On cuda-driver-update-required / cuda-driver-version-unknown: numeric versions.
+  readonly detectedCudaVersion?: string;
+  readonly requiredCudaVersion?: string;
+  readonly driverVersion?: string;
 }
 
 export type SetupLocalModelsCheck =
@@ -237,9 +280,14 @@ export type SetupCommand =
       readonly byok?: SetupByokConfig;
       readonly keys?: SetupProviderKeys;
     }
+  // Tests the BYOK endpoint with one request, or lists its models.
   | {
       readonly op: "local.byok.check";
       readonly byok: SetupByokConfig;
+    }
+  | {
+      readonly op: "local.byok.models";
+      readonly byok: SetupByokEndpoint;
     }
   // Checks this computer for a local model again.
   | { readonly op: "local.recheck" }
@@ -248,10 +296,16 @@ export type SetupCommand =
   | { readonly op: "local.location.pick" }
   | { readonly op: "local.location.reset" }
   // The runtime sign-in step: start the runtime's login (or give it the
-  // code its page showed), open its page again, check again, or install
-  // another runtime instead.
-  | { readonly op: "local.signin.start"; readonly code?: string }
+  // code its page showed; device starts Codex's device-code login), open
+  // its page again, copy its link or code, check again, or install another
+  // runtime instead.
+  | {
+      readonly op: "local.signin.start";
+      readonly code?: string;
+      readonly device?: true;
+    }
   | { readonly op: "local.signin.open" }
+  | { readonly op: "local.signin.copy"; readonly what: "url" | "code" }
   | { readonly op: "local.signin.cancel" }
   | {
       readonly op: "local.signin.switch";

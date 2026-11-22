@@ -297,6 +297,56 @@ func TestExecutionResolverNamesClaudeWebTools(t *testing.T) {
 	}
 }
 
+func TestWebToolGuideFollowsTheModelLink(t *testing.T) {
+	cases := []struct {
+		runtimeType           string
+		apiLink, gateway, cli bool
+		want, notWant         string
+	}{
+		{"claude", false, false, true, "select:WebSearch,WebFetch", ""},
+		{"claude", false, false, true, "Use them first. If that fails, `teamhub web search <query>`", ""},
+		{"codex", false, false, true, "use your built-in web search first. If that fails, `teamhub web search", "select:WebSearch"},
+		{"claude", true, false, true, "instead of your built-in web search and fetch tools", "select:WebSearch"},
+		{"codex", true, false, true, "Web tools: search the web with `teamhub web search <query>`", "first"},
+		{"claude", true, true, true, "Web tools: search the web with `teamhub web search <query>`", "built-in"},
+		{"codex", true, true, true, "`teamhub web list`", "built-in"},
+		{"pi", false, false, true, "`teamhub web open <url>`", "built-in"},
+		{"pi", true, false, true, "`teamhub web open <url>`", "built-in"},
+		{"claude", false, false, false, "select:WebSearch,WebFetch", "teamhub"},
+		{"claude", true, false, false, "select:WebSearch,WebFetch", "teamhub"},
+	}
+	for _, c := range cases {
+		guide := webToolGuide(c.runtimeType, c.apiLink, c.gateway, c.cli)
+		if !strings.Contains(guide, c.want) || (c.notWant != "" && strings.Contains(guide, c.notWant)) {
+			t.Fatalf("webToolGuide(%s, api=%v, gateway=%v, cli=%v) = %q", c.runtimeType, c.apiLink, c.gateway, c.cli, guide)
+		}
+	}
+	if webToolGuide("codex", true, true, false) != "" || webToolGuide("pi", false, false, false) != "" {
+		t.Fatal("a guide named teamhub without the TeamHub CLI")
+	}
+}
+
+func TestExecutionResolverTurnsOffNativeWebToolsOnTheGateway(t *testing.T) {
+	resolver := ExecutionResolver{
+		Providers:       map[string]ProviderInstallation{"claude": {Type: "claude", ExecutablePath: "/local/bin/claude", ModelGateway: true, APILink: true}},
+		WorkspaceGrants: map[string]WorkspaceGrant{"grant-local": {GrantID: "grant-local", TenantID: "tenant-acme", Path: "/local/workspace"}},
+		Views:           testContextViews{root: "/local/workspace"},
+		Registrations: map[string]RegistrationBinding{
+			"registration-local": {RegistrationID: "registration-local", TenantID: "tenant-acme", OwnerActorID: "actor-alice", ProviderType: "claude", Status: registration.StatusOnline},
+		},
+	}
+	spec, err := resolver.Resolve(context.Background(), protocol.Command{
+		TenantID: "tenant-acme", RegistrationID: "registration-local", AssignmentRevision: 1,
+		WorkspaceGrantID: "grant-local", RuntimeType: "claude", ContextViewRef: json.RawMessage(`{"receipt_ref":"receipt-1"}`),
+	}, json.RawMessage(`{"kind":"run.start","runtime":{"type":"claude","model":"m"},"session_options":{"base_instructions":"Base","developer_instructions":"Developer"},"session":{"threadId":"thread-1"},"input":{"type":"text","text":"Go"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !spec.WithoutNativeWebTools || strings.Contains(spec.SystemPrompt, "WebSearch") {
+		t.Fatalf("gateway Claude keeps its web tools: %+v", spec)
+	}
+}
+
 func TestBoundServiceGuidanceUsesLocalCommandOnly(t *testing.T) {
 	command := []string{"/opt/node", "/private install/cli.js", "--config", "/private/current.json"}
 	text := boundServiceInstructions(command)

@@ -4,7 +4,10 @@ import {
   bundleDocumentImages,
   inferFileMetadata,
 } from "@linger/document-files";
-import { readExactHostFile } from "./files/host-file-reader.js";
+import {
+  readExactHostFile,
+  windowsWslPathIsAlias,
+} from "./files/host-file-reader.js";
 import { isExcludedPublicationEntry } from "./files/publication-filter.js";
 import { agentOperationInvocationId } from "./business-routes.js";
 import type { CommandExecutionContext } from "./command-definition.js";
@@ -172,7 +175,9 @@ async function prepare(
       metadata.segments.push(segment);
       continue;
     }
-    const absolute = path.resolve(canonicalCwd, source);
+    const absolute =
+      context.localPath?.(source, canonicalCwd) ??
+      path.resolve(canonicalCwd, source);
     publicPath(absolute);
     if (segment.mode === "tree") {
       if (context.target?.type === "task")
@@ -180,7 +185,10 @@ async function prepare(
       const rootInfo = await lstat(absolute);
       if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink())
         throw invalid("Tree resources require a local directory.");
-      publicPath(await realpath(absolute));
+      const canonical = await realpath(absolute);
+      if (windowsWslPathIsAlias(absolute, canonical))
+        throw invalid("Tree resources cannot be symbolic links.");
+      publicPath(canonical);
       const root_name = path.basename(absolute);
       if (isExcludedPublicationEntry(root_name))
         throw invalid("Private directories cannot be published.");
@@ -198,7 +206,12 @@ async function prepare(
           const child = relative ? `${relative}/${item.name}` : item.name;
           const full = path.join(absolute, child);
           const info = await lstat(full);
-          if (info.isSymbolicLink() || (!info.isFile() && !info.isDirectory()))
+          if (
+            info.isSymbolicLink() ||
+            (!info.isFile() && !info.isDirectory()) ||
+            (info.isDirectory() &&
+              windowsWslPathIsAlias(full, await realpath(full)))
+          )
             throw invalid(
               "Directory trees cannot contain symlinks or special files.",
             );

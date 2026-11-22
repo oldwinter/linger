@@ -21,6 +21,10 @@ import type {
   TeamHubAccountProfile,
   TeamHubAccountProfileUpdate,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
+import { accountSettingsMessages } from "./account-settings.messages";
 import { prepareProfileImage } from "./profile-image";
 
 export function AccountProfileHero({
@@ -32,6 +36,7 @@ export function AccountProfileHero({
   client: TeamHubClient;
   tenantId: string;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   // The Actor ID seeds the initials tint, so this avatar matches the rail's.
   const actorId = useQuery(
@@ -77,14 +82,14 @@ export function AccountProfileHero({
       setImageError(
         error instanceof Error
           ? error.message
-          : "Could not upload image. Try again.",
+          : translate(accountSettingsMessages.imageUploadFailed),
       );
     } finally {
       setProcessing(false);
     }
   }
   return (
-    <section aria-label="Profile appearance">
+    <section aria-label={t(accountSettingsMessages.profileAppearance)}>
       <div className="relative flex min-h-64 items-center justify-center overflow-hidden rounded-2xl border border-border bg-muted px-4 pt-16 pb-8 sm:py-8">
         <img
           alt=""
@@ -99,20 +104,20 @@ export function AccountProfileHero({
             onClick={() => backgroundInput.current?.click()}
           >
             <Icon icon={Camera01Icon} size={14} />
-            Change cover
+            {t(accountSettingsMessages.changeCover)}
           </Button>
         </div>
         <div className="relative flex w-48 flex-col items-center gap-5 rounded-2xl bg-card/90 px-3 pb-3 pt-7 text-foreground shadow-md backdrop-blur-md">
           <button
             type="button"
-            aria-label="Upload profile photo"
+            aria-label={t(accountSettingsMessages.uploadProfilePhoto)}
             className="relative rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             disabled={busy}
             onClick={() => avatarInput.current?.click()}
           >
             {account.avatar_image ? (
               <img
-                alt={`${account.name} avatar`}
+                alt={t(commonMessages.avatar, { name: account.name })}
                 src={account.avatar_image}
                 className="size-16 rounded-full object-cover"
               />
@@ -139,7 +144,7 @@ export function AccountProfileHero({
               <input
                 // eslint-disable-next-line jsx-a11y/no-autofocus -- the field is focused on purpose because the user just opened this dialog or inline editor
                 autoFocus
-                aria-label="Profile display name"
+                aria-label={t(accountSettingsMessages.profileDisplayName)}
                 className="ui-field-control w-full text-center"
                 maxLength={120}
                 value={name}
@@ -152,7 +157,7 @@ export function AccountProfileHero({
                   disabled={busy}
                   onClick={() => setEditing(false)}
                 >
-                  Cancel
+                  {t(commonMessages.cancel)}
                 </Button>
                 <Button
                   type="submit"
@@ -160,14 +165,14 @@ export function AccountProfileHero({
                   disabled={busy || !name.trim()}
                   tone="primary"
                 >
-                  Save
+                  {t(commonMessages.save)}
                 </Button>
               </div>
             </form>
           ) : (
             <button
               type="button"
-              aria-label="Edit display name"
+              aria-label={t(accountSettingsMessages.editDisplayName)}
               disabled={busy}
               onClick={() => {
                 setName(account.name);
@@ -186,7 +191,7 @@ export function AccountProfileHero({
         ref={avatarInput}
         type="file"
         accept="image/jpeg,image/png,image/webp"
-        aria-label="Profile photo file"
+        aria-label={t(accountSettingsMessages.profilePhotoFile)}
         className="sr-only"
         tabIndex={-1}
         onChange={(event) => {
@@ -198,7 +203,7 @@ export function AccountProfileHero({
         ref={backgroundInput}
         type="file"
         accept="image/jpeg,image/png,image/webp"
-        aria-label="Profile cover file"
+        aria-label={t(accountSettingsMessages.profileCoverFile)}
         className="sr-only"
         tabIndex={-1}
         onChange={(event) => {
@@ -208,7 +213,7 @@ export function AccountProfileHero({
       />
       {busy ? (
         <p role="status" className="mt-2 text-xs text-muted-foreground">
-          Saving profile…
+          {t(accountSettingsMessages.savingProfile)}
         </p>
       ) : null}
       {imageError || update.error ? (

@@ -417,11 +417,20 @@ export class JobManager {
           computer?: Job["computer"];
           knowledge?: string;
           code?: unknown;
+          stage?: unknown;
           localModelsPlan?: unknown;
           runtime?: unknown;
           loginCommand?: unknown;
           loginInstructions?: unknown;
         };
+        if (record.job.state === "failed") {
+          // The outcome names the cause when parallel work or cleanup
+          // reported its own progress after the step that failed.
+          const failedStage = record.job.stages.find(
+            ({ id }) => id === details.stage,
+          );
+          if (failedStage) record.job.stage = failedStage.id;
+        }
         if (
           [
             "RUNTIME_AUTH_REQUIRED",

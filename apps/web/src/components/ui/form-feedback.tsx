@@ -55,7 +55,7 @@ export function FormFeedback({
       role={style.role}
     >
       <Icon className="mt-[3px] shrink-0" icon={style.icon} size={14} />
-      <span>{children}</span>
+      <span className="min-w-0 [overflow-wrap:anywhere]">{children}</span>
     </div>
   );
 }

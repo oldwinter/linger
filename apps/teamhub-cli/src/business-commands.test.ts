@@ -20,6 +20,7 @@ import { personalProfileDocument } from "./test-support/command-examples.js";
 
 const reader: CommandInputReader = {
   cwd: "/work",
+  localPath: (source) => source,
   text: async (source) =>
     source === "body.md" ? "Keep Unicode café €\n" : "file body",
   json: async (source) =>

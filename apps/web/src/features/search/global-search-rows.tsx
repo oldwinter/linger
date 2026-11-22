@@ -27,14 +27,18 @@ import { WorkspaceFileIcon } from "@/features/library/workspace-file-icon";
 import { ActorAvatar } from "@/features/rooms/members/actor-avatar";
 import { RoomAvatar } from "@/features/rooms/members/room-avatar";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
+import type { Translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 
 import {
   resultTarget,
   SCOPES,
+  scopeText,
   type GroupTab,
   type SearchResult,
   type TargetContext,
 } from "./global-search-model";
+import { searchMessages as m } from "./global-search.messages";
 import type { SearchTarget } from "./global-search-recent";
 import { HighlightedText } from "./search-highlight";
 import { relativeTimeLabel, snippetAround } from "./search-text";
@@ -109,6 +113,7 @@ export function ScopeCard({
   onOpen: () => void;
   tab: GroupTab;
 }) {
+  const t = useT();
   const scope = SCOPES[tab];
   return (
     <button
@@ -130,10 +135,10 @@ export function ScopeCard({
       </span>
       <span className="min-w-0">
         <span className="block text-sm font-medium text-app-ink">
-          {scope.label}
+          {scopeText(scope.label, t)}
         </span>
         <span className="block truncate text-xs text-app-muted">
-          {scope.hint}
+          {scopeText(scope.hint, t)}
         </span>
       </span>
       <Icon
@@ -171,6 +176,8 @@ export function ResultRow({
   query: string;
   result: SearchResult;
 }) {
+  // Read before the early return so the row follows a language switch.
+  const t = useT();
   if (result.kind === "query") {
     return (
       <div
@@ -213,9 +220,9 @@ export function ResultRow({
   const target = resultTarget(result, context);
   const meta =
     target.kind === "message"
-      ? relativeTimeLabel(target.createdAt)
+      ? relativeTimeLabel(target.createdAt, t)
       : target.kind === "document"
-        ? relativeTimeLabel(target.updatedAt)
+        ? relativeTimeLabel(target.updatedAt, t)
         : "";
   return (
     <button
@@ -273,7 +280,8 @@ function TargetRowContent({
   /** A live Message's full text; a stored entry only keeps a preview. */
   text?: string;
 }) {
-  const [title, detail] = rowLines(target, query, text);
+  const t = useT();
+  const [title, detail] = rowLines(target, query, t, text);
   return (
     <>
       <TargetTile target={target} />
@@ -288,7 +296,7 @@ function TargetRowContent({
           </span>
           {target.kind === "message" ? (
             <span className="shrink-0 truncate text-xs text-muted-foreground">
-              in {target.roomLabel}
+              {t(m.inRoom, { room: target.roomLabel })}
             </span>
           ) : null}
           {target.kind === "agent" ? <AgentTag /> : null}
@@ -308,6 +316,7 @@ function TargetRowContent({
 function rowLines(
   target: SearchTarget,
   query: string,
+  t: Translate,
   text?: string,
 ): [string, string] {
   switch (target.kind) {
@@ -321,14 +330,14 @@ function rowLines(
     case "document":
       return [target.fileName, `${target.location} · ${target.ownerName}`];
     case "agent":
-      return [target.name, target.description || "No description yet"];
+      return [target.name, target.description || t(m.noDescription)];
     case "room":
       return [
         target.roomKind === "room" ? `#${target.name}` : target.name,
         target.description ||
           (target.roomKind === "thread"
-            ? `#${target.parentName ?? ""} · thread`
-            : "Room"),
+            ? t(m.threadIn, { name: target.parentName ?? "" })
+            : t(m.roomKind)),
       ];
     case "place":
       return [target.name, target.detail];
@@ -403,9 +412,10 @@ function TargetTile({ target }: { target: SearchTarget }) {
 }
 
 function AgentTag() {
+  const t = useT();
   return (
     <span className="shrink-0 rounded-full bg-(--app-mention-surface) px-1.5 text-xs leading-[18px] font-medium text-(--app-mention-text)">
-      Agent
+      {t(m.agentTag)}
     </span>
   );
 }

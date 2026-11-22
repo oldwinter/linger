@@ -129,6 +129,10 @@ export const commandExamples: Record<string, string[]> = {
   list_connected_apps: [],
   connect_app: ["notion"],
   request_browser_connection: [],
+  web_search: ["rust edition", "--limit", "3", "--recency", "month"],
+  web_open: ["https://example.com/page", "--backend", "tavily"],
+  list_web_backends: ["--backend", "you"],
+  connect_web_backend: ["tavily"],
   read_computer_permissions: [],
   request_computer_permission: ["--permissions", "screen_recording"],
   ask_herdr_pane: [

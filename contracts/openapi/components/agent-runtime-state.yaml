@@ -658,6 +658,20 @@ components:
         terminal:
           type: object
           additionalProperties: true
+    AgentLocalRunReplyStatus:
+      type: object
+      additionalProperties: false
+      required: [replied]
+      properties:
+        replied:
+          type: boolean
+          description: >-
+            Whether TeamHub persisted a visible reply from this Local Run: a
+            conversation Message or decision card attributed to the Run, a
+            queued presentation sequence attributed to the Run, or an
+            unattributed conversation Message, presentation sequence, or emoji
+            Reaction written by the Context's Agent in the Room or its Threads
+            since the Run started.
     ClaimAgentLocalRunRequest:
       type: object
       additionalProperties: false
@@ -1417,7 +1431,7 @@ components:
           type: array
           items:
             type: string
-            enum: [codex, claude, pi]
+            enum: [codex, claude, pi, antigravity]
         runtime_diagnostics:
           type: array
           items:
@@ -1491,7 +1505,7 @@ components:
           type: array
           items:
             type: string
-            enum: [codex, claude, pi]
+            enum: [codex, claude, pi, antigravity]
         runtime_diagnostics:
           type: array
           items:
@@ -1577,7 +1591,7 @@ components:
           type: array
           items:
             type: string
-            enum: [codex, claude, pi]
+            enum: [codex, claude, pi, antigravity]
         runtime_diagnostics:
           type: array
           items:
@@ -1786,7 +1800,7 @@ components:
       additionalProperties: false
       required: [runtime, surface, tool]
       properties:
-        runtime: { type: string, enum: [claude, codex] }
+        runtime: { type: string, enum: [claude, codex, antigravity, pi] }
         surface:
           type: string
           enum: [shell, file_edit, connected_app, browser, computer, web, other]

@@ -61,6 +61,15 @@ it("never returns a reserved port", async () => {
   );
 });
 
+it("reports the loopback bind error if it cannot find an alternative", async () => {
+  const taken = (await listen("127.0.0.1"))!;
+  const reserved = new Set(Array.from({ length: 65536 }, (_, port) => port));
+  reserved.delete(taken);
+  await expect(freePort(reserved, { preferred: taken })).rejects.toThrow(
+    "TCP: 127.0.0.1 bind: EADDRINUSE",
+  );
+});
+
 it("checks UDP ports separately", async () => {
   const socket = createSocket("udp4");
   await new Promise<void>((resolve) => socket.bind(0, "127.0.0.1", resolve));

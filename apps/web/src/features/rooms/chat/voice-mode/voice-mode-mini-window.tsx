@@ -4,6 +4,7 @@ import {
   Mic01Icon,
   MicOff01Icon,
   Minimize01Icon,
+  PictureInPictureExitIcon,
   PictureInPictureOnIcon,
   RotateLeft01Icon,
   VolumeHighIcon,
@@ -18,6 +19,7 @@ import {
   useState,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
+  type RefObject,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
@@ -25,6 +27,9 @@ import { createPortal } from "react-dom";
 import { useMatch, useNavigate } from "react-router";
 
 import { Button } from "@/components/ui/button";
+import { commonMessages } from "@/i18n/common.messages";
+import { translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 import { isRunWorking } from "@/features/teamhub/run-status";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMessage } from "@/features/teamhub/teamhub-types";
@@ -42,20 +47,32 @@ import {
   onVoicePipClosedByHuman,
   openVoicePip,
   returnedToOpener,
+  returnVoicePipToPage,
   useVoicePip,
   voicePipSupported,
 } from "./voice-pip";
+import {
+  containedVoiceWindowPosition,
+  useKeptInViewport,
+  VoiceWindowResizeHandles,
+  type VoiceWindowBounds,
+} from "./voice-window-resize";
 import { showVoiceNotice, useVoiceNotice } from "./voice-notice";
+import { voiceWindowMessages as m } from "./voice-window.messages";
 import {
   useOptionalVoiceModeSession,
   useVoiceModeLevel,
   type VoiceModeSession,
 } from "./voice-mode-session";
 
+// The height of the conversation below the 36px title bar: never more than
+// leaves the whole window 16px inside the page.
 const windowSizes = {
-  compact: { height: "min(480px,70dvh)", width: 320 },
-  expanded: { height: "min(760px,86dvh)", width: 560 },
+  compact: { height: "min(480px,70dvh,100dvh - 68px)", width: 320 },
+  expanded: { height: "min(760px,86dvh,100dvh - 68px)", width: 560 },
 } as const;
+/** Still shows the header's controls and a few lines of the conversation. */
+const minWindowSize = { height: 200, width: 260 };
 const windowGap = 16;
 const positionKey = "linger:voice-mode-window";
 /** Above this level the Human is speaking, not just breathing near the mic. */
@@ -70,12 +87,14 @@ type WindowSize = keyof typeof windowSizes;
 /**
  * Floating window for the running Voice Mode session. It follows the Human
  * across Rooms, shows this session's turns and the Room's replies, and can be
- * dragged anywhere on screen. Where the browser supports it, the window lives
- * in an always-on-top picture-in-picture window instead, so it stays over other
- * tabs and apps. Closing it, from its own button or the desktop's, ends Voice
- * Mode: the window leaves at once while the session drains its last
- * words in the background, and the Room composer shows that finishing state.
- * The desktop's back to tab button only returns to the conversation.
+ * dragged anywhere on screen and resized by its edges and corners. Where the
+ * browser or the desktop app supports it, the window lives in an
+ * always-on-top window of its own instead, so it stays over other tabs and
+ * apps. Closing it, from its own button or the desktop's, ends Voice Mode:
+ * the window leaves at once while the session drains its last words in the
+ * background, and the Room composer shows that finishing state. The floating
+ * window's return button, like the browser's back to tab button, only returns
+ * to the conversation.
  */
 export default function VoiceModeMiniWindow({
   anotherMeActorId,
@@ -117,6 +136,7 @@ function MiniWindow({
   onSoundOff: (soundOff: boolean) => void;
   session: VoiceModeSession;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const navigate = useNavigate();
   const { roomId, roomName, tenantId } = session.target;
@@ -166,8 +186,8 @@ function MiniWindow({
   const notice = useVoiceNotice();
   const pip = useVoicePip("voice-mode");
   // One window: the desktop's close button on the floating one ends Voice Mode
-  // too. Its back to tab button instead returns to this conversation and keeps
-  // the call, which goes on in the window inside the page.
+  // too. Its back to tab or return button instead returns to this conversation
+  // and keeps the call, which goes on in the window inside the page.
   const exitRef = useRef(onExit);
   const openRoomRef = useRef(() => {});
   useLayoutEffect(() => {
@@ -195,22 +215,36 @@ function MiniWindow({
     [],
   );
 
-  // Every session opens compact; only the expand button enlarges it.
+  // Every session opens compact. The expand button switches between the two
+  // preset sizes; dragging an edge or corner gives the window any other size,
+  // which lasts until a preset is chosen again or the session ends.
   const [size, setSize] = useState<WindowSize>("compact");
+  const [resized, setResized] = useState<{ height: number; width: number }>();
   const { width: baseWidth, height } = windowSizes[size];
   const width = useClampedWindowWidth(baseWidth);
-  const { consumeDrag, dragHandlers, place, position } =
-    useDraggablePosition(width);
+  const large = resized
+    ? resized.width >= windowSizes.expanded.width
+    : size === "expanded";
+  const choosePreset = (next: WindowSize) => {
+    setResized(undefined);
+    setSize(next);
+  };
+  const frameRef = useRef<HTMLElement>(null);
+  const { consumeDrag, dragHandlers, moveTo, place, position, remember } =
+    useDraggablePosition(
+      resized?.width ?? width,
+      frameRef,
+      !pip && !leavingPip,
+    );
   const windowControl = useRef<(action: VoiceWindowAction) => void>(() => {});
   useLayoutEffect(() => {
     windowControl.current = (action) => {
       if (action === "mute" || action === "unmute")
         void onMute(action === "mute");
       // The desktop places a picture-in-picture window; only a drag moves it.
-      else if (pip)
-        showVoiceNotice("Drag the floating window to move or resize it.");
+      else if (pip) showVoiceNotice(translate(m.dragHint));
       else if (action === "expand" || action === "shrink")
-        setSize(action === "expand" ? "expanded" : "compact");
+        choosePreset(action === "expand" ? "expanded" : "compact");
       else place(action === "move_left" ? "left" : "right");
     };
   });
@@ -231,239 +265,277 @@ function MiniWindow({
   const state = session.state;
   const muted = session.muted;
   const listening = Boolean(state.microphoneActive) && !muted;
-  const toggleSize = () => {
-    const next: WindowSize = size === "compact" ? "expanded" : "compact";
-    setSize(next);
-  };
   if (leavingPip) return null;
   return createPortal(
     <section
-      aria-label="Voice Mode window"
+      aria-label={t(m.window)}
       className={
         pip
-          ? "flex h-dvh w-full flex-col overflow-hidden bg-app-canvas"
-          : "voice-mode-window app-floating-enter fixed z-[90] flex max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl bg-app-canvas shadow-xl transition-[width,max-height] duration-200 ease-out motion-reduce:transition-none"
+          ? "flex h-dvh w-full flex-col bg-app-canvas"
+          : `voice-mode-window app-floating-enter fixed z-[90] flex max-w-[calc(100vw-2rem)] flex-col rounded-xl bg-app-canvas shadow-xl ${
+              // A dragged edge is followed at once; only a preset eases in.
+              resized
+                ? "max-h-[calc(100dvh-32px)]"
+                : "transition-[width,max-height] duration-200 ease-out motion-reduce:transition-none"
+            }`
       }
       data-pip={pip ? true : undefined}
-      data-size={size}
+      data-size={resized ? "custom" : size}
+      // Voice Mode finds its own window by this, whatever the language.
+      data-voice-window=""
+      ref={frameRef}
       style={
         pip
           ? undefined
-          : { ...position, maxHeight: `calc(${height} + 36px)`, width }
+          : resized
+            ? { ...position, ...resized }
+            : { ...position, maxHeight: `calc(${height} + 36px)`, width }
       }
     >
-      {pip ? null : (
-        <div
-          className="voice-window-title flex h-9 shrink-0 cursor-grab touch-none select-none items-center px-3 active:cursor-grabbing"
-          {...dragHandlers}
-        >
-          Voice Mode
-        </div>
-      )}
-      <header
-        className={`flex shrink-0 select-none items-center gap-2 border-b border-app-border px-3 py-2 ${
-          pip ? "" : "cursor-grab touch-none active:cursor-grabbing"
-        }`}
-        {...(pip ? {} : dragHandlers)}
-      >
-        <VoiceAvatarBeat listening={listening}>
-          <span className={styles.avatarSpin}>
-            <ActorAvatar
-              actorId={anotherMeActorId}
-              kind="agent"
-              name="Another Me"
-              size="xs"
-            />
-          </span>
-        </VoiceAvatarBeat>
-        <button
-          className="min-w-0 flex-1 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
-          onClick={() => {
-            if (!consumeDrag())
-              void navigate(`/t/${tenantId}/rooms/${roomId}/chat`);
-          }}
-          title="Open this conversation"
-          type="button"
-        >
-          <span className="block truncate text-[14px] font-medium leading-5 text-app-ink">
-            {roomName || "Voice Mode"}
-          </span>
-          <span className="block truncate text-[12px] leading-4 text-app-muted">
-            {voiceModeStatusLabel({ ...state, entered: session.entered })}
-          </span>
-        </button>
-        <span
-          className="flex shrink-0 items-center"
-          onPointerDown={(event) => event.stopPropagation()}
-        >
-          {state.canRetry ? (
-            <Button
-              // Names differ from the Room composer's controls so both can
-              // be on screen without two identically named buttons.
-              aria-label="Retry voice message from the voice window"
-              disabled={state.sending}
-              onClick={onRetry}
-              size="compactIcon"
-              tone="ghost"
-            >
-              <Icon icon={RotateLeft01Icon} size={16} />
-            </Button>
-          ) : null}
-          <Button
-            aria-label={muted ? "Unmute Voice Mode" : "Mute Voice Mode"}
-            aria-pressed={muted}
-            disabled={!state.microphoneActive}
-            onClick={() => void onMute(!muted)}
-            size="compactIcon"
-            tone="ghost"
+      {/* Clips the content to the window's corners; the resize handles sit
+          outside it, on the border. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[inherit]">
+        {pip ? null : (
+          <div
+            className="voice-window-title flex h-9 shrink-0 cursor-grab touch-none select-none items-center px-3 active:cursor-grabbing"
+            {...dragHandlers}
           >
-            {muted ? (
-              <Icon icon={MicOff01Icon} size={16} />
-            ) : (
-              <Icon icon={Mic01Icon} size={16} />
-            )}
-          </Button>
-          {soundOff === undefined ? null : (
-            <Button
-              aria-label={
-                soundOff
-                  ? "Turn reply sound on from the voice window"
-                  : "Turn reply sound off from the voice window"
-              }
-              aria-pressed={soundOff}
-              onClick={() => onSoundOff(!soundOff)}
-              size="compactIcon"
-              tone="ghost"
-            >
-              {soundOff ? (
-                <Icon icon={VolumeOffIcon} size={16} />
-              ) : (
-                <Icon icon={VolumeHighIcon} size={16} />
-              )}
-            </Button>
-          )}
-          {/* Back in the page, one click floats the call again; the browser
-              opens that window only from a click in the page. */}
-          {pip || !voicePipSupported() ? null : (
-            <Button
-              aria-label="Float Voice Mode window"
-              onClick={() => void openVoicePip("voice-mode")}
-              size="compactIcon"
-              title="Float over other tabs and apps"
-              tone="ghost"
-            >
-              <Icon icon={PictureInPictureOnIcon} size={16} />
-            </Button>
-          )}
-          {pip ? null : (
-            <Button
-              aria-label={
-                size === "compact"
-                  ? "Expand Voice Mode window"
-                  : "Shrink Voice Mode window"
-              }
-              onClick={toggleSize}
-              size="compactIcon"
-              tone="ghost"
-            >
-              {size === "compact" ? (
-                <Icon icon={Maximize01Icon} size={14} />
-              ) : (
-                <Icon icon={Minimize01Icon} size={14} />
-              )}
-            </Button>
-          )}
-          {/* The floating window's own close button ends Voice Mode there. */}
-          {pip ? null : (
-            <Button
-              aria-label="End Voice Mode"
-              onClick={onExit}
-              size="compactIcon"
-              tone="ghost"
-            >
-              <Icon icon={Cancel01Icon} size={16} />
-            </Button>
-          )}
-        </span>
-      </header>
-      <div
-        aria-label="Voice Mode conversation"
-        aria-live="polite"
-        className="workspace-scrollbar min-h-24 flex-1 space-y-2 overflow-y-auto px-3 py-3"
-        onScroll={(event) => {
-          const element = event.currentTarget;
-          followRef.current =
-            element.scrollHeight - element.scrollTop - element.clientHeight <
-            24;
-        }}
-        ref={scrollRef}
-        role="log"
-      >
-        {(transcript ? transcript.length : turns.length || replying.length) ||
-        live ? null : (
-          <p className="py-4 text-center text-xs text-app-muted">
-            Start speaking. Your words and replies appear here.
-          </p>
+            {t(m.title)}
+          </div>
         )}
-        {transcript ? (
-          transcript.map((line) => (
-            <Bubble
-              agent={line.speaker !== "you"}
-              author={
-                line.speaker === "you"
-                  ? "You"
-                  : session.target.recipient?.display_name || "Reply"
-              }
-              key={line.id}
-              own={line.speaker === "you"}
-              pending={line.pending}
-              text={line.text}
-            />
-          ))
-        ) : (
-          <>
-            {turns.map((message) => (
-              <Bubble
-                agent={message.author.kind === "agent"}
-                author={message.author.display_name}
-                key={message.id}
-                own={
-                  currentActorId
-                    ? message.author.id === currentActorId
-                    : message.author.kind === "human"
-                }
-                text={message.raw_message}
-              />
-            ))}
-            {replying.map((run) => (
-              <Bubble
-                agent
-                author={run.agent.display_name}
-                key={run.id}
-                own={false}
-                pending
-                text="Working…"
-              />
-            ))}
-            {heard ? <Bubble author="You" own pending text={heard} /> : null}
-          </>
-        )}
-        {saying ? <Bubble author="You" own pending text={saying} /> : null}
-      </div>
-      {notice ? (
-        <p
-          className="shrink-0 truncate border-t border-app-border px-3 py-1.5 text-[12px] text-app-muted"
-          role="status"
+        <header
+          className={`flex shrink-0 select-none items-center gap-2 border-b border-app-border px-3 py-2 ${
+            pip ? "" : "cursor-grab touch-none active:cursor-grabbing"
+          }`}
+          {...(pip ? {} : dragHandlers)}
         >
-          {notice}
-        </p>
-      ) : null}
-      {pendingMaterials ? (
-        <p className="shrink-0 truncate border-t border-app-border px-3 py-1.5 text-[12px] text-app-muted">
-          Next turn includes {pendingMaterials} selection
-          {pendingMaterials === 1 ? "" : "s"}
-        </p>
-      ) : null}
+          <VoiceAvatarBeat listening={listening}>
+            <span className={styles.avatarSpin}>
+              <ActorAvatar
+                actorId={anotherMeActorId}
+                kind="agent"
+                name="Another Me"
+                size="xs"
+              />
+            </span>
+          </VoiceAvatarBeat>
+          <button
+            className="min-w-0 flex-1 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+            onClick={() => {
+              if (!consumeDrag())
+                void navigate(`/t/${tenantId}/rooms/${roomId}/chat`);
+            }}
+            title={t(m.openConversation)}
+            type="button"
+          >
+            <span className="block truncate text-[14px] font-medium leading-5 text-app-ink">
+              {roomName || t(m.title)}
+            </span>
+            <span className="block truncate text-[12px] leading-4 text-app-muted">
+              {voiceModeStatusLabel({ ...state, entered: session.entered }, t)}
+            </span>
+          </button>
+          <span
+            className="flex shrink-0 items-center"
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            {state.canRetry ? (
+              <Button
+                // Names differ from the Room composer's controls so both can
+                // be on screen without two identically named buttons.
+                aria-label={t(m.retry)}
+                disabled={state.sending}
+                onClick={onRetry}
+                size="compactIcon"
+                tone="ghost"
+              >
+                <Icon icon={RotateLeft01Icon} size={16} />
+              </Button>
+            ) : null}
+            <Button
+              aria-label={t(muted ? m.unmute : m.mute)}
+              aria-pressed={muted}
+              disabled={!state.microphoneActive}
+              onClick={() => void onMute(!muted)}
+              size="compactIcon"
+              tone="ghost"
+            >
+              {muted ? (
+                <Icon icon={MicOff01Icon} size={16} />
+              ) : (
+                <Icon icon={Mic01Icon} size={16} />
+              )}
+            </Button>
+            {soundOff === undefined ? null : (
+              <Button
+                aria-label={t(soundOff ? m.replySoundOn : m.replySoundOff)}
+                aria-pressed={soundOff}
+                onClick={() => onSoundOff(!soundOff)}
+                size="compactIcon"
+                tone="ghost"
+              >
+                {soundOff ? (
+                  <Icon icon={VolumeOffIcon} size={16} />
+                ) : (
+                  <Icon icon={VolumeHighIcon} size={16} />
+                )}
+              </Button>
+            )}
+            {/* Brings the call back into the conversation it started in, in
+              the desktop app's main window or this browser tab. */}
+            {pip ? (
+              <Button
+                aria-label={t(m.returnToLinger)}
+                onClick={() => returnVoicePipToPage("voice-mode")}
+                size="compactIcon"
+                title={t(m.returnHint)}
+                tone="ghost"
+              >
+                <Icon icon={PictureInPictureExitIcon} size={16} />
+              </Button>
+            ) : null}
+            {/* Back in the page, one click floats the call again; the browser
+              opens that window only from a click in the page. */}
+            {pip || !voicePipSupported() ? null : (
+              <Button
+                aria-label={t(m.float)}
+                onClick={() => void openVoicePip("voice-mode")}
+                size="compactIcon"
+                title={t(m.floatHint)}
+                tone="ghost"
+              >
+                <Icon icon={PictureInPictureOnIcon} size={16} />
+              </Button>
+            )}
+            {pip ? null : (
+              <Button
+                aria-label={t(large ? m.shrink : m.expand)}
+                onClick={() => choosePreset(large ? "compact" : "expanded")}
+                size="compactIcon"
+                tone="ghost"
+              >
+                {large ? (
+                  <Icon icon={Minimize01Icon} size={14} />
+                ) : (
+                  <Icon icon={Maximize01Icon} size={14} />
+                )}
+              </Button>
+            )}
+            {/* The floating window's own close button ends Voice Mode there. */}
+            {pip ? null : (
+              // Not marked risky: ending Voice Mode from its window is never
+              // confirmed, as its English name never was.
+              <Button
+                aria-label={t(m.end)}
+                onClick={onExit}
+                size="compactIcon"
+                tone="ghost"
+              >
+                <Icon icon={Cancel01Icon} size={16} />
+              </Button>
+            )}
+          </span>
+        </header>
+        <div
+          aria-label={t(m.conversation)}
+          aria-live="polite"
+          className="workspace-scrollbar min-h-24 flex-1 space-y-2 overflow-y-auto px-3 py-3"
+          onScroll={(event) => {
+            const element = event.currentTarget;
+            followRef.current =
+              element.scrollHeight - element.scrollTop - element.clientHeight <
+              24;
+          }}
+          ref={scrollRef}
+          role="log"
+        >
+          {(transcript ? transcript.length : turns.length || replying.length) ||
+          live ? null : (
+            <p className="py-4 text-center text-xs text-app-muted">
+              {t(m.empty)}
+            </p>
+          )}
+          {transcript ? (
+            transcript.map((line) => (
+              <Bubble
+                agent={line.speaker !== "you"}
+                author={
+                  line.speaker === "you"
+                    ? t(commonMessages.you)
+                    : session.target.recipient?.display_name || t(m.reply)
+                }
+                key={line.id}
+                own={line.speaker === "you"}
+                pending={line.pending}
+                text={line.text}
+              />
+            ))
+          ) : (
+            <>
+              {turns.map((message) => (
+                <Bubble
+                  agent={message.author.kind === "agent"}
+                  author={message.author.display_name}
+                  key={message.id}
+                  own={
+                    currentActorId
+                      ? message.author.id === currentActorId
+                      : message.author.kind === "human"
+                  }
+                  text={message.raw_message}
+                />
+              ))}
+              {replying.map((run) => (
+                <Bubble
+                  agent
+                  author={run.agent.display_name}
+                  key={run.id}
+                  own={false}
+                  pending
+                  text={t(m.working)}
+                />
+              ))}
+              {heard ? (
+                <Bubble
+                  author={t(commonMessages.you)}
+                  own
+                  pending
+                  text={heard}
+                />
+              ) : null}
+            </>
+          )}
+          {saying ? (
+            <Bubble author={t(commonMessages.you)} own pending text={saying} />
+          ) : null}
+        </div>
+        {notice ? (
+          <p
+            className="shrink-0 truncate border-t border-app-border px-3 py-1.5 text-[12px] text-app-muted"
+            role="status"
+          >
+            {notice}
+          </p>
+        ) : null}
+        {pendingMaterials ? (
+          <p className="shrink-0 truncate border-t border-app-border px-3 py-1.5 text-[12px] text-app-muted">
+            {t(m.pendingSelections, { count: pendingMaterials })}
+          </p>
+        ) : null}
+      </div>
+      {pip ? null : (
+        <VoiceWindowResizeHandles
+          bounds={viewportBounds}
+          label={t(m.resize)}
+          min={minWindowSize}
+          onResize={({ left, top, ...next }) => {
+            setResized(next);
+            moveTo({ left, top });
+          }}
+          onResizeEnd={remember}
+          rect={() => frameRef.current?.getBoundingClientRect()}
+        />
+      )}
     </section>,
     pip?.document.body ?? document.body,
   );
@@ -529,23 +601,35 @@ function useClampedWindowWidth(targetWidth: number): number {
   return Math.min(targetWidth, Math.max(0, viewportWidth - windowGap * 2));
 }
 
-/** Header drag, clamped to the viewport and remembered per browser. */
-function useDraggablePosition(width: number) {
+/** Where the window is: header drag, kept whole inside the viewport and
+ *  remembered per browser. `width` is the width the window is going to, which
+ *  a preset eases into; its height follows its content, so it is measured. */
+function useDraggablePosition(
+  width: number,
+  frame: RefObject<HTMLElement | null>,
+  inPage: boolean,
+) {
   const [position, setPosition] = useState<Position>(() =>
-    clampPosition(readPosition() ?? defaultPosition(width), width),
+    clampPosition(readPosition() ?? defaultPosition(width), { width }),
   );
   const latest = useRef(position);
   useLayoutEffect(() => {
     latest.current = position;
   });
-  // Growing the window or shrinking the viewport keeps it fully on screen.
-  useEffect(() => {
-    const keepVisible = () =>
-      setPosition((current) => clampPosition(current, width));
-    keepVisible();
-    window.addEventListener("resize", keepVisible);
-    return () => window.removeEventListener("resize", keepVisible);
-  }, [width]);
+  const contained = (next: Position) =>
+    clampPosition(next, { height: frame.current?.offsetHeight, width });
+  // Growing the window or shrinking the viewport keeps all of it on screen.
+  // A floated window is not in the page, so its size says nothing here.
+  useKeptInViewport(
+    frame,
+    position,
+    setPosition,
+    viewportBounds,
+    inPage,
+    width,
+  );
+  /** Stores where the window is now for the next session. */
+  const remember = () => writePosition(latest.current);
   // Window listeners follow the pointer even when it leaves the header, and a
   // small threshold keeps a plain click on the title a click.
   const dragged = useRef(false);
@@ -567,17 +651,17 @@ function useDraggablePosition(width: number) {
         dragged.current = true;
         next.preventDefault();
         setPosition(
-          clampPosition(
-            { left: next.clientX - offset.dx, top: next.clientY - offset.dy },
-            width,
-          ),
+          contained({
+            left: next.clientX - offset.dx,
+            top: next.clientY - offset.dy,
+          }),
         );
       };
       const end = () => {
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", end);
         window.removeEventListener("pointercancel", end);
-        if (dragged.current) writePosition(latest.current);
+        if (dragged.current) remember();
       };
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", end);
@@ -592,32 +676,50 @@ function useDraggablePosition(width: number) {
   };
   /** Moves the window to one side at its current height, as a drag would. */
   const place = (side: "left" | "right") => {
-    const next = clampPosition(
-      {
-        left: side === "left" ? windowGap : window.innerWidth,
-        top: latest.current.top,
-      },
-      width,
-    );
+    const next = contained({
+      left: side === "left" ? windowGap : window.innerWidth,
+      top: latest.current.top,
+    });
     setPosition(next);
     writePosition(next);
   };
-  return { consumeDrag, dragHandlers, place, position };
+  return {
+    consumeDrag,
+    dragHandlers,
+    moveTo: setPosition,
+    place,
+    position,
+    remember,
+  };
 }
 
 function defaultPosition(width: number): Position {
   return { left: window.innerWidth - width - windowGap, top: 72 };
 }
 
+/** The position moved no further than keeps the whole window 16px inside the
+ *  viewport. Its height is known once it is in the page. */
 export function clampPosition(
-  { left, top }: Position,
-  width: number = windowSizes.compact.width,
+  position: Position,
+  {
+    height = 0,
+    width = windowSizes.compact.width,
+  }: { height?: number; width?: number } = {},
 ): Position {
-  const maxLeft = Math.max(windowGap, window.innerWidth - width - windowGap);
-  const maxTop = Math.max(windowGap, window.innerHeight - 120);
+  return containedVoiceWindowPosition(
+    position,
+    { height, width },
+    viewportBounds(),
+  );
+}
+
+/** The part of the viewport the in-page window may cover. */
+function viewportBounds(): VoiceWindowBounds {
   return {
-    left: Math.min(Math.max(windowGap, left), maxLeft),
-    top: Math.min(Math.max(windowGap, top), maxTop),
+    bottom: window.innerHeight - windowGap,
+    left: windowGap,
+    right: window.innerWidth - windowGap,
+    top: windowGap,
   };
 }
 

@@ -3,6 +3,31 @@ import { describe, expect, it } from "vitest";
 import { parseMemoryMarkdown } from "../../src/memory/markdown.js";
 
 describe("parseMemoryMarkdown", () => {
+  it.each([
+    "sources: [unfinished",
+    "title: *missing_anchor",
+    'title: "unfinished',
+  ])("keeps the body readable when metadata cannot be repaired: %s", (yaml) => {
+    const content = `---\n${yaml}\n---\n\n# Readable report\n\nThe report body is intact.\n`;
+    expect(parseMemoryMarkdown(content)).toMatchObject({
+      metadata: {},
+      title: "Readable report",
+      summary: "The report body is intact.",
+    });
+  });
+
+  it("keeps a fenced metadata error from discarding the body", () => {
+    expect(
+      parseMemoryMarkdown(
+        "```yaml\nsources: [unfinished\n```\n\n# Readable report\n\nThe report body is intact.\n",
+      ),
+    ).toMatchObject({
+      metadata: {},
+      title: "Readable report",
+      summary: "The report body is intact.",
+    });
+  });
+
   it("repairs an unquoted colon-bearing source title", () => {
     const parsed = parseMemoryMarkdown(`---
 type: Project Memory

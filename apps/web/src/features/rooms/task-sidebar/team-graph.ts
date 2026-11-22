@@ -2,6 +2,10 @@ import type {
   TeamHubTeamMdDocument,
   TeamHubTeamMdParticipant,
 } from "@/features/teamhub/teamhub-types";
+import { type Translate, translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+
+import { collaborationMessages as m } from "./collaboration.messages";
 
 export type Relationship = "handoff" | "report";
 export type RelationshipVisibility = Record<Relationship, boolean>;
@@ -29,13 +33,13 @@ interface TeamPath {
 
 export const patternTitles: Record<
   TeamHubTeamMdDocument["collaborate_pattern"],
-  string
+  Message<string>
 > = {
-  "classify-and-act": "Classify and act",
-  "fan-out-and-synthesize": "Fan out and synthesize",
-  "adversarial-verification": "Cross verification",
-  tournament: "Tournament",
-  "loop-until-done": "Iterate until done",
+  "classify-and-act": m.patternClassifyAndAct,
+  "fan-out-and-synthesize": m.patternFanOutAndSynthesize,
+  "adversarial-verification": m.patternCrossVerification,
+  tournament: m.patternTournament,
+  "loop-until-done": m.patternIterateUntilDone,
 };
 
 /** Relationship names are local to team.md; Actor IDs are the graph identity. */
@@ -80,6 +84,7 @@ export function layoutTeamGraph(
   document: TeamHubTeamMdDocument,
   width: number,
   visible: RelationshipVisibility = { handoff: true, report: true },
+  t: Translate = translate,
 ) {
   const edges = teamEdges(document);
   const coordinator = document.orchestrator.actor_id;
@@ -160,7 +165,7 @@ export function layoutTeamGraph(
         x: columnX(level + offset),
         y: ys[i]!,
         center,
-        identity: memberIdentity(pattern, center),
+        identity: t(memberIdentity(pattern, center)),
       });
     }
   }
@@ -171,7 +176,7 @@ export function layoutTeamGraph(
     x: columnX(leadFirst ? 0 : columns - 1),
     y: meanY(leadFirst ? dispatched : collected),
     center: true,
-    identity: "Coordinator",
+    identity: t(m.coordinator),
   };
   const ordered = [lead, ...members.map((p) => nodes.get(p.actor_id)!)];
   const returned = hasReturn
@@ -255,18 +260,18 @@ export function layoutTeamGraph(
 function memberIdentity(
   pattern: TeamHubTeamMdDocument["collaborate_pattern"],
   center: boolean,
-) {
+): Message<string> {
   switch (pattern) {
     case "classify-and-act":
-      return "Specialist";
+      return m.specialist;
     case "adversarial-verification":
-      return "Verifier";
+      return m.verifier;
     case "tournament":
-      return center ? "Judge" : "Contender";
+      return center ? m.judge : m.contender;
     case "fan-out-and-synthesize":
-      return center ? "Synthesizer" : "Researcher";
+      return center ? m.synthesizer : m.researcher;
     default:
-      return "Worker";
+      return m.worker;
   }
 }
 

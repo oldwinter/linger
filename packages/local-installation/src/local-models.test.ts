@@ -19,6 +19,7 @@ import {
 import { writeSetupChoice } from "./setup-selection.js";
 import { runProcess } from "./process.js";
 import { runLocalmodels } from "./localmodels-tool.js";
+import { expectPrivate } from "./test-support/private.js";
 import type { Instance } from "./instance.js";
 const roots: string[] = [];
 afterEach(async () => {
@@ -109,10 +110,7 @@ test("delegates planning and review without pinning a model, decision or GPU", a
   ).toEqual(["--decision", "none"]);
   expect(plan).not.toContain("--gpu");
   expect(f.call.mock.calls.some((c) => c[1][1] === "apply")).toBe(false);
-  expect(
-    (await stat(path.join(f.home, "runtime/localmodels/plan.json"))).mode &
-      0o077,
-  ).toBe(0);
+  await expectPrivate(path.join(f.home, "runtime/localmodels/plan.json"));
 });
 test("asks review and binding for English messages", async () => {
   const f = await fixture();
@@ -672,7 +670,7 @@ test("creates the shared private model root before the main model executor can p
   const f = await fixture();
   const invoke = vi.fn<typeof runLocalmodels>(async (home, args, options) => {
     const root = path.join(f.home, "runtime/localmodels/models");
-    expect((await stat(root)).mode & 0o077).toBe(0);
+    await expectPrivate(root, "directory");
     return f.call(home, args, options);
   });
   await prepareLocalModels(f.instance, f.options, { localmodels: invoke });

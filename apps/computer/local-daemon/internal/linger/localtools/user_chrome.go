@@ -143,6 +143,37 @@ func versionAtLeast(version string, minimum [3]int) bool {
 	return true
 }
 
+// extensionFileAccessOff reports whether the preferences in the Chrome
+// profile directory show the Playwright Extension without file access. Chrome
+// rejects the extension's DOM.setFileInputFiles without it, and only the user
+// can turn it on. Chrome keeps the switch, off by default, in Secure
+// Preferences or Preferences. Unreadable preferences report false so that
+// Chrome decides.
+func extensionFileAccessOff(profileDirectory string) bool {
+	read := false
+	for _, name := range []string{"Secure Preferences", "Preferences"} {
+		encoded, err := os.ReadFile(filepath.Join(profileDirectory, name))
+		if err != nil {
+			continue
+		}
+		var prefs struct {
+			Extensions struct {
+				Settings map[string]struct {
+					AllowFileAccess *bool `json:"newAllowFileAccess"`
+				} `json:"settings"`
+			} `json:"extensions"`
+		}
+		if json.Unmarshal(encoded, &prefs) != nil {
+			continue
+		}
+		read = true
+		if setting := prefs.Extensions.Settings[playwrightExtensionID].AllowFileAccess; setting != nil && *setting {
+			return false
+		}
+	}
+	return read
+}
+
 // userChromeSeat names what one task holds in the owner's everyday Chrome:
 // its Agent's own tabs when the extension keeps several clients, or else the
 // whole profile. Tasks of one seat take turns; seats of one profile do not.

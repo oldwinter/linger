@@ -1,5 +1,7 @@
 import { Spinner } from "@/components/ui/spinner";
 import { lazy, Suspense } from "react";
+import { useT } from "@/i18n/use-translation";
+import { filePreviewMessages as m } from "./file-preview.messages";
 
 import type { DataPreviewAdapterProps } from "./data-preview-adapter";
 
@@ -9,6 +11,7 @@ const DataPreviewAdapter = lazy(async () => {
 });
 
 export function DataPreviewAdapterLoader(props: DataPreviewAdapterProps) {
+  const t = useT();
   return (
     <Suspense
       fallback={
@@ -17,7 +20,7 @@ export function DataPreviewAdapterLoader(props: DataPreviewAdapterProps) {
           role="status"
         >
           <Spinner size={16} />
-          Loading data preview...
+          {t(m.loadingDataPreview)}
         </div>
       }
     >

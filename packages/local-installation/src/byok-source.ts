@@ -1,18 +1,37 @@
 import path from "node:path";
+import {
+  isByokProtocol,
+  validByokPath,
+  type ByokProtocol,
+} from "@linger/service-kit/byok-endpoint";
 import { readPrivate } from "./instance.js";
 import {
   localmodelsBaseDirectory,
   localmodelsStateDirectory,
   runLocalmodels,
 } from "./localmodels-tool.js";
-import { prepareRuntime, type NativeRuntime } from "./managed-runtimes.js";
+import {
+  prepareRuntime,
+  type NativeRuntime,
+  type RuntimeDescriptor,
+} from "./managed-runtimes.js";
 import type { InstallOutcome, InstallerEvent } from "./events.js";
 
-export type ByokProtocol = "openai-chat" | "openai-responses" | "anthropic";
+export type { ByokProtocol };
 
-export interface ByokConfiguration {
+/**
+ * Requests go to baseUrl + path + endpoint in protocol, and models are listed
+ * at baseUrl + path + /models.
+ */
+export interface ByokEndpoint {
   baseUrl: string;
+  path: string;
+  endpoint: string;
+  protocol: ByokProtocol;
   apiKey?: string;
+}
+
+export interface ByokConfiguration extends ByokEndpoint {
   modelId: string;
   contextWindow?: number;
   runtime?: NativeRuntime;
@@ -21,9 +40,14 @@ export interface ByokConfiguration {
 export interface ByokCheckOutcome {
   ok: true;
   protocol: ByokProtocol;
-  baseUrl: string;
+  url: string;
   modelId: string;
   contextWindow: number;
+}
+
+export interface ByokModelListing {
+  url: string;
+  models: { id: string; name?: string; contextWindow?: number }[];
 }
 
 interface StoredModelSource {
@@ -73,17 +97,19 @@ export function isAllowedByokUrl(raw: string): boolean {
   }
 }
 
-export function validateByokConfiguration(value: unknown): ByokConfiguration {
+function byokRecord(
+  value: unknown,
+  keys: readonly string[],
+): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("Invalid BYOK configuration.");
   const record = value as Record<string, unknown>;
   for (const key of Object.keys(record))
-    if (
-      !["baseUrl", "apiKey", "modelId", "contextWindow", "runtime"].includes(
-        key,
-      )
-    )
-      throw new Error("Invalid BYOK configuration.");
+    if (!keys.includes(key)) throw new Error("Invalid BYOK configuration.");
+  return record;
+}
+
+function byokEndpointFields(record: Record<string, unknown>): ByokEndpoint {
   if (
     typeof record.baseUrl !== "string" ||
     record.baseUrl.length > 2048 ||
@@ -92,11 +118,14 @@ export function validateByokConfiguration(value: unknown): ByokConfiguration {
     throw new Error(
       "Endpoint URL must use HTTPS, or HTTP on localhost / a private network.",
     );
-  if (
-    typeof record.modelId !== "string" ||
-    !/^[-a-zA-Z0-9_./:@]{1,256}$/.test(record.modelId.trim())
-  )
-    throw new Error("Model ID is invalid.");
+  for (const [label, value] of [
+    ["Path", record.path],
+    ["Endpoint", record.endpoint],
+  ] as const)
+    if (typeof value !== "string" || !validByokPath(value))
+      throw new Error(`${label} must be empty or a path such as /v1.`);
+  if (!isByokProtocol(record.protocol))
+    throw new Error("Invalid BYOK wire format.");
   const apiKey = record.apiKey;
   if (
     apiKey !== undefined &&
@@ -105,6 +134,40 @@ export function validateByokConfiguration(value: unknown): ByokConfiguration {
       [...apiKey].some((c) => c.charCodeAt(0) <= 32 || c.charCodeAt(0) === 127))
   )
     throw new Error("API key format is invalid.");
+  return {
+    baseUrl: record.baseUrl.trim().replace(/\/+$/, ""),
+    path: record.path as string,
+    endpoint: record.endpoint as string,
+    protocol: record.protocol,
+    ...(apiKey !== undefined ? { apiKey } : {}),
+  };
+}
+
+const BYOK_ENDPOINT_KEYS = [
+  "baseUrl",
+  "path",
+  "endpoint",
+  "protocol",
+  "apiKey",
+] as const;
+
+export function validateByokEndpoint(value: unknown): ByokEndpoint {
+  return byokEndpointFields(byokRecord(value, BYOK_ENDPOINT_KEYS));
+}
+
+export function validateByokConfiguration(value: unknown): ByokConfiguration {
+  const record = byokRecord(value, [
+    ...BYOK_ENDPOINT_KEYS,
+    "modelId",
+    "contextWindow",
+    "runtime",
+  ]);
+  const endpoint = byokEndpointFields(record);
+  if (
+    typeof record.modelId !== "string" ||
+    !/^[-a-zA-Z0-9_./:@]{1,256}$/.test(record.modelId.trim())
+  )
+    throw new Error("Model ID is invalid.");
   const contextWindow = record.contextWindow;
   if (
     contextWindow !== undefined &&
@@ -122,8 +185,7 @@ export function validateByokConfiguration(value: unknown): ByokConfiguration {
   )
     throw new Error("Invalid BYOK runtime selection.");
   return {
-    baseUrl: record.baseUrl.trim().replace(/\/+$/, ""),
-    ...(apiKey !== undefined ? { apiKey } : {}),
+    ...endpoint,
     modelId: record.modelId.trim(),
     ...(contextWindow !== undefined
       ? { contextWindow: Number(contextWindow) }
@@ -132,30 +194,45 @@ export function validateByokConfiguration(value: unknown): ByokConfiguration {
   };
 }
 
-// The API key travels on stdin, never in argv.
-function byokStdin(config: ByokConfiguration): string {
+// The API key travels on stdin, never in argv. An empty path or endpoint is
+// sent too: it appends nothing, which localmodels tells apart from a missing
+// field.
+function byokStdin(config: ByokEndpoint & Partial<ByokConfiguration>): string {
   return JSON.stringify({
     baseUrl: config.baseUrl,
+    path: config.path,
+    endpoint: config.endpoint,
+    protocol: config.protocol,
     ...(config.apiKey !== undefined ? { apiKey: config.apiKey } : {}),
-    modelId: config.modelId,
+    ...(config.modelId !== undefined ? { modelId: config.modelId } : {}),
     ...(config.contextWindow !== undefined
       ? { contextWindow: config.contextWindow }
       : {}),
   });
 }
 
-function isByokProtocol(value: unknown): value is ByokProtocol {
-  return (
-    value === "openai-chat" ||
-    value === "openai-responses" ||
-    value === "anthropic"
-  );
+function endpointFailure(
+  parsed: Record<string, unknown> | undefined,
+  fallback: string,
+  fallbackCode: string,
+): Error {
+  const message =
+    typeof parsed?.message === "string" && parsed.message
+      ? parsed.message
+      : fallback;
+  const code = typeof parsed?.code === "string" ? parsed.code : fallbackCode;
+  return Object.assign(new Error(message), { code });
 }
 
-/**
- * Verifies the endpoint from this computer and finds the wire format it
- * answers, trying the runtime's own format first.
- */
+function parseToolJson(stdout: string): Record<string, unknown> | undefined {
+  try {
+    return JSON.parse(stdout) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Sends one request to the endpoint's address from this computer. */
 export async function checkByokEndpoint(
   home: string,
   config: ByokConfiguration,
@@ -166,40 +243,25 @@ export async function checkByokEndpoint(
   signal.throwIfAborted();
   const result = await (dependencies.localmodels ?? runLocalmodels)(
     home,
-    [
-      "source",
-      "check",
-      "--config-stdin",
-      "--runtime",
-      validated.runtime ?? "claude",
-      "--json",
-    ],
+    ["source", "check", "--config-stdin", "--json"],
     { signal, timeoutMs: 45_000, input: byokStdin(validated) },
   );
-  let parsed: Record<string, unknown> | undefined;
-  try {
-    parsed = JSON.parse(result.stdout) as Record<string, unknown>;
-  } catch {
-    parsed = undefined;
-  }
+  const parsed = parseToolJson(result.stdout);
   if (
     result.code !== 0 ||
     parsed?.ok !== true ||
-    !isByokProtocol(parsed.protocol)
-  ) {
-    const message =
-      typeof parsed?.message === "string" && parsed.message
-        ? parsed.message
-        : "Could not verify the BYOK endpoint. Check the URL, API key, model ID and network.";
-    const code =
-      typeof parsed?.code === "string" ? parsed.code : "BYOK_CHECK_FAILED";
-    throw Object.assign(new Error(message), { code });
-  }
+    !isByokProtocol(parsed.protocol) ||
+    typeof parsed.url !== "string"
+  )
+    throw endpointFailure(
+      parsed,
+      "Could not verify the BYOK endpoint. Check the URL, API key, model ID and network.",
+      "BYOK_CHECK_FAILED",
+    );
   return {
     ok: true,
     protocol: parsed.protocol,
-    baseUrl:
-      typeof parsed.base_url === "string" ? parsed.base_url : validated.baseUrl,
+    url: parsed.url,
     modelId:
       typeof parsed.model_id === "string" ? parsed.model_id : validated.modelId,
     contextWindow:
@@ -209,13 +271,68 @@ export async function checkByokEndpoint(
   };
 }
 
+/** Lists the models the endpoint serves at baseUrl + path + /models. */
+export async function listByokModels(
+  home: string,
+  endpoint: ByokEndpoint,
+  signal: AbortSignal,
+  dependencies: { localmodels?: typeof runLocalmodels } = {},
+): Promise<ByokModelListing> {
+  const validated = validateByokEndpoint(endpoint);
+  signal.throwIfAborted();
+  const result = await (dependencies.localmodels ?? runLocalmodels)(
+    home,
+    ["source", "models", "--config-stdin", "--json"],
+    { signal, timeoutMs: 30_000, input: byokStdin(validated) },
+  );
+  const parsed = parseToolJson(result.stdout);
+  if (
+    result.code !== 0 ||
+    parsed?.ok !== true ||
+    typeof parsed.url !== "string" ||
+    !Array.isArray(parsed.models)
+  )
+    throw endpointFailure(
+      parsed,
+      "Could not list the endpoint's models. Check the URL, API key and network.",
+      "BYOK_MODELS_FAILED",
+    );
+  const models: ByokModelListing["models"] = [];
+  for (const row of parsed.models as unknown[]) {
+    if (!row || typeof row !== "object") continue;
+    const { id, name, context_window } = row as Record<string, unknown>;
+    if (typeof id !== "string" || !id) continue;
+    models.push({
+      id,
+      ...(typeof name === "string" && name ? { name } : {}),
+      ...(typeof context_window === "number" && context_window > 0
+        ? { contextWindow: context_window }
+        : {}),
+    });
+  }
+  return { url: parsed.url, models };
+}
+
+// The kit's longest silent span is a BYOK apply with Bifrost already
+// installed: the endpoint probe (up to about 35 s) and then Bifrost's health
+// wait (up to 180 s), with no output between them. A download may run longer
+// than any wall clock, so a source apply that still reports progress is never
+// cut off.
+const SOURCE_APPLY_IDLE_TIMEOUT_MS = 240_000;
+
 // The installer switches the source through localmodels, as the Computer
 // does from Settings, so model-source.json has one writer.
 function applySource(
   home: string,
   mode: "local" | "subscription" | "byok",
   runtime: NativeRuntime,
-  options: { signal: AbortSignal; timeoutMs: number; input?: string },
+  options: {
+    signal: AbortSignal;
+    timeoutMs?: number;
+    idleTimeoutMs?: number;
+    input?: string;
+    onEvent?: (event: InstallerEvent) => void;
+  },
   localmodels: typeof runLocalmodels,
 ) {
   return localmodels(
@@ -238,7 +355,13 @@ function applySource(
     ],
     {
       signal: options.signal,
-      timeoutMs: options.timeoutMs,
+      ...(options.timeoutMs === undefined
+        ? {}
+        : { timeoutMs: options.timeoutMs }),
+      ...(options.idleTimeoutMs === undefined
+        ? {}
+        : { idleTimeoutMs: options.idleTimeoutMs }),
+      ...(options.onEvent ? { onEvent: options.onEvent } : {}),
       ...(options.input === undefined ? {} : { input: options.input }),
     },
   );
@@ -268,6 +391,44 @@ function sourceApplyFailure(
   };
 }
 
+/**
+ * Installs the runtime a BYOK source drives. BYOK needs no runtime sign-in,
+ * so a pending one is not a failure. Returns the outcome only on failure.
+ */
+export async function prepareByokNativeRuntime(
+  runtime: NativeRuntime,
+  options: {
+    home: string;
+    signal: AbortSignal;
+    onEvent: (event: InstallerEvent) => void;
+    env?: NodeJS.ProcessEnv;
+    reuseInstalled?: boolean;
+    onDescriptor?: (descriptor: RuntimeDescriptor) => void;
+  },
+  dependencies: {
+    localmodels?: typeof runLocalmodels;
+    prepareNative?: typeof prepareRuntime;
+  } = {},
+): Promise<InstallOutcome | undefined> {
+  const outcome = await (dependencies.prepareNative ?? prepareRuntime)(
+    runtime,
+    {
+      home: options.home,
+      signal: options.signal,
+      onEvent: options.onEvent,
+      env: options.env,
+      ...(options.reuseInstalled ? { reuseInstalled: true } : {}),
+      ...(options.onDescriptor ? { onDescriptor: options.onDescriptor } : {}),
+    },
+    dependencies.localmodels ? { localmodels: dependencies.localmodels } : {},
+  );
+  return outcome.code === 0 ||
+    (outcome.details as { code?: string } | undefined)?.code ===
+      "RUNTIME_AUTH_REQUIRED"
+    ? undefined
+    : outcome;
+}
+
 export async function prepareByokRuntime(
   config: ByokConfiguration,
   options: {
@@ -283,22 +444,12 @@ export async function prepareByokRuntime(
 ): Promise<InstallOutcome> {
   const validated = validateByokConfiguration(config);
   const runtime = validated.runtime ?? "claude";
-  const nativeOutcome = await (dependencies.prepareNative ?? prepareRuntime)(
+  const nativeFailure = await prepareByokNativeRuntime(
     runtime,
-    {
-      home: options.home,
-      signal: options.signal,
-      onEvent: options.onEvent,
-      env: options.env,
-    },
-    dependencies.localmodels ? { localmodels: dependencies.localmodels } : {},
+    options,
+    dependencies,
   );
-  if (
-    nativeOutcome.code !== 0 &&
-    (nativeOutcome.details as { code?: string } | undefined)?.code !==
-      "RUNTIME_AUTH_REQUIRED"
-  )
-    return nativeOutcome;
+  if (nativeFailure) return nativeFailure;
 
   options.onEvent({
     kind: "stage",
@@ -306,17 +457,34 @@ export async function prepareByokRuntime(
     state: "running",
     message: "Mounting BYOK endpoint on local Bifrost gateway…",
   });
-  const result = await applySource(
-    options.home,
-    "byok",
-    runtime,
-    {
-      signal: options.signal,
-      timeoutMs: 180_000,
-      input: byokStdin(validated),
-    },
-    dependencies.localmodels ?? runLocalmodels,
-  );
+  const startedAt = Date.now();
+  // A log line, not a stage event: the job appends and persists every stage
+  // event, and other stages may run concurrently with this one.
+  const heartbeat = setInterval(() => {
+    options.onEvent({
+      kind: "log",
+      stage: "runtime",
+      message: `Local BYOK model gateway is starting (${Math.floor((Date.now() - startedAt) / 1000)}s elapsed).\n`,
+    });
+  }, 10_000);
+  heartbeat.unref?.();
+  let result;
+  try {
+    result = await applySource(
+      options.home,
+      "byok",
+      runtime,
+      {
+        signal: options.signal,
+        idleTimeoutMs: SOURCE_APPLY_IDLE_TIMEOUT_MS,
+        input: byokStdin(validated),
+        onEvent: options.onEvent,
+      },
+      dependencies.localmodels ?? runLocalmodels,
+    );
+  } finally {
+    clearInterval(heartbeat);
+  }
   if (result.code !== 0)
     return sourceApplyFailure(
       result.stdout,
@@ -345,14 +513,18 @@ export async function applyNativeSource(
   home: string,
   mode: "local" | "subscription",
   runtime: NativeRuntime,
-  signal: AbortSignal,
+  options: { signal: AbortSignal; onEvent?: (event: InstallerEvent) => void },
   dependencies: { localmodels?: typeof runLocalmodels } = {},
 ): Promise<InstallOutcome | undefined> {
   const result = await applySource(
     home,
     mode,
     runtime,
-    { signal, timeoutMs: 180_000 },
+    {
+      signal: options.signal,
+      idleTimeoutMs: SOURCE_APPLY_IDLE_TIMEOUT_MS,
+      ...(options.onEvent ? { onEvent: options.onEvent } : {}),
+    },
     dependencies.localmodels ?? runLocalmodels,
   );
   return result.code === 0
@@ -370,6 +542,7 @@ export async function readByokEnvironment(home: string): Promise<
       runtime: NativeRuntime;
       runtimeModel: string;
       environment: Record<string, string>;
+      gatewayUrl: string | undefined;
     }
   | undefined
 > {
@@ -405,8 +578,129 @@ export async function readByokEnvironment(home: string): Promise<
       runtimeModel:
         typeof parsed.runtime_model === "string" ? parsed.runtime_model : "",
       environment,
+      gatewayUrl: loopbackGatewayUrl(parsed.gateway_url),
     };
   } catch {
     return undefined;
   }
+}
+
+// Only a loopback gateway is probed, so a tampered state file cannot point
+// the resume's health check at another host.
+function loopbackGatewayUrl(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  try {
+    const url = new URL(raw);
+    if (
+      url.protocol !== "http:" ||
+      (url.hostname !== "127.0.0.1" && url.hostname !== "localhost") ||
+      !url.port ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash
+    )
+      return undefined;
+    return url.origin + url.pathname.replace(/\/+$/, "");
+  } catch {
+    return undefined;
+  }
+}
+
+async function gatewayAnswers(
+  gatewayUrl: string,
+  signal: AbortSignal,
+  fetchImpl: typeof fetch,
+): Promise<boolean> {
+  try {
+    const response = await fetchImpl(`${gatewayUrl}/health`, {
+      signal: AbortSignal.any([signal, AbortSignal.timeout(2000)]),
+      redirect: "error",
+    });
+    return response.status === 200;
+  } catch {
+    return false;
+  }
+}
+
+/** Why a saved BYOK source's gateway could not be mounted again. */
+export interface ByokGatewayFailure {
+  code: string;
+  message: string;
+}
+
+/**
+ * Mounts a saved BYOK source on Bifrost again from the configuration
+ * localmodels saved, so the key never passes through Node, unless its
+ * loopback gateway already answers. The caller holds the local model lock,
+ * so a quit-time stop cannot take the gateway down between the check and
+ * the decision. Returns why it failed, without throwing, except for the
+ * caller's abort.
+ */
+export async function mountSavedByokSource(
+  home: string,
+  source: { runtime: NativeRuntime; gatewayUrl: string | undefined },
+  options: { signal: AbortSignal; onEvent: (event: InstallerEvent) => void },
+  dependencies: {
+    localmodels?: typeof runLocalmodels;
+    fetch?: typeof fetch;
+  } = {},
+): Promise<ByokGatewayFailure | undefined> {
+  if (
+    source.gatewayUrl &&
+    (await gatewayAnswers(
+      source.gatewayUrl,
+      options.signal,
+      dependencies.fetch ?? fetch,
+    ))
+  )
+    return undefined;
+  options.signal.throwIfAborted();
+  options.onEvent({
+    kind: "stage",
+    stage: "runtime",
+    state: "running",
+    message: "Mounting the saved BYOK endpoint on the local Bifrost gateway…",
+  });
+  const fallback = "The BYOK gateway did not start.";
+  let failure: InstallOutcome | undefined;
+  try {
+    // The kit's apply probes the endpoint once (up to about 35 s) before
+    // Bifrost starts.
+    const result = await applySource(
+      home,
+      "byok",
+      source.runtime,
+      { signal: options.signal, timeoutMs: 90_000, onEvent: options.onEvent },
+      dependencies.localmodels ?? runLocalmodels,
+    );
+    if (result.code !== 0)
+      failure = sourceApplyFailure(
+        result.stdout,
+        fallback,
+        "BYOK_GATEWAY_FAILED",
+      );
+  } catch (error) {
+    options.signal.throwIfAborted();
+    failure = sourceApplyFailure(
+      "",
+      error instanceof Error && error.message ? error.message : fallback,
+      "BYOK_GATEWAY_FAILED",
+    );
+  }
+  if (!failure) {
+    options.onEvent({
+      kind: "stage",
+      stage: "runtime",
+      state: "succeeded",
+      message: "BYOK gateway is ready.",
+    });
+    return undefined;
+  }
+  return {
+    code:
+      (failure.details as { code?: string } | undefined)?.code ??
+      "BYOK_GATEWAY_FAILED",
+    message: failure.message,
+  };
 }

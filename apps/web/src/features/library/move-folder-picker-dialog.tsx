@@ -10,6 +10,10 @@ import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ModalDialog } from "@/components/ui/modal-dialog";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
+
+import { libraryMessages as m } from "./library.messages";
 
 export interface MoveFolder {
   id: string;
@@ -31,11 +35,13 @@ export function MoveFolderPickerDialog({
   currentParentId?: string;
   disabledFolderIds?: ReadonlySet<string>;
   folders: MoveFolder[];
-  label: string;
+  /** The name of what moves; without one the title says "document". */
+  label: string | undefined;
   onCancel: () => void;
   onMove: (parentId: string) => void;
   rootLabel: string;
 }) {
+  const t = useT();
   const availableFolders = useMemo(
     () => folders.filter((folder) => !disabledFolderIds.has(folder.id)),
     [disabledFolderIds, folders],
@@ -84,42 +90,42 @@ export function MoveFolderPickerDialog({
       closeOnBackdrop
       onClose={onCancel}
       size="lg"
-      title={`Move ${label} to…`}
+      title={label ? t(m.moveTo, { name: label }) : t(m.moveDocumentTo)}
       footer={
         <>
           <Button onClick={onCancel} tone="secondary">
-            Cancel
+            {t(commonMessages.cancel)}
           </Button>
           <Button
             disabled={targetId === currentTargetId}
             onClick={() => onMove(targetId)}
             tone="primary"
           >
-            Move here
+            {t(m.moveHere)}
           </Button>
         </>
       }
     >
       <div className="px-5 py-4">
         <label className="relative block">
-          <span className="sr-only">Search folders</span>
+          <span className="sr-only">{t(m.searchFolders)}</span>
           <Icon
             icon={Search01Icon}
             className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-muted"
             size={16}
           />
           <input
-            aria-label="Search folders"
+            aria-label={t(m.searchFolders)}
             className="h-10 w-full rounded-lg border border-border bg-card pl-10 pr-9 text-sm text-foreground outline-none transition-colors placeholder:text-app-placeholder hover:border-border-hover focus:border-foreground focus:ring-2 focus:ring-ring"
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search folders…"
+            placeholder={t(m.searchFoldersPlaceholder)}
             role="searchbox"
             type="text"
             value={query}
           />
           {query ? (
             <button
-              aria-label="Clear folder search"
+              aria-label={t(m.clearFolderSearch)}
               className="absolute right-2 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
               onClick={() => setQuery("")}
               type="button"
@@ -139,7 +145,7 @@ export function MoveFolderPickerDialog({
               targetId={targetId}
             />
           ) : (
-            <div aria-label="Move destination folders" role="tree">
+            <div aria-label={t(m.moveDestinationFolders)} role="tree">
               <FolderTargetRow
                 current={currentTargetId === rootId}
                 folderId={rootId}
@@ -240,6 +246,7 @@ function FolderTargetRow({
   onToggle?: (folderId: string) => void;
   selected: boolean;
 }) {
+  const t = useT();
   return (
     <div
       aria-current={current ? "location" : undefined}
@@ -255,7 +262,7 @@ function FolderTargetRow({
     >
       {onToggle ? (
         <button
-          aria-label={`${expanded ? "Collapse" : "Expand"} ${name}`}
+          aria-label={t(expanded ? m.collapseFolder : m.expandFolder, { name })}
           className="flex size-8 shrink-0 items-center justify-center rounded-sm text-app-muted hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
           onClick={() => onToggle(folderId)}
           type="button"
@@ -270,7 +277,7 @@ function FolderTargetRow({
         <span aria-hidden="true" className="size-8 shrink-0" />
       )}
       <button
-        aria-label={`Select ${name}`}
+        aria-label={t(m.selectFolder, { name })}
         className="flex min-h-10 min-w-0 flex-1 items-center gap-2 text-left outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-app-focus"
         onClick={() => onSelect(folderId)}
         type="button"
@@ -283,7 +290,9 @@ function FolderTargetRow({
         <span className="truncate text-sm">{name}</span>
       </button>
       {current ? (
-        <span className="ml-2 shrink-0 text-xs text-app-muted">Current</span>
+        <span className="ml-2 shrink-0 text-xs text-app-muted">
+          {t(m.current)}
+        </span>
       ) : null}
     </div>
   );
@@ -302,15 +311,16 @@ function FolderSearchResults({
   pathsById: ReadonlyMap<string, string>;
   targetId: string;
 }) {
+  const t = useT();
   if (folders.length === 0) {
     return (
       <p className="px-3 py-10 text-center text-sm text-app-muted">
-        No folders found.
+        {t(m.noFoldersFound)}
       </p>
     );
   }
   return (
-    <ul aria-label="Folder search results">
+    <ul aria-label={t(m.folderSearchResults)}>
       {folders.map((folder) => (
         <li
           className={`my-0.5 rounded-md ${
@@ -319,7 +329,9 @@ function FolderSearchResults({
           key={folder.id}
         >
           <button
-            aria-label={`Select ${pathsById.get(folder.id) ?? folder.name}`}
+            aria-label={t(m.selectFolder, {
+              name: pathsById.get(folder.id) ?? folder.name,
+            })}
             aria-pressed={targetId === folder.id}
             className="flex min-h-12 w-full min-w-0 items-center gap-2 px-3 text-left outline-none focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-app-focus"
             onClick={() => onSelect(folder.id)}
@@ -339,7 +351,9 @@ function FolderSearchResults({
               </span>
             </span>
             {currentTargetId === folder.id ? (
-              <span className="shrink-0 text-xs text-app-muted">Current</span>
+              <span className="shrink-0 text-xs text-app-muted">
+                {t(m.current)}
+              </span>
             ) : null}
           </button>
         </li>

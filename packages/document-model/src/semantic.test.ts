@@ -214,6 +214,96 @@ describe("Room Document semantic mutation model", () => {
     expect(Y.encodeStateVector(applied)).toEqual(first.endStateVector);
   });
 
+  it.each(["update_block", "replace_blocks"] as const)(
+    "%s retains the stable IDs and content of the replaced block's descendants",
+    (kind) => {
+      const state = stateWithBlocks([
+        {
+          id: "parent",
+          type: "paragraph",
+          content: "Original parent",
+          children: [
+            {
+              id: "child",
+              type: "paragraph",
+              content: [
+                {
+                  type: "text",
+                  text: "Retained child",
+                  styles: { bold: true },
+                },
+              ],
+              children: [
+                {
+                  id: "image",
+                  type: "image",
+                  props: {
+                    url: "document-asset:asset_image",
+                    caption: "Retained chart",
+                  },
+                },
+              ],
+            },
+          ],
+        },
+        { id: "outside", type: "paragraph", content: "Unchanged neighbor" },
+      ]);
+      const before = readRoomDocumentBlocks(state);
+      const parent = before[0]!;
+      if (parent.type !== "paragraph") throw new Error("expected paragraph");
+      const block = { ...parent, content: "Updated parent" };
+      const input: Parameters<typeof applyRoomDocumentSemanticMutation>[0] = {
+        mutationId: "replace-retained-descendants",
+        schemaVersion: "blocknote-semantic-v1",
+        currentTitle: "Title",
+        stateBytes: state,
+        allowedDocumentAssetIds: ["asset_image"],
+        operations:
+          kind === "update_block"
+            ? [{ kind, stableBlockId: "parent", block }]
+            : [{ kind, stableBlockIds: ["parent"], blocks: [block] }],
+      };
+      const result = applyRoomDocumentSemanticMutation(input);
+      expect(result.status).toBe("applied");
+      if (result.status !== "applied") throw new Error("conflict");
+      const after = readRoomDocumentBlocks(result.stateBytes);
+      expect(after[0]).toMatchObject({
+        id: "parent",
+        content: [{ text: "Updated parent" }],
+      });
+      expect(after[0]!.children).toEqual(before[0]!.children);
+      expect(after[1]).toEqual(before[1]);
+      expect(result.completeReferences.documentAssetIds).toEqual([
+        "asset_image",
+      ]);
+      expect(readRoomDocumentBlocks(state)).toEqual(before);
+      expect(applyRoomDocumentSemanticMutation(input)).toEqual(result);
+      const applied = new Y.Doc();
+      try {
+        Y.applyUpdate(applied, state);
+        Y.applyUpdate(applied, result.update);
+        expect(fingerprintRoomDocumentState(applied)).toBe(result.stateHash);
+      } finally {
+        applied.destroy();
+      }
+      const colliding = {
+        ...block,
+        children: [
+          { id: "outside", type: "paragraph" as const, content: "Collision" },
+        ],
+      };
+      expect(() =>
+        applyRoomDocumentSemanticMutation({
+          ...input,
+          operations:
+            kind === "update_block"
+              ? [{ kind, stableBlockId: "parent", block: colliding }]
+              : [{ kind, stableBlockIds: ["parent"], blocks: [colliding] }],
+        }),
+      ).toThrow(/already exist/);
+    },
+  );
+
   it("conflicts on missing or structurally ambiguous stable block targets", () => {
     const state = stateWithBlocks([
       { id: "one", type: "paragraph", content: "One" },

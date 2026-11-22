@@ -7,6 +7,7 @@ import {
   VoiceControlContext,
   type VoiceControlContextValue,
 } from "./voice-control-context";
+import { VoiceMicrophoneError } from "./microphone-devices";
 import { RecordingEntry } from "./recording-entry";
 import { VoiceFocusSurface } from "./voice-focus-surface";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
@@ -264,6 +265,56 @@ describe("VoiceFocusSurface", () => {
     expect(startCapture).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Start recording" }));
     await vi.waitFor(() => expect(startCapture).toHaveBeenCalledOnce());
+  });
+
+  it("asks the browser again when the remembered microphone does not connect", async () => {
+    const discoverDevices = vi.fn(async () => [microphone]);
+    const selectDevice = vi.fn(async () => undefined);
+    const startCapture = vi
+      .fn<() => Promise<undefined>>()
+      .mockRejectedValueOnce(new VoiceMicrophoneError("timeout"))
+      .mockResolvedValue(undefined);
+    render(
+      <VoiceControlContext.Provider
+        value={voiceValue({
+          captureState: { status: "idle" },
+          discoverDevices,
+          listenerStatus: "disabled",
+          selectDevice,
+          startCapture,
+        })}
+      >
+        <VoiceFocusSurface autoStart onExit={vi.fn()} />
+      </VoiceControlContext.Provider>,
+    );
+    await vi.waitFor(() => expect(startCapture).toHaveBeenCalledTimes(2));
+    expect(discoverDevices).toHaveBeenCalledOnce();
+    expect(selectDevice).toHaveBeenCalledWith(microphone.deviceId);
+  });
+
+  it("explains an unbound microphone from its code", async () => {
+    const startCapture = vi.fn(async () => {
+      throw new VoiceMicrophoneError("no-binding");
+    });
+    render(
+      <VoiceControlContext.Provider
+        value={voiceValue({
+          captureState: { status: "idle" },
+          discoverDevices: vi.fn(async () => [microphone]),
+          listenerStatus: "disabled",
+          startCapture,
+        })}
+      >
+        <VoiceFocusSurface autoStart onExit={vi.fn()} />
+      </VoiceControlContext.Provider>,
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Recording did not start" }),
+    ).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Connect a microphone before enabling voice",
+    );
+    expect(startCapture).toHaveBeenCalledTimes(2);
   });
 
   it("shows Pause then Stop in the top row and no separate Mute", () => {

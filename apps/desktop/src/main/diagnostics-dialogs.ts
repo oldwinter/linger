@@ -5,11 +5,14 @@ import {
   type MessageBoxOptions,
 } from "electron";
 
+import type { Translate } from "../i18n/language.js";
+import { dialogMessages as m } from "./dialogs.messages.js";
 import { consentText, type DiagnosticsPrompts } from "./diagnostics-upload.js";
 
 // Send Diagnostics' native dialogs for the tray and the start failure page.
 export const diagnosticsDialogs = (
   window: () => BaseWindow | undefined,
+  t: Translate,
 ): DiagnosticsPrompts => {
   const show = async (options: MessageBoxOptions): Promise<number> => {
     const parent = window();
@@ -22,17 +25,17 @@ export const diagnosticsDialogs = (
     consent: async (state) =>
       (await show({
         type: "question",
-        ...consentText(state),
-        buttons: ["Send", "Cancel"],
+        ...consentText(state, t),
+        buttons: [t(m.send), t(m.cancel)],
         defaultId: 0,
         cancelId: 1,
       })) === 0,
     sent: async (state) => {
       const copy = await show({
         type: "info",
-        message: "Diagnostics sent",
-        detail: `Report ID: ${state.reportId}\nGive this ID to Linger support so they can find your report.`,
-        buttons: ["Copy Report ID", "Done"],
+        message: t(m.sent),
+        detail: t(m.sentDetail, { reportId: state.reportId }),
+        buttons: [t(m.copyReportId), t(m.done)],
         defaultId: 0,
         cancelId: 1,
       });
@@ -41,20 +44,20 @@ export const diagnosticsDialogs = (
     failed: async (state) =>
       (await show({
         type: "warning",
-        message: "Couldn't send diagnostics",
+        message: t(m.sendFailed),
         detail: state.retry
           ? state.error
-          : `${state.error}\nYou can still use Save Diagnostics and send the file by hand.`,
-        buttons: state.retry ? ["Try Again", "Close"] : ["Close"],
+          : `${state.error}\n${t(m.sendFailedSave)}`,
+        buttons: state.retry ? [t(m.tryAgain), t(m.close)] : [t(m.close)],
         defaultId: 0,
         cancelId: state.retry ? 1 : 0,
       })) === 0 && state.retry,
     busy: async () => {
       await show({
         type: "info",
-        message: "Diagnostics are already being sent",
-        detail: "Finish or cancel that report in the Linger setup window.",
-        buttons: ["OK"],
+        message: t(m.sendBusy),
+        detail: t(m.sendBusyDetail),
+        buttons: [t(m.ok)],
       });
     },
   };

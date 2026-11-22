@@ -9,6 +9,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubActor } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 
 import { eligibleRoomAgents } from "../agent-admission";
 import {
@@ -17,7 +19,9 @@ import {
   tenantAgentAvailabilityQueryOptions,
   tenantAgentsQueryOptions,
 } from "../room-queries";
+import { roomSettingsMessages as m } from "../room-settings.messages";
 import { ActorAvatar } from "./actor-avatar";
+import { agentInfoMessages } from "./agent-info.messages";
 
 export function RoomCreateMembers({
   disabled,
@@ -31,6 +35,7 @@ export function RoomCreateMembers({
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -143,15 +148,15 @@ export function RoomCreateMembers({
   }
 
   return (
-    <section aria-label="Members">
+    <section aria-label={t(m.members)}>
       <h3 className="mb-2 px-2 text-xs font-medium leading-5 text-muted-foreground">
-        Members
+        {t(m.members)}
       </h3>
       <div className="flex min-h-9 flex-wrap items-center gap-1 rounded-md border border-border bg-card p-1 transition-[border-color,box-shadow] duration-150 hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring">
         <button
           aria-expanded={open}
           aria-haspopup="dialog"
-          aria-label="Choose existing members"
+          aria-label={t(m.chooseExisting)}
           className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-app-focus disabled:opacity-50"
           disabled={disabled}
           onClick={() => {
@@ -166,7 +171,7 @@ export function RoomCreateMembers({
         {owner ? (
           <span
             className="inline-flex max-w-full items-center gap-1 h-6 rounded-lg bg-muted px-1.5 text-xs text-foreground"
-            title="Room owner"
+            title={t(m.roomOwner)}
           >
             <ActorAvatar
               actorId={owner.id}
@@ -175,7 +180,7 @@ export function RoomCreateMembers({
               size="micro"
             />
             <span className="truncate">{owner.display_name}</span>
-            <span className="sr-only"> (you, owner)</span>
+            <span className="sr-only"> {t(m.youOwner)}</span>
           </span>
         ) : null}
         {selected.map((actor) => (
@@ -191,7 +196,8 @@ export function RoomCreateMembers({
             />
             <span className="truncate">{actor.display_name}</span>
             <button
-              aria-label={`Remove ${actor.display_name}`}
+              data-voice-risk="never"
+              aria-label={t(m.removeMember, { name: actor.display_name })}
               className="rounded-sm text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:outline-2 focus-visible:outline-app-focus"
               disabled={disabled}
               onClick={() => toggle(actor)}
@@ -204,7 +210,7 @@ export function RoomCreateMembers({
       </div>
       {open ? (
         <dialog
-          aria-label="Choose members"
+          aria-label={t(m.chooseMembers)}
           className="app-floating-enter fixed inset-auto z-[100] m-0 flex flex-col overflow-hidden rounded-md bg-popover p-1 text-foreground shadow-md"
           onKeyDown={(event) => {
             if (event.key === "Escape") {
@@ -236,25 +242,25 @@ export function RoomCreateMembers({
           open
         >
           <input
-            aria-label="Search members"
+            aria-label={t(m.searchMembers)}
             className="min-h-9 w-full shrink-0 rounded-md bg-transparent px-2 text-sm outline-none placeholder:text-app-placeholder focus-visible:ring-2 focus-visible:ring-ring"
             onChange={(event) => setSearch(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") event.preventDefault();
             }}
-            placeholder="Search members..."
+            placeholder={t(m.searchMembersPlaceholder)}
             ref={searchRef}
             value={search}
           />
           <div className="workspace-scrollbar min-h-0 overflow-y-auto">
             {loading ? (
               <p className="p-2 text-xs text-muted-foreground" role="status">
-                Loading members...
+                {t(m.loadingMembers)}
               </p>
             ) : null}
             {failed ? (
               <div className="p-2 text-xs text-app-danger" role="alert">
-                Some members could not be loaded.{" "}
+                {t(m.membersLoadFailed)}{" "}
                 <button
                   className="underline"
                   onClick={() => {
@@ -262,17 +268,25 @@ export function RoomCreateMembers({
                   }}
                   type="button"
                 >
-                  Retry
+                  {t(commonMessages.retry)}
                 </button>
               </div>
             ) : null}
             {(["human", "agent"] as const).map((kind) => (
               <section
-                aria-label={kind === "human" ? "Human" : "Agent"}
+                aria-label={t(
+                  kind === "human"
+                    ? agentInfoMessages.human
+                    : agentInfoMessages.agent,
+                )}
                 key={kind}
               >
                 <h4 className="px-2 pb-1 pt-2 text-xs text-muted-foreground">
-                  {kind === "human" ? "Human" : "Agent"}
+                  {t(
+                    kind === "human"
+                      ? agentInfoMessages.human
+                      : agentInfoMessages.agent,
+                  )}
                 </h4>
                 {matches[kind].map((actor) => {
                   const checked = selected.some(
@@ -310,7 +324,7 @@ export function RoomCreateMembers({
             !matches.human.length &&
             !matches.agent.length ? (
               <p className="p-2 text-xs text-muted-foreground">
-                No matching members.
+                {t(m.noMatchingMembers)}
               </p>
             ) : null}
           </div>

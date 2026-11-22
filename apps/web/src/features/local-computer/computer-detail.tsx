@@ -28,6 +28,10 @@ import type {
   TeamHubLocalRuntimeType,
   TeamHubTenantAgent,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import type { Translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+import { useT, useTranslation } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
 
 import {
@@ -57,7 +61,9 @@ import {
 } from "./computer-readiness";
 import { relativeTime } from "./computer-relative-time";
 import { ComputerRow, ProgressChip, RowMark, StatusDot } from "./computer-row";
+import { computersMessages } from "./computers.messages";
 import { isUpgradeRecommended } from "./computer-version";
+import { localRuntimeMessage } from "./local-runtime-message";
 
 type LocalComputer = TeamHubLocalComputerPage["items"][number];
 interface AppSetup {
@@ -89,6 +95,7 @@ export function ComputerDetail({
   onOpenAgent: (actorId: string) => void;
   onRemove?: () => void;
 }) {
+  const t = useT();
   const [reportedComputer, setReportedComputer] = useState(latestComputer);
   if (
     reportedComputer.computer_id !== latestComputer.computer_id ||
@@ -123,7 +130,9 @@ export function ComputerDetail({
 
   return (
     <div
-      aria-label={`${computer.display_name} details`}
+      aria-label={t(computersMessages.detailsLabel, {
+        computer: computer.display_name,
+      })}
       className="w-full"
       role="region"
     >
@@ -148,8 +157,8 @@ export function ComputerDetail({
       ) : null}
       <Group
         count={agents.length}
-        summary={agentStatusSummary(agentAvailabilities, agents)}
-        title="Agents"
+        summary={agentStatusSummary(agentAvailabilities, agents, t)}
+        title={t(computersMessages.agents)}
       >
         <AgentChips
           agentAvailabilities={agentAvailabilities}
@@ -158,8 +167,8 @@ export function ComputerDetail({
         />
       </Group>
       <Group
-        hint="Agents use these apps on this computer to do the work. One ready app is enough."
-        title="AI apps"
+        hint={t(computersMessages.aiAppsHint)}
+        title={t(computersMessages.aiApps)}
       >
         {appOrder.map((app) => (
           <AppRow
@@ -172,7 +181,7 @@ export function ComputerDetail({
         ))}
       </Group>
       {localModelsHref ? (
-        <Group title="Local models">
+        <Group title={t(computersMessages.localModels)}>
           <Link
             className="flex min-h-14 w-full items-center gap-3 rounded-lg py-2 pr-2.5 pl-2 transition-colors duration-150 hover:bg-sidebar-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none"
             to={localModelsHref}
@@ -182,10 +191,10 @@ export function ComputerDetail({
             </RowMark>
             <span className="min-w-0 flex-1 text-left">
               <span className="block truncate text-sm text-foreground">
-                Manage local models
+                {t(computersMessages.manageLocalModels)}
               </span>
               <span className="block truncate text-sm text-muted-foreground">
-                Download and load models that run on this computer
+                {t(computersMessages.manageLocalModelsHint)}
               </span>
             </span>
             <Icon
@@ -197,18 +206,18 @@ export function ComputerDetail({
         </Group>
       ) : null}
       {displayStatus === "offline" ? null : (
-        <Group defaultOpen={false} title="Access">
+        <Group defaultOpen={false} title={t(computersMessages.access)}>
           {browserConnection?.("row")}
           <WorkspaceRows computer={computer} />
         </Group>
       )}
       <Group
         defaultOpen={false}
-        title="Advanced"
+        title={t(computersMessages.advanced)}
         trailing={
           isUpgradeRecommended(computer) && !computer.upgrade_required ? (
             <span className="rounded-md bg-[var(--app-status-warning-surface)] px-1.5 text-xs text-app-warning">
-              Update
+              {t(computersMessages.update)}
             </span>
           ) : null
         }
@@ -230,21 +239,28 @@ export function ComputerDetail({
       ) : null}
       {updateOpen ? (
         <ModalDialog
-          footer={<Button onClick={() => setUpdateOpen(false)}>Close</Button>}
+          footer={
+            <Button data-voice-close onClick={() => setUpdateOpen(false)}>
+              {t(commonMessages.close)}
+            </Button>
+          }
           onClose={() => setUpdateOpen(false)}
           size="md"
           title={
             computer.upgrade_required
-              ? "Update required"
+              ? t(computersMessages.updateRequired)
               : computer.recommended_version
-                ? `Update to ${computer.recommended_version}`
-                : "Update Linger Computer"
+                ? t(computersMessages.updateTo, {
+                    version: computer.recommended_version,
+                  })
+                : t(computersMessages.updateLingerComputer)
           }
         >
           <div className="px-5 py-4 text-sm text-muted-foreground">
             <p>
-              Wait for running tasks to finish, then run this on{" "}
-              {computer.display_name}. Your Agents stay connected.
+              {t(computersMessages.updateInstructions, {
+                computer: computer.display_name,
+              })}
             </p>
             <UpgradeCommand
               key={computer.computer_id}
@@ -274,26 +290,27 @@ function ComputerSummary({
   onUpdate: () => void;
   readiness: ComputerReadiness;
 }) {
+  const t = useT();
   const action =
     readiness.kind === "update" ? (
       <Button onClick={onUpdate} tone="primary">
-        Update
+        {t(computersMessages.update)}
       </Button>
     ) : readiness.kind === "signIn" ? (
       <Button onClick={() => onSetUp(readiness.app)} tone="primary">
-        Sign in to {appNames[readiness.app]}
+        {t(computersMessages.signInToApp, { app: appNames[readiness.app] })}
       </Button>
     ) : readiness.kind === "updateApp" ? (
       <Button onClick={() => onSetUp(readiness.app)} tone="primary">
-        Update {appNames[readiness.app]}
+        {t(computersMessages.updateApp, { app: appNames[readiness.app] })}
       </Button>
     ) : readiness.kind === "check" ? (
       <RuntimeCheckCard align="end" app={readiness.app} computer={computer}>
-        <Button tone="primary">Check again</Button>
+        <Button tone="primary">{t(computersMessages.checkAgain)}</Button>
       </RuntimeCheckCard>
     ) : readiness.kind === "setUp" ? (
       <Button onClick={() => onSetUp(readiness.app, true)} tone="primary">
-        Set up {appNames[readiness.app]}
+        {t(computersMessages.setUpApp, { app: appNames[readiness.app] })}
       </Button>
     ) : null;
 
@@ -305,7 +322,11 @@ function ComputerSummary({
           placement="bottom"
           text={[
             platformLabel(computer.platform),
-            computer.daemon_version ? `App ${computer.daemon_version}` : null,
+            computer.daemon_version
+              ? t(computersMessages.appVersion, {
+                  version: computer.daemon_version,
+                })
+              : null,
           ]
             .filter(Boolean)
             .join(" · ")}
@@ -336,51 +357,57 @@ function ComputerSummary({
         >
           {computer.upgrade_required ? (
             <ProgressChip
-              hint="This app version is too old to run Agents"
+              hint={t(computersMessages.lingerTooOld)}
               icon={LaptopIcon}
               attentionIcon={RefreshIcon}
-              label="Update"
+              label={t(computersMessages.update)}
               onClick={onUpdate}
               state="attention"
             />
           ) : (
             <ProgressChip
-              hint="The Linger app is running"
+              hint={t(computersMessages.lingerRunning)}
               icon={LaptopIcon}
-              label="Connected"
+              label={t(computersMessages.connected)}
               state="done"
             />
           )}
           <span aria-hidden className="w-6 border-t border-border-hover" />
           {readiness.kind === "ready" ? (
             <ProgressChip
-              hint={`Agents use ${appNames[readiness.app]} here`}
+              hint={t(computersMessages.agentsUseApp, {
+                app: appNames[readiness.app],
+              })}
               icon={appIcons[readiness.app]}
               label={appNames[readiness.app]}
               state="done"
             />
           ) : readiness.kind === "signIn" ? (
             <ProgressChip
-              hint={`${appNames[readiness.app]} is installed but signed out`}
+              hint={t(computersMessages.appSignedOut, {
+                app: appNames[readiness.app],
+              })}
               icon={appIcons[readiness.app]}
               attentionIcon={Key01Icon}
-              label="Sign in"
+              label={t(computersMessages.signIn)}
               onClick={() => onSetUp(readiness.app)}
               state="attention"
             />
           ) : readiness.kind === "updateApp" ? (
             <ProgressChip
               attentionIcon={RefreshIcon}
-              hint={`${appNames[readiness.app]} is too old to run Agents`}
+              hint={t(computersMessages.appTooOld, {
+                app: appNames[readiness.app],
+              })}
               icon={appIcons[readiness.app]}
-              label="Update"
+              label={t(computersMessages.update)}
               onClick={() => onSetUp(readiness.app)}
               state="attention"
             />
           ) : readiness.kind === "check" ? (
             <ProgressChip
               attentionIcon={Search01Icon}
-              hint={runtimeMessage(computer, readiness.app)}
+              hint={runtimeMessage(computer, readiness.app, t)}
               icon={appIcons[readiness.app]}
               label={appNames[readiness.app]}
               state="attention"
@@ -388,7 +415,7 @@ function ComputerSummary({
           ) : (
             <ProgressChip
               attentionIcon={Add01Icon}
-              hint="Agents need Claude Code, Codex or Pi on this computer"
+              hint={t(computersMessages.needAiApp)}
               icon={appIcons.claude}
               label={appNames.claude}
               onClick={() => onSetUp("claude", true)}
@@ -416,29 +443,39 @@ function SummaryStatus({
   computer: LocalComputer;
   readiness: ComputerReadiness;
 }) {
+  const translation = useTranslation();
+  const { t } = translation;
   if (readiness.kind === "reconnecting")
-    return <span className="town-shimmer-text">Reconnecting…</span>;
+    return (
+      <span className="town-shimmer-text">
+        {t(computersMessages.reconnecting)}
+      </span>
+    );
   if (readiness.kind === "offline")
     return (
       <>
         <StatusDot tone="neutral" />
         {computer.last_seen_at
-          ? `Offline · ${relativeTime(computer.last_seen_at)}`
-          : "Offline"}
+          ? t(computersMessages.offlineSince, {
+              time: relativeTime(computer.last_seen_at, translation),
+            })
+          : t(computersMessages.offline)}
       </>
     );
   if (readiness.kind === "update")
     return (
       <>
         <StatusDot tone="warning" />
-        Update required
+        {t(computersMessages.updateRequired)}
       </>
     );
   if (readiness.kind === "check")
     return (
       <>
         <StatusDot tone="warning" />
-        Couldn't check {appNames[readiness.app]}
+        {t(computersMessages.couldNotCheckApp, {
+          app: appNames[readiness.app],
+        })}
       </>
     );
   if (readiness.kind === "ready")
@@ -446,14 +483,16 @@ function SummaryStatus({
       <>
         <StatusDot tone="success" />
         {computer.active_operations
-          ? `Ready · ${computer.active_operations} running`
-          : "Ready"}
+          ? t(computersMessages.readyRunning, {
+              count: computer.active_operations,
+            })
+          : t(computersMessages.ready)}
       </>
     );
   return (
     <>
       <StatusDot tone="warning" />
-      One step left
+      {t(computersMessages.oneStepLeft)}
     </>
   );
 }
@@ -465,22 +504,19 @@ function OfflineSteps({
   computer: LocalComputer;
   onConnect?: () => void;
 }) {
+  const t = useT();
   const step =
     "inline-flex h-8 items-center gap-2 rounded-full bg-card pr-3 pl-1.5 text-xs text-secondary-foreground shadow-outline";
   const bubble =
     "flex size-[22px] items-center justify-center rounded-full bg-muted";
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2.5 rounded-xl bg-muted px-3.5 py-3">
-      <Hint
-        focusable
-        placement="bottom"
-        text="Turn it on and connect to the internet. It usually reconnects by itself."
-      >
+      <Hint focusable placement="bottom" text={t(computersMessages.turnOnHint)}>
         <span className={step}>
           <span className={bubble}>
             <Icon icon={PowerIcon} size={12} />
           </span>
-          Turn it on
+          {t(computersMessages.turnOn)}
         </span>
       </Hint>
       <Icon
@@ -493,9 +529,11 @@ function OfflineSteps({
         content={
           <>
             <span className="block text-sm font-medium text-foreground">
-              Still offline after a minute?
+              {t(computersMessages.stillOffline)}
             </span>
-            Run in Terminal on {computer.display_name}:
+            {t(computersMessages.runInTerminalOn, {
+              computer: computer.display_name,
+            })}
             <CommandLine command={`${computerCommand()} daemon start`} />
           </>
         }
@@ -504,7 +542,7 @@ function OfflineSteps({
           <span className={bubble}>
             <Icon icon={PlayIcon} size={12} />
           </span>
-          Start the app
+          {t(computersMessages.startApp)}
         </span>
       </HintCard>
       {onConnect ? (
@@ -514,15 +552,12 @@ function OfflineSteps({
             icon={ArrowRight01Icon}
             size={14}
           />
-          <Hint
-            placement="bottom"
-            text="Reset or replaced it? Connect it again."
-          >
+          <Hint placement="bottom" text={t(computersMessages.reconnectHint)}>
             <button className={step} onClick={onConnect} type="button">
               <span className={bubble}>
                 <Icon icon={Link01Icon} size={12} />
               </span>
-              Reconnect
+              {t(computersMessages.reconnect)}
             </button>
           </Hint>
         </>
@@ -611,23 +646,26 @@ function AppRow({
   onSetUp: () => void;
   online: boolean;
 }) {
+  const t = useT();
   const runtime = computer.runtimes.find((item) => item.type === app);
   const status = runtime?.status ?? "not_installed";
   const name = appNames[app];
   const hint =
     [name, runtime?.version].filter(Boolean).join(" ") +
-    ` · ${appDescriptions[app]}`;
+    ` · ${t(appDescriptions[app])}`;
   if (status === "not_installed")
     return (
       <ComputerRow
         action={
           online ? (
             <Button onClick={onSetUp} size="compact" tone="secondary">
-              Add
+              {t(computersMessages.add)}
             </Button>
           ) : null
         }
-        hint={`${appDescriptions[app]} · optional`}
+        hint={t(computersMessages.optionalApp, {
+          description: t(appDescriptions[app]),
+        })}
         // The app's own mark, faded: the plus is the Add button's job.
         mark={
           <RowMark dashed>
@@ -638,34 +676,20 @@ function AppRow({
             />
           </RowMark>
         }
-        subtitle="Not installed"
+        subtitle={t(computersMessages.notInstalled)}
         title={<span className="text-muted-foreground">{name}</span>}
       />
     );
-  const subtitle = !online
-    ? {
-        authentication_required: "Last seen signed out",
-        error: "Last check failed",
-        incompatible: "Last seen outdated",
-        ready: "Last seen ready",
-        unknown: "Not checked yet",
-      }[status]
-    : {
-        authentication_required: "Signed out",
-        error: "Couldn't check",
-        incompatible: "Update needed",
-        ready: "Ready",
-        unknown: "Couldn't check",
-      }[status];
+  const subtitle = t((online ? onlineAppStates : offlineAppStates)[status]);
   const action = !online ? null : status === "ready" ? (
     <Icon className="text-app-success" icon={Tick02Icon} size={16} />
   ) : status === "authentication_required" ? (
     <Button onClick={onSetUp} size="compact">
-      Sign in
+      {t(computersMessages.signIn)}
     </Button>
   ) : status === "incompatible" ? (
     <Button onClick={onSetUp} size="compact">
-      Update
+      {t(computersMessages.update)}
     </Button>
   ) : (
     <RuntimeCheckCard app={app} computer={computer} focusable>
@@ -693,10 +717,38 @@ function AppRow({
   );
 }
 
-function runtimeMessage(computer: LocalComputer, app: TeamHubLocalRuntimeType) {
+type InstalledAppStatus = Exclude<
+  LocalComputer["runtimes"][number]["status"],
+  "not_installed"
+>;
+
+const onlineAppStates: Record<InstalledAppStatus, Message<string>> = {
+  authentication_required: computersMessages.signedOut,
+  error: computersMessages.couldNotCheck,
+  incompatible: computersMessages.updateNeeded,
+  ready: computersMessages.ready,
+  unknown: computersMessages.couldNotCheck,
+};
+
+/** What an offline Computer last reported about an app. */
+const offlineAppStates: Record<InstalledAppStatus, Message<string>> = {
+  authentication_required: computersMessages.lastSeenSignedOut,
+  error: computersMessages.lastCheckFailed,
+  incompatible: computersMessages.lastSeenOutdated,
+  ready: computersMessages.lastSeenReady,
+  unknown: computersMessages.notCheckedYet,
+};
+
+/** The reason the Computer gave, or a plain "couldn't check" without one. */
+function runtimeMessage(
+  computer: LocalComputer,
+  app: TeamHubLocalRuntimeType,
+  t: Translate,
+) {
+  const runtime = computer.runtimes.find((item) => item.type === app);
   return (
-    computer.runtimes.find((item) => item.type === app)?.message ??
-    `Couldn't check ${appNames[app]}`
+    (runtime && localRuntimeMessage(runtime, app, computer.display_name, t)) ??
+    t(computersMessages.couldNotCheckApp, { app: appNames[app] })
   );
 }
 
@@ -714,6 +766,7 @@ function RuntimeCheckCard({
   computer: LocalComputer;
   focusable?: boolean;
 }) {
+  const t = useT();
   return (
     <HintCard
       align={align}
@@ -721,9 +774,11 @@ function RuntimeCheckCard({
       content={
         <>
           <span className="block text-sm font-medium text-foreground">
-            {runtimeMessage(computer, app)}
+            {runtimeMessage(computer, app, t)}
           </span>
-          Check again in Terminal on {computer.display_name}:
+          {t(computersMessages.checkAgainOn, {
+            computer: computer.display_name,
+          })}
           <CommandLine command={`${computerCommand()} runtime check`} />
         </>
       }
@@ -734,9 +789,10 @@ function RuntimeCheckCard({
 }
 
 function WorkspaceRows({ computer }: { computer: LocalComputer }) {
+  const t = useT();
   return computer.workspace_grants.map((grant) => (
     <ComputerRow
-      hint="Where Agents keep their work on this computer"
+      hint={t(computersMessages.workspaceHint)}
       key={grant.grant_id}
       mark={
         <RowMark>
@@ -745,8 +801,8 @@ function WorkspaceRows({ computer }: { computer: LocalComputer }) {
       }
       subtitle={
         grant.mode === "read-only"
-          ? "Agents can view here"
-          : "Agents can edit here"
+          ? t(computersMessages.agentsCanView)
+          : t(computersMessages.agentsCanEdit)
       }
       title={grant.label}
     />
@@ -762,23 +818,24 @@ function AdvancedRows({
   onRemove?: () => void;
   onUpdate: () => void;
 }) {
+  const t = useT();
   const command = computerCommand();
-  const tools: [IconSvgElement, string, string][] = [
-    [Activity01Icon, "Status", `${command} daemon status`],
-    [RefreshIcon, "Restart", `${command} daemon restart`],
-    [Search01Icon, "Re-check", `${command} runtime check`],
-    [Link01Icon, "Reconnect", `${command} login`],
-    [StopIcon, "Stop", `${command} daemon stop`],
+  const tools: [IconSvgElement, Message<string>, string][] = [
+    [Activity01Icon, computersMessages.toolStatus, `${command} daemon status`],
+    [RefreshIcon, computersMessages.toolRestart, `${command} daemon restart`],
+    [Search01Icon, computersMessages.toolRecheck, `${command} runtime check`],
+    [Link01Icon, computersMessages.reconnect, `${command} login`],
+    [StopIcon, computersMessages.toolStop, `${command} daemon stop`],
   ];
   const row = "flex min-h-11 items-center gap-3 px-2.5";
   const label = "w-28 shrink-0 text-sm text-muted-foreground";
   return (
     <>
       <div className={row}>
-        <span className={label}>App</span>
+        <span className={label}>{t(computersMessages.app)}</span>
         <span className="flex flex-wrap items-center gap-1.5">
           <span className="rounded-md bg-muted px-2 py-0.5 text-xs text-secondary-foreground">
-            {computer.daemon_version ?? "Not reported"}
+            {computer.daemon_version ?? t(computersMessages.notReported)}
           </span>
           {computer.upgrade_required || isUpgradeRecommended(computer) ? (
             <button
@@ -788,37 +845,43 @@ function AdvancedRows({
             >
               <Icon icon={RefreshIcon} size={12} />
               {computer.recommended_version
-                ? `${computer.recommended_version} available`
-                : "Update"}
+                ? t(computersMessages.versionAvailable, {
+                    version: computer.recommended_version,
+                  })
+                : t(computersMessages.update)}
             </button>
           ) : null}
         </span>
       </div>
       <div className={row}>
-        <span className={label}>Computer ID</span>
+        <span className={label}>{t(computersMessages.computerId)}</span>
         <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
           {computer.computer_id}
         </span>
       </div>
       <div className={cn(row, "items-start py-1.5")}>
-        <span className={cn(label, "pt-1.5")}>Troubleshoot</span>
+        <span className={cn(label, "pt-1.5")}>
+          {t(computersMessages.troubleshoot)}
+        </span>
         <span className="flex flex-wrap gap-1">
           {tools.map(([icon, name, toolCommand]) => (
             <HintCard
               content={
                 <>
                   <span className="block text-sm font-medium text-foreground">
-                    {name}
+                    {t(name)}
                   </span>
-                  Run in Terminal on {computer.display_name}:
+                  {t(computersMessages.runInTerminalOn, {
+                    computer: computer.display_name,
+                  })}
                   <CommandLine command={toolCommand} />
                 </>
               }
-              key={name}
+              key={name.id}
             >
               <Button tone="ghost">
                 <Icon icon={icon} size={14} />
-                {name}
+                {t(name)}
               </Button>
             </HintCard>
           ))}
@@ -828,12 +891,13 @@ function AdvancedRows({
         <div className={row}>
           <span className={label} />
           <Button
+            data-voice-risk="never"
             className="-ml-3 border-transparent"
             onClick={onRemove}
             tone="danger"
           >
             <Icon icon={Delete02Icon} size={14} />
-            Remove computer
+            {t(computersMessages.removeComputer)}
           </Button>
         </div>
       ) : null}
@@ -842,6 +906,7 @@ function AdvancedRows({
 }
 
 function UpgradeCommand({ platform }: { platform?: ComputerPlatform }) {
+  const t = useT();
   const [selected, setSelected] = useState<ComputerPlatform | "">("");
   const target = selected || platform || "";
   return (
@@ -851,7 +916,7 @@ function UpgradeCommand({ platform }: { platform?: ComputerPlatform }) {
         <>
           {target === "win32" ? (
             <p className="mt-2 text-xs text-muted-foreground">
-              Run in PowerShell on this Windows computer.
+              {t(computersMessages.runInPowerShellWindows)}
             </p>
           ) : null}
           <CommandLine command={computerInstallCommand(target)} key={target} />

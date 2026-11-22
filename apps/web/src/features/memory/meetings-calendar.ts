@@ -1,5 +1,8 @@
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
+import { type Translate, formatLocale, translate } from "@/i18n/language";
+
+import { meetingsMessages as m } from "./meetings.messages";
 
 export interface CalendarMeeting {
   id: string;
@@ -28,20 +31,6 @@ export interface CalendarMonth {
 }
 
 const monthsShown = 12;
-export const monthLabels = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
 // Meeting folders are named in the server's local time; the calendar uses the
 // same dates so a meeting sits on the same day in both places.
 const meetingPath =
@@ -111,6 +100,7 @@ export function meetingsByDate(
 export function calendarMonths(
   today: string,
   counts: ReadonlyMap<string, number>,
+  locale: string = formatLocale(),
 ): CalendarMonth[] {
   const [year, month] = today.split("-").map(Number) as [number, number];
   const months: CalendarMonth[] = [];
@@ -135,7 +125,7 @@ export function calendarMonths(
     }
     months.push({
       key: first.toISOString().slice(0, 7),
-      label: monthLabels[first.getUTCMonth()]!,
+      label: dateFormat(locale, "month").format(first),
       weeks,
     });
   }
@@ -151,10 +141,59 @@ export function meetingLevel(count: number): 0 | 1 | 2 | 3 | 4 {
   return 4;
 }
 
+type DateParts = "month" | "monthDay" | "weekday" | "weekdayMonthDay";
+const dateParts: Record<DateParts, Intl.DateTimeFormatOptions> = {
+  month: { month: "short" },
+  monthDay: { month: "short", day: "numeric" },
+  weekday: { weekday: "short" },
+  weekdayMonthDay: { weekday: "short", month: "short", day: "numeric" },
+};
+const dateFormats = new Map<string, Intl.DateTimeFormat>();
+
+// Meeting dates are calendar days already; UTC keeps them on that day.
+function dateFormat(locale: string, parts: DateParts) {
+  const key = `${locale}:${parts}`;
+  let format = dateFormats.get(key);
+  if (!format) {
+    format = new Intl.DateTimeFormat(locale, {
+      ...dateParts[parts],
+      timeZone: "UTC",
+    });
+    dateFormats.set(key, format);
+  }
+  return format;
+}
+
+function utcDay(date: string) {
+  return new Date(`${date}T00:00:00Z`);
+}
+
+/** "2026-10-01" -> "Oct 1" in the language on screen. */
+export function formatMeetingMonthDay(
+  date: string,
+  locale: string = formatLocale(),
+) {
+  return dateFormat(locale, "monthDay").format(utcDay(date));
+}
+
+/** "2026-10-01" -> "Thu" in the language on screen. */
+export function formatMeetingWeekday(
+  date: string,
+  locale: string = formatLocale(),
+) {
+  return dateFormat(locale, "weekday").format(utcDay(date));
+}
+
 /** "2026-10-01", "09:05:00" -> "Oct 1, 09:05". */
-export function formatMeetingWhen(date: string, time: string) {
-  const [, month, day] = date.split("-");
-  return `${monthLabels[Number(month) - 1]} ${Number(day)}, ${time.slice(0, 5)}`;
+export function formatMeetingWhen(
+  date: string,
+  time: string,
+  t: Translate = translate,
+) {
+  return t(m.whenFormat, {
+    day: formatMeetingMonthDay(date),
+    time: time.slice(0, 5),
+  });
 }
 
 /** The reader title of a meeting: its folder's start time, because the
@@ -169,8 +208,9 @@ export function meetingTitle(
 }
 
 /** "2026-10-01" -> "Thu, Oct 1"; the date is already a local day. */
-export function formatMeetingDay(date: string) {
-  const [, month, day] = date.split("-");
-  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
-  return `${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][weekday]}, ${monthLabels[Number(month) - 1]} ${Number(day)}`;
+export function formatMeetingDay(
+  date: string,
+  locale: string = formatLocale(),
+) {
+  return dateFormat(locale, "weekdayMonthDay").format(utcDay(date));
 }

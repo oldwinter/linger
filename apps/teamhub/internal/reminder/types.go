@@ -89,7 +89,7 @@ type Reminder struct {
 
 // Listener names the connected app an app listener Routine listens to.
 type Listener struct {
-	// App is the connection provider: gmail, outlook, google_calendar, slack.
+	// App is the connection provider: gmail, outlook, google_calendar, outlook_calendar, slack.
 	App string `json:"app"`
 }
 

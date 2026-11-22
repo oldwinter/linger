@@ -13,7 +13,9 @@ import { BlockNoteView } from "@blocknote/mantine";
 import { useCreateBlockNote } from "@blocknote/react";
 import { useMemo } from "react";
 import { createKnowledgeReadingExtension } from "./knowledge-reading-extension";
+import { documentEditorMessages } from "@/features/rooms/documents/document-editor.messages";
 import { roomDocumentCodeBlockSpec } from "@/features/rooms/documents/room-document-mermaid-code-block";
+import { useT } from "@/i18n/use-translation";
 
 import {
   prepareReadOnlyMarkdown,
@@ -43,10 +45,13 @@ export function ReadOnlyBlockNoteDocument({
   hiddenSectionTitles,
   resolveLink,
 }: ReadOnlyBlockNoteDocumentProps) {
+  const t = useT();
+  const mediaOmitted = t(documentEditorMessages.embeddedMediaOmitted);
   const initialContent = useMemo(
     () =>
       parseSafeMarkdown(
         markdown,
+        mediaOmitted,
         assetBaseUrl,
         presentation,
         documentTitle,
@@ -56,6 +61,7 @@ export function ReadOnlyBlockNoteDocument({
     [
       assetBaseUrl,
       markdown,
+      mediaOmitted,
       presentation,
       documentTitle,
       hiddenSectionTitles,
@@ -109,6 +115,7 @@ export function ReadOnlyBlockNoteDocument({
 
 function parseSafeMarkdown(
   markdown: string,
+  mediaOmitted: string,
   assetBaseUrl?: string,
   presentation: ReadOnlyMarkdownPresentation = "default",
   documentTitle?: string,
@@ -126,6 +133,7 @@ function parseSafeMarkdown(
           hiddenSectionTitles,
         ),
       ),
+      mediaOmitted,
       assetBaseUrl,
       resolveLink,
     );
@@ -137,6 +145,8 @@ function parseSafeMarkdown(
 
 function sanitizeEmbeddedContent(
   blocks: Block[],
+  /** Shown in place of media the reader cannot load. */
+  mediaOmitted: string,
   assetBaseUrl?: string,
   resolveLink?: ReadOnlyBlockNoteDocumentProps["resolveLink"],
 ): PartialBlock[] {
@@ -155,7 +165,7 @@ function sanitizeEmbeddedContent(
         };
       }
       return {
-        content: props.caption || props.name || "Embedded media omitted.",
+        content: props.caption || props.name || mediaOmitted,
         type: "paragraph",
       };
     }
@@ -167,7 +177,7 @@ function sanitizeEmbeddedContent(
     ) {
       const props = block.props as { caption?: string; name?: string };
       return {
-        content: props.caption || props.name || "Embedded media omitted.",
+        content: props.caption || props.name || mediaOmitted,
         type: "paragraph",
       };
     }
@@ -176,6 +186,7 @@ function sanitizeEmbeddedContent(
       ...block,
       children: sanitizeEmbeddedContent(
         block.children,
+        mediaOmitted,
         assetBaseUrl,
         resolveLink,
       ),

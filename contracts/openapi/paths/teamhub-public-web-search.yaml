@@ -1,0 +1,128 @@
+backends:
+  get:
+    tags: [External Sources]
+    operationId: listWebSearchBackends
+    summary: List the web search backends with their display text, state and live quota.
+    description: >-
+      Every backend in TeamHub's default order, with what a client needs to
+      render one row each: name, commands, filters, free tier text, where to
+      get a key, the key state and live quota. Quota is read from each
+      provider's official usage endpoint for this request, in parallel and
+      briefly; with include_quota=false TeamHub calls no provider and leaves
+      quota out of every backend.
+    parameters:
+      - name: include_quota
+        in: query
+        description: Read each backend's live quota from its provider.
+        schema:
+          type: boolean
+          default: true
+    responses:
+      "200":
+        description: The backends.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/web-search.yaml#/components/schemas/WebSearchBackendList"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"
+backendKey:
+  put:
+    tags: [External Sources]
+    operationId: saveWebSearchKey
+    summary: Save the deployment's API key for one web search backend.
+    description: >-
+      From a search_key card (decision_id, its decision owner only), TeamHub
+      first runs the search or page open the card was posted for against this
+      backend with the new key. A provider refusing the key leaves it unsaved
+      and the card open (400 WEB_SEARCH_KEY_REJECTED). Any other outcome saves
+      the key, verified once the provider proved it, and answers the card
+      configured with this backend and that call's results or error code, so
+      the Agent need not run it again. Otherwise TeamHub checks the key with
+      the provider's official endpoint when it has one (Tavily usage, You.com
+      account balance, Firecrawl credit usage); a Brave key is saved
+      unverified and its first call proves it. Keys are stored encrypted with
+      TEAMHUB_SECRET_ENCRYPTION_KEY and never returned; any signed-in Human
+      may save one. Saving answers every other open search_key card
+      configured with this backend and wakes the waiting Agents. 400 carries
+      INVALID_REQUEST or WEB_SEARCH_KEY_REJECTED, 403 FORBIDDEN, 404
+      NOT_FOUND for a card the caller cannot see, 503
+      WEB_SEARCH_KEY_STORAGE_UNAVAILABLE or WEB_SEARCH_PROVIDER_UNAVAILABLE.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "../components/web-search.yaml#/components/schemas/SaveWebSearchKeyRequest"
+    responses:
+      "200":
+        description: The backend after saving.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/web-search.yaml#/components/schemas/WebSearchBackend"
+      "400":
+        $ref: "../components/common.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"
+      "403":
+        $ref: "../components/common.yaml#/components/responses/Forbidden"
+      "404":
+        $ref: "../components/common.yaml#/components/responses/NotFound"
+      "503":
+        $ref: "../components/common.yaml#/components/responses/ServiceUnavailable"
+  delete:
+    tags: [External Sources]
+    operationId: deleteWebSearchKey
+    summary: Remove the saved API key of one web search backend.
+    description: >-
+      The backend also stops being the chosen default, so searches without a
+      backend fall back to TeamHub's order. Removing a key that is not saved
+      succeeds.
+    responses:
+      "204":
+        description: The key is gone.
+      "400":
+        $ref: "../components/common.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"
+default:
+  put:
+    tags: [External Sources]
+    operationId: setWebSearchDefault
+    summary: Choose the backend a search without one uses.
+    description: >-
+      The backend must be ready (409 WEB_SEARCH_KEY_REQUIRED otherwise). Any
+      signed-in Human may choose it; it applies to the whole deployment.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "../components/web-search.yaml#/components/schemas/SetWebSearchDefaultRequest"
+    responses:
+      "200":
+        description: The default now in effect.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/web-search.yaml#/components/schemas/WebSearchDefault"
+      "400":
+        $ref: "../components/common.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"
+      "409":
+        $ref: "../components/common.yaml#/components/responses/Conflict"
+  delete:
+    tags: [External Sources]
+    operationId: clearWebSearchDefault
+    summary: Return searches without a backend to TeamHub's order.
+    responses:
+      "200":
+        description: The default now in effect.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/web-search.yaml#/components/schemas/WebSearchDefault"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"

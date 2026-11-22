@@ -11,12 +11,16 @@ import { Link } from "react-router";
 import { Icon } from "@/components/ui/icon";
 import { useMeetings } from "@/features/memory/memory-queries";
 import { meetingPath } from "@/features/memory/meeting-routes";
+import { commonMessages } from "@/i18n/common.messages";
+import { RichMessage, useT } from "@/i18n/use-translation";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubMemoryEntry,
   TeamHubMessageMeetingNotesSegment,
 } from "@/features/teamhub/teamhub-types";
+
+import { chatMessages } from "./chat.messages";
 
 /** The recording whose quick notes a completion Message shows. */
 export function captureQuickNotesQueryKey(captureId: string) {
@@ -44,6 +48,7 @@ export function MessageMeetingNotes({
   segment: TeamHubMessageMeetingNotesSegment;
   tenantId: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const [shownAt] = useState(() => Date.now());
   const capture = useQuery({
@@ -69,7 +74,7 @@ export function MessageMeetingNotes({
   if (notes?.state === "failed" || gaveUp || capture.isError) {
     return (
       <section
-        aria-label="Meeting notes"
+        aria-label={t(chatMessages.meetingNotes)}
         className="w-full max-w-[var(--chat-card-width)] rounded-xl border border-app-border bg-app-surface"
       >
         <FullNotesStatus captureId={segment.capture_id} tenantId={tenantId} />
@@ -78,14 +83,14 @@ export function MessageMeetingNotes({
   }
   return (
     <section
-      aria-label="Meeting summary"
+      aria-label={t(chatMessages.meetingSummary)}
       className="w-full max-w-[var(--chat-card-width)] overflow-hidden rounded-xl border border-app-border bg-app-surface shadow-[var(--chat-card-shadow)]"
     >
       {notes?.state === "ready" && notes.title && notes.sections ? (
         <div className="px-4 pt-3 pb-1">
           <p className="flex items-center gap-1 text-[11.5px] font-semibold uppercase tracking-wide text-app-muted">
             <Icon icon={SparklesIcon} size={12} />
-            Meeting summary
+            {t(chatMessages.meetingSummary)}
           </p>
           <h3 className="mt-1 text-[16px] font-semibold leading-6 text-app-ink [overflow-wrap:anywhere]">
             {notes.title}
@@ -121,7 +126,7 @@ export function MessageMeetingNotes({
           </div>
           <p className="mt-2 flex items-center gap-2 text-[13px] text-app-muted">
             <Icon className="animate-spin" icon={Loading03Icon} size={14} />
-            Pulling the key points out of the transcript…
+            {t(chatMessages.pullingKeyPoints)}
           </p>
         </div>
       )}
@@ -145,6 +150,7 @@ function FullNotesStatus({
   );
   const meeting = meetings.data && findMeeting(meetings.data, captureId);
   const ready = Boolean(meeting?.meeting?.summary_ready);
+  const t = useT();
   return (
     <div className="flex items-center gap-2.5 px-4 py-2.5 text-[13px] leading-[18px] text-app-muted">
       {ready && meeting ? (
@@ -154,14 +160,14 @@ function FullNotesStatus({
           </span>
           <span className="min-w-0 flex-1">
             <strong className="font-semibold text-app-ink">
-              Full meeting notes are ready
+              {t(chatMessages.fullNotesReady)}
             </strong>
           </span>
           <Link
             className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-app-action px-3 py-1.5 text-[13px] font-medium text-app-action-foreground hover:bg-app-action-hover"
             to={meetingPath(tenantId, meeting.id)}
           >
-            Open
+            {t(commonMessages.open)}
             <Icon icon={ArrowRight01Icon} size={14} />
           </Link>
         </>
@@ -173,13 +179,19 @@ function FullNotesStatus({
             size={14}
           />
           <span className="min-w-0 flex-1">
-            Full meeting notes in a few minutes, in{" "}
-            <Link
-              className="text-app-ink underline decoration-app-border-strong underline-offset-[3px]"
-              to={`/t/${encodeURIComponent(tenantId)}/library/meetings`}
-            >
-              Library › Meetings
-            </Link>
+            <RichMessage
+              message={chatMessages.fullNotesSoon}
+              tags={{
+                link: (text) => (
+                  <Link
+                    className="text-app-ink underline decoration-app-border-strong underline-offset-[3px]"
+                    to={`/t/${encodeURIComponent(tenantId)}/library/meetings`}
+                  >
+                    {text}
+                  </Link>
+                ),
+              }}
+            />
           </span>
         </>
       )}

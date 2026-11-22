@@ -3353,6 +3353,18 @@ paths:
           $ref: '../components/common.yaml#/components/responses/PayloadTooLarge'
         '503':
           $ref: '../components/common.yaml#/components/responses/ServiceUnavailable'
+  /v0/web-search/backends:
+    $ref: '../paths/teamhub-public-web-search.yaml#/backends'
+  /v0/web-search/backends/{backend}/key:
+    parameters:
+      - name: backend
+        in: path
+        required: true
+        schema:
+          $ref: '../components/web-search.yaml#/components/schemas/WebSearchKeyBackend'
+    $ref: '../paths/teamhub-public-web-search.yaml#/backendKey'
+  /v0/web-search/default:
+    $ref: '../paths/teamhub-public-web-search.yaml#/default'
   /v0/work-items/{workItemId}/documents/uploads:
     parameters:
       - $ref: '#/components/parameters/WorkItemId'

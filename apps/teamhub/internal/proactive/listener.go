@@ -33,19 +33,24 @@ const (
 )
 
 type listenerApp struct {
-	name string
-	spec reminder.ListenerSpec
+	name  string
+	specs []reminder.ListenerSpec
 }
 
-// listenerApps maps each listenable provider to the listener AnotherMe gets on
+// listenerApps maps each listenable provider to the listeners AnotherMe gets on
 // a connection of it.
 var listenerApps = map[string]listenerApp{
 	// Inbox only: mail the Human sends is not news to them.
-	"gmail": {"Gmail inbox watch", reminder.ListenerSpec{Type: reminder.ListenerGmail, Match: &reminder.ListenerMatch{LabelID: "INBOX"}}},
-	// The Outlook poller reads the inbox only.
-	"outlook":         {"Outlook inbox watch", reminder.ListenerSpec{Type: reminder.ListenerOutlook}},
-	"google_calendar": {"Google Calendar watch", reminder.ListenerSpec{Type: reminder.ListenerGCal, Events: []string{"created", "updated", "cancelled"}}},
-	"slack":           {"Slack mention watch", reminder.ListenerSpec{Type: reminder.ListenerSlack, Channel: "*", Match: &reminder.ListenerMatch{Kind: "mention"}}},
+	"gmail": {"Gmail inbox watch", []reminder.ListenerSpec{{Type: reminder.ListenerGmail, Match: &reminder.ListenerMatch{LabelID: "INBOX"}}}},
+	// An Outlook connection covers both inbox mail and calendar events.
+	"outlook": {"Outlook watch", []reminder.ListenerSpec{
+		{Type: reminder.ListenerOutlook},
+		{Type: reminder.ListenerOutlookCalendar, Events: []string{"created", "updated", "cancelled"}},
+	}},
+	"google_calendar": {"Google Calendar watch", []reminder.ListenerSpec{{Type: reminder.ListenerGCal, Events: []string{"created", "updated", "cancelled"}}}},
+	// A calendar-only Outlook Calendar connection watches events without reading mail.
+	"outlook_calendar": {"Outlook Calendar watch", []reminder.ListenerSpec{{Type: reminder.ListenerOutlookCalendar, Events: []string{"created", "updated", "cancelled"}}}},
+	"slack":            {"Slack mention watch", []reminder.ListenerSpec{{Type: reminder.ListenerSlack, Channel: "*", Match: &reminder.ListenerMatch{Kind: "mention"}}}},
 }
 
 // ListenerProviders lists the providers whose connections get a listener.
@@ -124,9 +129,12 @@ func InstallListenerTx(ctx context.Context, tx pgx.Tx, queries *store.Queries, t
 	if !ok {
 		return nil
 	}
-	spec := app.spec
-	spec.Account, spec.PollIntervalSeconds = connectionID, listenerPollSeconds
-	trigger, err := json.Marshal([]reminder.ListenerSpec{spec})
+	specs := make([]reminder.ListenerSpec, len(app.specs))
+	for i, spec := range app.specs {
+		spec.Account, spec.PollIntervalSeconds = connectionID, listenerPollSeconds
+		specs[i] = spec
+	}
+	trigger, err := json.Marshal(specs)
 	if err != nil {
 		return err
 	}
@@ -183,7 +191,7 @@ func EventFromListener(listened reminder.ListenerEvent) (Event, bool) {
 		event.ExternalID = firstNonEmpty(listened.ThreadID, listened.MessageID, listened.EventID)
 		event.State = firstNonEmpty(listened.MessageID, listened.EventID)
 		event.Summary = summaryLines([2]string{"From", listened.From}, [2]string{"To", listened.To}, [2]string{"Subject", listened.Subject}, [2]string{"Body", listened.Snippet})
-	case reminder.ListenerGCal:
+	case reminder.ListenerGCal, reminder.ListenerOutlookCalendar:
 		event.Kind = "calendar_" + listened.EventKind
 		event.ExternalID = firstNonEmpty(listened.MessageID, listened.EventID)
 		event.Summary = summaryLines([2]string{"Event ID", listened.MessageID}, [2]string{"Status", listened.EventKind}, [2]string{"Event", listened.Summary}, [2]string{"Start", listened.Start}, [2]string{"End", listened.End}, [2]string{"Location", listened.Location}, [2]string{"Organizer", listened.Organizer}, [2]string{"Description", listened.Description})
@@ -207,8 +215,8 @@ func EventFromListener(listened reminder.ListenerEvent) (Event, bool) {
 	return event, event.ExternalID != "" && event.Summary != ""
 }
 
-// calendarTime reads a Google Calendar start: a time, or an all-day date in
-// local time.
+// calendarTime reads a calendar event start: an RFC3339 instant, or an all-day
+// date in local time.
 func calendarTime(value string) *time.Time {
 	if at, err := time.Parse(time.RFC3339, value); err == nil {
 		return &at

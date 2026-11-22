@@ -43,6 +43,13 @@
   and the host passes it to the agent role only when both run in the same
   process; the Agent calls it directly, not over HTTP.
 
+## Text document conversion
+
+Imported code, JSON, XML and YAML remain literal code-block content in the
+normalized Markdown. Embedded backtick runs must not close the surrounding
+fence, and filename-derived language metadata must not introduce backticks or
+line breaks into its opening line.
+
 ## Configuration and Paths
 
 - Roles read only the process environment. Package scripts load the root `.env`
@@ -71,6 +78,12 @@
   plain text. Shared guards and hashing (`isRecord`, `isNodeError`, `sleep`,
   `sha256Hex`) come from `@linger/service-kit`; do not redefine them.
 
+## Document normalization
+
+MIME document normalization prefers extractable HTML, then the recorded
+plain-text alternative when HTML has no extractable body. Headers alone do
+not make an empty message indexable.
+
 ## Structure
 
 - `tests/<role>/` mirrors `src/<role>/`; host-level tests such as
@@ -85,6 +98,16 @@
 - `scripts/generate-feature-catalog.ts` generates
   `src/agent/agent-features/catalog.generated.ts`; `typecheck` verifies it.
 
+## JSON document conversion
+
+JSON imports validate and pretty-print the source while retaining each numeric
+literal. The converter uses Node's source-aware JSON reviver and raw JSON values
+so large identifiers, precise decimals and extreme exponents are not rounded or
+replaced with `null`. JSON conversion uses the normalizer's queued worker so
+per-value revival does not block the shared Node Services event loop, and it
+obeys the worker's cancellation, memory and timeout limits. UTF-8 validation
+is unchanged. Invalid JSON remains `DOCUMENT_SOURCE_INVALID`.
+
 ## Commands
 
 - `pnpm --filter @linger/node-services check`: typecheck and lint
@@ -98,6 +121,19 @@
 - `pnpm --filter @linger/node-services dev`: watch every role during
   focused work; `NODE_SERVICES_ROLES=agent` (or another role) narrows it.
 - Memory CLIs: `pnpm --filter @linger/node-services memory:<command>`.
+
+## Large text documents
+
+CSV and TSV normalization accepts large row counts within the existing source
+and Markdown byte limits. An output that exceeds its configured byte budget
+fails with `DOCUMENT_MARKDOWN_TOO_LARGE`, independently of the number of rows.
+
+## Imported table cells
+
+CSV, TSV and XLSX values are table data. Both table converters use the shared
+cell escaping function so backslashes and inline Markdown delimiters remain
+visible text after document materialization. CR, LF and CRLF inside a
+cell become spaces instead of introducing new Markdown rows.
 
 ## Image
 

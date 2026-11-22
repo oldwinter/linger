@@ -421,7 +421,7 @@ func (s *Service) SettleBrowserConnections(ctx context.Context, tenantID, ownerA
 }
 
 func (s *Service) settleBrowserConnection(ctx context.Context, id string) error {
-	return s.answerConnectionCard(ctx, id, "connected")
+	return s.answerConnectionCard(ctx, id, decisionAnswer{Decision: "connected"}, nil)
 }
 
 // SettleProviderKeys answers every pending Composio key card once a key is
@@ -438,14 +438,15 @@ func (s *Service) SettleProviderKeys(ctx context.Context) error {
 	}
 	var settleErr error
 	for _, id := range ids {
-		settleErr = errors.Join(settleErr, s.answerConnectionCard(ctx, id, "configured"))
+		settleErr = errors.Join(settleErr, s.answerConnectionCard(ctx, id, decisionAnswer{Decision: "configured"}, nil))
 	}
 	return settleErr
 }
 
 // answerConnectionCard answers one pending card on its decider's behalf with
-// what happened outside it, and hands the answer to its Agent.
-func (s *Service) answerConnectionCard(ctx context.Context, id, decision string) error {
+// what happened outside it, records result when it is set, and hands the
+// answer to its Agent.
+func (s *Service) answerConnectionCard(ctx context.Context, id string, answer decisionAnswer, result []byte) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -455,14 +456,14 @@ func (s *Service) answerConnectionCard(ctx context.Context, id, decision string)
 	if err != nil || !live {
 		return err
 	}
-	answer, err := json.Marshal(decisionAnswer{Decision: decision})
+	encoded, err := json.Marshal(answer)
 	if err != nil {
 		return err
 	}
 	var alterEgo bool
-	err = tx.QueryRow(ctx, `UPDATE decisions SET status='answered', answer=$2::jsonb,
+	err = tx.QueryRow(ctx, `UPDATE decisions SET status='answered', answer=$2::jsonb, result=coalesce($3::jsonb,result),
  decided_at=clock_timestamp(), decided_by_actor_id=decider_actor_id, finished_at=clock_timestamp()
- WHERE id=$1 AND status='pending' RETURNING alter_ego_task_id IS NOT NULL`, id, answer).Scan(&alterEgo)
+ WHERE id=$1 AND status='pending' RETURNING alter_ego_task_id IS NOT NULL`, id, encoded, result).Scan(&alterEgo)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}

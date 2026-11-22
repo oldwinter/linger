@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentruntimestate"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/realtime"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
@@ -134,6 +135,40 @@ func TestRunStopsWorkingOnceItReplied(t *testing.T) {
 	working(false)
 
 	// A follow-up newer than the reply is work the Agent has not answered.
-	acceptTrustedSteerGroup(t, env, runID, "run-replied-follow-up", "steer-run-replied")
+	if !lastRunStatusAnnouncementReplied(t, env.pool, roomID, runID) {
+		t.Fatal("the Room was not told the Run replied")
+	}
+	group := acceptTrustedSteerGroup(t, env, runID, "run-replied-follow-up", "steer-run-replied")
 	working(true)
+	// The Agent may answer it without another event, so taking the follow-up
+	// tells the Room the Run is working again.
+	if err := env.service.AssignSteerRun(ctx, agentruntimestate.AssignSteerRunInput{ContextKey: env.contextKey, Epoch: env.epoch, GroupID: group, RunID: runID}); err != nil {
+		t.Fatalf("assign steer: %v", err)
+	}
+	if lastRunStatusAnnouncementReplied(t, env.pool, roomID, runID) {
+		t.Fatal("the Room was not told the follow-up took back the reply")
+	}
+	// The provider refused the steer, so the follow-up moves to a Run of its
+	// own and the first Run is back to its reply.
+	queued, err := env.service.EnqueueSteer(ctx, agentruntimestate.EnqueueSteerInput{ContextKey: env.contextKey, Epoch: env.epoch, GroupID: group})
+	if err != nil || queued.RunID == "" || queued.RunID == runID {
+		t.Fatalf("enqueue steer: result=%+v err=%v", queued, err)
+	}
+	if !lastRunStatusAnnouncementReplied(t, env.pool, roomID, runID) {
+		t.Fatal("the Room was not told the Run replied again once the follow-up moved")
+	}
+}
+
+// lastRunStatusAnnouncementReplied returns whether the Run's latest
+// agent_run.status_changed Room Event says it replied.
+func lastRunStatusAnnouncementReplied(t *testing.T, pool *pgxpool.Pool, roomID, runID string) bool {
+	t.Helper()
+	var replied bool
+	if err := pool.QueryRow(t.Context(), `
+		SELECT (payload->'run'->>'replied')::boolean FROM room_events
+		WHERE room_id=$1 AND event_type='agent_run.status_changed' AND resource_id=$2
+		ORDER BY room_seq DESC LIMIT 1`, roomID, runID).Scan(&replied); err != nil {
+		t.Fatal(err)
+	}
+	return replied
 }

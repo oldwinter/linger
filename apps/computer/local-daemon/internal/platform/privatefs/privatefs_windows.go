@@ -153,13 +153,44 @@ func validateHandle(file *os.File, kind string, ownerOnly bool) error {
 	return validateDescriptor(sd, ownerOnly)
 }
 
+// privateOwner reports whether owner may own the current user's private path:
+// the user, or BUILTIN\Administrators when the user is an administrator. That
+// group owns what an elevated process creates (Run as administrator, the
+// built-in Administrator). It is already trusted on every ancestor and in
+// private ACLs, and an administrator can take ownership of any file, so
+// accepting it trusts no other account. Git for Windows decides ownership the
+// same way.
+func privateOwner(owner, user *windows.SID) bool {
+	return owner != nil && (windows.EqualSid(owner, user) ||
+		owner.IsWellKnown(windows.WinBuiltinAdministratorsSid) && currentUserIsAdministrator())
+}
+
+// currentUserIsAdministrator reports whether this process's token, or the
+// elevated token UAC links to it, has Administrators enabled.
+var currentUserIsAdministrator = func() bool {
+	administrators, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	if err != nil {
+		return false
+	}
+	if member, err := windows.Token(0).IsMember(administrators); err == nil && member {
+		return true
+	}
+	linked, err := windows.GetCurrentProcessToken().GetLinkedToken()
+	if err != nil {
+		return false
+	}
+	defer linked.Close()
+	member, err := linked.IsMember(administrators)
+	return err == nil && member
+}
+
 func validateDescriptor(sd *windows.SECURITY_DESCRIPTOR, ownerOnly bool) error {
 	user, err := CurrentSID()
 	if err != nil {
 		return err
 	}
 	owner, _, err := sd.Owner()
-	if err != nil || owner == nil || !windows.EqualSid(owner, user) {
+	if err != nil || !privateOwner(owner, user) {
 		return errors.New("private path is not owned by the current user")
 	}
 	dacl, _, err := sd.DACL()
@@ -350,7 +381,7 @@ func EnsureDir(path string) error {
 	}
 	owner, _, err := sd.Owner()
 	current, currentErr := CurrentSID()
-	if err != nil || currentErr != nil || owner == nil || !windows.EqualSid(owner, current) {
+	if err != nil || currentErr != nil || !privateOwner(owner, current) {
 		return errors.New("private directory belongs to another user")
 	}
 	desired, err := SecurityDescriptor()
@@ -410,7 +441,7 @@ func protectFile(path string) error {
 	}
 	owner, _, err := sd.Owner()
 	current, currentErr := CurrentSID()
-	if err != nil || currentErr != nil || owner == nil || !windows.EqualSid(owner, current) {
+	if err != nil || currentErr != nil || !privateOwner(owner, current) {
 		return errors.New("private file belongs to another user")
 	}
 	desired, err := SecurityDescriptor()

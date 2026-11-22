@@ -11,6 +11,8 @@ import {
 } from "./voice-control-storage";
 import { releaseVoiceSession } from "./voice-session-release";
 import type { VoiceControlState, VoiceTarget } from "./use-voice-control-state";
+import { translate } from "@/i18n/language";
+import { recordingMessages as m } from "./recording.messages";
 
 /**
  * Releases the VoiceSession when the page goes away and disconnects the bound
@@ -120,7 +122,7 @@ export function useVoiceSessionLifecycle(
 
   const disconnectDevice = useCallback(async () => {
     if (refs.captureRef.current && isActiveCapture(refs.captureRef.current)) {
-      throw new Error("Stop the recording before disconnecting the microphone");
+      throw new Error(translate(m.stopBeforeDisconnect));
     }
     const session = refs.voiceSessionRef.current;
     refs.startControllerRef.current?.abort();

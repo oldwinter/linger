@@ -302,6 +302,46 @@ it("resumes an interrupted transfer with a range request", async () => {
   expect(await readFile(output)).toEqual(bytes);
 });
 
+it.each([false, true])(
+  "restarts with a full response when the server ignores Range (resumable=%s)",
+  async (resumable) => {
+    const root = await mkdtemp(path.join(tmpdir(), "linger-download-"));
+    roots.push(root);
+    const output = path.join(root, "kit.tgz");
+    const bytes = Buffer.from("complete verified archive");
+    const ranges: (string | null)[] = [];
+    await downloadVerified(
+      {
+        url: "https://example.com/kit.tgz",
+        output,
+        digest: createHash("sha256").update(bytes).digest("hex"),
+        algorithm: "sha256",
+        maxBytes: 100,
+        resumable,
+        signal: new AbortController().signal,
+      },
+      async (_url, init) => {
+        const range = new Headers(init?.headers).get("range");
+        ranges.push(range);
+        if (range) return new Response(bytes);
+        let pulls = 0;
+        return new Response(
+          new ReadableStream({
+            pull(controller) {
+              if (pulls++ === 0) controller.enqueue(Buffer.from("stale"));
+              else controller.error(new Error("interrupted"));
+            },
+          }),
+        );
+      },
+      fast,
+    );
+    expect(ranges).toEqual([null, "bytes=5-"]);
+    expect(await readFile(output)).toEqual(bytes);
+    expect(await readdir(root)).toEqual(["kit.tgz"]);
+  },
+);
+
 it("continues a stalled transfer on the mirror before retrying the first host", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "linger-download-"));
   roots.push(root);

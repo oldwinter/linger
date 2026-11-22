@@ -187,9 +187,12 @@ const versions = (registry: TestLocalComputerRegistry) =>
 describe("Runner Gateway local models", () => {
   // A Computer sends runner.local_models only when the welcome names the
   // family; a release before 0.52.0 rejects the unknown welcome key, so it
-  // is welcomed without it and keeps receiving its target_release.
+  // is welcomed without it and keeps receiving its target_release. BYOK
+  // paths are named only to a release that decodes them.
   it.each([
-    ["dev", ["local_models"]],
+    ["dev", ["local_models", "byok_endpoint"]],
+    ["0.56.0", ["local_models", "byok_endpoint"]],
+    ["0.55.0", ["local_models"]],
     ["0.52.0", ["local_models"]],
     ["0.51.0", undefined],
   ])(

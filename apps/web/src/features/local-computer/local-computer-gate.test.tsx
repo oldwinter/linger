@@ -1,4 +1,8 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  focusManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import {
   act,
   fireEvent,
@@ -144,6 +148,46 @@ describe("Local Computer gate", () => {
     expect(screen.getByText("Shell content").closest("[inert]")).not.toBeNull();
   });
 
+  it("keeps polling while the page is hidden so a preloaded desktop window leaves the gate", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fixture = await renderShell({
+      ...newMac,
+      runtimes: [
+        {
+          models: [{ id: "claude-sonnet", label: "Claude Sonnet" }],
+          status: "ready",
+          type: "claude",
+          version: "2.1.0",
+        },
+      ],
+    });
+    expect(await screen.findByText(/Creating your Another Me/)).toBeVisible();
+    act(() => focusManager.setFocused(false));
+    const server = fixture.runtime.server;
+    const anotherMeGets = () =>
+      server.requestsTo("GET", "/v0/tenants/{tenantId}/another-me").length;
+    const computerGets = () =>
+      server.requestsTo("GET", "/v0/tenants/{tenantId}/local-computers").length;
+    const before = { anotherMe: anotherMeGets(), computers: computerGets() };
+
+    await act(() => vi.advanceTimersByTimeAsync(3_100));
+    await act(() => vi.advanceTimersByTimeAsync(3_100));
+
+    expect(anotherMeGets()).toBeGreaterThanOrEqual(before.anotherMe + 2);
+    expect(computerGets()).toBeGreaterThanOrEqual(before.computers + 2);
+
+    fixture.anotherMe = {
+      agent_actor_id: "actor-anotherme",
+      room_id: "room-another-me",
+    };
+    await act(() => vi.advanceTimersByTimeAsync(3_100));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Connect your computer" }),
+      ).toBeNull(),
+    );
+  });
+
   it("waits for the CLI login while no Computer is connected", async () => {
     await renderShell();
 
@@ -223,10 +267,12 @@ async function renderShell(
   const runtime = createTestTeamHubRuntime();
   const fixture: {
     anotherMe: { agent_actor_id?: string; room_id?: string };
+    runtime: typeof runtime;
     queryClient: QueryClient;
     router: ReturnType<typeof createMemoryRouter>;
   } = {
     anotherMe: {},
+    runtime,
     queryClient: new QueryClient({
       defaultOptions: { queries: { retry: false } },
     }),

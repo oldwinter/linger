@@ -9,6 +9,7 @@ import { runtimeStatusLabels } from "@/features/local-computer/computer-readines
 import { localComputersQueryKey } from "@/features/local-computer/local-computer-queries";
 import { LocalRuntimeAuthenticationGuidance } from "@/features/local-computer/local-runtime-authentication-guidance";
 import { LocalRuntimeInstallGuidance } from "@/features/local-computer/local-runtime-install-guidance";
+import { localRuntimeMessage } from "@/features/local-computer/local-runtime-message";
 import { localModelsQueryOptions } from "@/features/local-models/local-models-queries";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type {
@@ -17,14 +18,19 @@ import type {
   TeamHubTenantAgent,
   TeamHubTenantAgentUpdateInput,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import type { Translate } from "@/i18n/language";
+import { RichMessage, useT } from "@/i18n/use-translation";
+
+import { createAgentMessages } from "../create-agent.messages";
 
 import {
   agentRuntimeUpdate,
   describeMissingDefault,
   type LocalComputer,
-  OFFLINE_COMPUTER_HINT,
   runtimeLabels,
 } from "./agent-move-target";
+import { agentRuntimeMessages } from "./agent-runtime.messages";
 import { useAgentMoveTarget } from "./use-agent-move-target";
 import { reasoningEffortLabel } from "./use-agent-model-selection";
 
@@ -38,9 +44,6 @@ export type AgentRuntimeField = "computer" | "runtime" | "model" | "reasoning";
 export interface AgentRuntimeUpdateInput {
   runtime: Runtime;
 }
-
-export const agentMoveHint =
-  "Moving starts a new native Runtime session on the new computer. Local files stay on the old computer.";
 
 export function EditAgentRuntimeDialog({
   busy = false,
@@ -64,6 +67,7 @@ export function EditAgentRuntimeDialog({
   registration: TeamHubTenantAgent;
   tenantId: string;
 }) {
+  const t = useT();
   const formId = useId();
   const computers = useQuery({
     queryFn: () => client.listTenantLocalComputers(tenantId),
@@ -102,6 +106,19 @@ export function EditAgentRuntimeDialog({
     computers.isError || (!loading && (!computer || (!moving && !grant)));
   const canSave = Boolean(modelIsAvailable && localReady && target);
 
+  const modelsLink = (text: string) =>
+    selection.computerId ? (
+      <LocalModelsLink
+        computerId={selection.computerId}
+        onNavigate={onClose}
+        tenantId={tenantId}
+      >
+        {text}
+      </LocalModelsLink>
+    ) : (
+      text
+    );
+
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!canSave || !target || isPending || busy) return;
@@ -112,11 +129,11 @@ export function EditAgentRuntimeDialog({
     <ModalDialog
       onClose={onClose}
       size="md"
-      title="Runtime settings"
+      title={t(agentRuntimeMessages.title)}
       footer={
         <>
           <Button onClick={onClose} type="button">
-            Cancel
+            {t(commonMessages.cancel)}
           </Button>
           <Button
             disabled={busy || isPending || loading || unavailable || !canSave}
@@ -125,7 +142,11 @@ export function EditAgentRuntimeDialog({
             tone="primary"
             type="submit"
           >
-            {moving ? "Move Agent" : "Save Runtime"}
+            {t(
+              moving
+                ? agentRuntimeMessages.moveAgent
+                : agentRuntimeMessages.saveRuntime,
+            )}
           </Button>
         </>
       }
@@ -136,13 +157,15 @@ export function EditAgentRuntimeDialog({
           disabled={isPending || loading}
         >
           <label className="block">
-            <span className="mb-1.5 block text-sm font-medium">Computer</span>
+            <span className="mb-1.5 block text-sm font-medium">
+              {t(agentRuntimeMessages.computer)}
+            </span>
             <Select
-              aria-label="Agent computer"
+              aria-label={t(agentRuntimeMessages.computerLabel)}
               className="ui-field-control w-full"
               disabled={placementLocked}
               onValueChange={selection.selectComputer}
-              placeholder="Choose a computer"
+              placeholder={t(agentRuntimeMessages.chooseComputer)}
               value={selection.computerId}
             >
               {(computers.data?.items ?? []).map((item) => (
@@ -151,47 +174,55 @@ export function EditAgentRuntimeDialog({
                   key={item.computer_id}
                   value={item.computer_id}
                 >
-                  {computerOptionLabel(item)}
+                  {computerOptionLabel(item, t)}
                 </SelectItem>
               ))}
             </Select>
           </label>
           <label className="block">
-            <span className="mb-1.5 block text-sm font-medium">Runtime</span>
+            <span className="mb-1.5 block text-sm font-medium">
+              {t(agentRuntimeMessages.runtime)}
+            </span>
             <Select
-              aria-label="Agent runtime"
+              aria-label={t(agentRuntimeMessages.runtimeLabel)}
               className="ui-field-control w-full"
               disabled={placementLocked}
               onValueChange={(value) =>
                 selection.selectRuntime(value as TeamHubLocalRuntimeType)
               }
-              placeholder="Choose a runtime"
+              placeholder={t(agentRuntimeMessages.chooseRuntime)}
               value={selection.runtimeType}
             >
               {(computer?.runtimes ?? []).map((item) => (
                 <SelectItem key={item.type} value={item.type}>
-                  {runtimeLabels[item.type]}
                   {item.status === "ready"
-                    ? ""
-                    : ` · ${runtimeStatusLabels[item.status]}`}
+                    ? runtimeLabels[item.type]
+                    : t(agentRuntimeMessages.runtimeNotReady, {
+                        runtime: runtimeLabels[item.type],
+                        status: t(runtimeStatusLabels[item.status]),
+                      })}
                 </SelectItem>
               ))}
             </Select>
           </label>
           <div className="space-y-1.5">
             <label className="block">
-              <span className="mb-1.5 block text-sm font-medium">Model</span>
+              <span className="mb-1.5 block text-sm font-medium">
+                {t(agentRuntimeMessages.model)}
+              </span>
               <Select
-                aria-label="Agent model"
+                aria-label={t(agentRuntimeMessages.modelLabel)}
                 className="ui-field-control w-full"
                 disabled={field === "reasoning"}
                 onValueChange={selection.selectModel}
-                placeholder="No models available"
+                placeholder={t(agentRuntimeMessages.noModels)}
                 value={model}
               >
                 {model && !modelIsAvailable ? (
                   <SelectItem value={model} disabled>
-                    {unavailableModelLabel} · Unavailable
+                    {t(agentRuntimeMessages.unavailableOption, {
+                      name: unavailableModelLabel,
+                    })}
                   </SelectItem>
                 ) : null}
                 {selection.modelOptions.map((item) => (
@@ -208,13 +239,10 @@ export function EditAgentRuntimeDialog({
             localReady &&
             selection.modelOptions.length > 0 ? (
               <p className="text-xs text-muted-foreground">
-                Manage downloaded models in{" "}
-                <LocalModelsLink
-                  computerId={selection.computerId}
-                  onNavigate={onClose}
-                  tenantId={tenantId}
+                <RichMessage
+                  message={createAgentMessages.manageModels}
+                  tags={{ link: modelsLink }}
                 />
-                .
               </p>
             ) : null}
           </div>
@@ -226,27 +254,27 @@ export function EditAgentRuntimeDialog({
           />
           {busy ? (
             <p className="text-sm text-app-subtle" role="status">
-              Wait for this Agent to finish before saving changes.
+              {t(agentRuntimeMessages.waitForAgent)}
             </p>
           ) : null}
           {moving && computer ? (
             <p className="text-sm text-app-subtle" role="status">
-              {agentMoveHint}
+              {t(agentRuntimeMessages.moveHint)}
             </p>
           ) : null}
           {computer?.status === "offline" && !computer.upgrade_required ? (
             <p className="text-sm text-app-subtle" role="status">
-              {OFFLINE_COMPUTER_HINT}
+              {t(createAgentMessages.offlineComputerHint)}
             </p>
           ) : null}
           {moving && computer && !selection.runtimeType ? (
             <p className="text-sm text-app-danger" role="alert">
-              {describeMissingDefault(registration, [computer])}
+              {describeMissingDefault(registration, [computer], t)}
             </p>
           ) : null}
           {noWritableGrant ? (
             <p className="text-sm text-app-danger" role="alert">
-              This computer has no writable workspace. Choose another computer.
+              {t(agentRuntimeMessages.noWritableWorkspace)}
             </p>
           ) : null}
           {!loading &&
@@ -254,9 +282,11 @@ export function EditAgentRuntimeDialog({
           !modelIsAvailable &&
           runtime?.status === "ready" ? (
             <p className="text-sm text-app-danger" role="alert">
-              {selection.modelOptions.length
-                ? "The current model is unavailable. Choose another model."
-                : "No models are available for this runtime."}
+              {t(
+                selection.modelOptions.length
+                  ? agentRuntimeMessages.currentModelUnavailable
+                  : agentRuntimeMessages.noRuntimeModels,
+              )}
             </p>
           ) : null}
           {!localReady && !loading && !unavailable && computer && runtime ? (
@@ -268,24 +298,21 @@ export function EditAgentRuntimeDialog({
           !unavailable &&
           (!localReady || selection.modelOptions.length === 0) ? (
             <p className="text-xs text-muted-foreground">
-              Download and load a local model in{" "}
-              <LocalModelsLink
-                computerId={selection.computerId}
-                onNavigate={onClose}
-                tenantId={tenantId}
-              />{" "}
-              to run Agents with Pi on this computer.
+              <RichMessage
+                message={createAgentMessages.downloadModel}
+                tags={{ link: modelsLink }}
+              />
             </p>
           ) : null}
           {unavailable ? (
             <p className="text-sm text-app-danger" role="alert">
-              Runtime options are unavailable.
+              {t(agentRuntimeMessages.optionsUnavailable)}
               <button
                 className="ml-2 underline"
                 type="button"
                 onClick={() => void computers.refetch()}
               >
-                Retry
+                {t(commonMessages.retry)}
               </button>
             </p>
           ) : null}
@@ -310,6 +337,7 @@ function RuntimeSetupGuidance({
   computer: LocalComputer;
   runtime: LocalComputer["runtimes"][number];
 }) {
+  const t = useT();
   if (runtime.status === "not_installed")
     return (
       <div role="status">
@@ -331,22 +359,28 @@ function RuntimeSetupGuidance({
           runtimeType={runtime.type}
         />
         <p className="mt-1 text-muted-foreground">
-          It turns ready here on its own shortly after you sign in.
+          {t(agentRuntimeMessages.readyAfterSignIn)}
         </p>
       </div>
     );
   return (
-    <p className="text-sm text-app-danger" role="alert">
-      {runtime.message ??
-        "Install and sign in to this runtime on the computer, then wait for it to become ready."}
+    <p className="text-sm text-app-danger" role="alert" title={runtime.message}>
+      {localRuntimeMessage(runtime, runtime.type, computer.display_name, t) ??
+        t(agentRuntimeMessages.installAndSignIn)}
     </p>
   );
 }
 
-function computerOptionLabel(computer: LocalComputer) {
-  return `${computer.display_name} · ${
-    computer.status === "online" ? "Online" : "Offline"
-  }${computer.upgrade_required ? " · Upgrade required" : ""}`;
+function computerOptionLabel(computer: LocalComputer, t: Translate) {
+  const online = computer.status === "online";
+  const message = computer.upgrade_required
+    ? online
+      ? agentRuntimeMessages.computerOnlineUpgrade
+      : agentRuntimeMessages.computerOfflineUpgrade
+    : online
+      ? agentRuntimeMessages.computerOnline
+      : agentRuntimeMessages.computerOffline;
+  return t(message, { name: computer.display_name });
 }
 
 /* Model and Reasoning are separate choices. While the model's options can't
@@ -363,20 +397,25 @@ function ReasoningField({
   savedUnavailableEffort?: TeamHubAgentReasoningEffort;
   value?: TeamHubAgentReasoningEffort;
 }) {
+  const t = useT();
   if (!allowed?.length) {
     if (!savedUnavailableEffort) return null;
     return (
       <div>
-        <span className="mb-1.5 block text-sm font-medium">Reasoning</span>
+        <span className="mb-1.5 block text-sm font-medium">
+          {t(agentRuntimeMessages.reasoning)}
+        </span>
         <Select
-          aria-label="Agent reasoning effort"
+          aria-label={t(agentRuntimeMessages.reasoningLabel)}
           className="ui-field-control w-full"
           disabled
           onValueChange={() => {}}
           value={savedUnavailableEffort}
         >
           <SelectItem value={savedUnavailableEffort} disabled>
-            {reasoningEffortLabel(savedUnavailableEffort)} · Unavailable
+            {t(agentRuntimeMessages.unavailableOption, {
+              name: reasoningEffortLabel(savedUnavailableEffort, t),
+            })}
           </SelectItem>
         </Select>
       </div>
@@ -384,16 +423,18 @@ function ReasoningField({
   }
   return (
     <label className="block">
-      <span className="mb-1.5 block text-sm font-medium">Reasoning</span>
+      <span className="mb-1.5 block text-sm font-medium">
+        {t(agentRuntimeMessages.reasoning)}
+      </span>
       <Select
-        aria-label="Agent reasoning effort"
+        aria-label={t(agentRuntimeMessages.reasoningLabel)}
         className="ui-field-control w-full"
         onValueChange={(next) => onChange(next as TeamHubAgentReasoningEffort)}
         value={value ?? ""}
       >
         {allowed.map((effort) => (
           <SelectItem key={effort} value={effort}>
-            {reasoningEffortLabel(effort)}
+            {reasoningEffortLabel(effort, t)}
           </SelectItem>
         ))}
       </Select>
@@ -402,10 +443,12 @@ function ReasoningField({
 }
 
 function LocalModelsLink({
+  children,
   computerId,
   onNavigate,
   tenantId,
 }: {
+  children: string;
   computerId: string;
   onNavigate: () => void;
   tenantId: string;
@@ -417,7 +460,7 @@ function LocalModelsLink({
       onClick={onNavigate}
       to={to}
     >
-      Settings › Models
+      {children}
     </Link>
   );
 }

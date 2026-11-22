@@ -3,6 +3,8 @@ import { Icon } from "@/components/ui/icon";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { useT } from "@/i18n/use-translation";
+import { filePreviewMessages as m } from "./file-preview.messages";
 
 export function PreviewSessionExpiryNotice({
   expiresAt,
@@ -11,6 +13,7 @@ export function PreviewSessionExpiryNotice({
   expiresAt?: string;
   onRefresh: () => void;
 }) {
+  const t = useT();
   const [expiredAt, setExpiredAt] = useState<string>();
 
   useEffect(() => {
@@ -30,11 +33,9 @@ export function PreviewSessionExpiryNotice({
       className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-app-border bg-app-surface px-3 py-2"
       role="status"
     >
-      <p className="text-sm text-app-muted">
-        Preview expired. Refresh to load linked resources.
-      </p>
+      <p className="text-sm text-app-muted">{t(m.previewExpired)}</p>
       <Button onClick={onRefresh} size="compact" tone="secondary">
-        <Icon icon={RefreshIcon} size={14} /> Refresh preview
+        <Icon icon={RefreshIcon} size={14} /> {t(m.refreshPreview)}
       </Button>
     </div>
   );

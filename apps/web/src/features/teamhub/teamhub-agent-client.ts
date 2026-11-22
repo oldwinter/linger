@@ -37,7 +37,10 @@ export function createTeamHubAgentClient(
           ...computer,
           runtimes: computer.runtimes.filter(
             ({ type }) =>
-              type === "codex" || type === "claude" || type === "pi",
+              type === "codex" ||
+              type === "claude" ||
+              type === "pi" ||
+              type === "antigravity",
           ),
         })),
       };

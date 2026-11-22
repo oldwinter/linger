@@ -78,6 +78,8 @@ interface DeferredContextRestore<TRuntimeSettings> {
   readonly bootstrap: ContextBootstrap;
   readonly runtime: TRuntimeSettings;
   readonly retryAttempt: number;
+  /** Scheduled by a successful unbind cleanup, not by a failed activation. */
+  readonly afterUnbind?: boolean;
 }
 
 export interface ContextRestoreFailure<TRuntimeSettings> {
@@ -159,6 +161,11 @@ export interface ExecutorRegistryDependencies<TRuntimeSettings> {
    * timer-driven maintenance runs only on already active Contexts.
    */
   readonly canRunMaintenance?: (runtime: Readonly<TRuntimeSettings>) => boolean;
+  /**
+   * Hands a held Run wake back to the wake router once its Context can take
+   * it up, so a queued Message never waits for the periodic waiting-Run scan.
+   */
+  readonly redeliverWake?: (contextKey: string, kind: RunWakeKind) => void;
 }
 
 const IDENTITY_RETRY_INITIAL_DELAY_MS = 250;
@@ -251,6 +258,11 @@ export class ExecutorRegistry<
   );
   readonly #unboundContextKeys = new Set<string>();
   readonly #unboundStopAttempts = new Map<string, number>();
+  // Wakes a Context received while it was stopping for an unbind, replaced,
+  // or waiting for a deferred restore. The wake router delivered them once;
+  // without this they would wait for the periodic waiting-Run scan.
+  readonly #heldWakes = new Map<string, Set<RunWakeKind>>();
+  readonly #redeliverWake?: ExecutorRegistryDependencies<TRuntimeSettings>["redeliverWake"];
   readonly #restoreRetryDelayMs:
     | number
     | ((failure: ContextRestoreRetryFailure<TRuntimeSettings>) => number);
@@ -320,6 +332,7 @@ export class ExecutorRegistry<
     this.#features = options.features;
     this.#inspectDetachedHistory = options.inspectDetachedHistory;
     this.#canRunMaintenance = options.canRunMaintenance;
+    this.#redeliverWake = options.redeliverWake;
     this.#identityNotFoundGracePeriodMs =
       options.identityNotFoundGracePeriodMs ??
       IDENTITY_NOT_FOUND_GRACE_PERIOD_MS;
@@ -1983,12 +1996,21 @@ export class ExecutorRegistry<
       if (
         this.#closePromise ||
         this.#deletingAgents.has(ref.agentId) ||
-        this.#contexts.get(key) !== context ||
-        this.#terminalContextKeys.has(key) ||
-        this.#unboundContextKeys.has(key) ||
-        this.#deferredContextRestores.has(key)
+        this.#terminalContextKeys.has(key)
       )
         return;
+      const deferred = this.#deferredContextRestores.get(key);
+      if (
+        this.#contexts.get(key) !== context ||
+        this.#unboundContextKeys.has(key) ||
+        deferred?.afterUnbind
+      ) {
+        this.#holdWake(ref, kind);
+        return;
+      }
+      // A failure backoff stands; the restored Runtime reads its work, and
+      // the waiting-Run scan covers a restore that stays cold.
+      if (deferred) return;
       this.#contextLogger(ref).log("info", "activation.requested", {
         reason: "queued_input",
         kind,
@@ -2051,7 +2073,10 @@ export class ExecutorRegistry<
         if (record.terminalReason === undefined) {
           // Binding again is not proof that the previous resources were
           // cleaned up. Keep the unbind mark until cleanup succeeds.
-          if (!this.#contexts.has(key)) this.#unboundContextKeys.delete(key);
+          if (!this.#contexts.has(key)) {
+            this.#unboundContextKeys.delete(key);
+            this.#releaseHeldWakes(record.ref);
+          }
         }
         // Subscribers are synchronous notifications: enqueue, never await here.
         const operation = this.#agentLifecycle.runContext(
@@ -2115,6 +2140,7 @@ export class ExecutorRegistry<
     if (record.terminalReason !== undefined) {
       this.#terminalContextKeys.add(key);
       this.#unboundStopAttempts.delete(key);
+      this.#heldWakes.delete(key);
       this.#lazyRestoreReasons.delete(key);
       this.#clearRestoreRetry(record.ref);
       await this.#stopTerminalContext(record.ref, record.terminalReason);
@@ -2330,6 +2356,55 @@ export class ExecutorRegistry<
         contextKey: key,
       });
     }
+    if (failures.length === 0) {
+      const deferred = this.#deferredContextRestores.get(key);
+      if (deferred)
+        this.#deferredContextRestores.set(key, {
+          ...deferred,
+          afterUnbind: true,
+        });
+      this.#releaseHeldWakes(ref);
+    }
+  }
+
+  #holdWake(ref: Readonly<ExecutionContextRef>, kind: RunWakeKind): void {
+    const key = encodeExecutionContextRef(ref);
+    const kinds = this.#heldWakes.get(key) ?? new Set<RunWakeKind>();
+    kinds.add(kind);
+    this.#heldWakes.set(key, kinds);
+    this.#contextLogger(ref).log("info", "activation.wake_held", {
+      kind,
+      reason: this.#unboundContextKeys.has(key) ? "unbinding" : "replaced",
+    });
+    this.#releaseHeldWakes(ref);
+  }
+
+  /**
+   * Hands held wakes back to the wake router, which delivers them to the
+   * Context's current binding or claims the Context when none holds it. An
+   * unbind still stopping keeps them until its cleanup succeeds. That
+   * cleanup's own restore is not a failure backoff, so it starts at once.
+   */
+  #releaseHeldWakes(ref: Readonly<ExecutionContextRef>): void {
+    const key = encodeExecutionContextRef(ref);
+    const kinds = this.#heldWakes.get(key);
+    if (!kinds || this.#closePromise || this.#unboundContextKeys.has(key))
+      return;
+    this.#heldWakes.delete(key);
+    const deferred = this.#deferredContextRestores.get(key);
+    // A failure backoff stands: the restored Runtime reads its work.
+    if (deferred && !deferred.afterUnbind) return;
+    this.#contextLogger(ref).log("info", "activation.wake_released", {
+      kinds: [...kinds],
+      restoreStarted: deferred !== undefined,
+    });
+    if (deferred) {
+      // The restored binding registers for wakes and receives these.
+      clearTimeout(deferred.timer);
+      this.#deferredContextRestores.delete(key);
+      this.#launchRestoreRetry(deferred);
+    }
+    for (const kind of kinds) this.#redeliverWake?.(key, kind);
   }
 
   async #persistTargetResidency(
@@ -2795,6 +2870,7 @@ export class ExecutorRegistry<
     this.#preparationContextKeys.clear();
     this.#unboundContextKeys.clear();
     this.#unboundStopAttempts.clear();
+    this.#heldWakes.clear();
     this.#terminalContextKeys.clear();
     this.#terminalContextStops.clear();
     if (failures.length > 0) {

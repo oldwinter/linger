@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-var runtimeNames = map[string]string{"codex": "Codex", "claude": "Claude Code", "pi": "Pi"}
+var runtimeNames = map[string]string{"codex": "Codex", "claude": "Claude Code", "pi": "Pi", "antigravity": "Antigravity"}
 
 var runtimeStatuses = map[string]string{
 	"ready":                   "READY",
@@ -38,6 +38,11 @@ func installStep(runtimeType, goos string) string {
 		return "Install: curl -fsSL https://claude.ai/install.sh | bash"
 	case "codex":
 		return "Install Codex: https://github.com/openai/codex"
+	case "antigravity":
+		if goos == "windows" {
+			return "Install: irm https://antigravity.google/cli/install.ps1 | iex"
+		}
+		return "Install: curl -fsSL https://antigravity.google/cli/install.sh | bash"
 	default:
 		return "Install: npm install -g @earendil-works/pi-coding-agent"
 	}
@@ -47,6 +52,8 @@ var signInSteps = map[string]string{
 	"codex":  "Run codex login",
 	"claude": "Run claude auth login",
 	"pi":     "Run pi, then /login",
+	// agy signs in on its first interactive start.
+	"antigravity": "Run agy and sign in with Google, or set GEMINI_API_KEY",
 }
 
 func newRuntimeCheckRow(check runtimeCheck, goos string) runtimeCheckRow {

@@ -6,7 +6,7 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'none'; img-src 'self'; font-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
     />
-    <title>Set Up Linger</title>
+    <title data-t="pageTitle"></title>
     <style>
       @font-face {
         font-family: "Geist Variable";
@@ -25,6 +25,8 @@
         --field: #f4f4f0;
         --ok: #2f9e44;
         --error: #b5320a;
+        --filled: #9b9a90;
+        --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
         --ease: cubic-bezier(0.22, 1, 0.36, 1);
         color-scheme: light;
       }
@@ -714,47 +716,336 @@
         font-size: 12px;
         font-weight: 500;
       }
-      .byok-grid {
+      /* BYOK fields, built once by byokFields() for the setup form and the
+         sign-in dialog: the base URL and two optional comboboxes (path and
+         endpoint) on one row, the key, then the model with List models and
+         Test beside it, and one status line. */
+      .byok-fields {
         display: grid;
         gap: 7px;
+        font-size: 12px;
+        text-align: left;
       }
-      .byok-grid input,
-      .signin-byok input,
-      .signin-byok select {
-        width: 100%;
+      .byok-fields .ep {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        gap: 6px;
+      }
+      .byok-fields .ep-base-wrap,
+      .byok-fields .ep > .cb,
+      .byok-fields .cb.standalone,
+      .byok-fields .byok-key {
+        display: flex;
+        align-items: center;
+        min-width: 0;
         height: 30px;
-        padding: 0 10px;
+        padding: 0 4px 0 10px;
         border: 1px solid #e2e2dc;
         border-radius: 8px;
         background: #fafaf8;
+        transition:
+          border-color 140ms ease,
+          background-color 140ms ease;
+      }
+      .byok-fields .byok-key {
+        width: 100%;
+        padding-right: 10px;
         color: var(--ink);
         font: inherit;
-        font-size: 12px;
+        user-select: text;
+        -webkit-user-select: text;
       }
-      .byok-grid input:focus,
-      .signin-byok input:focus,
-      .signin-byok select:focus {
+      .byok-fields .ep-base-wrap:focus-within,
+      .byok-fields .ep > .cb:focus-within,
+      .byok-fields .cb.standalone:focus-within,
+      .byok-fields .byok-key:focus {
         outline: none;
         border-color: var(--ink);
         background: #fff;
       }
-      .byok-actions {
-        display: flex;
+      .ep-base,
+      .cb-input {
+        flex: 1 1 auto;
+        width: 100%;
+        min-width: 0;
+        height: 100%;
+        padding: 0;
+        border: 0;
+        outline: none;
+        background: transparent;
+        color: var(--ink);
+        font: inherit;
+        text-overflow: ellipsis;
+        user-select: text;
+        -webkit-user-select: text;
+      }
+      /* Path and endpoint boxes are as wide as their value; the base URL
+         takes the rest of the row. */
+      .ep > .cb .cb-input {
+        field-sizing: content;
+        width: auto;
+        min-width: 1ch;
+        max-width: 17ch;
+      }
+      .byok-fields input::placeholder {
+        color: var(--faint);
+      }
+      .cb-input::placeholder {
+        font-style: italic;
+      }
+      /* Grey: the default Linger fills in, which is still sent. */
+      .cb[data-default="true"] .cb-input {
+        color: var(--filled);
+      }
+      .cb[data-default="true"] .cb-input:focus {
+        color: #77766c;
+      }
+
+      /* Combobox: type anything, or pick from the list. */
+      .cb {
+        position: relative;
+      }
+      .cb-caret {
+        display: grid;
+        flex: none;
+        place-items: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        border: 0;
+        border-radius: 5px;
+        background: none;
+        color: var(--faint);
+      }
+      .cb-caret:hover:not(:disabled),
+      .cb[data-open="true"] .cb-caret {
+        background: rgba(20, 20, 16, 0.06);
+        color: var(--muted);
+      }
+      .cb-menu {
+        position: absolute;
+        top: calc(100% + 5px);
+        left: -1px;
+        z-index: 30;
+        display: grid;
+        gap: 1px;
+        min-width: calc(100% + 2px);
+        width: max-content;
+        max-width: min(320px, 86vw);
+        max-height: 252px;
+        overflow-y: auto;
+        padding: 4px;
+        border: 1px solid rgba(20, 20, 16, 0.08);
+        border-radius: 11px;
+        background: #fff;
+        box-shadow: 0 16px 36px -14px rgba(20, 20, 16, 0.35);
+        font-size: 12px;
+        line-height: 1.4;
+        cursor: default;
+        animation: menu-in 160ms var(--ease);
+      }
+      .cb-menu[hidden] {
+        display: none;
+      }
+      .ep > .cb .cb-menu {
+        left: auto;
+        right: -1px;
+      }
+      @keyframes menu-in {
+        from {
+          opacity: 0;
+          transform: translateY(-3px);
+        }
+      }
+      .cb-menu [role="option"] {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 16px;
         align-items: center;
-        justify-content: space-between;
-        gap: 10px;
+        gap: 1px 10px;
+        padding: 6px 8px;
+        border: 0;
+        border-radius: 7px;
+        background: none;
+        text-align: left;
+      }
+      .cb-menu [role="option"]:hover,
+      .cb-menu [role="option"]:focus-visible {
+        background: #f4f4f0;
+        outline: none;
+      }
+      .opt-main {
+        color: var(--ink);
+        font: 500 12px var(--mono);
+        overflow-wrap: anywhere;
+      }
+      .opt-label {
+        grid-column: 1;
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+      .opt-label em {
+        margin-left: 6px;
+        color: #d9822b;
+        font-style: normal;
+        font-weight: 500;
+      }
+      .opt-check {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+        visibility: hidden;
+        color: var(--ink);
+      }
+      [aria-selected="true"] > .opt-check {
+        visibility: visible;
+      }
+      .cb-head {
+        padding: 5px 8px 3px;
+        color: var(--faint);
+        font-size: 11px;
+        font-weight: 500;
+      }
+      .cb-note {
+        max-width: 300px;
+        padding: 7px 8px;
+        color: var(--muted);
+        font-size: 11.5px;
+        overflow-wrap: anywhere;
+      }
+      .cb-note[data-tone="err"] {
+        color: var(--error);
+      }
+
+      /* The model box, with List models and Test beside it; the test
+         result floats under Test. */
+      .model-row {
+        position: relative;
+        display: flex;
+        gap: 6px;
+      }
+      .model-row > .cb {
+        flex: 1;
+      }
+      .model-row > .change {
+        height: 30px;
+      }
+      .model-row > .list-btn {
+        display: grid;
+        place-items: center;
+        width: 30px;
+        padding: 0;
+        color: var(--muted);
+      }
+      .model-row > .list-btn:hover:not(:disabled) {
+        color: var(--ink);
+      }
+      .list-btn[data-busy="true"] svg {
+        animation: spin 0.9s linear infinite;
+      }
+      .byok-toast {
+        position: absolute;
+        top: calc(100% + 9px);
+        right: 0;
+        z-index: 40;
+        display: grid;
+        grid-template-columns: 16px minmax(0, 1fr) 20px;
+        align-items: start;
+        gap: 8px;
+        width: min(330px, 100%);
+        padding: 10px 8px 10px 12px;
+        border-radius: 10px;
+        background: #1f1f1d;
+        color: #c9c8bf;
+        box-shadow: 0 14px 32px -10px rgba(20, 20, 16, 0.5);
+        font-size: 12px;
+        line-height: 1.45;
+        text-align: left;
+        user-select: text;
+        -webkit-user-select: text;
+        animation: toast-in 180ms var(--ease);
+      }
+      .byok-toast[hidden] {
+        display: none;
+      }
+      .byok-toast::before {
+        content: "";
+        position: absolute;
+        top: -4px;
+        right: 22px;
+        width: 9px;
+        height: 9px;
+        border-radius: 2px;
+        background: inherit;
+        transform: rotate(45deg);
+      }
+      .byok-toast[data-leaving="true"] {
+        animation: toast-out 200ms ease forwards;
+      }
+      @keyframes toast-in {
+        from {
+          opacity: 0;
+          transform: translateY(-4px);
+        }
+      }
+      @keyframes toast-out {
+        to {
+          opacity: 0;
+          transform: translateY(-4px);
+        }
+      }
+      /* Over the setup form's own .choice strong. */
+      .byok-fields .byok-toast strong {
+        display: block;
+        color: #fff;
+        font-size: 12.5px;
+        font-weight: 550;
+      }
+      .byok-toast .url {
+        color: #ecebe3;
+      }
+      .toast-icon {
+        display: grid;
+        margin-top: 1px;
+      }
+      .byok-toast[data-tone="ok"] .toast-icon {
+        color: #74d08b;
+      }
+      .byok-toast[data-tone="err"] .toast-icon {
+        color: #ff9466;
+      }
+      .toast-close {
+        display: grid;
+        place-items: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        border: 0;
+        border-radius: 5px;
+        background: none;
+        color: #8f8e85;
+      }
+      .toast-close:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.08);
+        color: #fff;
       }
       .byok-status {
-        flex: 1;
         color: var(--faint);
         font-size: 11.5px;
-        line-height: 1.35;
+        line-height: 1.4;
+        overflow-wrap: anywhere;
       }
-      .byok-status[data-state="ready"] {
-        color: #2b7a3d;
-      }
-      .byok-status[data-state="failed"] {
+      .byok-status[data-tone="err"] {
         color: var(--error);
+      }
+      .byok-status .url {
+        color: var(--muted);
+      }
+      .byok-status[data-tone] .url {
+        color: inherit;
+      }
+      .byok-fields .url {
+        font-family: var(--mono);
+        font-size: 0.95em;
+        overflow-wrap: anywhere;
       }
       .choice.optional-keys {
         display: block;
@@ -772,14 +1063,6 @@
       .choice.optional-keys[open] summary {
         margin-bottom: 8px;
         color: var(--ink);
-      }
-      .signin-byok {
-        display: grid;
-        gap: 8px;
-        margin-top: 10px;
-        padding-top: 10px;
-        border-top: 1px solid #ecece7;
-        text-align: left;
       }
       .choices,
       .panel {
@@ -1222,6 +1505,7 @@
       .signin-modal .waiting {
         display: flex;
         align-items: center;
+        margin-bottom: 4px;
         color: var(--ink);
       }
       .signin-modal .device-code strong {
@@ -1238,6 +1522,61 @@
       .signin-modal .problem {
         width: auto;
         margin: 0 0 14px;
+      }
+      .signin-modal .hint {
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+      /* No browser opened: the link below is the way on. */
+      .signin-modal .no-browser {
+        padding: 8px 10px;
+        border: 1px solid #f1e3c4;
+        border-radius: 10px;
+        background: #fdf9ef;
+        color: #6b5413;
+      }
+      .signin-modal .device-code {
+        margin-bottom: 12px;
+      }
+      .signin-modal .device-code p {
+        margin: 0;
+      }
+      .signin-modal .copy-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 4px 0;
+      }
+      .signin-modal .copy-row strong {
+        flex: 1;
+      }
+      .signin-modal .signin-link {
+        margin-bottom: 12px;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--field);
+      }
+      .signin-modal .signin-link .label {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .signin-modal .signin-link code {
+        display: block;
+        overflow: hidden;
+        margin-bottom: 8px;
+        color: var(--ink);
+        font: 11.5px var(--mono);
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        user-select: all;
+        -webkit-user-select: all;
+      }
+      .signin-modal .signin-link .buttons {
+        display: flex;
+        gap: 8px;
       }
       .signin-modal .actions {
         display: flex;
@@ -1277,11 +1616,11 @@
       .signin-modal details p {
         margin: 8px 0;
       }
-      .signin-modal form {
+      .signin-modal details form {
         display: flex;
         gap: 8px;
       }
-      .signin-modal input {
+      .signin-modal details input {
         flex: 1;
         min-width: 0;
         padding: 5px 10px;
@@ -1291,19 +1630,14 @@
       }
       .signin-byok {
         display: grid;
-        gap: 7px;
+        gap: 10px;
         margin-top: 8px;
         padding-top: 10px;
         border-top: 1px solid var(--line);
       }
-      .signin-byok .seg {
-        width: 100%;
-      }
-      .signin-byok .seg button {
-        flex: 1;
-      }
-      .signin-byok input {
-        width: 100%;
+      /* The BYOK fields take the room they have on the setup form. */
+      .signin-modal .sheet:has(.signin-byok:not([hidden])) {
+        width: 448px;
       }
       .diagnostics {
         display: flex;
@@ -1538,33 +1872,41 @@
           ><svg viewBox="0 0 24 24">
             <rect x="5" y="11" width="14" height="9" rx="2" />
             <path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg
-          >Private to this computer</span
-        >
-        <h1 id="welcome-title">Set up Linger</h1>
+          ><span data-t="welcomeEyebrow"></span
+        ></span>
+        <h1 id="welcome-title" data-t="welcomeTitle"></h1>
         <p class="lead tight" id="welcome-lead"></p>
         <div class="fold" id="local-options" data-open="false">
           <div>
             <div class="choices">
               <div class="choice">
                 <div class="text">
-                  <strong>Model source</strong
-                  ><span class="sub" id="source-sub"
-                    >Where your agents get their models.</span
-                  >
+                  <strong data-t="modelSource"></strong
+                  ><span
+                    class="sub"
+                    id="source-sub"
+                    data-t="modelSourceHint"
+                  ></span>
                 </div>
                 <div
                   class="seg"
                   role="radiogroup"
-                  aria-label="Model source"
+                  data-t-aria-label="modelSource"
                   data-plan="source"
                 >
                   <span class="knob"></span>
-                  <button type="button" role="radio" data-value="local">
-                    Local model
-                  </button>
-                  <button type="button" role="radio" data-value="subscription">
-                    Subscription
-                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    data-value="local"
+                    data-t="localModel"
+                  ></button>
+                  <button
+                    type="button"
+                    role="radio"
+                    data-value="subscription"
+                    data-t="subscription"
+                  ></button>
                   <button
                     type="button"
                     role="radio"
@@ -1573,17 +1915,18 @@
                     aria-describedby="byok-tip-text"
                   >
                     BYOK
-                    <span class="byok-tooltip" id="byok-tip-text" role="tooltip"
-                      >Bring Your Own Key — Connect your own OpenAI-compatible
-                      or Anthropic API endpoint, key, and model through Linger's
-                      local Bifrost gateway.</span
-                    >
+                    <span
+                      class="byok-tooltip"
+                      id="byok-tip-text"
+                      role="tooltip"
+                      data-t="byokTooltip"
+                    ></span>
                   </button>
                 </div>
               </div>
               <div class="choice local" id="local-row" hidden>
                 <div class="text">
-                  <strong>Local model</strong
+                  <strong data-t="localModel"></strong
                   ><span class="sub" id="local-sub"></span>
                 </div>
                 <button
@@ -1591,7 +1934,7 @@
                   class="pick"
                   id="local-model"
                   role="checkbox"
-                  aria-label="Run tasks on a local model"
+                  data-t-aria-label="localModelToggle"
                   hidden
                 >
                   <span id="local-model-name"></span
@@ -1600,19 +1943,26 @@
               </div>
               <div class="choice" id="subscription-row" hidden>
                 <div class="text">
-                  <strong>AI runtime</strong
-                  ><span class="sub" id="runtime-sub">Runs your tasks.</span>
+                  <strong data-t="aiRuntime"></strong
+                  ><span
+                    class="sub"
+                    id="runtime-sub"
+                    data-t="runtimeHint"
+                  ></span>
                 </div>
                 <div
                   class="seg"
                   role="radiogroup"
-                  aria-label="AI runtime"
+                  data-t-aria-label="aiRuntime"
                   data-plan="runtime"
                 >
                   <span class="knob"></span>
-                  <button type="button" role="radio" data-value="recommended">
-                    Auto
-                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    data-value="recommended"
+                    data-t="auto"
+                  ></button>
                   <button type="button" role="radio" data-value="codex">
                     Codex
                   </button>
@@ -1623,11 +1973,11 @@
               </div>
               <div class="choice byok-box" id="byok-row" hidden>
                 <div class="byok-row">
-                  <label>AI runtime</label>
+                  <label id="byok-runtime-label" data-t="aiRuntime"></label>
                   <div
                     class="seg"
                     role="radiogroup"
-                    aria-label="BYOK runtime"
+                    aria-labelledby="byok-runtime-label"
                     data-byok="runtime"
                   >
                     <span class="knob"></span>
@@ -1642,48 +1992,12 @@
                     </button>
                   </div>
                 </div>
-                <div class="byok-grid">
-                  <input
-                    id="byok-url"
-                    type="url"
-                    autocomplete="off"
-                    spellcheck="false"
-                    aria-label="BYOK endpoint URL"
-                    placeholder="Endpoint URL (https://… or http://192.168.…)"
-                  />
-                  <input
-                    id="byok-key"
-                    type="password"
-                    autocomplete="off"
-                    spellcheck="false"
-                    aria-label="BYOK API key"
-                    placeholder="API key (stored privately on this computer)"
-                  />
-                  <input
-                    id="byok-model"
-                    type="text"
-                    autocomplete="off"
-                    spellcheck="false"
-                    aria-label="BYOK model ID"
-                    placeholder="Model ID (e.g. gpt-5.4 or claude-sonnet-4-6)"
-                  />
-                </div>
-                <div class="byok-actions">
-                  <span class="byok-status" id="byok-status">
-                    Mounted on local Bifrost for all runtimes.
-                  </span>
-                  <button type="button" class="change" id="byok-check">
-                    Check
-                  </button>
-                </div>
+                <div class="byok-fields" id="byok-fields"></div>
               </div>
               <details class="choice optional-keys" id="optional-keys">
-                <summary>App integrations (optional)</summary>
+                <summary data-t="appIntegrations"></summary>
                 <div class="text">
-                  <span class="sub"
-                    >Composio connects apps; turn on voice inside the app. Keys
-                    stay on this computer.</span
-                  >
+                  <span class="sub" data-t="appIntegrationsHint"></span>
                 </div>
                 <div class="keys">
                   <label for="key-composio">Composio</label>
@@ -1693,32 +2007,41 @@
                     data-key="composio"
                     autocomplete="off"
                     spellcheck="false"
-                    aria-label="Composio API key"
+                    data-t-aria-label="composioKey"
                   />
-                  <button type="button" class="change" data-reveal="composio">
-                    Show
-                  </button>
-                  <button type="button" class="change" data-remove="composio">
-                    Remove
-                  </button>
+                  <button
+                    type="button"
+                    class="change"
+                    data-reveal="composio"
+                    data-t="show"
+                  ></button>
+                  <button
+                    type="button"
+                    class="change"
+                    data-remove="composio"
+                    data-t="remove"
+                  ></button>
                 </div>
                 <p class="keys-note" id="keys-note"></p>
               </details>
               <div class="choice">
                 <div class="text">
-                  <strong>Install location</strong
+                  <strong data-t="installLocation"></strong
                   ><span class="sub" id="location-sub"></span>
                 </div>
-                <button type="button" class="change" id="location-change">
-                  Change…
-                </button>
+                <button
+                  type="button"
+                  class="change"
+                  id="location-change"
+                  data-t="changeLocation"
+                ></button>
               </div>
             </div>
           </div>
         </div>
         <div class="start">
           <button class="primary large" id="local-install" type="button">
-            <span id="local-install-label">Quick Install</span
+            <span id="local-install-label" data-t="quickInstall"></span
             ><svg viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
           </button>
           <button
@@ -1726,9 +2049,8 @@
             id="get-started"
             data-go="server"
             type="button"
-          >
-            Get Started
-          </button>
+            data-t="getStarted"
+          ></button>
           <p class="plan-line" id="plan-line">
             <span id="plan-summary"></span><span class="sep"></span
             ><button
@@ -1737,26 +2059,32 @@
               type="button"
               aria-expanded="false"
               aria-controls="local-options"
-            >
-              Customize
-            </button>
+              data-t="customize"
+            ></button>
           </p>
           <p class="plan-why" id="plan-why" hidden></p>
-          <button class="link quiet" id="local-recheck" type="button" hidden>
-            Check again
-          </button>
+          <button
+            class="link quiet"
+            id="local-recheck"
+            type="button"
+            hidden
+            data-t="checkAgain"
+          ></button>
         </div>
         <p class="error" id="local-error" role="alert"></p>
         <p class="team" id="team">
-          Have a team server?
-          <button class="link" data-go="server" type="button">
-            Connect to it instead
-          </button>
+          <span data-t="teamServer"></span>
+          <button
+            class="link"
+            data-go="server"
+            type="button"
+            data-t="connectInstead"
+          ></button>
         </p>
       </section>
 
       <section data-step="installing" aria-labelledby="installing-title">
-        <h1 id="installing-title">Installing Linger</h1>
+        <h1 id="installing-title" data-t="installingTitle"></h1>
         <p class="lead tight" id="installing-plan"></p>
         <div
           class="panel"
@@ -1787,41 +2115,78 @@
           <div class="sheet">
             <h2 id="runtime-signin-title"></h2>
             <p id="runtime-signin-lead"></p>
-            <p class="waiting" id="runtime-signin-waiting" role="status">
-              <span class="spinner"></span>Waiting for authorization in your
-              browser…
+            <div id="runtime-signin-waiting" role="status">
+              <p class="waiting">
+                <span class="spinner"></span
+                ><span data-t="signInWaiting"></span>
+              </p>
+              <p class="hint" data-t="signInContinues"></p>
+            </div>
+            <p class="no-browser" id="runtime-signin-no-browser" role="alert">
+              <span id="runtime-signin-no-browser-text"></span>
             </p>
-            <p class="device-code" id="runtime-signin-device" hidden>
-              Enter this code in your browser:
-              <strong id="runtime-signin-device-code"></strong>
-            </p>
+            <div class="device-code" id="runtime-signin-device" hidden>
+              <p data-t="deviceCode"></p>
+              <div class="copy-row">
+                <strong id="runtime-signin-device-code"></strong>
+                <button
+                  class="secondary"
+                  id="runtime-signin-copy-code"
+                  type="button"
+                ></button>
+              </div>
+              <p class="hint" data-t="deviceCodeSetting"></p>
+            </div>
+            <div class="signin-link" id="runtime-signin-link" hidden>
+              <span class="label" data-t="signInLink"></span>
+              <code id="runtime-signin-url"></code>
+              <div class="buttons">
+                <button
+                  class="secondary"
+                  id="runtime-signin-open"
+                  type="button"
+                  data-t="openInBrowser"
+                ></button>
+                <button
+                  class="secondary"
+                  id="runtime-signin-copy-url"
+                  type="button"
+                ></button>
+              </div>
+            </div>
             <p class="problem" id="runtime-signin-error" role="alert"></p>
             <div class="actions" id="runtime-signin-idle">
-              <button class="primary" id="runtime-signin-start" type="button">
-                Authorize
-              </button>
+              <button
+                class="primary"
+                id="runtime-signin-start"
+                type="button"
+                data-t="authorize"
+              ></button>
+              <button
+                class="link quiet"
+                id="runtime-signin-device-start"
+                type="button"
+                data-t="useDeviceCode"
+              ></button>
               <div class="row">
                 <button
                   class="link quiet"
                   id="runtime-signin-other"
                   type="button"
-                >
-                  Use a different runtime
-                </button>
+                  data-t="otherRuntime"
+                ></button>
                 <button
                   class="link quiet"
                   id="runtime-signin-byok-toggle"
                   type="button"
-                >
-                  Use BYOK instead
-                </button>
+                  data-t="byokInstead"
+                ></button>
                 <button
                   class="link quiet"
                   id="runtime-signin-logs"
                   type="button"
-                >
-                  Show Logs
-                </button>
+                  data-t="showLogs"
+                ></button>
               </div>
               <div class="runtimes" id="runtime-signin-runtimes" hidden>
                 <button class="secondary" data-switch="codex" type="button">
@@ -1835,78 +2200,77 @@
                 </button>
               </div>
               <form class="signin-byok" id="runtime-signin-byok" hidden>
-                <input
-                  id="signin-byok-url"
-                  type="url"
-                  autocomplete="off"
-                  spellcheck="false"
-                  aria-label="Sign-in BYOK endpoint URL"
-                  placeholder="Endpoint URL (https://… or http://192.168.…)"
-                />
-                <input
-                  id="signin-byok-key"
-                  type="password"
-                  autocomplete="off"
-                  spellcheck="false"
-                  aria-label="Sign-in BYOK API key"
-                  placeholder="API key (stored privately on this computer)"
-                />
-                <input
-                  id="signin-byok-model"
-                  type="text"
-                  autocomplete="off"
-                  spellcheck="false"
-                  aria-label="Sign-in BYOK model ID"
-                  placeholder="Model ID (e.g. gpt-5.4 or claude-sonnet-4-6)"
-                />
+                <div class="byok-fields" id="signin-byok-fields"></div>
                 <button
                   class="secondary"
                   id="runtime-signin-byok-submit"
                   type="submit"
-                >
-                  Continue with BYOK
-                </button>
+                  data-t="continueWithByok"
+                ></button>
               </form>
             </div>
             <div class="row" id="runtime-signin-busy">
-              <button class="link quiet" id="runtime-signin-open" type="button">
-                Open browser again
-              </button>
-              <button class="ghost" id="runtime-signin-cancel" type="button">
-                Cancel
-              </button>
+              <button
+                class="link quiet"
+                id="runtime-signin-switch-method"
+                type="button"
+              ></button>
+              <button
+                class="ghost"
+                id="runtime-signin-cancel"
+                type="button"
+                data-t="cancel"
+              ></button>
             </div>
             <details id="runtime-signin-trouble">
-              <summary class="link quiet">Having trouble?</summary>
-              <p id="runtime-signin-help"></p>
+              <summary class="link quiet" data-t="havingTrouble"></summary>
+              <p data-t="signInHelpCode"></p>
               <form id="runtime-signin-paste">
                 <input
                   id="runtime-signin-input"
                   type="password"
                   autocomplete="off"
                   spellcheck="false"
-                  aria-label="Code from the sign-in page"
-                  placeholder="Paste the code"
+                  data-t-aria-label="pastedCode"
+                  data-t-placeholder="pasteCode"
                 />
-                <button class="secondary" type="submit">Continue</button>
+                <button
+                  class="secondary"
+                  type="submit"
+                  data-t="continue"
+                ></button>
               </form>
             </details>
           </div>
         </div>
         <p class="problem" id="installing-error" role="alert"></p>
         <div class="diagnostics" id="installing-diagnostics" hidden>
-          <button class="link quiet" id="installing-more" type="button" hidden>
-            Show Details
-          </button>
-          <button class="link quiet" id="show-logs" type="button">
-            Show Logs
-          </button>
-          <button class="link quiet" id="save-diagnostics" type="button">
-            Save Diagnostics
-          </button>
-          <button class="link quiet" id="send-diagnostics" type="button" hidden>
-            Send Diagnostics
-          </button>
+          <button
+            class="link quiet"
+            id="installing-more"
+            type="button"
+            hidden
+            data-t="showDetails"
+          ></button>
+          <button
+            class="link quiet"
+            id="show-logs"
+            type="button"
+            data-t="showLogs"
+          ></button>
+          <button
+            class="link quiet"
+            id="save-diagnostics"
+            type="button"
+            data-t="saveDiagnostics"
+          ></button>
+          <button
+            class="link quiet"
+            id="send-diagnostics"
+            type="button"
+            hidden
+            data-t="sendDiagnostics"
+          ></button>
           <output id="diagnostics-note"></output>
         </div>
         <div
@@ -1920,12 +2284,17 @@
           <div class="sheet">
             <h2 id="send-title"></h2>
             <p id="send-lead"></p>
-            <ul class="files" id="send-files" aria-label="Files to send"></ul>
+            <ul
+              class="files"
+              id="send-files"
+              data-t-aria-label="filesToSend"
+            ></ul>
             <div class="track" id="send-track">
               <div class="fill" id="send-fill"></div>
             </div>
             <p class="report" id="send-report">
-              Report ID <strong id="send-report-id"></strong>
+              <span data-t="reportId"></span>
+              <strong id="send-report-id"></strong>
             </p>
             <p class="problem" id="send-error" role="alert"></p>
             <div class="actions">
@@ -1935,10 +2304,18 @@
           </div>
         </div>
         <footer class="actions" id="installing-actions">
-          <button class="ghost" data-go="welcome" type="button">Back</button>
-          <button class="primary" id="local-retry" type="button">
-            Try Again
-          </button>
+          <button
+            class="ghost"
+            data-go="welcome"
+            type="button"
+            data-t="back"
+          ></button>
+          <button
+            class="primary"
+            id="local-retry"
+            type="button"
+            data-t="tryAgain"
+          ></button>
         </footer>
       </section>
 
@@ -1946,43 +2323,56 @@
         <span class="mark"
           ><svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10" /></svg
         ></span>
-        <h1 id="ready-title">Linger is ready</h1>
+        <h1 id="ready-title" data-t="readyTitle"></h1>
         <p class="lead tight" id="ready-lead"></p>
         <p class="connected">
-          <span class="live"></span>This computer is connected
+          <span class="live"></span><span data-t="computerConnected"></span>
         </p>
         <div class="account" id="account" hidden>
-          <p class="account-title">Your account on this computer</p>
+          <p class="account-title" data-t="accountTitle"></p>
           <dl id="account-fields">
-            <dt>Email</dt>
+            <dt data-t="email"></dt>
             <dd class="email" id="account-email"></dd>
-            <dt>Password</dt>
+            <dt data-t="password"></dt>
             <dd class="secret" id="account-password"></dd>
-            <button class="change" id="account-show" type="button">Show</button>
-            <button class="change" id="account-copy" type="button">Copy</button>
+            <button
+              class="change"
+              id="account-show"
+              type="button"
+              data-t="show"
+            ></button>
+            <button
+              class="change"
+              id="account-copy"
+              type="button"
+              data-t="copy"
+            ></button>
           </dl>
           <p class="account-note" id="account-note">
-            Use these to log in again if you log out.
-            <button class="link" id="account-reveal" type="button">
-              Open account file location
-            </button>
+            <span data-t="accountNote"></span>
+            <button
+              class="link"
+              id="account-reveal"
+              type="button"
+              data-t="accountReveal"
+            ></button>
           </p>
           <p class="account-error" id="account-error" role="alert"></p>
         </div>
         <p class="legacy-note" id="legacy-note" hidden></p>
         <div class="start">
           <button class="primary large" id="open" type="button">
-            <span>Open Linger</span
+            <span data-t="openLinger"></span
             ><svg viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
           </button>
         </div>
       </section>
 
       <section data-step="server" aria-labelledby="server-title">
-        <h1 id="server-title">Where is your team's Linger?</h1>
-        <p class="lead">Enter the address your team uses for Linger.</p>
+        <h1 id="server-title" data-t="serverTitle"></h1>
+        <p class="lead" data-t="serverLead"></p>
         <form id="server-form" novalidate>
-          <label class="field" for="server">Server address</label>
+          <label class="field" for="server" data-t="serverAddress"></label>
           <input
             id="server"
             type="text"
@@ -1991,24 +2381,29 @@
             spellcheck="false"
             placeholder="https://linger.example.com"
           />
-          <p class="hint">Ask your admin if you're not sure.</p>
+          <p class="hint" data-t="serverHint"></p>
           <p class="error" id="server-error" role="alert"></p>
         </form>
         <footer class="actions">
-          <button class="ghost" data-go="welcome" type="button">Back</button>
+          <button
+            class="ghost"
+            data-go="welcome"
+            type="button"
+            data-t="back"
+          ></button>
           <span class="spacer"></span>
-          <button class="primary" form="server-form" type="submit">
-            Continue
-          </button>
+          <button
+            class="primary"
+            form="server-form"
+            type="submit"
+            data-t="continue"
+          ></button>
         </footer>
       </section>
 
       <section data-step="signin" aria-labelledby="signin-title">
-        <h1 id="signin-title">Sign in to your account</h1>
-        <p class="lead">
-          Linger opens in its own window. Sign in there, and this window moves
-          on by itself.
-        </p>
+        <h1 id="signin-title" data-t="signInTitle"></h1>
+        <p class="lead" data-t="signInLead"></p>
         <div class="card">
           <span class="icon"
             ><svg viewBox="0 0 24 24">
@@ -2016,25 +2411,30 @@
               <path d="M4 21a8 8 0 0 1 16 0" /></svg
           ></span>
           <div class="text">
-            <strong>Account</strong><span id="signin-host"></span>
+            <strong data-t="account"></strong><span id="signin-host"></span>
           </div>
           <span class="badge" id="signin-badge"></span>
         </div>
         <footer class="actions">
-          <button class="ghost" data-go="server" type="button">Back</button>
+          <button
+            class="ghost"
+            data-go="server"
+            type="button"
+            data-t="back"
+          ></button>
           <span class="spacer"></span>
-          <button class="primary" id="signin" type="button">
-            Open Sign-in
-          </button>
+          <button
+            class="primary"
+            id="signin"
+            type="button"
+            data-t="openSignIn"
+          ></button>
         </footer>
       </section>
 
       <section data-step="connect" aria-labelledby="connect-title">
-        <h1 id="connect-title">Connect this computer</h1>
-        <p class="lead">
-          Your workspace will see this computer and can send it tasks. You can
-          disconnect it at any time.
-        </p>
+        <h1 id="connect-title" data-t="connectTitle"></h1>
+        <p class="lead" data-t="connectLead"></p>
         <div class="card">
           <span class="icon"
             ><svg viewBox="0 0 24 24">
@@ -2048,18 +2448,25 @@
         </div>
         <p class="error" id="connect-error" role="alert"></p>
         <footer class="actions">
-          <button class="ghost" data-go="signin" type="button">Back</button>
+          <button
+            class="ghost"
+            data-go="signin"
+            type="button"
+            data-t="back"
+          ></button>
           <span class="spacer"></span>
-          <button class="primary" id="connect" type="button">Connect</button>
+          <button
+            class="primary"
+            id="connect"
+            type="button"
+            data-t="connect"
+          ></button>
         </footer>
       </section>
 
       <section data-step="permissions" aria-labelledby="permissions-title">
-        <h1 id="permissions-title">A few permissions</h1>
-        <p class="lead compact">
-          Change these later from the <span data-tray>menu bar</span> or in your
-          system settings.
-        </p>
+        <h1 id="permissions-title" data-t="permissionsTitle"></h1>
+        <p class="lead compact" data-tray="changeLater"></p>
         <div class="rows">
           <div class="row">
             <span class="icon"
@@ -2068,12 +2475,15 @@
                 <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg
             ></span>
             <div class="text">
-              <strong>Notifications</strong
-              ><span class="sub">Know when a task finishes or needs you.</span>
+              <strong data-t="notifications"></strong
+              ><span class="sub" data-t="notificationsHint"></span>
             </div>
-            <button class="secondary" id="notify" type="button">
-              Allow Notifications
-            </button>
+            <button
+              class="secondary"
+              id="notify"
+              type="button"
+              data-t="allowNotifications"
+            ></button>
           </div>
           <div class="row">
             <span class="icon"
@@ -2083,13 +2493,16 @@
                 /></svg
             ></span>
             <div class="text">
-              <strong>Folders</strong
-              ><span class="sub">Folders tasks may read and change.</span>
+              <strong data-t="folders"></strong
+              ><span class="sub" data-t="foldersHint"></span>
               <div class="folders" id="folders"></div>
             </div>
-            <button class="secondary" id="folder" type="button">
-              Add Folder…
-            </button>
+            <button
+              class="secondary"
+              id="folder"
+              type="button"
+              data-t="addFolder"
+            ></button>
           </div>
           <div class="row mac-only">
             <span class="icon"
@@ -2098,13 +2511,16 @@
                 <path d="M8 8h8M8 12h8M8 16h5" /></svg
             ></span>
             <div class="text">
-              <strong>Full Disk Access</strong
+              <strong data-t="fullDiskAccess"></strong
               ><span class="sub" id="perm-full-disk-sub"></span>
             </div>
             <span class="badge" id="perm-full-disk-badge"></span>
-            <button class="secondary" id="perm-full-disk" type="button">
-              Open Settings
-            </button>
+            <button
+              class="secondary"
+              id="perm-full-disk"
+              type="button"
+              data-t="openSettings"
+            ></button>
           </div>
           <div class="row mac-only">
             <span class="icon"
@@ -2112,13 +2528,16 @@
                 <path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg
             ></span>
             <div class="text">
-              <strong>Downloads, Documents, Desktop</strong
+              <strong data-t="userFolders"></strong
               ><span class="sub" id="perm-folders-sub"></span>
             </div>
             <span class="badge" id="perm-folders-badge"></span>
-            <button class="secondary" id="perm-folders" type="button">
-              Allow…
-            </button>
+            <button
+              class="secondary"
+              id="perm-folders"
+              type="button"
+              data-t="allow"
+            ></button>
           </div>
           <div class="row mac-only">
             <span class="icon"
@@ -2127,13 +2546,16 @@
                 <path d="M3 9h18M8 14l2 2 4-4" /></svg
             ></span>
             <div class="text">
-              <strong>Control other apps</strong
+              <strong data-t="automation"></strong
               ><span class="sub" id="perm-automation-sub"></span>
             </div>
             <span class="badge" id="perm-automation-badge"></span>
-            <button class="secondary" id="perm-automation" type="button">
-              Allow…
-            </button>
+            <button
+              class="secondary"
+              id="perm-automation"
+              type="button"
+              data-t="allow"
+            ></button>
           </div>
           <div class="row">
             <span class="icon"
@@ -2141,17 +2563,15 @@
                 <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9" /></svg
             ></span>
             <div class="text">
-              <strong>Prevent sleep</strong
-              ><span class="sub"
-                >Keep this computer awake for incoming tasks.</span
-              >
+              <strong data-t="preventSleep"></strong
+              ><span class="sub" data-t="preventSleepHint"></span>
             </div>
             <button
               class="switch"
               id="sleep"
               role="switch"
               aria-checked="false"
-              aria-label="Prevent sleep"
+              data-t-aria-label="preventSleep"
               type="button"
             ></button>
           </div>
@@ -2162,18 +2582,15 @@
                 <path d="M18.4 6.6a9 9 0 1 1-12.77.04" /></svg
             ></span>
             <div class="text">
-              <strong>Open at login</strong
-              ><span class="sub"
-                >Start in the <span data-tray>menu bar</span> when you log
-                in.</span
-              >
+              <strong data-t="openAtLogin"></strong
+              ><span class="sub" data-tray="openAtLogin"></span>
             </div>
             <button
               class="switch"
               id="login"
               role="switch"
               aria-checked="false"
-              aria-label="Open at login"
+              data-t-aria-label="openAtLogin"
               type="button"
             ></button>
           </div>
@@ -2181,9 +2598,12 @@
         <p class="error" id="permissions-error" role="alert"></p>
         <footer class="actions">
           <span class="spacer"></span>
-          <button class="primary" id="finish" type="button">
-            Start Using Linger
-          </button>
+          <button
+            class="primary"
+            id="finish"
+            type="button"
+            data-t="startUsing"
+          ></button>
         </footer>
       </section>
     </main>
@@ -2204,18 +2624,9 @@
 
       // What each macOS permission is for, and what goes wrong without it.
       const PERMISSIONS = {
-        "full-disk": {
-          about: "Recommended. Covers every folder, no prompts.",
-          missing: "Off. Protected folders prompt the first time.",
-        },
-        folders: {
-          about: "Lets tasks read these folders.",
-          missing: "Not allowed. Tasks can't read these folders.",
-        },
-        automation: {
-          about: "Lets tasks drive apps like your browser.",
-          missing: "Not allowed. Tasks can't control other apps.",
-        },
+        "full-disk": { about: "fullDiskAbout", missing: "fullDiskMissing" },
+        folders: { about: "userFoldersAbout", missing: "userFoldersMissing" },
+        automation: { about: "automationAbout", missing: "automationMissing" },
       };
 
       // What Install sets up; Quick Install keeps the defaults.
@@ -2228,18 +2639,25 @@
       // The installing steps, as the main process reports them; it says
       // which of them this installation shows.
       const ALL_STEPS = [
-        ["prepare", () => "Checking this computer"],
-        ["download", () => "Downloading Linger " + state.version],
-        ["services", () => "Starting services"],
-        ["workspace", () => "Setting up your account"],
+        ["prepare", () => t("stepPrepare")],
+        // A version is an identifier, so its digits stay as they are.
+        [
+          "download",
+          () => t("stepDownload", { version: String(state.version) }),
+        ],
+        ["services", () => t("stepServices")],
+        ["workspace", () => t("stepWorkspace")],
         [
           "signin",
-          () =>
-            "Sign in to " +
-            (RUNTIMES[state.localServer.signIn?.runtime] || "your AI runtime"),
+          () => {
+            const runtime = RUNTIMES[state.localServer.signIn?.runtime];
+            return runtime
+              ? t("stepSignIn", { runtime })
+              : t("stepSignInRuntime");
+          },
         ],
-        ["connect", () => "Connecting this computer"],
-        ["agents", () => "Preparing your agents"],
+        ["connect", () => t("stepConnect")],
+        ["agents", () => t("stepAgents")],
       ];
       const gigabytes = (bytes) => Math.round(bytes / 1024 ** 3) + " GB";
       // Download sizes: MB below a gigabyte, one decimal GB above.
@@ -2249,16 +2667,12 @@
           : (bytes / 1024 ** 3).toFixed(1) + " GB";
       const duration = (seconds) => {
         const minutes = Math.round(seconds / 60);
-        if (minutes < 1) return "less than a minute left";
-        if (minutes < 60) return "about " + minutes + " min left";
+        if (minutes < 1) return t("lessThanMinuteLeft");
+        if (minutes < 60) return t("minutesLeft", { minutes });
         const hours = Math.floor(minutes / 60);
-        return (
-          "about " +
-          hours +
-          " h" +
-          (minutes % 60 ? " " + (minutes % 60) + " min" : "") +
-          " left"
-        );
+        return minutes % 60
+          ? t("hoursMinutesLeft", { hours, minutes: minutes % 60 })
+          : t("hoursLeft", { hours });
       };
       // A download as the localmodels tool or the installer counts it: how
       // much of how much, what remains, and the rate and time left when the
@@ -2267,11 +2681,12 @@
       const transferParts = (transfer) => {
         const { completed, total, bytesPerSecond: rate, partial } = transfer;
         const left = total && !partial ? total - completed : undefined;
+        const amount = total
+          ? t("amountOf", { done: size(completed), total: size(total) })
+          : size(completed);
         return [
-          (partial ? "This file: " : "") +
-            size(completed) +
-            (total ? " of " + size(total) : ""),
-          left !== undefined && size(left) + " left",
+          partial ? t("thisFile", { amount }) : amount,
+          left !== undefined && t("amountLeft", { size: size(left) }),
           rate > 0 && size(rate) + "/s",
           rate > 0 && left !== undefined && duration(left / rate),
         ].filter(Boolean);
@@ -2281,6 +2696,20 @@
         value.length <= 46
           ? value
           : value.slice(0, 18) + "…" + value.slice(-27);
+      // Where to install instead, when the installer refused the location
+      // because another account could rename a folder on the way to it; the
+      // message, shown below, says why. A folder directly on the drive is
+      // refused for the drive's own permissions, which choosing the drive
+      // again would not change, so that case gets no hint.
+      const locationHint = (local) => {
+        const [, drive] =
+          /^([A-Za-z]:\\)[^\\]+\\[^\\]/.exec(local.location.path) ?? [];
+        return drive &&
+          local.refusal?.code === "WINDOWS_PRIVATE_PATH_UNSAFE" &&
+          local.refusal.reason === "UNSAFE_PARENT_ACCESS"
+          ? t("locationHint", { folder: drive + "Linger" })
+          : "";
+      };
       // Quick Install installs what the localmodels tool recommends for this
       // computer once it has checked; until then (or when it cannot check)
       // the installer picks. The tool's local-models pick runs through Pi,
@@ -2303,33 +2732,601 @@
       let picked = false;
       let pickedAutoBeforeCheck = false;
       let customizing = false;
-      const emptyByok = () => ({
-        runtime: "claude",
-        baseUrl: "",
-        apiKey: "",
-        modelId: "",
-      });
-      let byok = emptyByok();
-      let signInByokOpen = false;
-      let signInByok = {
-        baseUrl: "",
-        apiKey: "",
-        modelId: "",
+      // BYOK. Requests go to the base URL + path + endpoint, used verbatim;
+      // path and endpoint are optional, and a grey value is the default that
+      // is sent. The wire format follows the end of that address, else the
+      // runtime's own, so Bifrost passes the runtime's requests through.
+      // Nothing probes: Test sends one request to that one address.
+      // Keep these format endings, runtime defaults and path validation in
+      // sync with packages/service-kit/src/byok-endpoint.ts (source of truth).
+      const BYOK_FORMATS = {
+        "openai-chat": {
+          suffix: "/chat/completions",
+          label: "OpenAI Chat Completions",
+        },
+        "openai-responses": { suffix: "/responses", label: "OpenAI Responses" },
+        anthropic: { suffix: "/messages", label: "Anthropic Messages" },
       };
-      const byokProtocolLabels = {
-        anthropic: "Anthropic Messages",
-        "openai-chat": "OpenAI Chat Completions",
-        "openai-responses": "OpenAI Responses",
+      const RUNTIME_FORMATS = {
+        claude: "anthropic",
+        codex: "openai-responses",
+        pi: "openai-chat",
       };
-      const trimByok = (value, runtime) => {
-        const apiKey = value.apiKey.trim();
-        return {
-          runtime,
-          baseUrl: value.baseUrl.trim(),
-          ...(apiKey ? { apiKey } : {}),
-          modelId: value.modelId.trim(),
+      const DEFAULT_PATH = "/v1";
+      const PATH_OPTIONS = [
+        { value: "/v1", label: t("pathMostProviders") },
+        { value: "/api/paas/v4", label: t("pathZhipu") },
+        { value: "/api/v3", label: t("pathVolcano") },
+        { value: "/v1beta/openai", label: "Gemini" },
+        { value: "", label: t("pathNone") },
+      ];
+      const ENDPOINT_OPTIONS = [
+        ...Object.values(BYOK_FORMATS).map((format) => ({
+          value: format.suffix,
+          label: format.label,
+        })),
+        { value: "", label: t("endpointNone") },
+      ];
+      // What the installer accepts as a path or endpoint: empty, or whole
+      // segments, so neither can change the base URL's host.
+      const BYOK_URL_PATH = /^(\/[^/?#\s\\]+)*$/;
+      const ICONS = {
+        refresh:
+          '<svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.2 6.4A5.3 5.3 0 0 0 3.4 4.6M2.8 9.6a5.3 5.3 0 0 0 9.8 1.8M3.2 2.2v2.6h2.6M12.8 13.8v-2.6h-2.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        chevron:
+          '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 3.8 5 6.3l2.5-2.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        selected:
+          '<svg class="opt-check" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        ok: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="m5.2 8.2 1.9 1.9 3.7-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        err: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 4.6v4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11.2" r="0.9" fill="currentColor"/></svg>',
+        close:
+          '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="m2 2 6 6M8 2 2 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
+      };
+      const esc = (value) =>
+        String(value).replace(
+          /[&<>"]/g,
+          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
+        );
+      const urlHtml = (url) => '<span class="url">' + esc(url) + "</span>";
+      // A message with <url> spans, as HTML for the places that build it.
+      const tHtml = (name, values) =>
+        tSpans(name, values)
+          .map((node) =>
+            typeof node === "string" ? esc(node) : node.outerHTML,
+          )
+          .join("");
+      const contextLabel = (tokens) =>
+        tokens >= 1024 ** 2
+          ? Math.round((tokens / 1024 ** 2) * 10) / 10 + "M"
+          : Math.round(tokens / 1024) + "k";
+      // A typed path gains its leading slash and loses trailing ones.
+      const normalizePath = (value) => {
+        const trimmed = value.trim().replace(/\/+$/, "");
+        return trimmed && !trimmed.startsWith("/") ? "/" + trimmed : trimmed;
+      };
+      // An IPC error's own message, without Electron's prefix.
+      const ipcMessage = (error) =>
+        String(error?.message ?? error).replace(
+          /^Error invoking remote method '[^']+': (Error: )?/,
+          "",
+        );
+      // Asks the main process to test or list an endpoint. The answer comes
+      // back in the state the command returns; nothing else waits for it.
+      const byokAsk = async (command, field) => {
+        try {
+          state = await setup.run(command);
+          return (
+            state.localServer[field] ?? {
+              state: "failed",
+              message: t("noAnswer"),
+            }
+          );
+        } catch (error) {
+          return { state: "failed", message: ipcMessage(error) };
+        }
+      };
+
+      // A combobox: type anything, or pick a suggestion from its list.
+      const combos = [];
+      const closeCombos = () => {
+        for (const combo of combos) combo.open = false;
+      };
+      const combobox = (root, cfg) => {
+        root.classList.add("cb");
+        root.innerHTML = `
+          <input class="cb-input" id="${cfg.id}" role="combobox"
+            aria-autocomplete="none" aria-expanded="false"
+            aria-controls="${cfg.id}-menu" autocomplete="off" spellcheck="false"
+            placeholder="${esc(cfg.placeholder)}" aria-label="${esc(cfg.label)}" />
+          <button type="button" class="cb-caret" tabindex="-1"
+            aria-label="${esc(t("showSuggestions", { field: cfg.label }))}">${ICONS.chevron}</button>
+          <div class="cb-menu" id="${cfg.id}-menu" role="listbox"
+            aria-label="${esc(cfg.label)}" hidden></div>`;
+        const input = root.querySelector(".cb-input");
+        const caret = root.querySelector(".cb-caret");
+        const menu = root.querySelector(".cb-menu");
+        const combo = { root, input, open: false };
+        let menuHtml = "";
+        const openMenu = (focusFirst) => {
+          closeCombos();
+          combo.open = true;
+          render();
+          if (focusFirst)
+            (
+              menu.querySelector('[aria-selected="true"]') ||
+              menu.querySelector("button")
+            )?.focus();
         };
+        input.addEventListener("input", () => {
+          cfg.set(input.value);
+          combo.open = false;
+          render();
+        });
+        input.addEventListener("blur", () => {
+          cfg.commit();
+          render();
+        });
+        input.addEventListener("keydown", (event) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            openMenu(true);
+          } else if (event.key === "Enter") {
+            // Commits the value; inside a form it does not submit it.
+            event.preventDefault();
+            cfg.commit();
+            closeCombos();
+            render();
+          }
+        });
+        caret.addEventListener("mousedown", (event) => event.preventDefault());
+        caret.addEventListener("click", () => {
+          if (combo.open) {
+            closeCombos();
+            render();
+          } else {
+            openMenu(false);
+            input.focus();
+          }
+        });
+        menu.addEventListener("mousedown", (event) => event.preventDefault());
+        menu.addEventListener("click", (event) => {
+          const option = event.target.closest("[data-value]");
+          if (!option) return;
+          cfg.set(option.dataset.value);
+          cfg.commit();
+          closeCombos();
+          render();
+          input.focus();
+        });
+        menu.addEventListener("keydown", (event) => {
+          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+          event.preventDefault();
+          const options = [...menu.querySelectorAll("button")];
+          const at = options.indexOf(document.activeElement);
+          const step = event.key === "ArrowDown" ? 1 : -1;
+          options[(at + step + options.length) % options.length]?.focus();
+        });
+        combo.sync = () => {
+          const value = cfg.get();
+          if (input.value !== value) input.value = value;
+          root.dataset.default = String(Boolean(cfg.isDefault?.()));
+          root.dataset.open = String(combo.open);
+          input.setAttribute("aria-expanded", String(combo.open));
+          menu.hidden = !combo.open;
+          if (!combo.open) {
+            menuHtml = "";
+            return;
+          }
+          const option = (item) => `
+            <button type="button" role="option" data-value="${esc(item.value)}"
+              aria-selected="${item.value === value}">
+              <span class="opt-main">${item.value ? esc(item.value) : "-"}</span>
+              ${
+                item.label || item.tag
+                  ? `<span class="opt-label">${esc(item.label || "")}${
+                      item.tag ? `<em>${esc(item.tag)}</em>` : ""
+                    }</span>`
+                  : ""
+              }
+              ${ICONS.selected}
+            </button>`;
+          // Notes are HTML their callers escaped.
+          const html =
+            (cfg.heading ? `<div class="cb-head">${cfg.heading}</div>` : "") +
+            cfg
+              .items()
+              .map((item) =>
+                item.note === undefined
+                  ? option(item)
+                  : `<div class="cb-note" data-tone="${item.tone || ""}">${item.note}</div>`,
+              )
+              .join("");
+          if (html !== menuHtml) {
+            menu.innerHTML = html;
+            menuHtml = html;
+          }
+        };
+        combos.push(combo);
+        return combo;
       };
+
+      // The BYOK fields, built once for the setup form and once for the
+      // sign-in dialog. runtimeOf() names the runtime the endpoint serves,
+      // which picks the default endpoint and format; changed() runs on every
+      // edit.
+      const byokForms = [];
+      const byokFields = (root, prefix, runtimeOf, changed) => {
+        root.innerHTML = `
+          <div class="ep">
+            <span class="ep-base-wrap"><input class="ep-base" id="${prefix}-url"
+              type="url" autocomplete="off" spellcheck="false"
+              aria-label="${esc(t("baseUrl"))}"
+              placeholder="${esc(t("baseUrlPlaceholder"))}" /></span>
+            <div></div>
+            <div></div>
+          </div>
+          <input class="byok-key" id="${prefix}-key" type="password"
+            autocomplete="off" spellcheck="false" aria-label="${esc(t("apiKey"))}"
+            placeholder="${esc(t("apiKeyPlaceholder"))}" />
+          <div class="model-row">
+            <div class="standalone"></div>
+            <button type="button" class="change list-btn" id="${prefix}-list"
+              aria-label="${esc(t("listModels"))}" title="${esc(t("listModels"))}">${ICONS.refresh}</button>
+            <button type="button" class="change test-btn" id="${prefix}-test">${esc(t("test"))}</button>
+            <div class="byok-toast" id="${prefix}-toast" role="status"
+              aria-live="polite" hidden></div>
+          </div>
+          <div class="byok-status" id="${prefix}-status" aria-live="polite"></div>`;
+        const blank = () => ({
+          baseUrl: "",
+          path: DEFAULT_PATH,
+          // null follows the runtime's default.
+          endpoint: null,
+          apiKey: "",
+          modelId: "",
+        });
+        let f = blank();
+        // The latest test and model listing; each sequence number drops an
+        // answer to a request the fields have changed since.
+        let check = null;
+        let models = null;
+        let checkSeq = 0;
+        let modelSeq = 0;
+        let toast = null;
+        let toastTimer = 0;
+        let toastShown = "";
+
+        const defaultEndpoint = () =>
+          BYOK_FORMATS[RUNTIME_FORMATS[runtimeOf()]].suffix;
+        const endpointValue = () => f.endpoint ?? defaultEndpoint();
+        const baseUrl = () => f.baseUrl.trim().replace(/\/+$/, "");
+        const apiRoot = () => baseUrl() + normalizePath(f.path);
+        const requestUrl = () => apiRoot() + normalizePath(endpointValue());
+        const modelsUrl = () => apiRoot() + "/models";
+        const format = () => {
+          const url = requestUrl();
+          for (const [protocol, { suffix }] of Object.entries(BYOK_FORMATS))
+            if (url.endsWith(suffix)) return { protocol, fromUrl: true };
+          return { protocol: RUNTIME_FORMATS[runtimeOf()], fromUrl: false };
+        };
+        const validParts = () =>
+          [normalizePath(f.path), normalizePath(endpointValue())].every(
+            (part) => part.length <= 256 && BYOK_URL_PATH.test(part),
+          );
+        const addressed = () => baseUrl() !== "" && validParts();
+        const complete = () => addressed() && f.modelId.trim() !== "";
+        const endpoint = () => {
+          const apiKey = f.apiKey.trim();
+          return {
+            baseUrl: baseUrl(),
+            path: normalizePath(f.path),
+            endpoint: normalizePath(endpointValue()),
+            protocol: format().protocol,
+            ...(apiKey ? { apiKey } : {}),
+          };
+        };
+
+        // The test result floats under Test: a success fades on its own, a
+        // failure stays until dismissed or the fields change.
+        const showToast = () => {
+          clearTimeout(toastTimer);
+          toast = { leaving: false };
+          if (check?.state === "ready")
+            toastTimer = setTimeout(hideToast, 3500);
+        };
+        const hideToast = () => {
+          clearTimeout(toastTimer);
+          if (!toast || toast.leaving) return;
+          toast.leaving = true;
+          render();
+          toastTimer = setTimeout(() => {
+            toast = null;
+            render();
+          }, 200);
+        };
+        const resetResults = (all) => {
+          checkSeq += 1;
+          check = null;
+          clearTimeout(toastTimer);
+          toast = null;
+          if (all) {
+            modelSeq += 1;
+            models = null;
+          }
+        };
+        const edit = (next, all) => {
+          f = { ...f, ...next };
+          resetResults(all);
+          changed();
+        };
+
+        const base = root.querySelector(".ep-base");
+        base.addEventListener("input", () => {
+          edit({ baseUrl: base.value }, true);
+          render();
+        });
+        base.addEventListener("blur", () => {
+          if (baseUrl() !== f.baseUrl) f = { ...f, baseUrl: baseUrl() };
+          base.scrollLeft = 0;
+          render();
+        });
+        const [pathBox, endpointBox] = root.querySelectorAll(".ep > div");
+        const path = combobox(pathBox, {
+          id: prefix + "-path",
+          label: t("path"),
+          heading: esc(t("pathHeading")),
+          placeholder: "-",
+          get: () => f.path,
+          set: (value) => edit({ path: value }, true),
+          commit: () => {
+            f = { ...f, path: normalizePath(f.path) };
+          },
+          isDefault: () => f.path === DEFAULT_PATH,
+          items: () =>
+            PATH_OPTIONS.map((option) => ({
+              ...option,
+              tag: option.value === DEFAULT_PATH ? t("defaultTag") : "",
+            })),
+        });
+        const endpointCombo = combobox(endpointBox, {
+          id: prefix + "-endpoint",
+          label: t("endpoint"),
+          heading: esc(t("endpointHeading")),
+          placeholder: "-",
+          get: endpointValue,
+          set: (value) =>
+            edit(
+              { endpoint: value === defaultEndpoint() ? null : value },
+              false,
+            ),
+          commit: () => {
+            if (f.endpoint === null) return;
+            const value = normalizePath(f.endpoint);
+            f = {
+              ...f,
+              endpoint: value === defaultEndpoint() ? null : value,
+            };
+          },
+          isDefault: () => f.endpoint === null,
+          items: () =>
+            ENDPOINT_OPTIONS.map((option) => ({
+              ...option,
+              tag:
+                option.value === defaultEndpoint()
+                  ? t("runtimeDefault", { runtime: RUNTIMES[runtimeOf()] })
+                  : "",
+            })),
+        });
+        const modelCombo = combobox(root.querySelector(".model-row > div"), {
+          id: prefix + "-model",
+          label: t("model"),
+          placeholder: t("modelPlaceholder"),
+          get: () => f.modelId,
+          set: (value) => edit({ modelId: value }, false),
+          commit: () => {
+            f = { ...f, modelId: f.modelId.trim() };
+          },
+          items: () => {
+            if (!models) return [{ note: esc(t("modelsHint")) }];
+            if (models.state === "loading")
+              return [{ note: tHtml("listingFrom", { url: modelsUrl() }) }];
+            if (models.state === "failed")
+              return [{ note: esc(models.message), tone: "err" }];
+            const count = models.models.length;
+            return [
+              { note: tHtml("modelsFrom", { count, url: models.url }) },
+              ...models.models.map((model) => ({
+                value: model.id,
+                label: [
+                  model.name !== model.id && model.name,
+                  model.contextWindow &&
+                    t("contextSize", {
+                      size: contextLabel(model.contextWindow),
+                    }),
+                ]
+                  .filter(Boolean)
+                  .join(" · "),
+              })),
+            ];
+          },
+        });
+        const key = root.querySelector(".byok-key");
+        key.addEventListener("input", () => {
+          edit({ apiKey: key.value }, true);
+          render();
+        });
+        const list = root.querySelector(".list-btn");
+        list.addEventListener("click", async () => {
+          if (!addressed()) return;
+          const seq = ++modelSeq;
+          models = { state: "loading" };
+          closeCombos();
+          render();
+          const answer = await byokAsk(
+            { op: "local.byok.models", byok: endpoint() },
+            "byokModels",
+          );
+          if (seq !== modelSeq) return;
+          models = answer;
+          // The list it filled opens; a failure shows on the status line.
+          closeCombos();
+          modelCombo.open = answer.state === "ready";
+          render();
+        });
+        const test = root.querySelector(".test-btn");
+        test.addEventListener("click", async () => {
+          if (!complete()) return;
+          resetResults(false);
+          const seq = checkSeq;
+          check = { state: "checking" };
+          render();
+          const answer = await byokAsk(
+            { op: "local.byok.check", byok: form.config() },
+            "byokCheck",
+          );
+          if (seq !== checkSeq) return;
+          check = answer;
+          showToast();
+          render();
+        });
+        const toastEl = root.querySelector(".byok-toast");
+        toastEl.addEventListener("click", (event) => {
+          if (event.target.closest(".toast-close")) hideToast();
+        });
+        // Hovering keeps a success on screen; leaving lets it fade.
+        toastEl.addEventListener("mouseenter", () => clearTimeout(toastTimer));
+        toastEl.addEventListener("mouseleave", () => {
+          if (check?.state === "ready")
+            toastTimer = setTimeout(hideToast, 1500);
+        });
+        const status = root.querySelector(".byok-status");
+
+        const form = {
+          root,
+          complete,
+          modelId: () => f.modelId.trim(),
+          config: () => ({
+            ...endpoint(),
+            modelId: f.modelId.trim(),
+            runtime: runtimeOf(),
+          }),
+          // The runtime changed: its default endpoint and format may differ.
+          runtimeChanged: () => resetResults(false),
+          clearKey: () => {
+            f = { ...f, apiKey: "" };
+            key.value = "";
+          },
+          reset: () => {
+            f = blank();
+            resetResults(true);
+          },
+          // A click outside the toast and Test dismisses it.
+          dismiss: (target) => {
+            if (toast && !toastEl.contains(target) && !test.contains(target))
+              hideToast();
+          },
+          sync: (busy) => {
+            if (base.value !== f.baseUrl) base.value = f.baseUrl;
+            if (key.value !== f.apiKey) key.value = f.apiKey;
+            path.sync();
+            endpointCombo.sync();
+            modelCombo.sync();
+            const checking = check?.state === "checking";
+            const listing = models?.state === "loading";
+            list.disabled = busy || listing || !addressed();
+            list.dataset.busy = String(listing);
+            list.setAttribute(
+              "aria-label",
+              t(listing ? "listingModels" : "listModels"),
+            );
+            test.disabled = busy || checking || !complete();
+            test.textContent = t(checking ? "testing" : "test");
+            const shown = Boolean(toast && check && !checking);
+            toastEl.hidden = !shown;
+            if (shown) {
+              const ok = check.state === "ready";
+              toastEl.dataset.tone = ok ? "ok" : "err";
+              toastEl.dataset.leaving = String(toast.leaving);
+              const html = `
+                <span class="toast-icon">${ok ? ICONS.ok : ICONS.err}</span>
+                <div>
+                  <strong>${esc(t(ok ? "connected" : "couldNotConnect"))}</strong>
+                  <div>${
+                    ok
+                      ? `${esc(check.modelId)} · ${esc(t("contextSize", { size: contextLabel(check.contextWindow) }))} · ${BYOK_FORMATS[check.protocol].label}<br />${urlHtml(check.url)}`
+                      : esc(check.message)
+                  }</div>
+                </div>
+                <button type="button" class="toast-close" aria-label="${esc(t("dismiss"))}">${ICONS.close}</button>`;
+              if (html !== toastShown) {
+                toastEl.innerHTML = html;
+                toastShown = html;
+              }
+            }
+            let line;
+            if (!validParts())
+              line = { tone: "err", html: esc(t("invalidParts")) };
+            else if (models?.state === "failed")
+              line = { tone: "err", html: esc(models.message) };
+            else if (listing)
+              line = { html: tHtml("listingFrom", { url: modelsUrl() }) };
+            else if (!baseUrl()) line = { html: esc(t("greyDefaults")) };
+            else {
+              const { protocol, fromUrl } = format();
+              const values = {
+                format: BYOK_FORMATS[protocol].label,
+                runtime: RUNTIMES[runtimeOf()],
+                url: requestUrl(),
+              };
+              line = {
+                html: tHtml(fromUrl ? "sendsTo" : "sendsToRuntime", values),
+              };
+            }
+            if (line.tone) status.dataset.tone = line.tone;
+            else delete status.dataset.tone;
+            if (status.innerHTML !== line.html) status.innerHTML = line.html;
+          },
+        };
+        byokForms.push(form);
+        return form;
+      };
+      document.addEventListener("pointerdown", (event) => {
+        for (const form of byokForms) form.dismiss(event.target);
+        if (
+          combos.some(
+            (combo) => combo.open && !combo.root.contains(event.target),
+          )
+        ) {
+          closeCombos();
+          render();
+        }
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        const open = combos.find((combo) => combo.open);
+        if (!open) return;
+        closeCombos();
+        render();
+        open.input.focus();
+      });
+      // The setup form's runtime; the sign-in dialog's endpoint serves the
+      // runtime signing in.
+      let byokRuntime = "claude";
+      let signInByokOpen = false;
+      const mainByok = byokFields(
+        $("byok-fields"),
+        "byok",
+        () => byokRuntime,
+        () => {
+          picked = true;
+        },
+      );
+      const signInByok = byokFields(
+        $("signin-byok-fields"),
+        "signin-byok",
+        () => state.localServer.signIn?.runtime ?? "claude",
+        () => {},
+      );
       // Provider keys typed or removed here ("" removes the saved one); kept
       // only in the inputs and sent once with Install.
       let keys = {};
@@ -2502,16 +3499,31 @@
           render();
       }, 1000);
 
-      // Whose account each runtime signs in with.
-      const ACCOUNTS = {
-        codex: "your ChatGPT account",
-        claude: "your Claude account",
+      // What the sign-in dialog says first for each runtime; each names
+      // whose account it signs in with.
+      const SIGN_IN_LEADS = {
+        codex: "signInLeadCodex",
+        claude: "signInLeadClaude",
+        pi: "signInLeadPi",
+      };
+      // The page's own words for why a sign-in ended; the installer's
+      // message is the fallback for anything else.
+      const SIGN_IN_REASONS = {
+        timed_out: "signInTimedOut",
+        ended: "signInEnded",
+        unavailable: "signInUnavailable",
       };
       let otherRuntimes = false;
+      // The sign-in's own errors, such as a failed copy; render keeps them.
+      let signInError = "";
+      // What was just copied: "url" or "code".
+      let signInCopied;
       // The runtime installed but not signed in: a dialog starts its own
-      // login, which opens the browser, and closes once it is signed in.
-      // The link and code it prints are only a fallback, folded away. No
-      // secret shows here; a pasted code goes straight to the runtime.
+      // login, which opens the browser, and closes once it is signed in,
+      // bringing setup back. The link (and Codex's device code) always show
+      // with buttons to open and copy them, so signing in works even when
+      // no browser opens. No secret shows here; a pasted code goes straight
+      // to the runtime.
       const renderSignIn = (local, busy) => {
         const sign = local.signIn;
         const open =
@@ -2523,6 +3535,7 @@
         if (!open) {
           otherRuntimes = false;
           signInByokOpen = false;
+          signInError = "";
           $("runtime-signin-trouble").open = false;
           return;
         }
@@ -2531,43 +3544,62 @@
         const running =
           sign.state === "starting" || sign.state === "waiting_user";
         const pi = sign.runtime === "pi";
-        $("runtime-signin-title").textContent = "Sign in to " + name;
-        $("runtime-signin-lead").textContent = pi
-          ? "Pi needs a model provider. Run pi in a terminal to sign in, or use BYOK below; setup continues by itself."
-          : "Your agents run on " +
-            name +
-            ". Authorize it with " +
-            ACCOUNTS[sign.runtime] +
-            " to continue.";
+        const codex = sign.runtime === "codex";
+        const link = running && sign.url;
+        $("runtime-signin-title").textContent = t("signInTo", {
+          runtime: name,
+        });
+        $("runtime-signin-lead").textContent = t(SIGN_IN_LEADS[sign.runtime]);
         $("runtime-signin-lead").hidden = running;
         $("runtime-signin-waiting").hidden = !running;
-        $("runtime-signin-device").hidden = !sign.deviceCode;
+        $("runtime-signin-no-browser").hidden = !link || !sign.browserFailed;
+        // A device code works in any browser; the browser login calls back
+        // to this computer, so its link has to open here.
+        $("runtime-signin-no-browser-text").textContent = t(
+          sign.deviceCode ? "browserFailedDevice" : "browserFailed",
+        );
+        $("runtime-signin-device").hidden = !link || !sign.deviceCode;
         $("runtime-signin-device-code").textContent = sign.deviceCode || "";
+        $("runtime-signin-copy-code").textContent = t(
+          signInCopied === "code" ? "copied" : "copyCode",
+        );
+        $("runtime-signin-link").hidden = !link;
+        $("runtime-signin-url").textContent = sign.url || "";
+        $("runtime-signin-url").title = sign.url || "";
+        $("runtime-signin-copy-url").textContent = t(
+          signInCopied === "url" ? "copied" : "copyLink",
+        );
         $("runtime-signin-error").textContent = failed
-          ? sign.message || "Sign-in did not finish."
-          : "";
+          ? SIGN_IN_REASONS[sign.reason]
+            ? t(SIGN_IN_REASONS[sign.reason])
+            : sign.message || t("signInFailed")
+          : signInError;
         $("runtime-signin-idle").hidden = running;
         $("runtime-signin-start").hidden = pi;
-        $("runtime-signin-start").textContent = failed ? "Retry" : "Authorize";
+        $("runtime-signin-start").textContent = t(
+          failed ? "retry" : "authorize",
+        );
+        $("runtime-signin-device-start").hidden = !codex;
         $("runtime-signin-logs").hidden = !failed;
         $("runtime-signin-runtimes").hidden = !otherRuntimes && !pi;
         $("runtime-signin-other").hidden = pi;
         $("runtime-signin-byok").hidden = !signInByokOpen;
+        signInByok.sync(busy);
         $("runtime-signin-byok-submit").disabled =
-          busy || !signInByok.baseUrl.trim() || !signInByok.modelId.trim();
+          busy || !signInByok.complete();
         for (const option of document.querySelectorAll("[data-switch]")) {
           option.hidden = option.dataset.switch === sign.runtime;
           option.disabled = busy;
         }
         $("runtime-signin-busy").hidden = !running;
-        $("runtime-signin-open").hidden = !sign.url;
-        // The fallback: the printed link, and for Claude Code the code its
-        // page shows.
-        $("runtime-signin-trouble").hidden = !sign.url || !!sign.deviceCode;
-        $("runtime-signin-help").textContent = sign.acceptsCode
-          ? "If your browser didn't open, choose Open browser again, then paste the code the page shows."
-          : "If your browser didn't open, choose Open browser again.";
-        $("runtime-signin-paste").hidden = !sign.acceptsCode;
+        // Codex: a code for another device, or back to this computer's
+        // browser.
+        $("runtime-signin-switch-method").hidden = !codex;
+        $("runtime-signin-switch-method").textContent = t(
+          sign.deviceCode ? "useBrowserHere" : "useDeviceCode",
+        );
+        // Claude Code's page shows a code to paste back.
+        $("runtime-signin-trouble").hidden = !link || !sign.acceptsCode;
         requestAnimationFrame(placeKnobs);
       };
 
@@ -2576,50 +3608,62 @@
       // model fits the hardware, but other programs hold memory it needs now.
       const counts = (free, needed) =>
         free != null && needed != null
-          ? " (" + size(free) + " free, " + size(needed) + " needed)"
+          ? t("memoryCounts", { free: size(free), needed: size(needed) })
           : "";
       const reasonText = (reason, held, freeMemory) => {
         switch (reason.code) {
-          case "gpu-memory-required":
-            return (
-              "Other programs are using " +
-              (reason.gpuIndex != null
-                ? "GPU " + reason.gpuIndex + "'s"
-                : "the GPU's") +
-              " memory" +
-              counts(reason.freeBytes, reason.requiredBytes) +
-              ". Close programs that use the GPU, such as games, video or other AI apps."
-            );
+          case "gpu-memory-required": {
+            const values = {
+              gpu: String(reason.gpuIndex),
+              counts: counts(reason.freeBytes, reason.requiredBytes),
+            };
+            return reason.gpuIndex != null
+              ? t("reasonGpuMemoryOf", values)
+              : t("reasonGpuMemory", values);
+          }
           case "free-memory-required":
-            return (
-              "Other programs are using the memory it needs" +
-              (counts(reason.freeBytes, reason.requiredBytes) ||
+            return t("reasonFreeMemory", {
+              counts:
+                counts(reason.freeBytes, reason.requiredBytes) ||
                 counts(
                   freeMemory?.ramAvailableBytes,
                   freeMemory?.ramRequiredBytes,
-                )) +
-              ". Close other programs."
-            );
+                ),
+            });
           case "gpu-sharing-required":
-            return "Other work is running on the GPU. Close it.";
+            return t("reasonGpuSharing");
           // localmodels 0.1.0.dev39 reports it; later versions plan by the
           // GPU memory free instead.
           case "gpu-ownership-unknown":
-            return "Linger couldn't tell which programs are using the GPU, so it can't share it. Close programs that use the GPU.";
+            return t("reasonGpuOwnership");
           case "facts-unavailable":
-            return "Linger couldn't read this computer's memory, disk or GPU.";
+            return t("reasonFacts");
+          case "cuda-driver-update-required": {
+            const has = reason.detectedCudaVersion;
+            const needs = reason.requiredCudaVersion;
+            if (has && needs)
+              return t("reasonCudaUpdate", {
+                has: String(has),
+                needs: String(needs),
+              });
+            if (needs)
+              return t("reasonCudaTooOldNeeds", { needs: String(needs) });
+            return t("reasonCudaTooOld");
+          }
+          case "cuda-driver-version-unknown":
+            return reason.requiredCudaVersion
+              ? t("reasonCudaUnknownNeeds", {
+                  needs: String(reason.requiredCudaVersion),
+                })
+              : t("reasonCudaUnknown");
           case "unsupported-platform":
-            return "Local models don't run on this system.";
+            return t("reasonUnsupported");
           // Blocked now, it names another inference app holding a Mac's
           // memory.
           case "plan-unavailable":
-            return held
-              ? "Another app is holding the memory it needs, such as another AI app. Quit it."
-              : "No local model fits this computer.";
+            return t(held ? "reasonPlanHeld" : "reasonPlanUnavailable");
           default:
-            return held
-              ? "Other programs are using the memory it needs. Close other programs."
-              : "This computer can't run a local model now.";
+            return t(held ? "reasonHeld" : "reasonUnavailable");
         }
       };
       const reasonsText = (models, held) =>
@@ -2630,6 +3674,10 @@
             ),
           ),
         ].join(" ");
+      const RECHECKABLE_REASONS = new Set([
+        "cuda-driver-update-required",
+        "cuda-driver-version-unknown",
+      ]);
       // The held card's short line: what is free against what is needed.
       const heldLine = (models) => {
         const gpu = models.reasons?.find(
@@ -2638,15 +3686,16 @@
             reason.freeBytes != null &&
             reason.requiredBytes != null,
         );
-        if (gpu)
-          return (
-            "On hold: " +
-            (gpu.gpuIndex != null ? "GPU " + gpu.gpuIndex : "The GPU") +
-            " has " +
-            size(gpu.freeBytes) +
-            " free, needs " +
-            size(gpu.requiredBytes)
-          );
+        if (gpu) {
+          const values = {
+            gpu: String(gpu.gpuIndex),
+            free: size(gpu.freeBytes),
+            needed: size(gpu.requiredBytes),
+          };
+          return gpu.gpuIndex != null
+            ? t("heldGpuOf", values)
+            : t("heldGpu", values);
+        }
         const ram = models.reasons?.find(
           (reason) =>
             reason.code === "free-memory-required" &&
@@ -2657,8 +3706,8 @@
         const needed =
           ram?.requiredBytes ?? models.freeMemory?.ramRequiredBytes;
         return free != null && needed != null
-          ? "On hold: " + size(free) + " of memory free, needs " + size(needed)
-          : "On hold: close other programs, then Check again.";
+          ? t("heldMemory", { free: size(free), needed: size(needed) })
+          : t("heldClose");
       };
 
       const renderLocal = (busy) => {
@@ -2690,15 +3739,15 @@
         const following = JSON.stringify(plan) === JSON.stringify(recommended);
         const named = (choice) =>
           choice.source === "local"
-            ? "Local model + Pi"
+            ? t("localModelPi")
             : choice.source === "byok"
-              ? ["BYOK", RUNTIMES[byok.runtime], byok.modelId.trim()]
+              ? ["BYOK", RUNTIMES[byokRuntime], mainByok.modelId()]
                   .filter(Boolean)
                   .join(" · ")
               : RUNTIMES[choice.runtime];
-        $("welcome-lead").textContent = local.available
-          ? "Runs on this computer, just for you. Takes a few minutes."
-          : "Connect this computer to your team's Linger.";
+        $("welcome-lead").textContent = t(
+          local.available ? "welcomeLeadLocal" : "welcomeLeadTeam",
+        );
         $("local-install").hidden = !local.available;
         $("team").hidden = !local.available || customizing;
         $("get-started").hidden = local.available;
@@ -2706,42 +3755,38 @@
           customizing && local.available,
         );
         $("local-customize").setAttribute("aria-expanded", String(customizing));
-        $("local-customize").textContent = customizing
-          ? "Use the defaults"
-          : "Customize";
+        $("local-customize").textContent = t(
+          customizing ? "useDefaults" : "customize",
+        );
         // Until the check ends the button says what it waits for: the first
         // run downloads the localmodels tool, then the check runs. The label
         // changes only when it differs, so the spinner keeps turning.
         const fetching = checking ? models.download : undefined;
         const label = checking
           ? '<span class="spinner"></span>' +
-            (fetching ? "Downloading setup tools…" : "Checking this computer…")
-          : custom
-            ? "Install"
-            : "Quick Install";
+            esc(t(fetching ? "downloadingTools" : "checkingComputer"))
+          : esc(t(custom ? "install" : "quickInstall"));
         if ($("local-install-label").innerHTML !== label)
           $("local-install-label").innerHTML = label;
         document.querySelector('[data-step="welcome"]').dataset.customizing =
           String(customizing && local.available);
-        const byokIncomplete =
-          plan.source === "byok" &&
-          (!byok.baseUrl.trim() || !byok.modelId.trim());
+        const byokIncomplete = plan.source === "byok" && !mainByok.complete();
         const localUnavailable = plan.source === "local" && !model;
         $("local-install").disabled ||=
           checking || byokIncomplete || localUnavailable;
         $("local-install").dataset.busy = String(checking);
         $("local-install").setAttribute("aria-busy", String(checking));
         $("plan-summary").textContent = checking
-          ? "Finding the best setup for this computer"
+          ? t("findingSetup")
           : following && known
-            ? "Recommended for this computer: " + named(plan)
-            : named(plan) || "Best AI runtime";
+            ? t("recommendedPlan", { plan: named(plan) })
+            : named(plan) || t("bestRuntime");
         // Why: the localmodels tool's facts, and its reason codes in the
         // page's words.
         const unavailableText =
           models.state === "checked"
             ? reasonsText(models, false)
-            : "Couldn't check this computer for a local model.";
+            : t("cannotCheck");
         $("plan-why").textContent = fetching
           ? transferParts(fetching).join(" · ")
           : !following || checking
@@ -2749,19 +3794,22 @@
             : plan.localModel
               ? [
                   model.name,
-                  "fits " + (models.gpu || "this computer"),
-                  gigabytes(models.memoryBytes) + " memory",
+                  models.gpu
+                    ? t("fitsGpu", { gpu: models.gpu })
+                    : t("fitsComputer"),
+                  t("memoryAmount", { size: gigabytes(models.memoryBytes) }),
                   model.downloadBytes != null &&
-                    gigabytes(model.downloadBytes) + " download",
+                    t("downloadAmount", {
+                      size: gigabytes(model.downloadBytes),
+                    }),
                 ]
                   .filter(Boolean)
                   .join(" · ")
               : held
-                ? "Local model on hold. " +
-                  reasonsText(models, true) +
-                  " Quick Install sets up " +
-                  named(plan) +
-                  " now, or choose Check again once memory is free."
+                ? t("heldWhy", {
+                    reasons: reasonsText(models, true),
+                    plan: named(plan),
+                  })
                 : (models.state === "checked" && !models.eligible) ||
                     models.state === "unavailable"
                   ? unavailableText
@@ -2779,27 +3827,25 @@
           const provider = input.dataset.key;
           const saved = local.keys[provider];
           const removing = keys[provider] === "";
-          input.placeholder = removing
-            ? "Removed when you install"
-            : saved
-              ? "Saved · type to replace"
-              : "API key";
+          input.placeholder = t(
+            removing ? "keyRemovedOnInstall" : saved ? "keySaved" : "apiKey",
+          );
           const remove = document.querySelector(`[data-remove="${provider}"]`);
           // Kept in place so the inputs line up.
           remove.style.visibility =
             saved || keys[provider] ? "visible" : "hidden";
-          remove.textContent = removing ? "Keep" : "Remove";
+          remove.textContent = t(removing ? "keep" : "remove");
         }
-        $("keys-note").textContent = "Applies when the installation runs.";
+        $("keys-note").textContent = t("keysNote");
         const shown = model || held;
         $("source-sub").textContent =
           recommended.source === "local"
-            ? "Recommended: Local model on this computer."
+            ? t("recommendedLocal")
             : known
-              ? "Recommended: Subscription (" +
-                RUNTIMES[recommended.runtime] +
-                ")."
-              : "Choose how your agents run.";
+              ? t("recommendedSubscription", {
+                  runtime: RUNTIMES[recommended.runtime],
+                })
+              : t("chooseSource");
         $("local-row").hidden = plan.source !== "local";
         $("subscription-row").hidden = plan.source !== "subscription";
         $("byok-row").hidden = plan.source !== "byok";
@@ -2807,16 +3853,21 @@
         // none, disabled.
         const settled =
           models.state === "checked" || models.state === "unavailable";
+        const canRecheck =
+          held ||
+          (models.state === "checked" &&
+            !models.eligible &&
+            !!models.reasons?.some((reason) =>
+              RECHECKABLE_REASONS.has(reason.code),
+            ));
         $("local-model").hidden = !shown && !settled;
-        $("local-recheck").hidden = !held || !local.available;
+        $("local-recheck").hidden = !canRecheck || !local.available;
         $("local-recheck").disabled = busy;
         if (shown) {
           $("local-sub").textContent = held
             ? heldLine(models)
             : [
-                recommended.localModel
-                  ? "Recommended for this computer · Runs on Pi via Bifrost"
-                  : "Runs your tasks on this computer via Pi",
+                t(recommended.localModel ? "localRecommended" : "localRuns"),
                 models.gpu,
               ]
                 .filter(Boolean)
@@ -2824,33 +3875,33 @@
           $("local-model-name").textContent = shown.name;
           $("local-model-needs").textContent = [
             shown.downloadBytes != null &&
-              gigabytes(shown.downloadBytes) + " download",
-            shown.diskBytes != null && gigabytes(shown.diskBytes) + " disk",
+              t("downloadAmount", { size: gigabytes(shown.downloadBytes) }),
+            shown.diskBytes != null &&
+              t("diskAmount", { size: gigabytes(shown.diskBytes) }),
             // The whole stack's memory, so more than the model's own on
             // the Local models page.
             shown.memoryBytes != null &&
-              gigabytes(shown.memoryBytes) + " memory with its services",
+              t("memoryWithServices", { size: gigabytes(shown.memoryBytes) }),
           ]
             .filter(Boolean)
             .join(" · ");
           $("local-model").setAttribute("aria-checked", String(!!model));
           $("local-model").disabled = busy || !model;
         } else if (settled) {
-          $("local-sub").textContent =
-            "Runs your tasks on this computer via Pi";
-          $("local-model-name").textContent = "Not available on this computer";
+          $("local-sub").textContent = t("localRuns");
+          $("local-model-name").textContent = t("localNotAvailable");
           $("local-model-needs").textContent = unavailableText;
           $("local-model").setAttribute("aria-checked", "false");
           $("local-model").disabled = true;
         } else {
-          $("local-sub").textContent = "Checking this computer…";
+          $("local-sub").textContent = t("checkingComputer");
         }
         const subKnown =
           recommended.source === "subscription" &&
           recommended.runtime !== "recommended";
         $("runtime-sub").textContent = subKnown
-          ? "Recommended: " + RUNTIMES[recommended.runtime] + "."
-          : "Sign in with your ChatGPT or Claude subscription.";
+          ? t("recommendedRuntime", { runtime: RUNTIMES[recommended.runtime] })
+          : t("subscriptionHint");
         for (const seg of document.querySelectorAll("[data-plan]"))
           for (const option of seg.querySelectorAll("button")) {
             const field = seg.dataset.plan;
@@ -2879,49 +3930,31 @@
               option.disabled = busy;
             }
           }
-        for (const seg of document.querySelectorAll("[data-byok]"))
-          for (const option of seg.querySelectorAll("button")) {
-            const field = seg.dataset.byok;
-            const value = option.dataset.value;
-            option.setAttribute("aria-checked", String(byok[field] === value));
-            option.disabled = busy;
-          }
-        $("byok-check").disabled =
-          busy || !byok.baseUrl.trim() || !byok.modelId.trim();
-        const byokCheck = local.byokCheck;
-        if (byokCheck?.state === "checking") {
-          $("byok-status").textContent = "Checking endpoint…";
-          $("byok-status").dataset.tone = "";
-        } else if (byokCheck?.state === "ready") {
-          $("byok-status").textContent =
-            "Ready · " +
-            byokCheck.modelId +
-            " (" +
-            Math.round(byokCheck.contextWindow / 1000) +
-            "k context) through " +
-            byokProtocolLabels[byokCheck.protocol];
-          $("byok-status").dataset.tone = "ok";
-        } else if (byokCheck?.state === "failed") {
-          $("byok-status").textContent = byokCheck.message;
-          $("byok-status").dataset.tone = "err";
-        } else {
-          $("byok-status").textContent =
-            "Mounted on local Bifrost for all runtimes.";
-          $("byok-status").dataset.tone = "";
+        for (const option of document.querySelectorAll(
+          '[data-byok="runtime"] button',
+        )) {
+          option.setAttribute(
+            "aria-checked",
+            String(byokRuntime === option.dataset.value),
+          );
+          option.disabled = busy;
         }
+        mainByok.sync(busy);
         requestAnimationFrame(placeKnobs);
 
         // Installing. A restart after a reboot shows here as starting.
         const failed = local.phase === "failed";
         const starting = local.phase === "preparing";
-        $("installing-title").textContent = failed
-          ? "Installation stopped"
-          : starting
-            ? "Starting Linger"
-            : "Installing Linger";
+        $("installing-title").textContent = t(
+          failed
+            ? "installStopped"
+            : starting
+              ? "startingLinger"
+              : "installingTitle",
+        );
         $("installing-plan").textContent = failed
-          ? "Your data is kept. Fix the problem and try again."
-          : "This takes a few minutes. You can keep working.";
+          ? locationHint(local) || t("dataKept")
+          : t("takesMinutes");
         const section = document.querySelector('[data-step="installing"]');
         const steps = ALL_STEPS.filter(([id]) => local.steps.includes(id));
         section.dataset.failed = String(failed);
@@ -2937,8 +3970,12 @@
         $("installing-step").textContent = failed
           ? steps[at][1]()
           : starting
-            ? local.message
-            : steps[at][1]() + "…";
+            ? t(
+                local.preparing === "updating"
+                  ? "preparingUpdate"
+                  : "preparingStart",
+              )
+            : t("stepRunning", { step: steps[at][1]() });
         $("installing-count").textContent = starting ? "" : percent + "%";
         // A download under way: what it is and how far, in the counts the
         // installer passes on from the localmodels tool.
@@ -2992,9 +4029,9 @@
         const long = failed && problem.scrollHeight > problem.clientHeight + 1;
         problem.classList.toggle("folded", long && !detailsOpen);
         $("installing-more").hidden = !long;
-        $("installing-more").textContent = detailsOpen
-          ? "Hide Details"
-          : "Show Details";
+        $("installing-more").textContent = t(
+          detailsOpen ? "hideDetails" : "showDetails",
+        );
         $("installing-diagnostics").hidden = !failed;
         // A new save result replaces the note; a failed "Show Logs" writes
         // its own error there and stays until the next result.
@@ -3003,7 +4040,7 @@
         if (saved && savedKey !== shownDiagnostics)
           $("diagnostics-note").textContent = saved.error
             ? saved.error
-            : "Saved " + saved.file + ". Send this file to Linger support.";
+            : t("savedDiagnostics", { file: saved.file });
         shownDiagnostics = savedKey;
         $("installing-actions").hidden = !failed;
         renderSignIn(local, busy);
@@ -3015,13 +4052,11 @@
             $("installing-actions").scrollIntoView({ block: "nearest" }),
           );
         }
-        $("ready-lead").textContent = "Running on this computer, just for you.";
+        $("ready-lead").textContent = t("readyLead");
         renderAccount(local.account);
         $("legacy-note").hidden = !local.legacyBackup;
         $("legacy-note").textContent = local.legacyBackup
-          ? "Your data from the earlier Simplex app can't be upgraded to Linger, so this is a fresh workspace. The earlier data was moved, not deleted, to " +
-            local.legacyBackup +
-            "."
+          ? t("legacyNote", { folder: local.legacyBackup })
           : "";
       };
 
@@ -3039,13 +4074,13 @@
         $("account-email").textContent = account.email;
         $("account-password").textContent =
           account.password ?? "\u2022".repeat(12);
-        $("account-show").textContent = account.password ? "Hide" : "Show";
+        $("account-show").textContent = t(account.password ? "hide" : "show");
         $("account-show").setAttribute(
           "aria-label",
-          (account.password ? "Hide" : "Show") + " password",
+          t(account.password ? "hidePassword" : "showPassword"),
         );
-        $("account-copy").textContent = copied ? "Copied" : "Copy";
-        $("account-copy").setAttribute("aria-label", "Copy password");
+        $("account-copy").textContent = t(copied ? "copied" : "copy");
+        $("account-copy").setAttribute("aria-label", t("copyPassword"));
       };
 
       const render = () => {
@@ -3053,11 +4088,13 @@
         document.body.dataset.platform = state.platform;
         // Where the tray icon lives on this platform.
         for (const el of document.querySelectorAll("[data-tray]"))
-          el.textContent =
-            state.platform === "darwin" ? "menu bar" : "system tray";
+          el.textContent = t(
+            el.dataset.tray +
+              (state.platform === "darwin" ? "MenuBar" : "Tray"),
+          );
         const at = ORDER.indexOf(step);
         $("step-label").textContent =
-          at >= 0 ? "Step " + (at + 1) + " of " + ORDER.length : "";
+          at >= 0 ? t("stepOf", { step: at + 1, total: ORDER.length }) : "";
         const busy = pending !== null;
         for (const el of document.querySelectorAll("main button"))
           el.disabled = busy && el.dataset.go === undefined;
@@ -3069,21 +4106,21 @@
         $("signin-host").textContent = host(state.serverUrl);
         $("signin-badge").dataset.ok = String(state.signedIn);
         $("signin-badge").innerHTML = state.signedIn
-          ? check + "Signed in"
+          ? check + esc(t("signedIn"))
           : pending === "signin.open"
-            ? '<span class="spinner"></span>Waiting…'
-            : "Not signed in";
-        $("signin").textContent = state.signedIn ? "Continue" : "Open Sign-in";
+            ? '<span class="spinner"></span>' + esc(t("waiting"))
+            : esc(t("notSignedIn"));
+        $("signin").textContent = t(state.signedIn ? "continue" : "openSignIn");
 
         $("computer-name").textContent = state.displayName;
         $("computer-host").textContent = host(state.serverUrl);
         $("connect-badge").dataset.ok = String(state.enrolled);
         $("connect-badge").innerHTML = state.enrolled
-          ? check + "Connected"
+          ? check + esc(t("connected"))
           : pending === "computer.connect"
-            ? '<span class="spinner"></span>Connecting…'
+            ? '<span class="spinner"></span>' + esc(t("connecting"))
             : "";
-        $("connect").textContent = state.enrolled ? "Continue" : "Connect";
+        $("connect").textContent = t(state.enrolled ? "continue" : "connect");
 
         $("sleep").setAttribute("aria-checked", String(state.preventSleep));
         $("login").setAttribute("aria-checked", String(state.openAtLogin));
@@ -3091,18 +4128,19 @@
           const status = state.permissions?.[id] ?? "unknown";
           const granted = status === "granted";
           const sub = $("perm-" + id + "-sub");
-          sub.textContent = status === "denied" ? text.missing : text.about;
+          sub.textContent = t(status === "denied" ? text.missing : text.about);
           // Most Macs run without Full Disk Access; only refusals are warnings.
           sub.dataset.warn = String(status === "denied" && id !== "full-disk");
           const badge = $("perm-" + id + "-badge");
           badge.dataset.ok = String(granted);
-          badge.innerHTML = granted ? check + "Allowed" : "";
+          badge.innerHTML = granted ? check + esc(t("allowed")) : "";
           const button = $("perm-" + id);
           button.hidden = granted;
-          button.textContent =
+          button.textContent = t(
             id === "full-disk" || status === "denied"
-              ? "Open Settings"
-              : "Allow…";
+              ? "openSettings"
+              : "allow",
+          );
         }
         const folders = $("folders");
         folders.replaceChildren(
@@ -3128,37 +4166,37 @@
         $("send-modal").hidden = phase === "idle";
         if (phase === "idle") return;
         const title = {
-          preparing: "Preparing diagnostics",
-          confirm: "Send diagnostics to " + send.host + "?",
-          sending: "Sending diagnostics",
-          sent: "Diagnostics sent",
-          failed: "Couldn't send diagnostics",
+          preparing: "sendPreparing",
+          confirm: "sendConfirm",
+          sending: "sendSending",
+          sent: "sendSent",
+          failed: "sendFailed",
         }[phase];
-        $("send-title").textContent = title;
+        $("send-title").textContent = t(title, { host: send.host });
         const lead = $("send-lead");
         if (phase === "preparing")
           lead.innerHTML =
-            '<span class="spinner"></span>Collecting logs and settings…';
+            '<span class="spinner"></span>' + esc(t("sendCollecting"));
         else
           lead.textContent =
             phase === "confirm"
-              ? send.files.length +
-                " files, " +
-                fileSize(send.bytes) +
-                ": logs and settings of this app and of Linger on this computer. Passwords, tokens, keys and your home folder path are removed first; credential files and your data are never included. Only the people who run " +
-                send.host +
-                " can read the report."
+              ? t("sendConfirmLead", {
+                  count: send.files.length,
+                  size: fileSize(send.bytes),
+                  host: send.host,
+                })
               : phase === "sending"
-                ? "Uploading to " +
-                  send.host +
-                  "… " +
-                  Math.floor((send.sent / Math.max(1, send.total)) * 100) +
-                  "%"
+                ? t("sendUploading", {
+                    host: send.host,
+                    percent: Math.floor(
+                      (send.sent / Math.max(1, send.total)) * 100,
+                    ),
+                  })
                 : phase === "sent"
-                  ? "Give this report ID to Linger support so they can find your report."
+                  ? t("sendSentLead")
                   : send.retry
                     ? ""
-                    : "You can still use Save Diagnostics and send the file by hand.";
+                    : t("sendByHand");
         const files = $("send-files");
         files.hidden = phase !== "confirm";
         if (
@@ -3182,34 +4220,34 @@
         $("send-report-id").textContent = phase === "sent" ? send.reportId : "";
         $("send-error").textContent = phase === "failed" ? send.error : "";
         const primary = {
-          confirm: "Send",
-          sent: copiedReport === send.reportId ? "Copied" : "Copy Report ID",
-          failed: send.retry ? "Try Again" : "",
+          confirm: "send",
+          sent: copiedReport === send.reportId ? "copied" : "copyReportId",
+          failed: send.retry ? "tryAgain" : "",
         }[phase];
         $("send-primary").hidden = !primary;
-        $("send-primary").textContent = primary ?? "";
-        const close = { confirm: "Cancel", sent: "Done", failed: "Close" }[
+        $("send-primary").textContent = primary ? t(primary) : "";
+        const close = { confirm: "cancel", sent: "done", failed: "close" }[
           phase
         ];
         $("send-close").hidden = !close;
-        $("send-close").textContent = close ?? "";
+        $("send-close").textContent = close ? t(close) : "";
       };
 
       // Runs one command at a time; errors land next to the step.
       const run = async (command, errorId) => {
         if (pending !== null) return;
         pending = command.op;
-        if (errorId) $(errorId).textContent = "";
+        // The sign-in dialog renders its error itself.
+        if (errorId === "runtime-signin-error") signInError = "";
+        else if (errorId) $(errorId).textContent = "";
         render();
         try {
           state = await setup.run(command);
           return true;
         } catch (error) {
-          const message = String(error?.message ?? error).replace(
-            /^Error invoking remote method '[^']+': (Error: )?/,
-            "",
-          );
-          if (errorId) $(errorId).textContent = message;
+          if (errorId === "runtime-signin-error")
+            signInError = ipcMessage(error);
+          else if (errorId) $(errorId).textContent = ipcMessage(error);
           return false;
         } finally {
           pending = null;
@@ -3231,12 +4269,12 @@
       // The install runs on its own; this window follows its progress.
       const install = async () => {
         const byokPayload =
-          plan.source === "byok" ? trimByok(byok, byok.runtime) : undefined;
+          plan.source === "byok" ? mainByok.config() : undefined;
         const runtime =
           plan.source === "local"
             ? "local"
             : plan.source === "byok"
-              ? byok.runtime
+              ? byokRuntime
               : plan.runtime === "pi"
                 ? "recommended"
                 : plan.runtime;
@@ -3270,8 +4308,48 @@
         // That page shows a code to paste back here.
         if (state.localServer.signIn?.acceptsCode)
           $("runtime-signin-trouble").open = true;
-        run({ op: "local.signin.open" }, "runtime-signin-error");
+        // On Linux opening waits up to seconds for xdg-open, so it skips run()
+        // and leaves the dialog usable; a browser that fails to open comes
+        // back through onState as browserFailed.
+        signInError = "";
+        setup.run({ op: "local.signin.open" }).catch((error) => {
+          signInError = ipcMessage(error);
+          render();
+        });
       });
+      const copySignIn = async (what) => {
+        if (
+          !(await run(
+            { op: "local.signin.copy", what },
+            "runtime-signin-error",
+          ))
+        )
+          return;
+        signInCopied = what;
+        render();
+        setTimeout(() => {
+          if (signInCopied !== what) return;
+          signInCopied = undefined;
+          render();
+        }, 1500);
+      };
+      $("runtime-signin-copy-url").addEventListener("click", () =>
+        copySignIn("url"),
+      );
+      $("runtime-signin-copy-code").addEventListener("click", () =>
+        copySignIn("code"),
+      );
+      $("runtime-signin-device-start").addEventListener("click", () =>
+        run({ op: "local.signin.start", device: true }, "runtime-signin-error"),
+      );
+      $("runtime-signin-switch-method").addEventListener("click", () =>
+        run(
+          state.localServer.signIn?.deviceCode
+            ? { op: "local.signin.start" }
+            : { op: "local.signin.start", device: true },
+          "runtime-signin-error",
+        ),
+      );
       $("runtime-signin-cancel").addEventListener("click", () =>
         run({ op: "local.signin.cancel" }, "runtime-signin-error"),
       );
@@ -3283,22 +4361,11 @@
         signInByokOpen = !signInByokOpen;
         render();
       });
-      for (const [id, field] of [
-        ["signin-byok-url", "baseUrl"],
-        ["signin-byok-key", "apiKey"],
-        ["signin-byok-model", "modelId"],
-      ])
-        $(id).addEventListener("input", () => {
-          signInByok = { ...signInByok, [field]: $(id).value };
-          render();
-        });
       $("runtime-signin-byok").addEventListener("submit", async (event) => {
         event.preventDefault();
-        const runtime = state.localServer.signIn?.runtime ?? "claude";
-        if (!signInByok.baseUrl.trim() || !signInByok.modelId.trim()) return;
-        const payload = trimByok(signInByok, runtime);
-        $("signin-byok-key").value = "";
-        signInByok = { ...signInByok, apiKey: "" };
+        if (!signInByok.complete()) return;
+        const payload = signInByok.config();
+        signInByok.clearKey();
         await run(
           { op: "local.signin.byok", byok: payload },
           "runtime-signin-error",
@@ -3348,16 +4415,14 @@
       );
       const clearKeys = () => {
         keys = {};
-        byok = { ...byok, apiKey: "" };
-        $("byok-key").value = "";
-        signInByok = { ...signInByok, apiKey: "" };
-        $("signin-byok-key").value = "";
+        mainByok.clearKey();
+        signInByok.clearKey();
         for (const input of document.querySelectorAll("[data-key]")) {
           input.value = "";
           input.type = "password";
         }
         for (const reveal of document.querySelectorAll("[data-reveal]"))
-          reveal.textContent = "Show";
+          reveal.textContent = t("show");
       };
       for (const input of document.querySelectorAll("[data-key]"))
         input.addEventListener("input", () => {
@@ -3373,7 +4438,7 @@
         reveal.addEventListener("click", () => {
           const input = $(`key-${reveal.dataset.reveal}`);
           input.type = input.type === "password" ? "text" : "password";
-          reveal.textContent = input.type === "password" ? "Show" : "Hide";
+          reveal.textContent = t(input.type === "password" ? "show" : "hide");
         });
       for (const remove of document.querySelectorAll("[data-remove]"))
         remove.addEventListener("click", () => {
@@ -3392,9 +4457,8 @@
         if (!customizing) {
           picked = false;
           pickedAutoBeforeCheck = false;
-          byok = emptyByok();
-          $("byok-url").value = "";
-          $("byok-model").value = "";
+          byokRuntime = "claude";
+          mainByok.reset();
           clearKeys();
           const location = state.localServer.location;
           if (location.custom || location.error)
@@ -3437,30 +4501,15 @@
             }
             render();
           });
-      for (const seg of document.querySelectorAll("[data-byok]"))
-        for (const option of seg.querySelectorAll("button"))
-          option.addEventListener("click", () => {
-            picked = true;
-            byok = { ...byok, [seg.dataset.byok]: option.dataset.value };
-            render();
-          });
-      for (const [id, field] of [
-        ["byok-url", "baseUrl"],
-        ["byok-key", "apiKey"],
-        ["byok-model", "modelId"],
-      ])
-        $(id).addEventListener("input", () => {
+      for (const option of document.querySelectorAll(
+        '[data-byok="runtime"] button',
+      ))
+        option.addEventListener("click", () => {
           picked = true;
-          byok = { ...byok, [field]: $(id).value };
+          byokRuntime = option.dataset.value;
+          mainByok.runtimeChanged();
           render();
         });
-      $("byok-check").addEventListener("click", () => {
-        if (!byok.baseUrl.trim() || !byok.modelId.trim()) return;
-        run(
-          { op: "local.byok.check", byok: trimByok(byok, byok.runtime) },
-          "local-error",
-        );
-      });
       $("location-change").addEventListener("click", () =>
         run({ op: "local.location.pick" }),
       );
@@ -3510,7 +4559,7 @@
       });
       $("notify").addEventListener("click", async () => {
         if (await run({ op: "notifications.test" }, "permissions-error"))
-          $("notify").textContent = "Test Sent";
+          $("notify").textContent = t("testSent");
       });
       $("folder").addEventListener("click", () =>
         run({ op: "folder.add" }, "permissions-error"),

@@ -712,6 +712,10 @@ describe("Recording window", () => {
       floating.getByRole("button", { name: "Minimize recording" }),
     );
     expect(pipWindow.resizeTo).toHaveBeenCalledWith(420, 136);
+    // The floating window is resized by the desktop, not by a grip.
+    expect(
+      floating.queryByRole("button", { name: "Resize recording window" }),
+    ).toBeNull();
 
     act(() => pipWindow.close());
     expect(
@@ -809,6 +813,186 @@ describe("Recording window", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("returns from the desktop app's window by its own button, and ends when that window closes", async () => {
+    const desktop = stubDesktopVoiceWindow();
+    const voice = voiceValue();
+    renderWindow(voice);
+    await act(() => openVoicePip("recording"));
+    const floating = within(desktop.frame.contentDocument!.body);
+    await act(async () => {
+      fireEvent.click(
+        floating.getByRole("button", { name: "Return recording to Linger" }),
+      );
+    });
+    expect(desktop.showMain).toHaveBeenCalledOnce();
+    expect(desktop.pipWindow.close).toHaveBeenCalledOnce();
+    // The recording goes on in the page, with no return button there.
+    expect(
+      await screen.findByRole("region", { name: "Recording window" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Return recording to Linger" }),
+    ).toBeNull();
+    expect(voice.leavePage).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Float recording window" }),
+      );
+    });
+    expect(desktop.open).toHaveBeenCalledTimes(2);
+    expect(desktop.requestWindow).not.toHaveBeenCalled();
+    await floating.findByRole("region", { name: "Recording window" });
+    // The window's close button ends the recording even as the main window
+    // comes to the front.
+    act(() => {
+      desktop.pipWindow.close();
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await waitFor(() => expect(voice.leavePage).toHaveBeenCalledOnce());
+    expect(desktop.showMain).toHaveBeenCalledOnce();
+  });
+
+  it("returns from the browser's floating window by its return button without stopping", async () => {
+    const { frame, pipWindow } = stubPictureInPicture();
+    const focus = vi.spyOn(window, "focus").mockImplementation(() => {});
+    try {
+      const voice = voiceValue();
+      renderWindow(voice);
+      await act(() => openVoicePip("recording"));
+      const floating = within(frame.contentDocument!.body);
+      const back = floating.getByRole("button", {
+        name: "Return recording to Linger",
+      });
+      expect(back.title).toBe("Back to Linger; recording continues");
+      await act(async () => {
+        fireEvent.click(back);
+      });
+      // The tab comes to the front and the recording goes on in the page.
+      expect(focus).toHaveBeenCalledOnce();
+      expect(pipWindow.close).toHaveBeenCalledOnce();
+      expect(
+        await screen.findByRole("region", { name: "Recording window" }),
+      ).toBeVisible();
+      expect(voice.leavePage).not.toHaveBeenCalled();
+    } finally {
+      focus.mockRestore();
+    }
+  });
+
+  it("cannot be dragged out of the page, and moves back in when it opens or the page narrows", () => {
+    const observed: (() => void)[] = [];
+    const resize = () => observed.forEach((callback) => callback());
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          observed.push(callback);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    renderWindow(voiceValue());
+    const frame = screen.getByRole("region", { name: "Recording window" });
+    let height = 500;
+    Object.defineProperties(frame, {
+      offsetHeight: { get: () => height },
+      offsetWidth: { get: () => 420 },
+    });
+    vi.spyOn(frame, "getBoundingClientRect").mockImplementation(
+      () => new DOMRect(500, 64, 420, height),
+    );
+    const titleBar = screen.getByRole("button", {
+      name: "Minimize recording",
+    }).parentElement!;
+    fireEvent.pointerDown(titleBar, { button: 0, clientX: 700, clientY: 80 });
+    fireEvent.pointerMove(window, { clientX: 5000, clientY: 5000 });
+    fireEvent.pointerUp(window);
+    expect(frame).toHaveStyle({
+      left: `${window.innerWidth - 420}px`,
+      top: `${window.innerHeight - 500}px`,
+    });
+    fireEvent.pointerDown(titleBar, { button: 0, clientX: 700, clientY: 80 });
+    fireEvent.pointerMove(window, { clientX: -5000, clientY: -5000 });
+    fireEvent.pointerUp(window);
+    // It stays below the top of the page.
+    expect(frame).toHaveStyle({ left: "0px", top: "36px" });
+
+    // Minimized to its top row at the bottom of the page, then opened again.
+    fireEvent.click(screen.getByRole("button", { name: "Minimize recording" }));
+    height = 92;
+    fireEvent.pointerDown(titleBar, { button: 0, clientX: 700, clientY: 80 });
+    fireEvent.pointerMove(window, { clientX: 700, clientY: 5000 });
+    fireEvent.pointerUp(window);
+    expect(frame).toHaveStyle({ top: `${window.innerHeight - 92}px` });
+    fireEvent.click(screen.getByRole("button", { name: "Open recording" }));
+    height = 500;
+    act(() => resize());
+    expect(frame).toHaveStyle({ top: `${window.innerHeight - 500}px` });
+
+    // A narrower page moves it left until all of it shows again.
+    expect(frame).toHaveStyle({ left: "500px" });
+    vi.stubGlobal("innerWidth", 800);
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(frame).toHaveStyle({ left: `${800 - 420}px` });
+  });
+
+  it("resizes in the page by its edges and corners, and only in width while minimized", () => {
+    renderWindow(voiceValue());
+    const frame = screen.getByRole("region", { name: "Recording window" });
+    const surface = screen.getByRole("region", {
+      name: "Voice recording",
+    });
+    // Until it is resized the window is as tall as its content needs.
+    expect(frame.style.height).toBe("");
+    expect(surface).not.toHaveClass("flex-1");
+    const onScreen = vi
+      .spyOn(frame, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(500, 64, 420, 500));
+    const grip = screen.getByRole("button", {
+      name: "Resize recording window",
+    });
+    fireEvent.pointerDown(grip, { button: 0, clientX: 920, clientY: 564 });
+    fireEvent.pointerMove(grip, { clientX: 1000, clientY: 664 });
+    fireEvent.pointerUp(grip);
+    expect(frame).toHaveStyle({ left: "500px", top: "64px" });
+    expect(frame).toHaveStyle({ height: "600px", width: "500px" });
+    // The surface fills the height the Human chose.
+    expect(surface).toHaveClass("flex-1");
+
+    // The top left corner stops at the minimum size and keeps the opposite
+    // corner where it was.
+    onScreen.mockReturnValue(new DOMRect(500, 64, 500, 600));
+    const corner = frame.querySelector('[data-resize-edge="nw"]')!;
+    fireEvent.pointerDown(corner, { button: 0, clientX: 500, clientY: 64 });
+    fireEvent.pointerMove(corner, { clientX: 5000, clientY: 5000 });
+    fireEvent.pointerUp(corner);
+    expect(frame).toHaveStyle({ left: "720px", top: "384px" });
+    expect(frame).toHaveStyle({ height: "280px", width: "280px" });
+
+    // Minimized to its top row, only the sides resize it.
+    fireEvent.click(screen.getByRole("button", { name: "Minimize recording" }));
+    expect(
+      screen.queryByRole("button", { name: "Resize recording window" }),
+    ).toBeNull();
+    expect(frame.querySelector('[data-resize-edge="s"]')).toBeNull();
+    expect(frame.style.height).toBe("");
+    onScreen.mockReturnValue(new DOMRect(720, 384, 280, 92));
+    const right = frame.querySelector('[data-resize-edge="e"]')!;
+    fireEvent.pointerDown(right, { button: 0, clientX: 1000, clientY: 400 });
+    fireEvent.pointerMove(right, { clientX: 5000, clientY: 400 });
+    fireEvent.pointerUp(right);
+    expect(frame).toHaveStyle({ width: `${window.innerWidth - 720}px` });
+    expect(frame.style.height).toBe("");
+    // Opening it again brings back the height it had.
+    fireEvent.click(screen.getByRole("button", { name: "Open recording" }));
+    expect(frame).toHaveStyle({ height: "280px" });
   });
 
   it("ignores a pending native close after a new floating window opens", async () => {
@@ -1131,6 +1315,18 @@ function stubPictureInPicture() {
     value: { requestWindow },
   });
   return { frame, pipWindow, requestWindow };
+}
+
+/** The desktop app's floating window, offered next to the browser's API. */
+function stubDesktopVoiceWindow() {
+  const browser = stubPictureInPicture();
+  const open = vi.fn(() => browser.pipWindow);
+  const showMain = vi.fn(async () => {});
+  defineGlobalProperty(window, "open", { value: open });
+  defineGlobalProperty(window, "lingerDesktop", {
+    value: { voiceWindow: { showMainWindow: showMain } },
+  });
+  return { ...browser, open, showMain };
 }
 
 describe("Recording window placement", () => {

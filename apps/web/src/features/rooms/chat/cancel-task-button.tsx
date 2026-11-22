@@ -1,7 +1,11 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
+
+import { runtimeStatusMessages as m } from "../runtime-status/runtime-status.messages";
 
 /**
  * Cancels one Task's current turn. The Room's Meta is told and can resume
@@ -17,13 +21,14 @@ export function CancelTaskButton({
   prominent?: boolean;
   title: string;
 }) {
+  const t = useT();
   const [state, setState] = useState<"idle" | "pending" | "error">("idle");
   return (
     <Button
       aria-label={
         state === "error"
-          ? `Cancel of ${title} was not confirmed; retry`
-          : `Cancel ${title}`
+          ? t(m.cancelTaskNotConfirmed, { title })
+          : t(m.cancelTask, { title })
       }
       className={cn(
         !prominent &&
@@ -43,12 +48,12 @@ export function CancelTaskButton({
       type="button"
     >
       {state === "pending"
-        ? "Canceling"
+        ? t(m.canceling)
         : state === "error"
-          ? "Retry"
+          ? t(commonMessages.retry)
           : prominent
-            ? "Cancel task"
-            : "Cancel"}
+            ? t(m.cancelTaskAction)
+            : t(commonMessages.cancel)}
     </Button>
   );
 }

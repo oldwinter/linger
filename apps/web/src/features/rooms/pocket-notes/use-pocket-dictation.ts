@@ -4,12 +4,14 @@ import { useOptionalTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { useOptionalVoiceControl } from "@/features/rooms/voice-control/voice-control-context";
 import { tryAcquireVoicePublisherLease } from "@/features/rooms/voice-control/voice-publisher-lease";
 import { useVoiceMediaPolicy } from "@/features/rooms/voice-control/use-voice-media-policy";
+import { translate } from "@/i18n/language";
 
 import {
   VoiceModeController,
   type VoiceModeState,
 } from "../chat/voice-mode/voice-mode-controller";
 import { openVoiceMode } from "../chat/voice-mode/voice-mode-transport";
+import { pocketNotesMessages as m } from "./pocket-notes.messages";
 
 const idle: VoiceModeState = {
   status: "idle",
@@ -86,8 +88,7 @@ export function usePocketDictation({
                 resumeListening: false,
               });
             const release = await tryAcquireVoicePublisherLease(tenantId);
-            if (!release)
-              throw new Error("The microphone is active in another tab.");
+            if (!release) throw new Error(translate(m.microphoneOtherTab));
             return async () => release();
           },
         });

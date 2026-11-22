@@ -34,6 +34,9 @@ import type {
   TeamHubLocalComputerPage,
   TeamHubTenantAgent,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { translate } from "@/i18n/language";
+import { RichMessage, useT, useTranslation } from "@/i18n/use-translation";
 
 import {
   type AssignableLocalModelAgent,
@@ -55,6 +58,7 @@ import {
   memoryGuidanceCopy,
   modelSourceReadErrorCopy,
 } from "./local-models-copy";
+import { localModelsMessages as m } from "./local-models.messages";
 import {
   actOnLocalComputerModel,
   localModelActionMutationKey,
@@ -69,6 +73,7 @@ import {
 import {
   downloadStopped,
   formatGigabytes,
+  joinList,
   loadCheck,
   localSwitchTargets,
   memoryGuidance,
@@ -79,10 +84,9 @@ import {
   type ModelEntry,
   type ModelStatus,
 } from "./local-models-rules";
+import { ByokPanel } from "./byok-panel";
 import {
   activeSourceLabel,
-  type ByokDraft,
-  ByokPanel,
   ModelSourceTabs,
   SwitchToLocalNotice,
   useModelSourceSwitch,
@@ -122,6 +126,7 @@ type InventoryComputer = TeamHubLocalComputerPage["items"][number];
  * and a browser the first one.
  */
 export function ModelsPage() {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
   const { data: inventory } = useSuspenseQuery(
@@ -179,16 +184,16 @@ export function ModelsPage() {
         />
       ) : (
         <>
-          <h1 className="text-2xl text-foreground">Models</h1>
-          <EmptyState title="No computers yet">
-            Connect a computer in{" "}
-            <Link
-              className="text-foreground underline underline-offset-2"
-              to={computersPath(tenantId)}
-            >
-              Computers
-            </Link>{" "}
-            to download and run models on it.
+          <h1 className="text-2xl text-foreground">{t(m.title)}</h1>
+          <EmptyState title={t(m.noComputersTitle)}>
+            <RichMessage
+              message={m.noComputersBody}
+              tags={{
+                link: (text) => (
+                  <ComputersLink tenantId={tenantId}>{text}</ComputersLink>
+                ),
+              }}
+            />
           </EmptyState>
         </>
       )}
@@ -219,6 +224,24 @@ function EmptyState({
       </p>
       {action}
     </section>
+  );
+}
+
+/** The link to Settings › Computers inside a sentence. */
+function ComputersLink({
+  children,
+  tenantId,
+}: {
+  children: ReactNode;
+  tenantId: string;
+}) {
+  return (
+    <Link
+      className="text-foreground underline underline-offset-2"
+      to={computersPath(tenantId)}
+    >
+      {children}
+    </Link>
   );
 }
 
@@ -253,6 +276,8 @@ function ComputerModels({
   ownedComputers: readonly InventoryComputer[];
   tenantId: string;
 }) {
+  const translation = useTranslation();
+  const { t } = translation;
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const query = useQuery(localModelsQueryOptions(client, tenantId, computerId));
@@ -296,16 +321,15 @@ function ComputerModels({
   ]);
   const status = source.data?.status;
   const [tab, setTab] = useState<ModelSourceMode | null>(null);
-  const [byokDraft, setByokDraft] = useState<ByokDraft | undefined>(undefined);
+  const [byokVisited, setByokVisited] = useState(false);
   // A Computer on a subscription opens on Local model, which offers the way
   // off it; the Subscription tab is not offered.
   const shownTab = tab ?? (status?.mode === "byok" ? "byok" : "local");
   const computerName =
-    displayName ?? view?.computer.display_name ?? "this computer";
+    displayName ?? view?.computer.display_name ?? t(m.thisComputer);
   const { feedback, switcher } = useModelSourceSwitch({
     computerId,
     computerName,
-    onSwitched: () => setByokDraft(undefined),
     tenantId,
   });
   const switching = switcher.pending !== undefined;
@@ -338,7 +362,7 @@ function ComputerModels({
       : Boolean(view && ownedComputers.length > 0);
   const computerPicker = showComputerPicker ? (
     <Select
-      aria-label="Computer"
+      aria-label={t(m.computerPicker)}
       disabled={switching}
       onValueChange={onSelectComputer}
       value={computerId}
@@ -348,20 +372,21 @@ function ComputerModels({
         <SelectItem value={computerId}>
           {view.computer.status === "online"
             ? view.computer.display_name
-            : `${view.computer.display_name} · Offline`}
+            : t(m.computerOffline, { name: view.computer.display_name })}
         </SelectItem>
       ) : null}
       {ownedComputers.map((item) => (
         <SelectItem key={item.computer_id} value={item.computer_id}>
           {item.status === "online"
             ? item.display_name
-            : `${item.display_name} · Offline`}
+            : t(m.computerOffline, { name: item.display_name })}
         </SelectItem>
       ))}
     </Select>
   ) : null;
 
   function changeTab(next: ModelSourceMode) {
+    if (shownTab === "byok" || next === "byok") setByokVisited(true);
     setTab(next);
     setRefreshError(null);
     switcher.clearFeedback();
@@ -371,24 +396,32 @@ function ComputerModels({
     <>
       <header className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
         <div className="min-w-48 flex-1">
-          <h1 className="text-2xl text-foreground">Models</h1>
+          <h1 className="text-2xl text-foreground">{t(m.title)}</h1>
           {status ? (
             <p className="mt-1.5 text-sm text-muted-foreground">
-              Agents on {computerName} use {activeSourceLabel(status)}
+              {t(m.agentsUse, {
+                computer: computerName,
+                source: activeSourceLabel(status, t),
+              })}
             </p>
           ) : null}
           {shownTab === "local" && summary?.totalBytes ? (
             <>
               <p className="mt-1.5 text-sm text-muted-foreground">
-                {formatGigabytes(summary.usedBytes)} of{" "}
-                {formatGigabytes(summary.totalBytes)}{" "}
-                {summary.gpu ? "GPU memory" : "memory"} in use
+                {t(summary.gpu ? m.gpuMemoryInUse : m.memoryInUse, {
+                  total: formatGigabytes(summary.totalBytes, t),
+                  used: formatGigabytes(summary.usedBytes, t),
+                })}
               </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                {formatGigabytes(summary.freeBytes)} free
                 {view?.observed_at
-                  ? ` · Checked ${relativeTime(view.observed_at)}`
-                  : ""}
+                  ? t(m.memoryFreeChecked, {
+                      free: formatGigabytes(summary.freeBytes, t),
+                      time: relativeTime(view.observed_at, translation),
+                    })
+                  : t(m.memoryFree, {
+                      free: formatGigabytes(summary.freeBytes, t),
+                    })}
               </p>
             </>
           ) : null}
@@ -401,7 +434,7 @@ function ComputerModels({
               onClick={() => refresh.mutate()}
               size="compact"
             >
-              Recheck memory
+              {t(m.recheckMemory)}
             </Button>
           ) : null}
           {view?.available ? (
@@ -409,7 +442,7 @@ function ComputerModels({
               onClick={() => setDialog({ kind: "advanced" })}
               size="compact"
             >
-              Details
+              {t(m.details)}
             </Button>
           ) : null}
         </div>
@@ -431,6 +464,7 @@ function ComputerModels({
                   source.error instanceof TeamHubError
                     ? source.error.code
                     : undefined,
+                  t,
                 )}
               </span>
               <button
@@ -439,7 +473,7 @@ function ComputerModels({
                 onClick={() => void source.refetch()}
                 type="button"
               >
-                {source.isFetching ? "Retrying…" : "Retry"}
+                {t(source.isFetching ? m.retrying : commonMessages.retry)}
               </button>
             </span>
           </FormFeedback>
@@ -453,7 +487,7 @@ function ComputerModels({
       {refreshError ? (
         <div className="mt-4">
           <FormFeedback tone="danger">
-            {actionErrorCopy(refreshError)}
+            {actionErrorCopy(refreshError, t)}
           </FormFeedback>
         </div>
       ) : null}
@@ -463,43 +497,41 @@ function ComputerModels({
           role="status"
         >
           <Spinner size={14} />
-          Switching {computerName}. This can take a few minutes the first time.
+          {t(m.switchingComputer, { computer: computerName })}
         </p>
       ) : null}
       {feedback}
-      {status && shownTab === "byok" ? (
-        <>
-          {offline && view ? (
+      {status && (shownTab === "byok" || byokVisited) ? (
+        <div hidden={shownTab !== "byok"}>
+          {shownTab === "byok" && offline && view ? (
             <Notice>
-              <span className="text-foreground">
-                {view.computer.display_name} is offline
-                {view.computer.last_seen_at
-                  ? ` (last seen ${relativeTime(view.computer.last_seen_at)})`
-                  : ""}
-                .
-              </span>{" "}
-              Reconnect it in{" "}
-              <Link
-                className="text-foreground underline underline-offset-2"
-                to={computersPath(tenantId)}
-              >
-                Computers
-              </Link>{" "}
-              to test or change its model source.
+              <OfflineMessage
+                lastSeenAt={view.computer.last_seen_at}
+                messages={[m.offlineByok, m.offlineByokLastSeen]}
+                name={view.computer.display_name}
+                tenantId={tenantId}
+              />
             </Notice>
+          ) : null}
+          {shownTab === "byok" && status.mode === "subscription" ? (
+            <div className="mt-6">
+              <FormFeedback tone="info">
+                This computer currently uses Subscription. Switching away from
+                Subscription cannot be reversed from this page.
+              </FormFeedback>
+            </div>
           ) : null}
           <ByokPanel
             computerId={computerId}
             disabled={switching || offline}
-            draft={byokDraft}
             key={`${status.mode}:${switcher.saveRevision}`}
-            onDraftChange={setByokDraft}
             status={status}
             switcher={switcher}
             tenantId={tenantId}
           />
-        </>
-      ) : view ? (
+        </div>
+      ) : null}
+      {status && shownTab === "byok" ? null : view ? (
         <>
           {status && status.mode !== "local" ? (
             <SwitchToLocalNotice
@@ -540,22 +572,28 @@ function ComputerModels({
                   size="compact"
                   tone="primary"
                 >
-                  Open {defaultComputerName ?? "my computers"}
+                  {defaultComputerName
+                    ? t(m.openComputer, { name: defaultComputerName })
+                    : t(m.openMyComputers)}
                 </Button>
               ) : null}
               <Button onClick={() => void query.refetch()} size="compact">
-                Try again
+                {t(commonMessages.tryAgain)}
               </Button>
             </div>
           }
-          title={`Couldn't load the models of ${displayName ?? "this computer"}`}
+          title={
+            displayName === undefined
+              ? t(m.loadFailedTitleThisComputer)
+              : t(m.loadFailedTitle, { name: displayName })
+          }
         >
-          {actionErrorCopy(queryErrorCode)}
+          {actionErrorCopy(queryErrorCode, t)}
         </EmptyState>
       ) : (
         <div
           aria-busy="true"
-          aria-label="Loading models"
+          aria-label={t(m.loadingModels)}
           className="mt-6 grid gap-2"
           role="status"
         >
@@ -577,6 +615,44 @@ function ComputerModels({
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * A Computer is offline, with when it was last seen once known. `messages`
+ * holds the sentence without and with that time.
+ */
+function OfflineMessage({
+  lastSeenAt,
+  messages,
+  name,
+  tenantId,
+}: {
+  lastSeenAt: string | null | undefined;
+  messages:
+    | readonly [typeof m.offlineByok, typeof m.offlineByokLastSeen]
+    | readonly [typeof m.offlineLibrary, typeof m.offlineLibraryLastSeen]
+    | readonly [typeof m.offlineReadOnly, typeof m.offlineReadOnlyLastSeen];
+  name: string;
+  tenantId: string;
+}) {
+  const translation = useTranslation();
+  const tags = {
+    link: (text: ReactNode) => (
+      <ComputersLink tenantId={tenantId}>{text}</ComputersLink>
+    ),
+    strong: (text: ReactNode) => (
+      <span className="text-foreground">{text}</span>
+    ),
+  };
+  return lastSeenAt ? (
+    <RichMessage
+      message={messages[1]}
+      tags={tags}
+      values={{ name, time: relativeTime(lastSeenAt, translation) }}
+    />
+  ) : (
+    <RichMessage message={messages[0]} tags={tags} values={{ name }} />
   );
 }
 
@@ -607,6 +683,7 @@ function Library({
   tenantId: string;
   view: LocalModelsView;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const computerId = view.computer.computer_id;
@@ -764,9 +841,7 @@ function Library({
     onError: (error, variables) => {
       if (!variables.preserveError) {
         setAssignError(
-          error instanceof Error
-            ? error.message
-            : "Couldn't switch the Agent to this model. Try again.",
+          error instanceof Error ? error.message : translate(m.assignFailed),
         );
       }
       void Promise.all([
@@ -912,7 +987,13 @@ function Library({
     const targets = matching.filter((agent) => !agent.busy);
     setPendingSwitch(null);
     const busyMessage = busySkipped.length
-      ? `Couldn't switch ${busySkipped.map((agent) => agent.name).join(", ")} to ${target.model.name} while working. Switch once the current turn finishes.`
+      ? translate(m.assignBusy, {
+          agents: joinList(
+            busySkipped.map((agent) => agent.name),
+            translate,
+          ),
+          model: target.model.name,
+        })
       : null;
     if (busyMessage) {
       setAssignError(busyMessage);
@@ -927,9 +1008,18 @@ function Library({
         .filter((_, index) => results[index]?.status === "rejected")
         .map((agent) => agent.name);
       const failureMessage = failedNames.length
-        ? `Couldn't switch ${failedNames.join(", ")} to ${target.model.name}. Try again.`
+        ? translate(m.assignFailedNamed, {
+            agents: joinList(failedNames, translate),
+            model: target.model.name,
+          })
         : null;
-      const combined = [busyMessage, failureMessage].filter(Boolean).join(" ");
+      const combined =
+        busyMessage && failureMessage
+          ? translate(m.sentences, {
+              first: busyMessage,
+              second: failureMessage,
+            })
+          : (busyMessage ?? failureMessage);
       if (combined) setAssignError(combined);
     });
   }, [
@@ -973,7 +1063,7 @@ function Library({
   const failedEntry = failure ? find(failure.modelId) : undefined;
   const guidanceCopy =
     !offline && view.available && guidance
-      ? memoryGuidanceCopy(guidance)
+      ? memoryGuidanceCopy(guidance, t)
       : undefined;
 
   function act(input: LocalModelActionInput) {
@@ -1003,7 +1093,7 @@ function Library({
 
   const unavailable = view.available
     ? undefined
-    : libraryUnavailableCopy(view.reason?.code, name);
+    : libraryUnavailableCopy(view.reason?.code, name, t);
   const canRetryUnavailable =
     !offline && !readOnly && view.reason?.code === "TOOL_FAILED";
   const pendingSwitchTarget = pendingSwitch
@@ -1021,35 +1111,19 @@ function Library({
     <>
       {offline ? (
         <Notice>
-          <span className="text-foreground">
-            {name} is offline
-            {view.computer.last_seen_at
-              ? ` (last seen ${relativeTime(view.computer.last_seen_at)})`
-              : ""}
-            .
-          </span>{" "}
-          This is what it last reported.
-          {readOnly ? null : (
-            <>
-              {" "}
-              Reconnect it in{" "}
-              <Link
-                className="text-foreground underline underline-offset-2"
-                to={computersPath(tenantId)}
-              >
-                Computers
-              </Link>{" "}
-              to manage its models.
-            </>
-          )}
+          <OfflineMessage
+            lastSeenAt={view.computer.last_seen_at}
+            messages={
+              readOnly
+                ? [m.offlineReadOnly, m.offlineReadOnlyLastSeen]
+                : [m.offlineLibrary, m.offlineLibraryLastSeen]
+            }
+            name={name}
+            tenantId={tenantId}
+          />
         </Notice>
       ) : null}
-      {readOnly ? (
-        <Notice>
-          Only the person who connected {name} can download, load or remove its
-          models.
-        </Notice>
-      ) : null}
+      {readOnly ? <Notice>{t(m.readOnlyNotice, { name })}</Notice> : null}
 
       {unavailable ? (
         <EmptyState
@@ -1061,7 +1135,7 @@ function Library({
                 onClick={onRefresh}
                 size="compact"
               >
-                Try again
+                {t(commonMessages.tryAgain)}
               </Button>
             ) : undefined
           }
@@ -1074,8 +1148,12 @@ function Library({
           {failure ? (
             <div className="mt-6">
               <FormFeedback tone="danger">
-                {failedEntry ? `${failedEntry.model.name}: ` : null}
-                {actionErrorCopy(failure.code)}
+                {failedEntry
+                  ? t(m.modelFailure, {
+                      name: failedEntry.model.name,
+                      reason: actionErrorCopy(failure.code, t),
+                    })
+                  : actionErrorCopy(failure.code, t)}
               </FormFeedback>
             </div>
           ) : null}
@@ -1087,14 +1165,16 @@ function Library({
           {pendingSwitchTarget && pendingSwitchNames.length ? (
             <div className="mt-6">
               <FormFeedback tone="info">
-                Will switch {pendingSwitchNames.join(", ")} to{" "}
-                {pendingSwitchTarget.model.name} once it finishes loading.
+                {t(m.willSwitch, {
+                  agents: joinList(pendingSwitchNames, t),
+                  model: pendingSwitchTarget.model.name,
+                })}
               </FormFeedback>
             </div>
           ) : null}
           {guidanceCopy ? (
             <aside
-              aria-label="Memory guidance"
+              aria-label={t(m.memoryGuidance)}
               className="mt-6 flex flex-col items-start justify-between gap-3 rounded-xl border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-surface)] px-4 py-3 sm:flex-row"
             >
               <div className="min-w-0 flex-1">
@@ -1112,17 +1192,17 @@ function Library({
                   onClick={onRefresh}
                   size="compact"
                 >
-                  Recheck memory
+                  {t(m.recheckMemory)}
                 </Button>
               )}
             </aside>
           ) : null}
           {entries.length === 0 ? (
-            <EmptyState title="No local models available">
-              {name} didn&apos;t list any models for this hardware yet.
+            <EmptyState title={t(m.noModelsTitle)}>
+              {t(m.noModelsBody, { name })}
             </EmptyState>
           ) : (
-            <section aria-label="Models" className="mt-6 grid gap-2">
+            <section aria-label={t(m.title)} className="mt-6 grid gap-2">
               {entries.map((entry) => {
                 const modelId = entry.model.id;
                 const canUseForAgents =

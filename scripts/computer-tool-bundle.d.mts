@@ -1,4 +1,5 @@
 export const COMPUTER_TOOL_VERSIONS: Readonly<Record<string, string>>;
+export const QUICKJS_TOOL_ASSETS: readonly string[];
 export const CUA_ARCHIVES: Readonly<
   Record<string, { readonly entry: string; readonly required: string[] }>
 >;

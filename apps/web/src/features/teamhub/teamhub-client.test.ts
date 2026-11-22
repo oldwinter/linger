@@ -243,7 +243,8 @@ describe("TeamHubClient", () => {
     await expect(teamHubData(client.api.GET("/v0/me"))).rejects.toEqual(
       expect.objectContaining({
         code: "UNAUTHENTICATED",
-        message: "Signed in elsewhere.",
+        message: "Your sign-in has expired. Sign in again.",
+        serverMessage: "Signed in elsewhere.",
         requestId: "request-1",
         status: 401,
       }),

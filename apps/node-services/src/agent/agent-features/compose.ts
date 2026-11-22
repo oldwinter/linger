@@ -15,6 +15,8 @@ import {
   type MaintenanceEvent,
   type MaintenanceTrigger,
   type NotificationContextInput,
+  type RunStopHookDecision,
+  type RunStopHookInput,
   type RunTerminalEvent,
   type RuntimePreparation,
   type RuntimePreparationInput,
@@ -80,6 +82,7 @@ export const assertValidFeatureCatalog = (
       "afterInboxInputAccepted",
       "onRunTerminal",
       "onRunEvent",
+      "onRunBeforeStop",
       "decideMaintenance",
       "onMaintenance",
       "onTimer",
@@ -383,8 +386,17 @@ export const appendInputContribution: InputContributionMerger = (
   return Object.freeze({ ...message, rawMessage, segments });
 };
 
+export interface RunStopHookEvaluation {
+  readonly decision: RunStopHookDecision;
+  readonly blockedBy?: string;
+  /** True when a stop-hook handler positively confirmed a visible reply landed. */
+  readonly replyConfirmed?: boolean;
+}
+
 export interface ComposedContextFeatures {
   readonly matched: readonly string[];
+  /** True when at least one matched Context feature declares `onRunBeforeStop`. */
+  readonly hasRunStopHooks: boolean;
   /** Joined developer-instruction contributions in deterministic order. */
   contextInstructions(facts: ContextInstructionFacts): string | undefined;
   /** Ordered notification-context contributions. */
@@ -399,6 +411,14 @@ export interface ComposedContextFeatures {
   afterInboxInputAccepted(fact: AcceptedInboxFact): void;
   onRunTerminal(event: RunTerminalEvent): void;
   onRunEvent(event: RunEvent): readonly RuntimeStatusUpdate[];
+  /**
+   * Runs `onRunBeforeStop` handlers in declared order; first `block` wins.
+   * Throwing handlers are isolated and treated as `allow` (fail-open).
+   */
+  evaluateRunBeforeStop(
+    input: RunStopHookInput,
+    signal: AbortSignal,
+  ): Promise<RunStopHookEvaluation>;
   /**
    * First non-null maintenance decision in declared order. A throwing
    * handler is isolated and counts as no decision.
@@ -485,8 +505,11 @@ export const composeContextFeatures = (input: {
     (event: string) => (feature: FeatureDeclaration, error: unknown) =>
       log("warn", event, { feature: feature.id, error });
 
+  const stopHookHandlers = orderedHandlers(bound, "onRunBeforeStop");
+
   return {
     matched: bound.map((entry) => entry.feature.id),
+    hasRunStopHooks: stopHookHandlers.length > 0,
     contextInstructions(facts) {
       const parts = orderedHandlers(bound, "contributeContextInstructions")
         .map(({ handler }) => handler(boundContext, facts))
@@ -595,6 +618,31 @@ export const composeContextFeatures = (input: {
         }
       }
       return updates;
+    },
+    async evaluateRunBeforeStop(stopInput, signal) {
+      let replyConfirmed = false;
+      for (const { feature, handler } of stopHookHandlers) {
+        if (signal.aborted || boundContext.signal.aborted) {
+          return { decision: { action: "allow" } };
+        }
+        try {
+          const decision = await handler(boundContext, stopInput, signal);
+          if (decision?.action === "block" && decision.reason.trim()) {
+            return {
+              decision: { action: "block", reason: decision.reason.trim() },
+              blockedBy: feature.id,
+            };
+          }
+          if (decision?.action === "allow" && decision.replyConfirmed) {
+            replyConfirmed = true;
+          }
+        } catch (error) {
+          isolated("feature.run_before_stop_failed")(feature, error);
+        }
+      }
+      return replyConfirmed
+        ? { decision: { action: "allow" }, replyConfirmed: true }
+        : { decision: { action: "allow" } };
     },
     decideMaintenance(trigger) {
       for (const { feature, handler } of orderedHandlers(

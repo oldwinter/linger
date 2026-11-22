@@ -4,12 +4,16 @@ import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubVoiceCapture } from "@/features/teamhub/teamhub-types";
 import { VoiceRequestScope } from "@/features/teamhub/voice-request-scope";
+import { translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
+import { recordingMessages as m } from "./recording.messages";
 
 export function VoiceRecoveryPanel({
   capture,
 }: {
   capture: TeamHubVoiceCapture;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const [download, setDownload] = useState<string>();
   const [error, setError] = useState<{ captureId: string; message: string }>();
@@ -43,7 +47,7 @@ export function VoiceRecoveryPanel({
           if (active)
             setError({
               captureId: capture.id,
-              message: "Original recording download is temporarily unavailable",
+              message: translate(m.downloadUnavailable),
             });
         });
     return () => {
@@ -63,16 +67,13 @@ export function VoiceRecoveryPanel({
   const pending = pendingCaptureId === capture.id;
   return (
     <section
-      aria-label="Recording transcript recovery"
+      aria-label={t(m.recovery)}
       className="w-full rounded-lg border border-app-border bg-app-rail/40 p-4 text-[14px] leading-5 text-app-ink"
       role="status"
     >
-      <p className="font-medium">Recording saved</p>
+      <p className="font-medium">{t(m.recordingSaved)}</p>
       <p className="mt-1 text-app-muted">
-        {failed
-          ? "Transcript recovery is paused. Please retry."
-          : `Recovering transcript ${progress}%. It will appear in this Room when complete.`}
-        You can start a new recording.
+        {failed ? t(m.recoveryPausedBody) : t(m.recoveringBody, { progress })}
       </p>
       <div className="mt-2 flex items-center gap-3">
         {download ? (
@@ -81,7 +82,7 @@ export function VoiceRecoveryPanel({
             href={download}
             download="original-recording.m4a"
           >
-            Download original recording
+            {t(m.downloadOriginal)}
           </a>
         ) : null}
         {failed ? (
@@ -110,8 +111,7 @@ export function VoiceRecoveryPanel({
                   if (activeRetryRef.current === request)
                     setError({
                       captureId: capture.id,
-                      message:
-                        "The retry request was not confirmed. Check progress or try again later.",
+                      message: translate(m.retryNotConfirmed),
                     });
                 })
                 .finally(() => {
@@ -121,7 +121,7 @@ export function VoiceRecoveryPanel({
                 });
             }}
           >
-            Retry transcription
+            {t(m.retryTranscription)}
           </Button>
         ) : null}
       </div>

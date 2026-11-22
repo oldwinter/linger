@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 )
 
-// CodexHook is what a reviewed Codex Run needs: the Daemon-wide endpoint its
-// thread registers with, and the `hooks` configuration pointing Codex at it.
+// CodexHook is what a Codex Run with managed hooks needs: the Daemon-wide
+// endpoint its thread registers with, the `hooks` configuration pointing Codex
+// at it, and which managed hook capabilities are enabled on that thread.
 type CodexHook struct {
-	Endpoint *CodexEndpoint
-	Config   map[string]any
+	Endpoint          *CodexEndpoint
+	Config            map[string]any
+	ReviewPermissions bool
+	StopHook          bool
 }
 
 // CodexReview judges one PermissionRequest of a Codex thread. A patch that only

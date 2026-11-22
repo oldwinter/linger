@@ -27,7 +27,11 @@ import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 import type { TeamHubActorRef } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import type { Translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 
+import { documentCommentsMessages as m } from "./document-comments.messages";
 import { scrollDocumentPaneIndependently } from "./room-document-scroll";
 import { resolveCommentAnchorPosition } from "./room-document-comment-position";
 import { useAnchoredCommentLane } from "./room-document-comment-anchoring";
@@ -91,6 +95,7 @@ export function RoomDocumentCommentsController({
   showTrigger?: boolean;
   threadStore: TeamHubDocumentThreadStore;
 }) {
+  const t = useT();
   const comments = useExtension(CommentsExtension);
   const threads = useThreads();
   const { selectedThreadId, pendingComment } =
@@ -135,16 +140,17 @@ export function RoomDocumentCommentsController({
 
   const panel = open ? (
     <aside
-      aria-label="All Document comments"
+      aria-label={t(m.allComments)}
       className="room-document-comments-popover"
     >
       <div className="room-document-comments-heading">
-        <h3>Comments</h3>
+        <h3>{t(m.comments)}</h3>
         <Button
-          aria-label="Close comments"
+          aria-label={t(m.closeComments)}
+          data-voice-close
           onClick={() => setOpen(false)}
           size="compactIcon"
-          title="Close comments"
+          title={t(m.closeComments)}
           tone="ghost"
         >
           <Icon icon={Cancel01Icon} size={14} />
@@ -178,9 +184,7 @@ export function RoomDocumentCommentsController({
       >
         {error ? (
           <div className="px-4 py-8 text-center" role="alert">
-            <p className="text-sm text-app-danger">
-              Comments could not be loaded.
-            </p>
+            <p className="text-sm text-app-danger">{t(m.loadFailed)}</p>
             {onRetry ? (
               <Button
                 className="mt-3"
@@ -189,7 +193,7 @@ export function RoomDocumentCommentsController({
                 tone="secondary"
               >
                 <Icon icon={RotateLeft01Icon} size={14} />
-                Retry
+                {t(commonMessages.retry)}
               </Button>
             ) : null}
           </div>
@@ -215,7 +219,7 @@ export function RoomDocumentCommentsController({
       {showTrigger && threads.size > 0 ? (
         <button
           aria-expanded={open}
-          aria-label={`Show all Document comments (${threads.size})`}
+          aria-label={t(m.showAllComments, { count: threads.size })}
           className="room-document-comments-trigger"
           onClick={() => {
             comments.selectThread(undefined, false);
@@ -249,6 +253,7 @@ export function RoomDocumentCommentsList({
   resolved?: boolean;
   threadStore: TeamHubDocumentThreadStore;
 }) {
+  const t = useT();
   const editor = useBlockNoteEditor();
   const listRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
@@ -367,7 +372,9 @@ export function RoomDocumentCommentsList({
         <Icon icon={QuoteDownIcon} size={14} />
         <span>
           {pendingAnchor?.quoted_text ??
-            (selection ? getReferenceText(editor, selection) : "Selected text")}
+            (selection
+              ? getReferenceText(editor, selection)
+              : t(m.selectedText))}
         </span>
       </div>
       {composer}
@@ -427,7 +434,7 @@ export function RoomDocumentCommentsList({
         orphaned={orphaned}
         referenceText={
           position === undefined
-            ? anchorQuote(thread)
+            ? anchorQuote(thread, t)
             : getReferenceText(editor, position)
         }
         selected={thread.id === selectedThreadId}
@@ -449,11 +456,11 @@ export function RoomDocumentCommentsList({
       {ordered.length === 0 && !composer ? (
         <div className="px-4 py-8 text-center">
           <p className="text-sm text-app-muted">
-            {resolved ? "No resolved comments" : "No open comments"}
+            {resolved ? t(m.noResolvedComments) : t(m.noOpenComments)}
           </p>
           {!resolved ? (
             <p className="mx-auto mt-2 max-w-56 text-xs leading-5 text-app-subtle">
-              Select text in the document, then choose Add comment.
+              {t(m.selectTextHint)}
             </p>
           ) : null}
         </div>
@@ -463,10 +470,10 @@ export function RoomDocumentCommentsList({
   );
 }
 
-function anchorQuote(thread: ThreadData): string {
+function anchorQuote(thread: ThreadData, t: Translate): string {
   const anchor = (thread.metadata as { anchor?: { quoted_text?: unknown } })
     .anchor;
   return typeof anchor?.quoted_text === "string"
     ? anchor.quoted_text
-    : "Deleted reference";
+    : t(m.deletedReference);
 }

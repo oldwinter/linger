@@ -30,6 +30,36 @@ func TestMarkdownToSearchText(t *testing.T) {
 			want:     "Field Meaning status index state",
 		},
 		{
+			name:     "escaped identifiers",
+			markdown: `room\_id first\_last@corp.com`,
+			want:     "room_id first_last@corp.com",
+		},
+		{
+			name:     "escaped and literal backslashes",
+			markdown: `C:\\temp C:\temp`,
+			want:     `C:\temp C:\temp`,
+		},
+		{
+			name:     "escaped punctuation stays literal",
+			markdown: `a\*b \*\*bold\*\* \[label\](target) left\|right \_\_raw\_\_`,
+			want:     `a*b **bold** [label](target) left|right __raw__`,
+		},
+		{
+			name:     "escapes inside emphasis and link labels",
+			markdown: `**room\_id** [first\_last@corp.com](mailto:user@example.com)`,
+			want:     "room_id first_last@corp.com",
+		},
+		{
+			name:     "code keeps its literal backslashes",
+			markdown: "Use `C:\\\\temp room\\_id`.\n\n```text\nC:\\\\temp room\\_id\n```\n\n    C:\\\\temp room\\_id\n",
+			want:     `Use C:\\temp room\_id. C:\\temp room\_id C:\\temp room\_id`,
+		},
+		{
+			name:     "NUL boundaries do not collide with escaped punctuation",
+			markdown: "\x000\x00 room\\_id",
+			want:     "0 room_id",
+		},
+		{
 			name:     "whitespace collapses across lines",
 			markdown: "Barge-in policy: when the user speaks\nstop playback within 200ms\n\n\nand drop unplayed frames.",
 			want:     "Barge-in policy: when the user speaks stop playback within 200ms and drop unplayed frames.",

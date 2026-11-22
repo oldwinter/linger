@@ -147,7 +147,7 @@ VERIFY_ROOM_STARTUP_PRODUCTION=1 .agents/skills/verify-linger/scripts/verify.sh
 
 This builds production assets and serves the production
 static host behind a loopback API/WebSocket proxy. It seeds the existing TeamHub
-directory SQL regression fixture (8 Agents, 110 Skill bindings), opens an ordinary
+directory SQL regression fixture (8 Agents and their Skill bindings), opens an ordinary
 Agent Direct Room, and persists 13 messages. Agent registration/execution is not
 under test. The database is disposable; no remote credentials or shared CI state
 are used. Five pairs of HTTP-cold/HTTP-warm full document loads are measured by

@@ -395,6 +395,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v0/agent-runtime/runs/reply-status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["getAgentLocalRunReplyStatus"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v0/agent-runtime/runs/waiting": {
     parameters: {
       query?: never;
@@ -1686,7 +1702,7 @@ export interface components {
     };
     RuntimePermissionAction: {
       /** @enum {string} */
-      runtime: "claude" | "codex";
+      runtime: "claude" | "codex" | "antigravity" | "pi";
       /** @enum {string} */
       surface:
         | "shell"
@@ -1849,7 +1865,7 @@ export interface components {
       | "max"
       | "ultra";
     /** @enum {string} */
-    LocalRuntimeType: "codex" | "claude" | "pi";
+    LocalRuntimeType: "codex" | "claude" | "pi" | "antigravity";
     AgentRuntimeSettingsSnapshot: {
       /** @constant */
       type: "local";
@@ -2086,6 +2102,10 @@ export interface components {
       terminal?: {
         [key: string]: unknown;
       };
+    };
+    AgentLocalRunReplyStatus: {
+      /** @description Whether TeamHub persisted a visible reply from this Local Run: a conversation Message or decision card attributed to the Run, a queued presentation sequence attributed to the Run, or an unattributed conversation Message, presentation sequence, or emoji Reaction written by the Context's Agent in the Room or its Threads since the Run started. */
+      replied: boolean;
     };
     AgentRuntimeWaitingContexts: {
       context_keys: components["schemas"]["AgentRuntimeContextKey"][];
@@ -2440,7 +2460,7 @@ export interface components {
       /** Format: date-time */
       last_seen_at?: string;
       capacity?: number;
-      runtimes: ("codex" | "claude" | "pi")[];
+      runtimes: ("codex" | "claude" | "pi" | "antigravity")[];
       runtime_diagnostics: {
         [key: string]: unknown;
       }[];
@@ -2471,7 +2491,7 @@ export interface components {
       /** @enum {string} */
       platform?: "darwin" | "linux" | "win32";
       capacity?: number;
-      runtimes: ("codex" | "claude" | "pi")[];
+      runtimes: ("codex" | "claude" | "pi" | "antigravity")[];
       runtime_diagnostics: {
         [key: string]: unknown;
       }[];
@@ -2507,7 +2527,7 @@ export interface components {
       status: "online" | "offline" | "upgrade_required";
       /** Format: date-time */
       seen_at: string;
-      runtimes?: ("codex" | "claude" | "pi")[];
+      runtimes?: ("codex" | "claude" | "pi" | "antigravity")[];
       runtime_diagnostics?: {
         [key: string]: unknown;
       }[];
@@ -4216,6 +4236,33 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["AgentLocalRun"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+      500: components["responses"]["InternalError"];
+    };
+  };
+  getAgentLocalRunReplyStatus: {
+    parameters: {
+      query: {
+        context_key: components["parameters"]["ContextKey"];
+        local_run_id: components["parameters"]["LocalRunId"];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Whether TeamHub recorded a visible reply for the Local Run. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentLocalRunReplyStatus"];
         };
       };
       400: components["responses"]["BadRequest"];

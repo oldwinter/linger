@@ -1,5 +1,9 @@
 import { useState } from "react";
 
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
+
+import { shellExtrasMessages } from "../shell-extras.messages";
 import {
   useActorAvatarImage,
   useAgentAvatarRecord,
@@ -89,8 +93,13 @@ export function ActorAvatar({
     xs: "text-[10px]",
     xxs: "text-[8px]",
   }[size];
+  const t = useT();
+  // The fallback stays one value in code, so a nameless Agent keeps the same
+  // figure and tint in every language; only the words shown follow it.
   const displayName = name.trim() || "Unknown Actor";
-  const title = showTitle ? displayName : undefined;
+  const shownName = name.trim() || t(shellExtrasMessages.unknownActor);
+  const title = showTitle ? shownName : undefined;
+  const label = t(commonMessages.avatar, { name: shownName });
   const uploadedImage = useActorAvatarImage(actorId);
   const wornFace = useActorAvatarImage(asHuman?.actorId);
   const agentRecord = useAgentAvatarRecord(
@@ -105,7 +114,7 @@ export function ActorAvatar({
   if (uploadedImage && kind === "human") {
     return (
       <img
-        alt={`${displayName} avatar`}
+        alt={label}
         className={`shrink-0 object-cover ${shapeClass} ${sizeClass}`}
         onLoad={() => setLoadedSrc(uploadedImage)}
         src={uploadedImage}
@@ -155,7 +164,7 @@ export function ActorAvatar({
     });
     return (
       <span
-        aria-label={`${displayName} avatar`}
+        aria-label={label}
         className={`block shrink-0 overflow-hidden ${shapeClass} ${sizeClass}`}
         role="img"
         title={title}
@@ -172,7 +181,7 @@ export function ActorAvatar({
 
   return (
     <span
-      aria-label={`${displayName} avatar`}
+      aria-label={label}
       className={`flex shrink-0 items-center justify-center font-semibold tracking-[0.02em] ${shapeClass} ${humanAvatarTint(actorId ?? displayName)} ${sizeClass} ${textSizeClass}`}
       role="img"
       title={title}

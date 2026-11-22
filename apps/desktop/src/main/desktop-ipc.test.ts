@@ -6,7 +6,9 @@ import type { UpdateState } from "./updater.js";
 const handlers = vi.hoisted(
   () => new Map<string, (event: unknown, ...args: unknown[]) => unknown>(),
 );
+const focusApp = vi.hoisted(() => vi.fn());
 vi.mock("electron", () => ({
+  app: { focus: focusApp },
   ipcMain: {
     handle: (
       channel: string,
@@ -17,6 +19,7 @@ vi.mock("electron", () => ({
 }));
 
 const { DesktopIpcModule } = await import("./desktop-ipc.js");
+const { LanguageModule } = await import("./language.js");
 const { EventBus } = await import("./modules.js");
 const { stubModule, testHost } = await import("./test-support.js");
 
@@ -47,10 +50,14 @@ const fixture = async (
   const windows = {
     ...stubModule("WindowManager"),
     webContents: () => ({ send }),
+    show: vi.fn(),
   };
   const bus = new EventBus();
+  const language = new LanguageModule({ systemLanguages: () => ["en-US"] });
   const host = testHost(
     [
+      stubModule("Config"),
+      language,
       stubModule("Enrollment"),
       stubModule("PowerGuard"),
       stubModule("ComputerDaemon"),
@@ -75,7 +82,17 @@ const fixture = async (
     updateState = state;
     bus.emit("update.changed", state.kind);
   };
-  return { host, local, updater, send, setUpdate, invoke };
+  return {
+    host,
+    bus,
+    language,
+    local,
+    updater,
+    send,
+    setUpdate,
+    invoke,
+    windows,
+  };
 };
 
 afterEach(() => handlers.clear());
@@ -186,6 +203,23 @@ describe("DesktopIpcModule unread badge", () => {
   });
 });
 
+describe("DesktopIpcModule voice window", () => {
+  it("shows the main window for the server's page only", async () => {
+    const f = await fixture();
+    await f.invoke(IPC.voiceWindowShowMain);
+    expect(f.windows.show).toHaveBeenCalledOnce();
+    // macOS raises a window only inside the active app.
+    expect(focusApp).toHaveBeenCalledTimes(
+      process.platform === "darwin" ? 1 : 0,
+    );
+    expect(() =>
+      f.invoke(IPC.voiceWindowShowMain, "https://evil.example.com"),
+    ).toThrow("Not allowed");
+    expect(f.windows.show).toHaveBeenCalledOnce();
+    await f.host.stop("quit");
+  });
+});
+
 describe("DesktopIpcModule updates", () => {
   it("gives the page the update state without its release page URL", async () => {
     const f = await fixture();
@@ -241,6 +275,32 @@ describe("DesktopIpcModule updates", () => {
       );
     expect(f.updater.install).not.toHaveBeenCalled();
     expect(f.updater.check).not.toHaveBeenCalled();
+    await f.host.stop("quit");
+  });
+});
+
+describe("DesktopIpcModule language", () => {
+  it("keeps the page's choice and tells the shell once it changes", async () => {
+    const f = await fixture();
+    const changed = vi.fn();
+    f.bus.on("language.changed", changed);
+    expect(f.language.current()).toBe("en");
+    await f.invoke(IPC.languageSet, SERVER, "zh-CN");
+    expect(f.language.current()).toBe("zh-CN");
+    expect(changed).toHaveBeenCalledExactlyOnceWith("zh-CN");
+    // The page reports its language on every load; the same one is no news.
+    await f.invoke(IPC.languageSet, SERVER, "zh-CN");
+    expect(changed).toHaveBeenCalledOnce();
+    await f.host.stop("quit");
+  });
+
+  it("accepts only the languages the shell speaks, from the server's page", async () => {
+    const f = await fixture();
+    expect(() => f.invoke(IPC.languageSet, SERVER, "fr")).toThrow();
+    expect(() =>
+      f.invoke(IPC.languageSet, "https://evil.example.com", "zh-CN"),
+    ).toThrow("Not allowed");
+    expect(f.language.current()).toBe("en");
     await f.host.stop("quit");
   });
 });

@@ -188,6 +188,8 @@ paths:
     $ref: ../paths/teamhub-agent-runtime-state.yaml#/submitTrustedTurn
   /v0/agent-runtime/run:
     $ref: ../paths/teamhub-agent-runtime-state.yaml#/getRun
+  /v0/agent-runtime/runs/reply-status:
+    $ref: ../paths/teamhub-agent-runtime-state.yaml#/getRunReplyStatus
   /v0/agent-runtime/runs/waiting:
     $ref: ../paths/teamhub-agent-runtime-state.yaml#/waitingRuns
   /v0/agent-runtime/runs/claim:

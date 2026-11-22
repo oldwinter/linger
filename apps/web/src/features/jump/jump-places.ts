@@ -7,7 +7,8 @@ import type {
   TeamHubMemoryEntry,
   TeamHubRoomListItem,
 } from "@/features/teamhub/teamhub-types";
-import { wikiCollectionLabels } from "@/features/wiki/wiki-display-state";
+import { wikiCollections } from "@/features/wiki/wiki-display-state";
+import { translate } from "@/i18n/language";
 
 export interface JumpPlace {
   detail: string;
@@ -78,11 +79,11 @@ export function buildCoreProductPlaces(tenantId: string): JumpPlace[] {
       path: tenantPath(tenantId, "/library/wiki"),
       title: "Wiki",
     },
-    ...Object.entries(wikiCollectionLabels).map(([id, title]) => ({
+    ...Object.entries(wikiCollections).map(([id, words]) => ({
       detail: "Wiki",
       id: `wiki-${id}`,
       path: tenantPath(tenantId, `/library/wiki/${id}`),
-      title,
+      title: translate(words.label),
     })),
     {
       detail: "External integrations",

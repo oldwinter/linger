@@ -284,6 +284,7 @@ describe("Settings surfaces", () => {
       "Shortcuts",
       "Computers",
       "Models",
+      "Language",
     ]);
     expect(
       screen.queryByRole("button", { name: "Log out" }),

@@ -7,11 +7,14 @@ import {
 } from "@hugeicons/core-free-icons";
 
 import { Icon } from "@/components/ui/icon";
+import { useT } from "@/i18n/use-translation";
 
 import type { TeamHubActorRef } from "@/features/teamhub/teamhub-types";
 
 import { ActorAvatar } from "../members/actor-avatar";
 import type { PanelCreateChoice } from "./panel-create-items";
+import { routinesMessages } from "./routines.messages";
+import { sidePanelMessages as m } from "./side-panel.messages";
 
 export function PanelEmptyState({
   agent,
@@ -24,6 +27,7 @@ export function PanelEmptyState({
   onCreate: (choice: PanelCreateChoice) => void;
   onOpenAgentInfo: () => void;
 }) {
+  const t = useT();
   const rowClassName =
     "flex w-full items-center gap-3 rounded-xl bg-card p-3 text-left shadow-outline transition-colors duration-150 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
@@ -41,18 +45,18 @@ export function PanelEmptyState({
             <Icon icon={LayoutLeftIcon} size={20} />
           </span>
           <h2 className="text-base font-semibold text-foreground">
-            Conversation details
+            {t(m.launcherTitle)}
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             {agent
-              ? "Agent settings, routines, activity, and shared documents — alongside your chat."
+              ? t(m.launcherBodyWithAgent)
               : "Shared documents, routines, and message threads — alongside your chat."}
           </p>
         </div>
         <div className="space-y-2">
           {agent ? (
             <button
-              aria-label="Agent info"
+              aria-label={t(m.agentInfo)}
               className={rowClassName}
               onClick={onOpenAgentInfo}
               type="button"
@@ -65,10 +69,10 @@ export function PanelEmptyState({
               />
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-semibold text-foreground">
-                  Agent info
+                  {t(m.agentInfo)}
                 </span>
                 <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                  {agent.display_name} · Settings & activity
+                  {t(m.agentInfoHint, { name: agent.display_name })}
                 </span>
               </span>
               <Icon
@@ -79,7 +83,7 @@ export function PanelEmptyState({
             </button>
           ) : null}
           <button
-            aria-label="Documents"
+            aria-label={t(m.documents)}
             className={rowClassName}
             onClick={() => onCreate("file")}
             type="button"
@@ -92,12 +96,12 @@ export function PanelEmptyState({
             </span>
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-semibold text-foreground">
-                Documents
+                {t(m.documents)}
               </span>
               <span className="mt-0.5 block text-xs text-muted-foreground">
                 {documentCount > 0
-                  ? `${documentCount} shared ${documentCount === 1 ? "document" : "documents"}`
-                  : "Browse files shared in this conversation"}
+                  ? t(m.sharedDocumentCount, { count: documentCount })
+                  : t(m.browseSharedFiles)}
               </span>
             </span>
             <Icon
@@ -107,7 +111,7 @@ export function PanelEmptyState({
             />
           </button>
           <button
-            aria-label="Routines"
+            aria-label={t(routinesMessages.routines)}
             className={rowClassName}
             onClick={() => onCreate("routines")}
             type="button"
@@ -120,7 +124,7 @@ export function PanelEmptyState({
             </span>
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-semibold text-foreground">
-                Routines
+                {t(routinesMessages.routines)}
               </span>
               <span className="mt-0.5 block text-xs text-muted-foreground">
                 Scheduled reminders and recurring tasks in this room
@@ -133,7 +137,7 @@ export function PanelEmptyState({
             />
           </button>
           <button
-            aria-label="Collaboration"
+            aria-label={t(m.collaboration)}
             className={rowClassName}
             onClick={() => onCreate("collaboration")}
             type="button"
@@ -146,10 +150,10 @@ export function PanelEmptyState({
             </span>
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-semibold text-foreground">
-                Collaboration
+                {t(m.collaboration)}
               </span>
               <span className="mt-0.5 block text-xs text-muted-foreground">
-                Agent responsibilities and relationships
+                {t(m.collaborationHint)}
               </span>
             </span>
             <Icon
@@ -160,8 +164,7 @@ export function PanelEmptyState({
           </button>
         </div>
         <p className="mt-6 border-t border-border/60 pt-4 text-xs text-muted-foreground">
-          Open a message thread, document, or routine to view it here. Your chat
-          stays in place.
+          {t(m.launcherFooter)}
         </p>
       </div>
     </div>

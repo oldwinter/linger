@@ -7,8 +7,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	wire "github.com/simplexai-labs/linger/contracts-go/runnergateway"
 )
@@ -17,15 +19,24 @@ func runFakeSourceTool(state string, args []string) int {
 	verb := args[0]
 	stdinBytes, _ := io.ReadAll(os.Stdin)
 	_ = os.WriteFile(filepath.Join(state, "source-args.txt"), []byte(strings.Join(args, " ")), 0o600)
+	if calls, err := os.OpenFile(filepath.Join(state, "source-calls.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+		_, _ = calls.WriteString(strings.Join(args, " ") + "\n")
+		_ = calls.Close()
+	}
 	_ = os.WriteFile(filepath.Join(state, "source-stdin.json"), stdinBytes, 0o600)
+	if waitBytes, err := os.ReadFile(filepath.Join(state, "source-"+verb+"-wait")); err == nil {
+		if ms, parseErr := strconv.Atoi(strings.TrimSpace(string(waitBytes))); parseErr == nil && ms > 0 {
+			time.Sleep(time.Duration(ms) * time.Millisecond)
+		}
+	}
 	out, err := os.ReadFile(filepath.Join(state, "source-"+verb+".json"))
 	if err != nil {
 		return 1
 	}
 	_, _ = os.Stdout.Write(out)
 	if codeBytes, err := os.ReadFile(filepath.Join(state, "source-"+verb+"-exit")); err == nil {
-		if strings.TrimSpace(string(codeBytes)) == "2" {
-			return 2
+		if code, parseErr := strconv.Atoi(strings.TrimSpace(string(codeBytes))); parseErr == nil {
+			return code
 		}
 	}
 	return 0
@@ -129,29 +140,35 @@ func TestModelSourceStatusTestAndApplyKeepSecretsOnStdin(t *testing.T) {
 		"schema": "localmodels.byok-check/v1",
 		"ok": true,
 		"protocol": "openai-responses",
-		"base_url": "https://api.example.com/v1",
+		"url": "https://api.example.com/v1/responses",
 		"model_id": "gpt-5.4",
 		"context_window": 200000
 	}`), 0o600)
 
-	testRes, err := ms.TestByok(t.Context(), "codex", wire.ByokConfigInput{
-		BaseURL: "https://api.example.com/v1",
-		APIKey:  "sk-never-in-argv",
-		ModelID: "gpt-5.4",
+	testRes, err := ms.TestByok(t.Context(), wire.ByokConfigInput{
+		BaseURL:  "https://api.example.com",
+		Path:     "/v1",
+		Endpoint: "/responses",
+		Protocol: "openai-responses",
+		APIKey:   "sk-never-in-argv",
+		ModelID:  "gpt-5.4",
 	})
 	if err != nil {
 		t.Fatalf("TestByok error: %v", err)
 	}
-	if !testRes.Ok || testRes.ContextWindow != 200000 || testRes.ModelID != "gpt-5.4" {
+	if !testRes.Ok || testRes.ContextWindow != 200000 || testRes.ModelID != "gpt-5.4" ||
+		testRes.URL != "https://api.example.com/v1/responses" {
 		t.Fatalf("unexpected TestByok result: %+v", testRes)
 	}
 	recordedArgs, _ := os.ReadFile(filepath.Join(ft.state, "source-args.txt"))
-	if strings.Contains(string(recordedArgs), "sk-never-in-argv") || !strings.Contains(string(recordedArgs), "--runtime codex") {
-		t.Fatalf("check argv = %s, want the Runtime and no API key", string(recordedArgs))
+	if strings.Contains(string(recordedArgs), "sk-never-in-argv") || strings.Contains(string(recordedArgs), "--runtime") {
+		t.Fatalf("check argv = %s, want neither a Runtime nor the API key", string(recordedArgs))
 	}
 	recordedStdin, _ := os.ReadFile(filepath.Join(ft.state, "source-stdin.json"))
-	if !strings.Contains(string(recordedStdin), `"apiKey":"sk-never-in-argv"`) {
-		t.Fatalf("expected API key on stdin JSON, got: %s", string(recordedStdin))
+	for _, want := range []string{`"apiKey":"sk-never-in-argv"`, `"path":"/v1"`, `"endpoint":"/responses"`, `"protocol":"openai-responses"`} {
+		if !strings.Contains(string(recordedStdin), want) {
+			t.Fatalf("stdin JSON %s lacks %s", recordedStdin, want)
+		}
 	}
 
 	_ = os.WriteFile(filepath.Join(ft.state, "source-apply.json"), []byte(`{
@@ -165,7 +182,9 @@ func TestModelSourceStatusTestAndApplyKeepSecretsOnStdin(t *testing.T) {
 		"byok": {
 			"configured": true,
 			"protocol": "openai-responses",
-			"base_url": "https://api.example.com/v1",
+			"base_url": "https://api.example.com",
+			"path": "/v1",
+			"endpoint": "/responses",
 			"model_id": "gpt-5.4",
 			"context_window": 200000,
 			"key_saved": true
@@ -176,16 +195,20 @@ func TestModelSourceStatusTestAndApplyKeepSecretsOnStdin(t *testing.T) {
 		Mode:    "byok",
 		Runtime: "codex",
 		Byok: &wire.ByokConfigInput{
-			BaseURL: "https://api.example.com/v1",
-			APIKey:  "sk-never-in-argv",
-			ModelID: "gpt-5.4",
+			BaseURL:  "https://api.example.com",
+			Path:     "/v1",
+			Endpoint: "/responses",
+			Protocol: "openai-responses",
+			APIKey:   "sk-never-in-argv",
+			ModelID:  "gpt-5.4",
 		},
 	})
 	if err != nil {
 		t.Fatalf("Apply error: %v", err)
 	}
 	if status.Mode != "byok" || status.Runtime != "codex" || status.RuntimeModel != "localmodels-byok" ||
-		status.ReasoningEffort != "high" || !status.Byok.KeySaved {
+		status.ReasoningEffort != "high" || !status.Byok.KeySaved ||
+		status.Byok.Path != "/v1" || status.Byok.Endpoint != "/responses" {
 		t.Fatalf("unexpected Apply status: %+v", status)
 	}
 	if appliedCalls != 1 {
@@ -200,9 +223,12 @@ func TestModelSourceStatusTestAndApplyKeepSecretsOnStdin(t *testing.T) {
 		"message": "Upstream endpoint returned HTTP 401."
 	}`), 0o600)
 	_ = os.WriteFile(filepath.Join(ft.state, "source-check-exit"), []byte("2"), 0o600)
-	_, err = ms.TestByok(t.Context(), "pi", wire.ByokConfigInput{
-		BaseURL: "https://api.example.com/v1",
-		ModelID: "gpt-5.4",
+	_, err = ms.TestByok(t.Context(), wire.ByokConfigInput{
+		BaseURL:  "https://api.example.com",
+		Path:     "/v1",
+		Endpoint: "/chat/completions",
+		Protocol: "openai-chat",
+		ModelID:  "gpt-5.4",
 	})
 	var sourceErr *ModelSourceError
 	if !errors.As(err, &sourceErr) || sourceErr.Code != "BYOK_UPSTREAM_REJECTED" {
@@ -212,17 +238,25 @@ func TestModelSourceStatusTestAndApplyKeepSecretsOnStdin(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(ft.state, "source-models.json"), []byte(`{
 		"schema": "localmodels.byok-models/v1",
 		"ok": true,
-		"base_url": "https://api.example.com",
+		"url": "https://gw.example.com/full/models",
 		"models": [{"id": "alpha", "name": null, "context_window": null}, {"id": "zeta", "name": "Zeta", "context_window": 200000}]
 	}`), 0o600)
-	list, err := ms.ListByokModels(t.Context(), wire.ByokConfigInput{BaseURL: "https://api.example.com/v1", APIKey: "sk-list"})
-	if err != nil || list.BaseURL != "https://api.example.com" || len(list.Models) != 2 ||
+	list, err := ms.ListByokModels(t.Context(), wire.ByokConfigInput{
+		BaseURL: "https://gw.example.com/full", Protocol: "anthropic", APIKey: "sk-list",
+	})
+	if err != nil || list.URL != "https://gw.example.com/full/models" || len(list.Models) != 2 ||
 		list.Models[1].Name != "Zeta" || list.Models[1].ContextWindow == nil || *list.Models[1].ContextWindow != 200000 {
 		t.Fatalf("ListByokModels = %+v, %v", list, err)
 	}
 	recordedArgs, _ = os.ReadFile(filepath.Join(ft.state, "source-args.txt"))
 	if !strings.HasPrefix(string(recordedArgs), "models --config-stdin") || strings.Contains(string(recordedArgs), "sk-list") {
 		t.Fatalf("models argv = %s", recordedArgs)
+	}
+	// An empty path or endpoint appends nothing, which localmodels tells apart
+	// from a missing field, so both are sent.
+	recordedStdin, _ = os.ReadFile(filepath.Join(ft.state, "source-stdin.json"))
+	if !strings.Contains(string(recordedStdin), `"path":""`) || !strings.Contains(string(recordedStdin), `"endpoint":""`) {
+		t.Fatalf("models stdin JSON %s lacks the empty path and endpoint", recordedStdin)
 	}
 }
 
@@ -294,16 +328,112 @@ func TestModelSourceReportsUnsupportedWhenToolLacksSourceCommand(t *testing.T) {
 	_, err = ms.Apply(t.Context(), ModelSourceApply{Mode: "subscription", Runtime: "claude"})
 	assertUnsupported("Apply", err)
 
-	_, err = ms.TestByok(t.Context(), "claude", wire.ByokConfigInput{
-		BaseURL: "https://api.example.com/v1",
-		APIKey:  "sk-unused",
-		ModelID: "gpt-5.4",
+	_, err = ms.TestByok(t.Context(), wire.ByokConfigInput{
+		BaseURL: "https://api.example.com", Path: "/v1", Endpoint: "/messages", Protocol: "anthropic",
+		APIKey: "sk-unused", ModelID: "gpt-5.4",
 	})
 	assertUnsupported("TestByok", err)
 
 	_, err = ms.ListByokModels(t.Context(), wire.ByokConfigInput{
-		BaseURL: "https://api.example.com/v1",
-		APIKey:  "sk-unused",
+		BaseURL: "https://api.example.com", Path: "/v1", Protocol: "openai-chat", APIKey: "sk-unused",
 	})
 	assertUnsupported("ListByokModels", err)
+}
+
+func TestGatewayRuntimeFollowsTheManagedProfile(t *testing.T) {
+	state := t.TempDir()
+	byok := map[string]string{
+		"CODEX_HOME":          filepath.Join(state, "byok-home", ".codex"),
+		"CLAUDE_CONFIG_DIR":   "/home/user/.claude",
+		"PI_CODING_AGENT_DIR": filepath.Join(state, "gateway-home", ".pi", "agent"),
+	}
+	for runtimeType, want := range map[string]bool{"codex": true, "claude": false, "pi": true, "antigravity": false} {
+		if got := GatewayRuntime(byok, state, runtimeType); got != want {
+			t.Fatalf("GatewayRuntime(%s) = %v", runtimeType, got)
+		}
+	}
+	if GatewayRuntime(byok, "", "codex") {
+		t.Fatal("a Computer without localmodels has no gateway Runtime")
+	}
+}
+
+func TestModelSourceApplyPropagatesByokGatewayFailedRedactsKeyAndMapsTimeout(t *testing.T) {
+	ft := newFakeTool(t)
+	ms := NewModelSource(ModelSourceOptions{
+		Tool:         &ft.tool,
+		Environment:  map[string]string{"LOCALMODELS_FAKE_TOOL": "1"},
+		JobDirectory: filepath.Join(t.TempDir(), "jobs"),
+		ApplyTimeout: 5 * time.Second,
+	})
+
+	const gatewayMsg = "cannot record Bifrost process identity ([Errno 1] Operation not permitted: '/bin/ps'); stopped it"
+	if err := os.WriteFile(filepath.Join(ft.state, "source-apply.json"), []byte(`{
+		"schema": "localmodels.model-source-status/v1",
+		"ok": false,
+		"code": "BYOK_GATEWAY_FAILED",
+		"message": "`+gatewayMsg+`"
+	}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ft.state, "source-apply-exit"), []byte("1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := ms.Apply(t.Context(), ModelSourceApply{
+		Mode:    "byok",
+		Runtime: "pi",
+		Byok: &wire.ByokConfigInput{
+			BaseURL:  "https://api.kimi.com/coding",
+			Path:     "/v1",
+			Endpoint: "/chat/completions",
+			Protocol: "openai-chat",
+			APIKey:   "sk-secret-key-must-never-leak",
+			ModelID:  "k3",
+		},
+	})
+	var sourceErr *ModelSourceError
+	if !errors.As(err, &sourceErr) || sourceErr.Code != "BYOK_GATEWAY_FAILED" || sourceErr.Message != gatewayMsg {
+		t.Fatalf("BYOK_GATEWAY_FAILED apply = %+v (%v)", sourceErr, err)
+	}
+
+	// Defense in depth: an API key echoed in a tool error message is scrubbed
+	// before leaving the Computer.
+	if err := os.WriteFile(filepath.Join(ft.state, "source-apply.json"), []byte(`{
+		"schema": "localmodels.model-source-status/v1",
+		"ok": false,
+		"code": "BYOK_GATEWAY_FAILED",
+		"message": "failed using sk-secret-key-must-never-leak on gateway"
+	}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = ms.Apply(t.Context(), ModelSourceApply{
+		Mode:    "byok",
+		Runtime: "pi",
+		Byok: &wire.ByokConfigInput{
+			BaseURL:  "https://api.kimi.com/coding",
+			Path:     "/v1",
+			Endpoint: "/chat/completions",
+			Protocol: "openai-chat",
+			APIKey:   "sk-secret-key-must-never-leak",
+			ModelID:  "k3",
+		},
+	})
+	if !errors.As(err, &sourceErr) || strings.Contains(sourceErr.Message, "sk-secret-key-must-never-leak") {
+		t.Fatalf("API key leaked into ModelSourceError.Message: %+v", sourceErr)
+	}
+
+	// Hitting Apply's timeout maps to MODEL_SOURCE_TIMEOUT (not TOOL_FAILED).
+	if err := os.WriteFile(filepath.Join(ft.state, "source-apply-wait"), []byte("5000"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fastTimeout := NewModelSource(ModelSourceOptions{
+		Tool:         &ft.tool,
+		Environment:  map[string]string{"LOCALMODELS_FAKE_TOOL": "1"},
+		JobDirectory: filepath.Join(t.TempDir(), "jobs"),
+		ApplyTimeout: 100 * time.Millisecond,
+	})
+	_, err = fastTimeout.Apply(t.Context(), ModelSourceApply{Mode: "byok", Runtime: "pi"})
+	if !errors.As(err, &sourceErr) || sourceErr.Code != "MODEL_SOURCE_TIMEOUT" || !sourceErr.Retryable {
+		t.Fatalf("timed-out apply = %+v (%v), want retryable MODEL_SOURCE_TIMEOUT", sourceErr, err)
+	}
 }

@@ -4,6 +4,8 @@ import { useEffect, useState, type RefObject } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useOptionalVoiceMaterials } from "../chat/voice-mode/voice-materials-context";
+import { useT } from "@/i18n/use-translation";
+import { voiceChatMessages as m } from "../chat/voice-mode/voice-chat.messages";
 
 const maximumQuoteLength = 10_000;
 const controlSelector = "[data-document-voice-selection-control]";
@@ -39,6 +41,7 @@ export function DocumentVoiceSelectionControl({
   versionId?: string;
   rootRef: RefObject<HTMLElement | null>;
 }) {
+  const t = useT();
   const materials = useOptionalVoiceMaterials();
   // Document excerpts need a grant only their own Room's composer can give.
   const enabled =
@@ -118,7 +121,7 @@ export function DocumentVoiceSelectionControl({
       className="shrink-0 border-t border-app-border bg-app-surface px-3 py-2"
       data-document-voice-selection-control
       role="group"
-      aria-label="Selected document voice context"
+      aria-label={t(m.documentSelection)}
     >
       <blockquote className="mb-2 line-clamp-2 break-words text-xs text-app-muted">
         {selection.quote}
@@ -132,12 +135,11 @@ export function DocumentVoiceSelectionControl({
         type="button"
       >
         <Icon icon={QuoteDownIcon} size={14} />
-        Add to voice
+        {t(m.addToVoice)}
       </Button>
       {failed ? (
         <p className="mt-2 text-xs text-app-danger" role="alert">
-          {materials.error ||
-            "This selection could not be added. Please try again."}
+          {materials.error || t(m.addFailed)}
         </p>
       ) : null}
     </div>
@@ -185,9 +187,8 @@ function documentBody(
   element: Element,
   root: HTMLElement,
 ): Element | undefined {
-  const nativeBody = element.closest(
-    '[aria-label="Room Document editor"] .bn-editor',
-  );
+  // The editor's name follows the language, so its class finds it.
+  const nativeBody = element.closest(".room-document-blocknote .bn-editor");
   if (nativeBody && root.contains(nativeBody)) return nativeBody;
   const previewBody = element.closest(
     '[data-content-renderer="blocknote"] .bn-editor, [data-content-renderer="text"], .textLayer',

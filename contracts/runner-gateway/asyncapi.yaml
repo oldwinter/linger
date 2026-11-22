@@ -72,6 +72,12 @@ info:
     which the Computer sends after a runner.welcome whose service_features
     names local_models, after every library change, and at most every 2
     seconds while a download or load runs.
+    execute with kind model_source reads or switches the Computer's model
+    source. A BYOK input names its address as base_url, path and endpoint
+    with an explicit protocol, and the Computer sends one request there; the
+    service sends a BYOK input only to a Computer release that decodes it.
+    The Computer's BYOK summary carries path and endpoint only after a
+    runner.welcome whose service_features names byok_endpoint.
 x-frame-limits:
   maxBytes: 4194304
   maxDepth: 32

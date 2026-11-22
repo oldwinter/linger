@@ -62,11 +62,7 @@ func (t *piTurn) apply(event piEventFrame, observed time.Time) {
 		t.active = false
 		t.mu.Unlock()
 	case "agent_settled":
-		t.mu.Lock()
-		t.active = false
-		t.settleAborted = event.Aborted
-		t.mu.Unlock()
-		t.settledOnce.Do(func() { close(t.settled) })
+		t.markSettled(event.Aborted)
 	case "message_start":
 		// A steered user message is an input of the next request.
 		if message := piMessageOf(event); message.Role == "user" {

@@ -250,16 +250,19 @@ test("a quit stops only the local models, in every home, and keeps their control
     path.join(value, "desktop/local-server.json"),
     JSON.stringify({ home: custom }),
   );
+  const failure =
+    "Cannot stop local models: the installed tool kit could not be verified. Start Linger to repair the kit, then try again.";
   const models: { home: string; keepController?: boolean }[] = [];
-  const outcome = await stopDesktopLocalModels(options(value), {
-    stopModels: async (at, { keepController }) => {
-      models.push({ home: at, keepController });
-      if (at === value)
-        throw new Error(
-          "localmodels library unload qwen3-8b:Q4_K_M: JOB_RUNNING",
-        );
+  const log: string[] = [];
+  const outcome = await stopDesktopLocalModels(
+    { ...options(value), log: (message) => log.push(message) },
+    {
+      stopModels: async (at, { keepController }) => {
+        models.push({ home: at, keepController });
+        if (at === value) throw new Error(failure);
+      },
     },
-  });
+  );
   expect(models).toEqual([
     { home: value, keepController: true },
     { home: custom, keepController: true },
@@ -267,8 +270,11 @@ test("a quit stops only the local models, in every home, and keeps their control
   expect(outcome.failed).toEqual([
     {
       home: value,
-      message: "localmodels library unload qwen3-8b:Q4_K_M: JOB_RUNNING",
+      message: failure,
     },
+  ]);
+  expect(log).toEqual([
+    `Could not stop the local models in ${value}: ${failure}`,
   ]);
 });
 

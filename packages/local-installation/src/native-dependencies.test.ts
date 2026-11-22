@@ -8,7 +8,6 @@ import {
   writeFile,
   symlink,
 } from "node:fs/promises";
-import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -158,7 +157,15 @@ describe("verified extraction", () => {
       home = path.join(root, "home");
     await mkdir(path.join(input, "bin"), { recursive: true });
     await writeFile(path.join(input, "bin/tool"), "payload", { mode: 0o755 });
-    if (link) await symlink("/etc/passwd", path.join(input, "bin/escape"));
+    if (link) {
+      const outside = path.join(root, "outside");
+      await mkdir(outside);
+      await symlink(
+        outside,
+        path.join(input, "bin/escape"),
+        process.platform === "win32" ? "junction" : "dir",
+      );
+    }
     const archive = path.join(root, "payload.tgz");
     await pack({ cwd: input, file: archive, gzip: true }, ["bin"]);
     const bytes = await readFile(archive);
@@ -198,6 +205,46 @@ describe("verified extraction", () => {
         f.fetcher,
       ),
     ).rejects.toThrow(/cache/);
+  });
+  it("publishes verified Windows PostgreSQL manifests separately from the original cache", async () => {
+    const { home, artifact, fetcher } = await fixture();
+    const signal = new AbortController().signal;
+    const load = (windowsPostgres: boolean) =>
+      acquireNativeArtifact(
+        home,
+        { ...artifact, windowsPostgres },
+        signal,
+        undefined,
+        fetcher,
+      );
+    const original = await load(false);
+    const prepared = await load(true);
+    expect(original).toBe(path.join(home, artifact.digest));
+    expect(prepared).toBe(original + "-utf8");
+
+    const tree = JSON.parse(
+      await readFile(path.join(prepared, ".simplex-files.json"), "utf8"),
+    );
+    for (const program of [
+      "postgres",
+      "initdb",
+      "pg_ctl",
+      "pg_isready",
+      "psql",
+      "createdb",
+    ]) {
+      const name = `bin/${program}.exe.manifest`;
+      const manifest = await readFile(path.join(prepared, name), "utf8");
+      expect(manifest).toContain(
+        '<activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>',
+      );
+      expect(tree[name]).toBe(
+        createHash("sha256").update(manifest).digest("hex"),
+      );
+    }
+    expect(await load(true)).toBe(prepared);
+    expect(await readdir(path.join(original, "bin"))).toEqual(["tool"]);
+    expect(await load(false)).toBe(original);
   });
   it("checksum failure leaves no promoted component and permits clean retry", async () => {
     const f = await fixture();
@@ -293,18 +340,13 @@ describe("verified extraction", () => {
 });
 
 describe("verified zip extraction", () => {
-  // Python's zipfile writes ordinary deflated release zips, like go.dev does.
-  async function zip(entries: Record<string, string>, stored = false) {
-    const root = await temp(),
-      archive = path.join(root, "payload.zip");
-    execFileSync("python3", [
-      "-c",
-      "import json,sys,zipfile\nwith zipfile.ZipFile(sys.argv[1],'w',zipfile.ZIP_STORED if sys.argv[3]=='1' else zipfile.ZIP_DEFLATED) as z:\n  [z.writestr(k,v) for k,v in json.loads(sys.argv[2]).items()]",
-      archive,
-      JSON.stringify(entries),
-      stored ? "1" : "0",
-    ]);
-    const bytes = await readFile(archive);
+  // Small release-style fixtures generated with Python's zipfile. Tests do
+  // not need a Python executable or the Windows Store's python3 alias.
+  async function zip(name: string) {
+    const root = await temp();
+    const bytes = await readFile(
+      new URL(`../test/fixtures/${name}.zip`, import.meta.url),
+    );
     return {
       home: path.join(root, "home"),
       artifact: {
@@ -320,10 +362,7 @@ describe("verified zip extraction", () => {
   it.each([false, true])(
     "extracts and caches a release zip (stored=%s)",
     async (stored) => {
-      const f = await zip(
-        { "go/": "", "go/bin/go.exe": "binary".repeat(100) },
-        stored,
-      );
+      const f = await zip(stored ? "stored" : "deflated");
       const directory = await acquireNativeArtifact(
         f.home,
         f.artifact,
@@ -345,22 +384,23 @@ describe("verified zip extraction", () => {
       ).toBe(directory);
     },
   );
-  it.each(["../escape", "go\\..\\escape", "C:/escape"])(
-    "rejects the unsafe zip entry %s",
-    async (name) => {
-      const f = await zip({ [name]: "unsafe" });
-      await expect(
-        acquireNativeArtifact(
-          f.home,
-          f.artifact,
-          new AbortController().signal,
-          undefined,
-          f.fetcher,
-        ),
-      ).rejects.toThrow(/archive/);
-      expect(await readdir(f.home)).not.toContain("escape");
-    },
-  );
+  it.each([
+    ["../escape", "parent-path"],
+    ["go\\..\\escape", "backslash-parent-path"],
+    ["C:/escape", "absolute-path"],
+  ])("rejects the unsafe zip entry %s", async (_entry, name) => {
+    const f = await zip(name);
+    await expect(
+      acquireNativeArtifact(
+        f.home,
+        f.artifact,
+        new AbortController().signal,
+        undefined,
+        f.fetcher,
+      ),
+    ).rejects.toThrow(/archive/);
+    expect(await readdir(f.home)).not.toContain("escape");
+  });
 });
 
 describe("failure and cancellation boundaries", () => {
@@ -394,7 +434,11 @@ describe("failure and cancellation boundaries", () => {
     const root = await temp(),
       outside = await temp(),
       base = path.join(root, "cache");
-    await symlink(outside, base);
+    await symlink(
+      outside,
+      base,
+      process.platform === "win32" ? "junction" : "dir",
+    );
     await expect(
       acquireNativeArtifact(
         base,
@@ -406,7 +450,7 @@ describe("failure and cancellation boundaries", () => {
         },
         new AbortController().signal,
       ),
-    ).rejects.toThrow(/owned directory/);
+    ).rejects.toThrow(/owned directory|is a link/);
   });
   it("aborted downloads leave no pending component", async () => {
     const root = await temp(),
@@ -445,7 +489,11 @@ it("validates checksum identity before resolving cache paths", async () => {
   ).rejects.toThrow();
 });
 
-it("prepares real executable launchers and reuses verified warm dependencies entirely offline", async () => {
+it("prepares real executable launchers and reuses verified warm dependencies entirely offline", async ({
+  skip,
+}) => {
+  if (process.platform === "win32")
+    skip("The fixture uses POSIX Go and PostgreSQL shell executables");
   const root = await temp(),
     repo = path.join(root, "repo"),
     home = path.join(root, "home");
@@ -507,10 +555,12 @@ it("prepares real executable launchers and reuses verified warm dependencies ent
   await archive(
     "postgres",
     Object.fromEntries(
-      ["postgres", "initdb", "pg_ctl", "psql", "createdb"].map((name) => [
-        `bin/${name}`,
-        "#!/bin/sh\nprintf 'postgres (PostgreSQL) 17.10\\n'\n",
-      ]),
+      ["postgres", "initdb", "pg_ctl", "pg_isready", "psql", "createdb"].map(
+        (name) => [
+          `bin/${name}`,
+          "#!/bin/sh\nprintf 'postgres (PostgreSQL) 17.10\\n'\n",
+        ],
+      ),
     ),
   );
   const fetcher = vi
@@ -536,7 +586,7 @@ it("prepares real executable launchers and reuses verified warm dependencies ent
     signal: new AbortController().signal,
     onEvent: (event) => events.push(event),
   });
-  expect(result.env.GOROOT).toContain("/components/");
+  expect(result.env.GOROOT).toContain(`${path.sep}components${path.sep}`);
   expect(result.env.GOTOOLCHAIN).toBe("local");
   expect(result.env.GOPROXY).toBe(
     "https://proxy.golang.org|https://goproxy.cn|direct",

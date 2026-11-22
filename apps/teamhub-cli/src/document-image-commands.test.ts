@@ -21,6 +21,7 @@ const definition = (...parts: string[]) =>
   )!;
 const reader = (cwd: string): CommandInputReader => ({
   cwd,
+  localPath: (source) => path.resolve(cwd, source),
   text: vi.fn(),
   json: vi.fn(),
 });

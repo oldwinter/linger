@@ -6,6 +6,9 @@ import type {
   TeamHubRoomRunCancelResult,
   TeamHubRoomRunRedeliverResult,
 } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
+
+import { runtimeStatusMessages as m } from "../runtime-status/runtime-status.messages";
 
 interface StopVariables {
   requestId: string;
@@ -30,6 +33,7 @@ export function AgentRunStopButton({
   /** The Room or Thread whose Stop state this button shares. */
   scopeKey: readonly string[];
 }) {
+  const t = useT();
   const [requestId] = useState(createTeamHubIdempotencyKey);
   const mutationKey = ["room-stop", ...scopeKey, controlKey];
   const previous = useMutationState({
@@ -70,13 +74,13 @@ export function AgentRunStopButton({
             runId,
           })
         }
-        aria-label={`Stop ${name}'s task`}
+        aria-label={t(m.stopAgentTask, { name })}
       >
-        {stopping ? "Stopping" : stopped ? "Stopped" : "Stop"}
+        {stopping ? t(m.stopping) : stopped ? t(m.stopped) : t(m.stop)}
       </Button>
       {state.status === "error" ? (
         <span role="alert" className="text-[12px] leading-4 text-app-danger">
-          Stop not confirmed. Check the task status, then retry.
+          {t(m.stopNotConfirmed)}
         </span>
       ) : null}
     </span>
@@ -103,6 +107,7 @@ export function AgentRunResendButton({
   /** The Room or Thread whose Resend state this button shares. */
   scopeKey: readonly string[];
 }) {
+  const t = useT();
   const mutationKey = ["room-resend", ...scopeKey, controlKey];
   const previous = useMutationState({
     filters: {
@@ -124,25 +129,26 @@ export function AgentRunResendButton({
   if (result)
     return (
       <span className="shrink-0 px-1.5 text-[12px] font-medium text-app-subtle">
-        {result.status === "redelivered" ? "Resent" : "Nothing to resend"}
+        {result.status === "redelivered" ? t(m.resent) : t(m.nothingToResend)}
       </span>
     );
   return (
     <span className="inline-flex min-w-0 shrink-0 items-center gap-1">
       <Button
+        data-voice-risk="never"
         type="button"
         tone="ghost"
         size="compact"
         className="h-7 px-1.5 text-[12px] font-medium text-app-muted hover:bg-transparent hover:text-app-ink"
         disabled={state.status === "pending"}
         onClick={() => mutation.mutate(runId)}
-        aria-label={`Resend unconfirmed follow-up to ${name}`}
+        aria-label={t(m.resendFollowUp, { name })}
       >
-        Resend
+        {t(m.resend)}
       </Button>
       {state.status === "error" ? (
         <span role="alert" className="text-[12px] leading-4 text-app-danger">
-          Resend failed. Try again.
+          {t(m.resendFailed)}
         </span>
       ) : null}
     </span>

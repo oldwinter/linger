@@ -39,6 +39,10 @@ A record of a past event does not by itself prove a present status. Where source
 const INTRO =
   "What each source you can query here can tell you. When none of them holds a changing fact, say it is unconfirmed rather than presenting it as current.";
 
+const CALENDAR_COMMANDS: Record<string, string> = {
+  google_calendar: "teamhub gcal",
+  outlook: "teamhub outlook-calendar",
+};
 const MAIL_COMMANDS: Record<string, string> = {
   gmail: "teamhub gmail",
   outlook: "teamhub outlook",
@@ -54,9 +58,9 @@ const APP_SOURCES: readonly {
   readonly render: (present: readonly string[]) => string;
 }[] = [
   {
-    keys: ["google_calendar"],
-    render: () =>
-      "- calendar (teamhub gcal list / free / read): scheduled meetings and events, attendees, free time.",
+    keys: ["google_calendar", "outlook"],
+    render: (present) =>
+      `- calendar (${present.map((key) => CALENDAR_COMMANDS[key]).join(" or ")} list / free / read): scheduled meetings and events, attendees, free time.`,
   },
   {
     keys: ["gmail", "outlook"],

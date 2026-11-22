@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
+
+import { translate } from "@/i18n/language";
+
 import { runtimeFailureMessage } from "./runtime-failure-message";
 
 describe("Runtime failure messages", () => {
   it.each(["claude", "codex"] as const)(
     "describes the classified outcome for %s without infrastructure details",
     (runtime_type) => {
-      const message = runtimeFailureMessage({
+      const message = runtimeFailureMessage(translate, {
         code: "execution_outcome_unknown",
         runtime_type,
       });
@@ -19,7 +22,7 @@ describe("Runtime failure messages", () => {
   );
 
   it("tells people to choose another model when the account cannot use it", () => {
-    const message = runtimeFailureMessage({
+    const message = runtimeFailureMessage(translate, {
       code: "model_unavailable",
       runtime_type: "codex",
       runtime_version: "0.153.4",
@@ -30,7 +33,7 @@ describe("Runtime failure messages", () => {
   });
 
   it("points to the Agent's settings when its Computer does not offer the model", () => {
-    const message = runtimeFailureMessage({
+    const message = runtimeFailureMessage(translate, {
       code: "model_not_offered",
       runtime_type: "codex",
     });
@@ -40,7 +43,7 @@ describe("Runtime failure messages", () => {
   });
 
   it("says the Agent finished but its reply did not reach the Room", () => {
-    const message = runtimeFailureMessage({
+    const message = runtimeFailureMessage(translate, {
       code: "reply_undelivered",
       runtime_type: "pi",
     });
@@ -50,7 +53,7 @@ describe("Runtime failure messages", () => {
   });
 
   it("says the Agent finished without sending its reply", () => {
-    const message = runtimeFailureMessage({
+    const message = runtimeFailureMessage(translate, {
       code: "reply_not_sent",
       runtime_type: "pi",
     });
@@ -60,12 +63,12 @@ describe("Runtime failure messages", () => {
   });
 
   it("names a failure the Agent Service observed without a Runtime prefix", () => {
-    expect(runtimeFailureMessage({ code: "interrupted" })).toMatch(
-      /^The Run was interrupted before it finished/,
+    expect(runtimeFailureMessage(translate, { code: "interrupted" })).toMatch(
+      /^The Run stopped before it finished because its Computer restarted/,
     );
-    expect(runtimeFailureMessage({ code: "computer_unavailable" })).toContain(
-      "Make sure the Computer is online",
-    );
+    expect(
+      runtimeFailureMessage(translate, { code: "computer_unavailable" }),
+    ).toContain("Make sure the Computer is online");
   });
 
   it.each([
@@ -76,14 +79,17 @@ describe("Runtime failure messages", () => {
     ["cleanup_unconfirmed", "could not be confirmed stopped"],
     ["unclassified", "could not identify"],
   ] as const)("gives %s its own cause", (code, cause) => {
-    const message = runtimeFailureMessage({ code, runtime_type: "claude" });
+    const message = runtimeFailureMessage(translate, {
+      code,
+      runtime_type: "claude",
+    });
     expect(message).toMatch(/^Claude: /);
     expect(message).toContain(cause);
   });
 
   it("only describes protocol errors as incompatible", () => {
     expect(
-      runtimeFailureMessage({
+      runtimeFailureMessage(translate, {
         code: "protocol_incompatible",
         runtime_type: "codex",
         runtime_version: "0.153.4",
@@ -96,18 +102,18 @@ describe("Runtime failure messages", () => {
       "execution_failed",
     ] as const) {
       expect(
-        runtimeFailureMessage({ code, runtime_type: "codex" }),
+        runtimeFailureMessage(translate, { code, runtime_type: "codex" }),
       ).not.toContain("incompatible");
     }
   });
   it("does not render raw version data or invent a version for legacy failures", () => {
     expect(
-      runtimeFailureMessage({
+      runtimeFailureMessage(translate, {
         code: "execution_failed",
         runtime_type: "codex",
         runtime_version: "/private/token",
       }),
     ).not.toContain("private");
-    expect(runtimeFailureMessage()).toBe("Run failed");
+    expect(runtimeFailureMessage(translate)).toBe("Run failed");
   });
 });

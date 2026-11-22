@@ -14,7 +14,10 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { useT } from "@/i18n/use-translation";
 import { writeClipboardText } from "@/lib/clipboard";
+
+import { computerSetupMessages } from "./computer-setup.messages";
 import {
   browserComputerPlatform,
   computerCommand,
@@ -26,12 +29,13 @@ export function ComputerSetupInstructions({
   connected = false,
   waitingForNewComputer = false,
 }: ComputerSetupInstructionsProps) {
+  const t = useT();
   const [platform, setPlatform] = useState(browserComputerPlatform);
   const installCommand = computerInstallCommand(platform);
 
   return (
     <section
-      aria-label="Connect a Local Computer"
+      aria-label={t(computerSetupMessages.label)}
       className="overflow-hidden rounded-xl border border-border bg-card"
     >
       <div className="border-b border-border p-4">
@@ -41,12 +45,14 @@ export function ComputerSetupInstructions({
           </span>
           <div>
             <h3 className="text-sm font-semibold text-foreground">
-              Connect a computer
+              {t(computerSetupMessages.title)}
             </h3>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              {platform === "win32"
-                ? "Run these commands in PowerShell on the computer you want to connect."
-                : "Run these commands in a terminal on the computer you want to connect."}
+              {t(
+                platform === "win32"
+                  ? computerSetupMessages.runInPowerShell
+                  : computerSetupMessages.runInTerminal,
+              )}
             </p>
           </div>
         </div>
@@ -57,22 +63,24 @@ export function ComputerSetupInstructions({
           key={platform}
           command={installCommand}
           number="1"
-          title="Install CLI"
+          title={t(computerSetupMessages.installCli)}
         />
         <SetupStep
           command={`${computerCommand()} login`}
           number="2"
-          title="Connect computer"
+          title={t(computerSetupMessages.connectComputer)}
         />
         <li className="flex gap-3 py-3.5">
           <StepNumber>3</StepNumber>
           <div className="min-w-0 flex-1 pt-0.5">
             <p className="text-sm font-medium text-foreground">
-              {connected
-                ? "Computer connected"
-                : waitingForNewComputer
-                  ? "Waiting for a new computer"
-                  : "Waiting for your computer"}
+              {t(
+                connected
+                  ? computerSetupMessages.connectedTitle
+                  : waitingForNewComputer
+                    ? computerSetupMessages.waitingNewTitle
+                    : computerSetupMessages.waitingTitle,
+              )}
             </p>
             <p
               className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground"
@@ -88,12 +96,14 @@ export function ComputerSetupInstructions({
                 />
               )}
               {connected ? (
-                "Computer is online. Check its Runtime status before running tasks."
+                t(computerSetupMessages.connectedStatus)
               ) : (
                 <span className="town-shimmer-text">
-                  {waitingForNewComputer
-                    ? "Checking for a new Local Computer..."
-                    : "Checking for an online Local Computer..."}
+                  {t(
+                    waitingForNewComputer
+                      ? computerSetupMessages.checkingNew
+                      : computerSetupMessages.checkingOnline,
+                  )}
                 </span>
               )}
             </p>
@@ -154,6 +164,7 @@ export function CopyValueButton({
   selectionTargetRef: RefObject<HTMLElement | null>;
   value: string;
 }) {
+  const t = useT();
   const [copyState, setCopyState] = useState<
     "idle" | "copied" | "selected" | "failed"
   >("idle");
@@ -171,13 +182,13 @@ export function CopyValueButton({
   return (
     <>
       <button
-        aria-label={
+        aria-label={t(
           copied
-            ? "Command copied"
+            ? computerSetupMessages.commandCopied
             : selected
-              ? "Command selected"
-              : "Copy command"
-        }
+              ? computerSetupMessages.commandSelected
+              : computerSetupMessages.copyCommand,
+        )}
         className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={() => {
           void (async () => {
@@ -203,9 +214,13 @@ export function CopyValueButton({
             );
           })();
         }}
-        title={
-          copied ? "Copied" : selected ? "Command selected" : "Copy command"
-        }
+        title={t(
+          copied
+            ? computerSetupMessages.copied
+            : selected
+              ? computerSetupMessages.commandSelected
+              : computerSetupMessages.copyCommand,
+        )}
         type="button"
       >
         {copied ? (
@@ -222,11 +237,13 @@ export function CopyValueButton({
               role={copyState === "failed" ? "alert" : "status"}
             >
               {copied ? <Icon icon={Tick02Icon} size={14} /> : null}
-              {copied
-                ? "Copied to clipboard"
-                : selected
-                  ? "Command selected. Press Cmd+C or Ctrl+C to copy."
-                  : "Copy is unavailable on this connection."}
+              {t(
+                copied
+                  ? computerSetupMessages.copiedToClipboard
+                  : selected
+                    ? computerSetupMessages.selectedToCopy
+                    : computerSetupMessages.copyUnavailable,
+              )}
             </div>,
             document.body,
           )

@@ -76,6 +76,8 @@ it("stops every earlier release with this release's script", () => {
     earlier,
     'IfFileExists "$INSTDIR\\Linger.exe" 0 done',
     "${STAGE}\\resources\\app\\dist\\installer\\installer.js",
+    'IfFileExists "$INSTDIR\\resources\\app\\dist\\installer\\distribution.json"',
+    'CopyFiles /SILENT "$INSTDIR\\resources\\app\\dist\\installer\\distribution.json" "$PLUGINSDIR"',
     'StrCpy $R0 "$PLUGINSDIR\\stop.mjs"',
     "Call StopLinger",
   );

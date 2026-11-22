@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -33,9 +34,10 @@ var modelSourceRefusalCodes = map[string]httpapi.ModelSourceErrorCode{
 	"MODEL_UNKNOWN":            httpapi.ModelSourceErrorCodeLocalModelUnknown,
 	"BYOK_INVALID_CONFIG":      httpapi.ModelSourceErrorCodeByokInvalidConfig,
 	"BYOK_AUTH_FAILED":         httpapi.ModelSourceErrorCodeByokAuthFailed,
-	"BYOK_MODEL_NOT_FOUND":     httpapi.ModelSourceErrorCodeByokModelNotFound,
+	"BYOK_NOT_FOUND":           httpapi.ModelSourceErrorCodeByokNotFound,
 	"BYOK_UNREACHABLE":         httpapi.ModelSourceErrorCodeByokUnreachable,
 	"BYOK_UPSTREAM_REJECTED":   httpapi.ModelSourceErrorCodeByokUpstreamRejected,
+	"BYOK_GATEWAY_FAILED":      httpapi.ModelSourceErrorCodeByokGatewayFailed,
 	"MODEL_SOURCE_TIMEOUT":     httpapi.ModelSourceErrorCodeModelSourceUnconfirmed,
 	"BYOK_CHECK_TIMEOUT":       httpapi.ModelSourceErrorCodeModelSourceUnconfirmed,
 }
@@ -50,17 +52,33 @@ var modelSourceErrorMessages = map[httpapi.ModelSourceErrorCode]string{
 	httpapi.ModelSourceErrorCodeLocalModelUnknown:             "The Computer does not know this model",
 	httpapi.ModelSourceErrorCodeByokInvalidConfig:             "The Computer rejected this endpoint configuration",
 	httpapi.ModelSourceErrorCodeByokAuthFailed:                "The endpoint rejected the API key",
-	httpapi.ModelSourceErrorCodeByokModelNotFound:             "The endpoint does not serve this model",
+	httpapi.ModelSourceErrorCodeByokNotFound:                  "Nothing answered at the endpoint address, or it does not serve this model",
 	httpapi.ModelSourceErrorCodeByokUnreachable:               "The Computer could not reach the endpoint",
 	httpapi.ModelSourceErrorCodeByokUpstreamRejected:          "The endpoint rejected the test request",
+	httpapi.ModelSourceErrorCodeByokGatewayFailed:             "The Computer could not configure its local BYOK gateway",
 	httpapi.ModelSourceErrorCodeModelSourceFailed:             "The Computer could not change its model source",
 	httpapi.ModelSourceErrorCodeModelSourceServiceUnavailable: "Model sources are unavailable",
 	httpapi.ModelSourceErrorCodeModelSourceUnconfirmed:        "The Computer did not answer in time",
 }
 
+// For these refusals the Computer's own message carries actionable detail
+// (the address and HTTP status for endpoint refusals, or the local gateway
+// failure reason for BYOK_GATEWAY_FAILED). It never holds the key, and only
+// the Computer's owner can send a BYOK request.
+var modelSourceComputerMessageCodes = map[httpapi.ModelSourceErrorCode]bool{
+	httpapi.ModelSourceErrorCodeByokAuthFailed:       true,
+	httpapi.ModelSourceErrorCodeByokNotFound:         true,
+	httpapi.ModelSourceErrorCodeByokUnreachable:      true,
+	httpapi.ModelSourceErrorCodeByokUpstreamRejected: true,
+	httpapi.ModelSourceErrorCodeByokGatewayFailed:    true,
+}
+
+const maxComputerMessageLength = 1024
+
 var modelSourceErrorStatuses = map[httpapi.ModelSourceErrorCode]int{
 	httpapi.ModelSourceErrorCodeLocalComputerOffline:          http.StatusServiceUnavailable,
 	httpapi.ModelSourceErrorCodeModelSourceForbidden:          http.StatusForbidden,
+	httpapi.ModelSourceErrorCodeByokGatewayFailed:             http.StatusBadGateway,
 	httpapi.ModelSourceErrorCodeModelSourceFailed:             http.StatusBadGateway,
 	httpapi.ModelSourceErrorCodeModelSourceServiceUnavailable: http.StatusServiceUnavailable,
 	httpapi.ModelSourceErrorCodeModelSourceUnconfirmed:        http.StatusGatewayTimeout,
@@ -190,7 +208,7 @@ func (a *App) switchLocalComputerModelSource(c *gin.Context) {
 // Computer without saving it anywhere.
 func (a *App) testLocalComputerModelSource(c *gin.Context) {
 	var request httpapi.ByokTestRequest
-	if err := decodeJSON(c, &request); err != nil || !request.Runtime.Valid() || !validByokInput(request.Byok) {
+	if err := decodeJSON(c, &request); err != nil || !validByokInput(request.Byok) {
 		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "BYOK configuration is invalid")
 		return
 	}
@@ -224,8 +242,9 @@ func (a *App) testLocalComputerModelSource(c *gin.Context) {
 // from the owner's Computer.
 func (a *App) listLocalComputerByokModels(c *gin.Context) {
 	var endpoint httpapi.ByokEndpointInput
-	if err := decodeJSON(c, &endpoint); err != nil || strings.TrimSpace(endpoint.BaseUrl) == "" ||
-		len(endpoint.BaseUrl) > 2048 || (endpoint.ApiKey != nil && len(*endpoint.ApiKey) > 4096) {
+	if err := decodeJSON(c, &endpoint); err != nil ||
+		!validByokAddress(endpoint.BaseUrl, endpoint.Path, endpoint.Endpoint, endpoint.Protocol) ||
+		(endpoint.ApiKey != nil && len(*endpoint.ApiKey) > 4096) {
 		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "BYOK endpoint is invalid")
 		return
 	}
@@ -351,8 +370,19 @@ func (a *App) writeModelSourceFailure(c *gin.Context, computerID, action string,
 		if !known {
 			a.logger.Warn("model_source.refused", "computer_id", computerID, "action", action, "refusal_code", refusal.Code)
 			code = httpapi.ModelSourceErrorCodeModelSourceFailed
+		} else if code == httpapi.ModelSourceErrorCodeByokGatewayFailed {
+			a.logger.Warn("model_source.gateway_failed", "computer_id", computerID, "action", action, "refusal_code", refusal.Code)
 		}
-		a.writeModelSourceError(c, code)
+		message := modelSourceErrorMessages[code]
+		var details []httpapi.ErrorDetail
+		trimmed := strings.TrimSpace(refusal.Message)
+		if modelSourceComputerMessageCodes[code] && trimmed != "" && len(trimmed) <= maxComputerMessageLength {
+			message = trimmed
+			if code == httpapi.ModelSourceErrorCodeByokGatewayFailed {
+				details = []httpapi.ErrorDetail{{Field: "gateway", Reason: trimmed}}
+			}
+		}
+		a.writeModelSourceErrorDetails(c, code, message, details)
 	default:
 		a.logger.Error("model_source.failed", "computer_id", computerID, "action", action, "error", err)
 		a.writeModelSourceError(c, httpapi.ModelSourceErrorCodeModelSourceServiceUnavailable)
@@ -360,11 +390,19 @@ func (a *App) writeModelSourceFailure(c *gin.Context, computerID, action string,
 }
 
 func (a *App) writeModelSourceError(c *gin.Context, code httpapi.ModelSourceErrorCode) {
+	a.writeModelSourceErrorDetails(c, code, modelSourceErrorMessages[code], nil)
+}
+
+func (a *App) writeModelSourceErrorDetails(c *gin.Context, code httpapi.ModelSourceErrorCode, message string, details []httpapi.ErrorDetail) {
 	status, found := modelSourceErrorStatuses[code]
 	if !found {
 		status = http.StatusConflict
 	}
-	a.writeError(c, status, string(code), modelSourceErrorMessages[code])
+	if len(details) > 0 {
+		a.writeErrorWithDetails(c, status, string(code), message, details)
+		return
+	}
+	a.writeError(c, status, string(code), message)
 }
 
 func validModelSourceSwitch(request httpapi.ModelSourceSwitchRequest) bool {
@@ -384,8 +422,19 @@ func validModelSourceSwitch(request httpapi.ModelSourceSwitchRequest) bool {
 	return false
 }
 
+// byokURLPathPattern matches a BYOK path or endpoint: empty, or whole
+// segments each led by one slash, so it can only extend the base URL's path.
+// Keep in sync with BYOK_URL_PATH_PATTERN in packages/service-kit/src/byok-endpoint.ts.
+var byokURLPathPattern = regexp.MustCompile(`^(/[^/?#\s\\]+)*$`)
+
+func validByokAddress(baseURL, path, endpoint string, protocol httpapi.ByokProtocol) bool {
+	return strings.TrimSpace(baseURL) != "" && len(baseURL) <= 2048 && protocol.Valid() &&
+		len(path) <= 256 && byokURLPathPattern.MatchString(path) &&
+		len(endpoint) <= 256 && byokURLPathPattern.MatchString(endpoint)
+}
+
 func validByokInput(input httpapi.ByokInput) bool {
-	return strings.TrimSpace(input.BaseUrl) != "" && len(input.BaseUrl) <= 2048 &&
+	return validByokAddress(input.BaseUrl, input.Path, input.Endpoint, input.Protocol) &&
 		strings.TrimSpace(input.ModelId) != "" && len(input.ModelId) <= 256 &&
 		(input.ApiKey == nil || len(*input.ApiKey) <= 4096) &&
 		(input.ContextWindow == nil || *input.ContextWindow >= 1)

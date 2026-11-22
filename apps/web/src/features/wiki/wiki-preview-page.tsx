@@ -8,6 +8,7 @@ import {
   useWorkspaceTree,
 } from "@/features/library/workspace-tree";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
+import { useT } from "@/i18n/use-translation";
 
 import { useWikiDocuments } from "./knowledge-sidebar-trees";
 import { WikiConnectionsPanel } from "./wiki-connections-panel";
@@ -17,6 +18,7 @@ import { wikiPreviewPages } from "./wiki-preview-pages";
 import { usePersonalWikiRefresh } from "./wiki-refresh";
 import { wikiDocumentPath, wikiPreviewPath } from "./wiki-routes";
 import { useRecordRecentWikiPage } from "./use-recent-wiki-pages";
+import { wikiMessages as m } from "./wiki.messages";
 import "@/features/rooms/documents/room-document-blocknote.css";
 import "./wiki-working-card.css";
 
@@ -30,6 +32,7 @@ export function WikiPreviewPage() {
   const workspaceTree = useWorkspaceTree();
   const [searchParams] = useSearchParams();
   const wikiHomePath = `/t/${encodeURIComponent(tenantId)}/library/wiki`;
+  const t = useT();
   const path = searchParams.get("page") ?? "";
   const refresh = usePersonalWikiRefresh(tenantId);
   const documents = useWikiDocuments(tenantId);
@@ -96,15 +99,13 @@ export function WikiPreviewPage() {
               className="text-sm text-app-muted underline-offset-2 hover:text-app-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
               to={wikiHomePath}
             >
-              Back to Wiki
+              {t(m.backToWiki)}
             </Link>
           </div>
         </header>
         <div className="flex flex-1 flex-col items-center justify-center gap-4 p-10 text-center">
           <p className="text-sm text-app-muted" role="status">
-            {refresh.refreshing
-              ? "This page is not written yet."
-              : "This page was not published."}
+            {t(refresh.refreshing ? m.notWrittenYet : m.notPublished)}
           </p>
           <Link
             className={buttonClassName({
@@ -113,7 +114,7 @@ export function WikiPreviewPage() {
             })}
             to={wikiHomePath}
           >
-            Back to Wiki
+            {t(m.backToWiki)}
           </Link>
         </div>
       </main>
@@ -132,10 +133,10 @@ export function WikiPreviewPage() {
               </span>
               <span
                 className="room-document-header-updated inline-flex items-center gap-1.5"
-                title="Not published yet. This page may still change."
+                title={t(m.notPublishedHint)}
               >
                 <span aria-hidden="true" className="wiki-preview-dot" />
-                Generating
+                {t(m.generating)}
               </span>
             </div>
           </div>
@@ -144,7 +145,7 @@ export function WikiPreviewPage() {
               className="text-xs text-app-muted underline-offset-2 hover:text-app-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
               to={wikiHomePath}
             >
-              Back to Wiki
+              {t(m.backToWiki)}
             </Link>
           </div>
         </header>

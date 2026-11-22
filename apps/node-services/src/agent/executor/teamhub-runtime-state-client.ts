@@ -109,6 +109,11 @@ export interface TeamHubRuntimeStateClient {
     runId: string,
     signal?: AbortSignal,
   ): Promise<RuntimeStateSchemas["AgentLocalRun"]>;
+  getRunReplyStatus(
+    contextKey: string,
+    runId: string,
+    signal?: AbortSignal,
+  ): Promise<RuntimeStateSchemas["AgentLocalRunReplyStatus"]>;
   /** Contexts whose queued Run or Message steer waited past its wake hint. */
   listWaitingContexts(signal?: AbortSignal): Promise<readonly string[]>;
   claimRun(
@@ -352,6 +357,11 @@ export const createTeamHubRuntimeStateClient = (
       ),
     getRun: (contextKey, runId, signal) =>
       request<RuntimeLocalRun>(raw.getRun(contextKey, runId, signal), signal),
+    getRunReplyStatus: (contextKey, runId, signal) =>
+      request<RuntimeStateSchemas["AgentLocalRunReplyStatus"]>(
+        raw.getRunReplyStatus(contextKey, runId, signal),
+        signal,
+      ),
     listWaitingContexts: async (signal) =>
       (
         await request<RuntimeStateSchemas["AgentRuntimeWaitingContexts"]>(

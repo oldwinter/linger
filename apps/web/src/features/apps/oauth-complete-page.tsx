@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 
 import { Spinner } from "@/components/ui/spinner";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
+
+import { connectorMessages as m } from "./connectors.messages";
 
 export const OAUTH_COMPLETE_PATH = "/oauth/composio-complete";
 
@@ -12,6 +15,7 @@ type CompletionPhase = "pending" | "complete" | "failed" | "timeout";
 
 export function OAuthCompletePage() {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const [phase, setPhase] = useState<CompletionPhase>("pending");
 
   useEffect(() => {
@@ -71,9 +75,9 @@ export function OAuthCompletePage() {
           </>
         ) : phase === "complete" ? (
           <>
-            <h1 className="text-lg">Authorization complete</h1>
+            <h1 className="text-lg">{t(m.authorizationComplete)}</h1>
             <p className="mt-2 text-sm text-muted-foreground" role="status">
-              You can close this window.
+              {t(m.canCloseWindow)}
             </p>
           </>
         ) : phase === "timeout" ? (

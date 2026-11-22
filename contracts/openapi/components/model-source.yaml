@@ -11,8 +11,9 @@ components:
   schemas:
     ByokProtocol:
       description: >-
-        Wire format the Computer found a BYOK upstream endpoint answers, trying
-        the active Runtime's own format first.
+        Wire format of a BYOK upstream endpoint. The owner's client derives it
+        from the end of the request address, else from the Runtime's own
+        format; the Computer does not probe for it.
       type: string
       enum: [openai-chat, openai-responses, anthropic]
       x-enum-varnames:
@@ -37,19 +38,34 @@ components:
           ModelSourceRuntimeCodex,
           ModelSourceRuntimePi,
         ]
+    ByokUrlPath:
+      description: >-
+        A path appended to a BYOK base URL: empty, or whole segments each led
+        by one slash, so it can only extend the base URL's path.
+      type: string
+      maxLength: 256
+      pattern: '^(/[^/?#\s\\]+)*$'
     ByokInput:
       description: >-
-        Upstream endpoint configuration supplied by the Computer owner. The API
-        key is never persisted in TeamHub or Agent Service; only the Local
-        Computer stores it in a private 0600 file.
+        Upstream endpoint configuration supplied by the Computer owner.
+        Requests go to base_url + path + endpoint in protocol, and models are
+        listed at base_url + path + /models. The API key is never persisted in
+        TeamHub or Agent Service; only the Local Computer stores it in a
+        private 0600 file.
       type: object
       additionalProperties: false
-      required: [base_url, model_id]
+      required: [base_url, path, endpoint, protocol, model_id]
       properties:
         base_url:
           type: string
           minLength: 1
           maxLength: 2048
+        path:
+          $ref: "#/components/schemas/ByokUrlPath"
+        endpoint:
+          $ref: "#/components/schemas/ByokUrlPath"
+        protocol:
+          $ref: "#/components/schemas/ByokProtocol"
         api_key:
           type: string
           writeOnly: true
@@ -66,16 +82,23 @@ components:
           type: boolean
     ByokEndpointInput:
       description: >-
-        A BYOK endpoint address and key, enough to list its models. The API
-        key is never persisted in TeamHub or Agent Service.
+        A BYOK endpoint address and key, enough to list its models at
+        base_url + path + /models with protocol's key header. The API key is
+        never persisted in TeamHub or Agent Service.
       type: object
       additionalProperties: false
-      required: [base_url]
+      required: [base_url, path, endpoint, protocol]
       properties:
         base_url:
           type: string
           minLength: 1
           maxLength: 2048
+        path:
+          $ref: "#/components/schemas/ByokUrlPath"
+        endpoint:
+          $ref: "#/components/schemas/ByokUrlPath"
+        protocol:
+          $ref: "#/components/schemas/ByokProtocol"
         api_key:
           type: string
           writeOnly: true
@@ -104,9 +127,9 @@ components:
       description: The models a BYOK endpoint lists, sorted by id.
       type: object
       additionalProperties: false
-      required: [base_url, models]
+      required: [url, models]
       properties:
-        base_url:
+        url:
           description: The address that listed them.
           type: string
           minLength: 1
@@ -117,19 +140,18 @@ components:
           items:
             $ref: "#/components/schemas/ByokModel"
     ByokTestRequest:
-      description: >-
-        A BYOK endpoint to verify from the Computer for the Runtime that would
-        serve it, which decides the order wire formats are tried.
+      description: A BYOK endpoint to verify with one request from the Computer.
       type: object
       additionalProperties: false
-      required: [runtime, byok]
+      required: [byok]
       properties:
-        runtime:
-          $ref: "#/components/schemas/ModelSourceRuntime"
         byok:
           $ref: "#/components/schemas/ByokInput"
     ByokSummary:
-      description: Redacted BYOK configuration metadata reported by the Computer.
+      description: >-
+        Redacted BYOK configuration metadata reported by the Computer. path and
+        endpoint are omitted when empty: a configured summary without them
+        appends nothing there.
       type: object
       additionalProperties: false
       required: [configured, key_saved]
@@ -141,6 +163,10 @@ components:
         base_url:
           type: string
           maxLength: 2048
+        path:
+          $ref: "#/components/schemas/ByokUrlPath"
+        endpoint:
+          $ref: "#/components/schemas/ByokUrlPath"
         model_id:
           type: string
           maxLength: 256
@@ -175,20 +201,17 @@ components:
         byok:
           $ref: "#/components/schemas/ByokSummary"
     ByokTestResult:
-      description: Outcome of probing an upstream BYOK endpoint from the Local Computer.
+      description: Outcome of one request to an upstream BYOK endpoint from the Local Computer.
       type: object
       additionalProperties: false
-      required: [ok, protocol, base_url, model_id, context_window]
+      required: [ok, protocol, url, model_id, context_window]
       properties:
         ok:
           type: boolean
         protocol:
           $ref: "#/components/schemas/ByokProtocol"
-        base_url:
-          description: >-
-            The address that answered, which can add or drop the /anthropic of
-            a gateway that serves OpenAI under /v1 and Anthropic under
-            /anthropic.
+        url:
+          description: The address the request went to.
           type: string
           minLength: 1
           maxLength: 2048
@@ -266,9 +289,17 @@ components:
         Agents on the Computer have running work and force_terminate was
         false; details carries one entry per such Agent, with field "agent"
         and the Agent's display name as reason. RUNTIME_NOT_ENABLED,
-        LOCAL_MODEL_NO_ROOM, LOCAL_MODEL_UNKNOWN, and the BYOK_ codes are the
-        Computer's refusals (409). MODEL_SOURCE_FAILED: the Computer failed
-        with an error that has no code of its own here (502).
+        LOCAL_MODEL_NO_ROOM, LOCAL_MODEL_UNKNOWN, and the BYOK endpoint
+        refusals (BYOK_INVALID_CONFIG, BYOK_AUTH_FAILED, BYOK_NOT_FOUND,
+        BYOK_UNREACHABLE, BYOK_UPSTREAM_REJECTED) are the Computer's refusals
+        (409); for BYOK_AUTH_FAILED, BYOK_NOT_FOUND, BYOK_UNREACHABLE and
+        BYOK_UPSTREAM_REJECTED, message is the Computer's own and names the
+        address it sent to and the endpoint's HTTP status.
+        BYOK_GATEWAY_FAILED: the Computer could not start, stop, or configure
+        its local BYOK gateway (502); when the Computer reported a diagnostic
+        message, message carries it and details carries one entry with field
+        "gateway" and that diagnostic as reason. MODEL_SOURCE_FAILED: the
+        Computer failed with an error that has no code of its own here (502).
         MODEL_SOURCE_SERVICE_UNAVAILABLE: Agent Service could not be reached
         (503). MODEL_SOURCE_UNCONFIRMED: the Computer had not answered by the
         deadline; it may still switch (504).
@@ -283,9 +314,10 @@ components:
         - LOCAL_MODEL_UNKNOWN
         - BYOK_INVALID_CONFIG
         - BYOK_AUTH_FAILED
-        - BYOK_MODEL_NOT_FOUND
+        - BYOK_NOT_FOUND
         - BYOK_UNREACHABLE
         - BYOK_UPSTREAM_REJECTED
+        - BYOK_GATEWAY_FAILED
         - MODEL_SOURCE_FAILED
         - MODEL_SOURCE_SERVICE_UNAVAILABLE
         - MODEL_SOURCE_UNCONFIRMED
@@ -299,9 +331,10 @@ components:
         - ModelSourceErrorCodeLocalModelUnknown
         - ModelSourceErrorCodeByokInvalidConfig
         - ModelSourceErrorCodeByokAuthFailed
-        - ModelSourceErrorCodeByokModelNotFound
+        - ModelSourceErrorCodeByokNotFound
         - ModelSourceErrorCodeByokUnreachable
         - ModelSourceErrorCodeByokUpstreamRejected
+        - ModelSourceErrorCodeByokGatewayFailed
         - ModelSourceErrorCodeModelSourceFailed
         - ModelSourceErrorCodeModelSourceServiceUnavailable
         - ModelSourceErrorCodeModelSourceUnconfirmed

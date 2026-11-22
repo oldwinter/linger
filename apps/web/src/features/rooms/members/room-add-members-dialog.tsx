@@ -6,10 +6,13 @@ import { ModalDialog } from "@/components/ui/modal-dialog";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubActor } from "@/features/teamhub/teamhub-types";
+import { RichMessage, useT } from "@/i18n/use-translation";
+import { chatMessages } from "../chat/chat.messages";
 import {
   roomMembersQueryOptions,
   tenantRoomsQueryOptions,
 } from "../room-queries";
+import { roomSettingsMessages as m } from "../room-settings.messages";
 import { RoomCreateMembers } from "./room-create-members";
 import { RoomMemberAvatars } from "./room-member-avatars";
 
@@ -23,6 +26,7 @@ export function RoomAddMembersDialog({
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<TeamHubActor[]>([]);
   // Closing without adding anyone confirms first, so the Room owner learns where
@@ -72,16 +76,16 @@ export function RoomAddMembersDialog({
         else onClose();
       }}
       size="md"
-      title="Add Room members"
+      title={t(m.addRoomMembers)}
       footer={
         confirmSkip ? (
           <>
             {/* eslint-disable-next-line jsx-a11y/no-autofocus -- the field is focused on purpose because the user just opened this dialog or inline editor */}
             <Button autoFocus onClick={() => setConfirmSkip(false)}>
-              Go back
+              {t(m.goBack)}
             </Button>
             <Button tone="primary" onClick={onClose}>
-              Skip for now
+              {t(m.skipForNow)}
             </Button>
           </>
         ) : (
@@ -91,7 +95,7 @@ export function RoomAddMembersDialog({
             disabled={nothingQueued}
             loading={submit.isPending}
           >
-            Add members
+            {t(m.addMembers)}
           </Button>
         )
       }
@@ -109,11 +113,11 @@ export function RoomAddMembersDialog({
           />
           {submit.data?.failedActors.length ? (
             <p role="alert" className="text-sm text-app-danger">
-              Could not add{" "}
-              {submit.data.failedActors
-                .map((actor) => actor.display_name)
-                .join(", ")}
-              . Retry these members; successful additions are already saved.
+              {t(m.addFailed, {
+                names: submit.data.failedActors
+                  .map((actor) => actor.display_name)
+                  .join(t(chatMessages.listSeparator)),
+              })}
             </p>
           ) : null}
           {submit.error ? (
@@ -124,24 +128,30 @@ export function RoomAddMembersDialog({
         </div>
         {confirmSkip ? (
           <section
-            aria-label="Skip adding members"
+            aria-label={t(m.skipAdding)}
             aria-live="polite"
             className="mt-4 border-t border-border pt-4"
           >
             <p className="text-sm leading-6 text-app-body">
-              <strong>Skip adding members?</strong> You can add people and
-              agents later using the member avatar list{" "}
-              <span
-                aria-label="Room member avatar list"
-                className="room-members-trigger mx-1 inline-flex items-center rounded-full border border-border p-1 align-middle"
-              >
-                <RoomMemberAvatars
-                  actors={
-                    members.data?.items.map((member) => member.actor) ?? []
-                  }
-                />
-              </span>{" "}
-              at the top right of this room.
+              <RichMessage
+                message={m.skipPrompt}
+                tags={{
+                  strong: (text) => <strong>{text}</strong>,
+                  avatars: (label) => (
+                    <span
+                      aria-label={label}
+                      className="room-members-trigger mx-1 inline-flex items-center rounded-full border border-border p-1 align-middle"
+                    >
+                      <RoomMemberAvatars
+                        actors={
+                          members.data?.items.map((member) => member.actor) ??
+                          []
+                        }
+                      />
+                    </span>
+                  ),
+                }}
+              />
             </p>
           </section>
         ) : null}

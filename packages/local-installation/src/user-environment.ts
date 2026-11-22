@@ -52,6 +52,23 @@ function isUserKey(name: string): name is UserEnvironmentKey {
   return (USER_ENVIRONMENT_KEYS as readonly string[]).includes(name);
 }
 
+function setAssignment(text: string, name: string, value: string): string {
+  const line = `${name}=${value}`;
+  const pattern = new RegExp(
+    `^[\\t ]*(?:export[\\t ]+)?${name}[\\t ]*=[^\\r\\n]*(\\r?\\n|$)`,
+    "gm",
+  );
+  let replaced = false;
+  const updated = text.replace(pattern, (_assignment, newline: string) => {
+    if (replaced) return "";
+    replaced = true;
+    return `${line}${newline}`;
+  });
+  return replaced
+    ? updated
+    : `${text.endsWith("\n") || !text ? text : `${text}\n`}${line}\n`;
+}
+
 async function readUserFile(root: string): Promise<string | undefined> {
   const file = userEnvironmentFile(root);
   try {
@@ -151,11 +168,7 @@ export async function adoptUserEnvironment(
     const existing = parseEnv(text);
     for (const [name, value] of found) {
       if (existing[name]?.trim()) continue;
-      const line = `${name}='${value}'`;
-      const pattern = new RegExp(`^${name}=.*$`, "m");
-      text = pattern.test(text)
-        ? text.replace(pattern, () => line)
-        : `${text.endsWith("\n") ? text : `${text}\n`}${line}\n`;
+      text = setAssignment(text, name, `'${value}'`);
       moved.push(name);
     }
     await atomicPrivate(userEnvironmentFile(root), text);
@@ -207,11 +220,7 @@ export async function updateUserKeys(
   await privateDirectory(root);
   let text = (await readUserFile(root)) ?? TEMPLATE;
   for (const [name, value] of Object.entries(changes)) {
-    const line = `${name}=${value}`;
-    const pattern = new RegExp(`^${name}=.*$`, "gm");
-    text = pattern.test(text)
-      ? text.replace(pattern, () => line)
-      : `${text.endsWith("\n") || !text ? text : `${text}\n`}${line}\n`;
+    text = setAssignment(text, name, value);
   }
   await atomicPrivate(userEnvironmentFile(root), text);
   const set = parseEnv(text);

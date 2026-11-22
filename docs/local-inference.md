@@ -25,16 +25,39 @@ does not offer a switch to Subscription.
 | Subscription | Claude Code or Codex     | The plan the runtime is signed in to, with its own settings                                |
 | BYOK         | Claude Code, Codex or Pi | Your own OpenAI-compatible or Anthropic endpoint, key and model, through the local gateway |
 
-For BYOK you enter only the URL and key, then pick a model from the ones the
-endpoint lists, with their names and context windows; you type the model ID
-when the endpoint lists none. The computer finds which API format the endpoint
-answers, trying the runtime's own format first so the gateway passes its
-requests through unchanged. A gateway that serves OpenAI under `/v1` and
-Anthropic under `/anthropic` on one host works from either address. The key stays on the computer in
-an owner-only file; the server never stores or shows it. A switch moves every agent on the computer to the new runtime and
+For BYOK you enter the base URL and key, and optionally a path and an
+endpoint. Requests go to base URL + path + endpoint: the path defaults to
+`/v1` and the endpoint to the runtime's own (`/messages` for Claude Code,
+`/responses` for Codex, `/chat/completions` for Pi), and `-` leaves either one
+out, so a provider under `/api/paas/v4` or a full request address pasted into
+the base URL works too. The full address's ending sets the request format
+(OpenAI Chat Completions, OpenAI Responses or Anthropic Messages); an address
+that ends otherwise uses the runtime's own format. Nothing is probed: the refresh
+button lists models at base URL + path + `/models`, with their names and
+context windows, and **Test** sends one request to the full address. You type
+the model ID when the endpoint lists none. BYOK needs a Computer at 0.56.0 or
+later. The key stays on the computer in an owner-only file; the server never
+stores or shows it. A switch moves every agent on the computer to the new runtime and
 model, and leaving Local model unloads the local models to free memory. When an
 agent is still working, the switch asks first and ends that work only if you
 confirm.
+
+## Web search
+
+On Subscription, Claude Code and Codex keep their own web search, and agents
+are told to use it first and `teamhub web search` and `teamhub web open` when it
+fails. On Local model and BYOK the gateway cannot run that provider-hosted
+search, so the computer turns it off and agents search and read pages only with
+`teamhub web search` and `teamhub web open`, as Pi always does. A Claude Code
+or Codex that reaches its model through an API endpoint set up in its own
+configuration keeps its web tools, but agents are told to use the `teamhub web`
+commands instead, since those tools may not work through that API. The
+commands use the web search providers set up on the server (Tavily, Brave
+Search, Firecrawl, Exa or You.com).
+Without any key they search DuckDuckGo, which is free but blocks searches that
+come too often; You.com also works without a key, with lower quality. Pages are
+read from this computer by default. When a provider needs a key, a card in the
+chat asks for it.
 
 ## Background Memory and Wiki
 

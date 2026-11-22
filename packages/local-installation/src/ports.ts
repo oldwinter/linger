@@ -12,15 +12,19 @@ const NO_IPV6 = new Set(["EADDRNOTAVAIL", "EAFNOSUPPORT", "EINVAL"]);
 
 type Protocol = "tcp" | "udp";
 
-function bindable(
+function bindConflict(
   port: number,
   host: string,
   protocol: Protocol,
-): Promise<boolean> {
+): Promise<string | undefined> {
   const ipv6 = host.includes(":");
   return new Promise((resolve) => {
     const failed = (error: NodeJS.ErrnoException) =>
-      resolve(ipv6 && NO_IPV6.has(error.code ?? ""));
+      resolve(
+        ipv6 && NO_IPV6.has(error.code ?? "")
+          ? undefined
+          : `${host} bind: ${error.code ?? error.name}`,
+      );
     if (protocol === "udp") {
       const socket = createSocket(ipv6 ? "udp6" : "udp4");
       socket.once("error", (error) => {
@@ -31,13 +35,13 @@ function bindable(
         }
         failed(error);
       });
-      socket.bind(port, host, () => socket.close(() => resolve(true)));
+      socket.bind(port, host, () => socket.close(() => resolve(undefined)));
       return;
     }
     const server = net.createServer();
     server.once("error", failed);
     server.listen({ port, host, exclusive: true }, () =>
-      server.close(() => resolve(true)),
+      server.close(() => resolve(undefined)),
     );
   });
 }
@@ -57,18 +61,28 @@ function answers(port: number, host: string): Promise<boolean> {
   });
 }
 
+async function portConflict(
+  port: number,
+  protocol: Protocol,
+): Promise<string | undefined> {
+  for (const host of LOOPBACK) {
+    const conflict = await bindConflict(port, host, protocol);
+    if (conflict) return conflict;
+  }
+  if (protocol === "udp") return undefined;
+  const answered = await Promise.all(
+    LOOPBACK.map((host) => answers(port, host)),
+  );
+  const host = LOOPBACK[answered.indexOf(true)];
+  return host ? `${host} already answers TCP connections` : undefined;
+}
+
 /** Whether no program uses `port` on IPv4 or IPv6 loopback. */
 export async function portFree(
   port: number,
   protocol: Protocol = "tcp",
 ): Promise<boolean> {
-  for (const host of LOOPBACK)
-    if (!(await bindable(port, host, protocol))) return false;
-  if (protocol === "udp") return true;
-  const answered = await Promise.all(
-    LOOPBACK.map((host) => answers(port, host)),
-  );
-  return !answered.includes(true);
+  return (await portConflict(port, protocol)) === undefined;
 }
 
 function ephemeral(protocol: Protocol): Promise<number> {
@@ -101,17 +115,19 @@ export async function freePort(
 ): Promise<number> {
   const protocol = options.protocol ?? "tcp";
   let port = options.preferred;
+  let lastConflict: string | undefined;
   for (let attempt = 0; ; attempt++) {
-    if (
-      port !== undefined &&
-      !reserved.has(port) &&
-      (await portFree(port, protocol))
-    ) {
-      reserved.add(port);
-      return port;
+    if (port !== undefined && !reserved.has(port)) {
+      lastConflict = await portConflict(port, protocol);
+      if (lastConflict === undefined) {
+        reserved.add(port);
+        return port;
+      }
     }
     if (attempt >= 100)
-      throw new Error("No free local port is available on this computer.");
+      throw new Error(
+        `No free local port is available on this computer. ${protocol.toUpperCase()}: ${lastConflict ?? "all candidates were reserved"}.`,
+      );
     port = await ephemeral(protocol);
   }
 }

@@ -103,10 +103,12 @@ type Library struct {
 	refreshMu sync.Mutex
 	// publishMu orders updates of current with their Publish calls.
 	publishMu sync.Mutex
-	piWg      sync.WaitGroup
-	mu        sync.Mutex
-	closed    bool
-	current   *wire.LocalModelsSnapshot
+	// wg counts the goroutines Close waits for. Every Add happens under mu
+	// after checking closed, so none races with Close's Wait.
+	wg      sync.WaitGroup
+	mu      sync.Mutex
+	closed  bool
+	current *wire.LocalModelsSnapshot
 	// loaded identifies the loaded models of the last status read; nil
 	// before the first one.
 	loaded       *string
@@ -170,7 +172,10 @@ func New(options Options) *Library {
 	return library
 }
 
-// Close stops reading job output and polling. Running jobs continue.
+// Close stops supervision and polling, and returns only after the Library's
+// goroutines have returned, so nothing it started writes into the job
+// directory afterwards. Running jobs (the tool's download and load
+// processes) continue.
 func (l *Library) Close() {
 	l.stop()
 	l.mu.Lock()
@@ -179,8 +184,23 @@ func (l *Library) Close() {
 		l.progressTimer.Stop()
 	}
 	l.mu.Unlock()
-	l.piWg.Wait()
+	l.wg.Wait()
 }
+
+// track reserves n goroutines for Close to wait for, or reports false once
+// the Library is closed.
+func (l *Library) track(n int) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed {
+		return false
+	}
+	l.wg.Add(n)
+	return true
+}
+
+// closedRefusal answers an action that arrives after Close.
+var closedRefusal = wire.LocalModelActionRefusal{Code: CodeToolFailed, Detail: "local model supervision has stopped"}
 
 // PiExecutable returns the managed Pi executable provisioned for local
 // models, or an empty string when none has been resolved.
@@ -210,11 +230,11 @@ func (l *Library) scheduleEnsurePi() {
 		return
 	}
 	l.piEnsuring = true
-	l.piWg.Add(1)
+	l.wg.Add(1)
 	l.mu.Unlock()
 
 	go func() {
-		defer l.piWg.Done()
+		defer l.wg.Done()
 		ctx, cancel := context.WithTimeout(l.ctx, l.ensurePiTimeout)
 		executable, err := l.tool.EnsurePi(ctx, l.environment, l.harnessDirectory, l.nodePath)
 		cancel()
@@ -396,8 +416,13 @@ func readBounded(path string, limit int64) ([]byte, error) {
 
 // runAction answers unload, remove and cancel once the tool finishes.
 func (l *Library) runAction(ctx context.Context, action Action, deadline time.Time) (*wire.LocalModelActionRefusal, bool) {
+	if !l.track(1) {
+		refusal := closedRefusal
+		return &refusal, true
+	}
 	answer := newPendingAnswer()
 	go func() {
+		defer l.wg.Done()
 		runCtx, cancel := context.WithTimeout(l.ctx, l.actionTimeout)
 		defer cancel()
 		stdout, exitCode, err := l.runOnce(runCtx, action)
@@ -473,8 +498,15 @@ func (p *pendingAnswer) await(ctx context.Context, deadline time.Time) (*wire.Lo
 
 // startJob starts a download or load and answers from its first event.
 func (l *Library) startJob(ctx context.Context, action Action, deadline time.Time) (*wire.LocalModelActionRefusal, bool) {
+	// tail and superviseJob are reserved before the job starts, so no job
+	// starts unsupervised after Close.
+	if !l.track(2) {
+		refusal := closedRefusal
+		return &refusal, true
+	}
 	output, err := l.jobOutput()
 	if err != nil {
+		l.wg.Add(-2)
 		slog.Warn("local_models.job_output_failed", "error", err)
 		return &wire.LocalModelActionRefusal{Code: CodeToolFailed, Detail: "the Computer could not start localmodels"}, true
 	}
@@ -484,6 +516,7 @@ func (l *Library) startJob(ctx context.Context, action Action, deadline time.Tim
 	// this Daemon.
 	process.Prepare(cmd)
 	if err := cmd.Start(); err != nil {
+		l.wg.Add(-2)
 		_ = output.Close()
 		_ = os.Remove(output.Name())
 		slog.Warn("local_models.job_start_failed", "action", action.Name, "error", err)
@@ -498,9 +531,15 @@ func (l *Library) startJob(ctx context.Context, action Action, deadline time.Tim
 	}()
 	events := make(chan libraryEvent, 64)
 	ended := make(chan int, 1)
-	go func() { ended <- l.tail(output.Name(), exited, events) }()
+	go func() {
+		defer l.wg.Done()
+		ended <- l.tail(output.Name(), exited, events)
+	}()
 	answer := newPendingAnswer()
-	go l.superviseJob(action, events, ended, answer)
+	go func() {
+		defer l.wg.Done()
+		l.superviseJob(action, events, ended, answer)
+	}()
 	return answer.await(ctx, deadline)
 }
 
@@ -522,7 +561,13 @@ func (l *Library) tail(path string, exited <-chan int, events chan<- libraryEven
 	defer func() { _ = os.Remove(path) }()
 	file, err := os.Open(path)
 	if err != nil {
-		return <-exited
+		// The job outlives Close, so do not wait for it past then.
+		select {
+		case code := <-exited:
+			return code
+		case <-l.ctx.Done():
+			return -1
+		}
 	}
 	defer file.Close()
 	reader := bufio.NewReader(file)
@@ -772,11 +817,13 @@ func cloneSnapshot(snapshot wire.LocalModelsSnapshot) wire.LocalModelsSnapshot {
 func (l *Library) reconcile(snapshot wire.LocalModelsSnapshot) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.polling || !l.needsRereadLocked(snapshot) {
+	if l.closed || l.polling || !l.needsRereadLocked(snapshot) {
 		return
 	}
 	l.polling = true
+	l.wg.Add(1)
 	go func() {
+		defer l.wg.Done()
 		delay := l.progressInterval
 		for {
 			select {

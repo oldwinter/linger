@@ -311,7 +311,7 @@ export class RunnerGateway
 
   canReadDetachedHistory(
     computerId: string,
-    runtimeType: "codex" | "claude" | "pi",
+    runtimeType: "codex" | "claude" | "pi" | "antigravity",
   ): boolean {
     return this.#debug.canReadDetachedHistory(computerId, runtimeType);
   }
@@ -402,7 +402,7 @@ export class RunnerGateway
 
   supportsSessionCompaction(
     computerId: string,
-    runtimeType: "codex" | "claude" | "pi",
+    runtimeType: "codex" | "claude" | "pi" | "antigravity",
   ): boolean {
     return this.#connections.supportsSessionCompaction(computerId, runtimeType);
   }
@@ -435,7 +435,7 @@ export class RunnerGateway
 
   supportsModelInvoke(
     computerId: string,
-    runtimeType: "codex" | "claude" | "pi",
+    runtimeType: "codex" | "claude" | "pi" | "antigravity",
   ): boolean {
     return this.#connections.supportsModelInvoke(computerId, runtimeType);
   }

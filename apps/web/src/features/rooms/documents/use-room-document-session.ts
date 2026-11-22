@@ -13,6 +13,7 @@ import {
   TeamHubError,
   type TeamHubClient,
 } from "@/features/teamhub/teamhub-client";
+import { teamHubClientErrorMessages } from "@/features/teamhub/teamhub-client-errors.messages";
 import type {
   TeamHubDocument,
   TeamHubDocumentOpenResult,
@@ -22,12 +23,15 @@ import {
   roomDocumentQueryKey,
   teamHubIdentityQueryOptions,
 } from "../room-queries";
+import { translate, type Translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 
 import { artifactPreviewCache } from "../files/artifact-preview-cache";
 import type { RoomDocumentCollaborationSession } from "./room-document-collaboration";
 import { deleteRoomDocumentLocalCopies } from "./room-document-local-copies";
 import { collaborationColor } from "./room-document-presence-model";
 import { preloadDocumentEditor } from "./document-editor-preload";
+import { documentPageMessages as m } from "./document-page.messages";
 
 export function useRoomDocumentSession({
   client,
@@ -42,6 +46,7 @@ export function useRoomDocumentSession({
   roomId?: string;
   tenantId: string;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [session, setSession] =
     useState<RoomDocumentCollaborationSession | null>(null);
@@ -66,7 +71,7 @@ export function useRoomDocumentSession({
     ) {
       throw new TeamHubError({
         code: "RESOURCE_NOT_FOUND",
-        message: "The requested TeamHub resource is unavailable.",
+        message: translate(teamHubClientErrorMessages.resourceUnavailable),
         status: 404,
       });
     }
@@ -397,8 +402,8 @@ export function useRoomDocumentSession({
     document,
     error:
       documentId === undefined
-        ? "Document metadata is unavailable."
-        : collaborationErrorMessage(rawError),
+        ? t(m.metadataUnavailable)
+        : collaborationErrorMessage(rawError, t),
     retryLoad,
     session,
     resyncSession,
@@ -418,18 +423,19 @@ function validateRefreshedCredential(input: {
   }
 }
 
-function collaborationErrorMessage(error: unknown): string | undefined {
+function collaborationErrorMessage(
+  error: unknown,
+  t: Translate,
+): string | undefined {
   if (error === undefined || error === null) return undefined;
   if (
     error instanceof TeamHubError &&
     error.status === 404 &&
     error.code === "NOT_FOUND"
   ) {
-    return "Document is unavailable.";
+    return t(m.documentUnavailable);
   }
-  return error instanceof Error
-    ? error.message
-    : "Document collaboration could not be opened.";
+  return error instanceof Error ? error.message : t(m.collaborationOpenFailed);
 }
 
 function validateOpenInputs(input: {
@@ -444,7 +450,7 @@ function validateOpenInputs(input: {
   expectedTenantId: string;
 }): void {
   if (input.documentStatus !== "active") {
-    throw new Error("Document is unavailable.");
+    throw new Error(translate(m.documentUnavailable));
   }
   if (
     input.documentId !== input.expectedDocumentId ||

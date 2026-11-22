@@ -25,6 +25,7 @@ import {
 import { freePort, portFree } from "./ports.js";
 import type { SetupChoice } from "./setup-plan.js";
 import type { ByokConfiguration } from "./byok-source.js";
+import type { RuntimeDescriptor } from "./managed-runtimes.js";
 import type { InstallerEvent } from "./events.js";
 
 // A Native installation of one Linger source checkout: the desktop client's
@@ -49,6 +50,12 @@ export interface SourceInstallOptions {
   // The desktop client is this machine's Computer: source installs skip the
   // Go Computer build and enrollment, and the client signs in itself.
   externalComputer?: boolean;
+  // Cold-resume restarts of an existing checkout reuse an installed runtime
+  // after one inspection and overlap runtime preparation with service startup.
+  resume?: boolean;
+  // Passes runtime descriptors inspected during startup so callers avoid a
+  // second runtime status probe.
+  onRuntimeDescriptors?: (descriptors: RuntimeDescriptor[]) => void;
 }
 export interface EnvironmentReport {
   platform: string;

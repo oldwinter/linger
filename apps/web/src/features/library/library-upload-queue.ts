@@ -1,15 +1,31 @@
 import { useSyncExternalStore } from "react";
 
+import type { Message } from "@/i18n/messages";
+
+import { libraryMessages as m } from "./library.messages";
+
 /** One file to upload and the folder path, relative to the drop target, it came from. */
 export interface UploadSource {
   file: File;
   folderPath: readonly string[];
 }
 
+/**
+ * Why something failed: TeamHub's or the browser's own words as they came, or
+ * a message. The queue outlives the page, so a message is kept as it is and
+ * worded in the language on screen when it is shown.
+ */
+export type UploadErrorText = string | Message<string>;
+
 export interface UploadFailure {
   filename: string;
-  message: string;
+  message: UploadErrorText;
 }
+
+/** One reason, or the entries of a batch that failed. */
+export type TenantUploadError =
+  | UploadErrorText
+  | { readonly failures: readonly UploadFailure[] };
 
 /** Everything one drop or folder pick asks to upload. */
 export interface UploadBatch {
@@ -33,7 +49,7 @@ export interface PendingDocumentUpload {
 interface TenantUploads {
   /** True while a batch runs, so a second batch cannot race it from another view. */
   active: boolean;
-  error: string | null;
+  error: TenantUploadError | null;
   uploads: readonly PendingDocumentUpload[];
 }
 
@@ -80,7 +96,7 @@ export const tenantUploads = {
   setActive(tenantId: string, active: boolean) {
     update(tenantId, (current) => ({ ...current, active }));
   },
-  setError(tenantId: string, error: string | null) {
+  setError(tenantId: string, error: TenantUploadError | null) {
     update(tenantId, (current) => ({ ...current, error }));
   },
 };
@@ -193,10 +209,7 @@ async function readEntry(
   } catch (readError) {
     batch.readFailures.push({
       filename: path,
-      message:
-        readError instanceof Error
-          ? readError.message
-          : "It could not be read.",
+      message: readError instanceof Error ? readError.message : m.entryNotRead,
     });
   }
 }

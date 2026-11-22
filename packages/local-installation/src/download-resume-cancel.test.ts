@@ -78,7 +78,7 @@ it("stops reading a resumable partial when cancelled and keeps its bytes for ret
       },
       fetcher,
     );
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).not.toHaveBeenCalled();
     expect(await readdir(root)).toEqual(["runtime.tgz"]);
     expect((await readFile(output)).equals(bytes)).toBe(true);
   } finally {

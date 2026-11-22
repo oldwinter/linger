@@ -1,6 +1,8 @@
 import { Link } from "react-router";
 
-import { wikiCollectionLabels } from "./wiki-display-state";
+import { useT } from "@/i18n/use-translation";
+
+import { wikiCollections } from "./wiki-display-state";
 import { wikiPreviewPath } from "./wiki-routes";
 import { wikiPageExcerpt } from "./wiki-live-focus";
 import type { WikiPreviewPage } from "./wiki-preview-pages";
@@ -18,6 +20,7 @@ export function WikiLiveWriting({
   page: WikiPreviewPage;
   tenantId: string;
 }) {
+  const t = useT();
   const excerpt = wikiPageExcerpt(page.markdown);
   return (
     <section
@@ -25,7 +28,7 @@ export function WikiLiveWriting({
       className="mb-6 flex flex-col gap-3 rounded-2xl border border-app-border bg-app-canvas px-5 py-5"
     >
       <p className="text-sm text-app-muted">
-        Another Me just wrote · {wikiCollectionLabels[page.collection]}
+        Another Me just wrote · {t(wikiCollections[page.collection].label)}
       </p>
       <h2 className="text-2xl text-foreground">{page.name}</h2>
       {page.description ? (

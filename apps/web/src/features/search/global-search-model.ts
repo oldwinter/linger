@@ -17,6 +17,7 @@ import {
   documentRepresentationFormat,
 } from "@/features/library/document-display-name";
 import { documentFormatLabel } from "@/features/library/document-format-label";
+import { documentSourceLabels } from "@/features/library/document-source-label";
 import { documentDetailPath } from "@/features/rooms/files/document-detail-routes";
 import { roomChatPath } from "@/features/rooms/room-routes";
 import { spokenRoomFace } from "@/features/rooms/members/room-spoken-face";
@@ -28,7 +29,10 @@ import type {
   TeamHubRoomListItem,
   TeamHubTenantAgent,
 } from "@/features/teamhub/teamhub-types";
+import { type Translate, translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
 
+import { searchMessages as m } from "./global-search.messages";
 import type { SearchTarget, SearchTargetActor } from "./global-search-recent";
 
 /** "people" is the Members scope: the Agents a Human can open a Direct Room with. */
@@ -51,33 +55,38 @@ export const GROUP_ORDER: readonly GroupTab[] = [
   "places",
 ];
 
-export const SCOPES: Record<
-  GroupTab,
-  { hint: string; icon: IconSvgElement; label: string; placeholder: string }
-> = {
+export type ScopeText = Message<string> | string;
+
+/** Words a scope text that may be either a catalog message or a literal string. */
+export function scopeText(text: ScopeText, t: Translate = translate) {
+  return typeof text === "string" ? text : t(text);
+}
+
+/** Each scope's texts are messages (or literals for fork-only scopes), worded when they are shown. */
+export const SCOPES = {
   messages: {
-    hint: "Chats in your Rooms",
+    hint: m.messagesHint,
     icon: Message01Icon,
-    label: "Messages",
-    placeholder: "Search messages",
+    label: m.messagesLabel,
+    placeholder: m.messagesPlaceholder,
   },
   people: {
-    hint: "Agents you can message",
+    hint: m.membersHint,
     icon: UserGroupIcon,
-    label: "Members",
-    placeholder: "Search members",
+    label: m.membersLabel,
+    placeholder: m.membersPlaceholder,
   },
   docs: {
-    hint: "Docs and notes",
+    hint: m.docsHint,
     icon: File01Icon,
-    label: "Docs",
-    placeholder: "Search docs",
+    label: m.docsLabel,
+    placeholder: m.docsPlaceholder,
   },
   rooms: {
-    hint: "Rooms you can join",
+    hint: m.roomsHint,
     icon: HashtagIcon,
-    label: "Rooms",
-    placeholder: "Search rooms",
+    label: m.roomsLabel,
+    placeholder: m.roomsPlaceholder,
   },
   places: {
     hint: "Pages and settings",
@@ -85,7 +94,15 @@ export const SCOPES: Record<
     label: "Places",
     placeholder: "Search places",
   },
-};
+} satisfies Record<
+  GroupTab,
+  {
+    hint: ScopeText;
+    icon: IconSvgElement;
+    label: ScopeText;
+    placeholder: ScopeText;
+  }
+>;
 
 export const SCOPE_ORDER: readonly GroupTab[] = [
   "messages",
@@ -180,7 +197,7 @@ export interface ResultGroup {
 }
 
 export interface ResultSection {
-  action?: { label: string; onSelect: () => void };
+  action?: { ariaLabel: string; label: string; onSelect: () => void };
   items: SearchResult[];
   key: string;
   label: string;
@@ -218,11 +235,13 @@ export function rowScope(row: SearchResult | undefined): GroupTab | undefined {
   }
 }
 
-export function emptyDetail(tab: GlobalSearchTab, query: string) {
+export function emptyDetail(
+  tab: GlobalSearchTab,
+  query: string,
+  t: Translate = translate,
+) {
   if (query === "") {
-    return tab === "messages"
-      ? "Type a word from the message you are looking for."
-      : "Type a title or a word from the doc.";
+    return tab === "messages" ? t(m.emptyMessageHint) : t(m.emptyDocHint);
   }
   if (
     query.length < MIN_BACKEND_QUERY_LENGTH &&
@@ -230,11 +249,11 @@ export function emptyDetail(tab: GlobalSearchTab, query: string) {
     tab !== "places" &&
     tab !== "rooms"
   ) {
-    return `Type at least ${MIN_BACKEND_QUERY_LENGTH} characters to search messages and docs.`;
+    return t(m.emptyTooShort, { min: MIN_BACKEND_QUERY_LENGTH });
   }
   return tab === "all"
-    ? "Check the spelling or try a shorter word."
-    : `Nothing in ${SCOPES[tab].label}. Try searching everywhere.`;
+    ? t(m.emptyCheckSpelling)
+    : t(m.emptyNothingIn, { scope: scopeText(SCOPES[tab].label, t) });
 }
 
 export function byName<T>(read: (value: T) => string) {
@@ -254,20 +273,19 @@ function messageRoomLabel(
     const parentName = room.parent_room_id
       ? roomNames.get(room.parent_room_id)
       : undefined;
-    return `#${parentName ?? room.name} · thread`;
+    return translate(m.threadIn, { name: parentName ?? room.name });
   }
   if (room.kind === "direct") return room.name;
   return `#${room.name}`;
 }
 
 function documentLocationLabel(document: TeamHubDocument) {
-  if (document.from.length === 0) return "Library";
-  return document.from
-    .map(
-      (binding) =>
-        binding.label ?? `${binding.binding_kind}:${binding.context_id}`,
-    )
-    .join(", ");
+  if (document.from.length === 0) return translate(m.library);
+  return documentSourceLabels(
+    document.from,
+    translate,
+    (binding) => `${binding.binding_kind}:${binding.context_id}`,
+  ).join(", ");
 }
 
 function threadPath(

@@ -1,5 +1,7 @@
 import type { TeamHubRoomMember } from "@/features/teamhub/teamhub-types";
+import { translate } from "@/i18n/language";
 
+import { documentPageMessages as m } from "./document-page.messages";
 import type { RoomDocumentCollaborationSession } from "./room-document-collaboration";
 
 export type RoomDocumentAwareness = NonNullable<
@@ -84,7 +86,7 @@ export function createRoomDocumentCursor(
     (actorId ? namesByActorId.get(actorId) : undefined) ??
     presence?.name ??
     actorId ??
-    "Collaborator";
+    translate(m.collaborator);
   const cursor = document.createElement("span");
   cursor.classList.add("bn-collaboration-cursor__base");
   cursor.setAttribute("data-active", "");
@@ -98,7 +100,7 @@ export function createRoomDocumentCursor(
 
   const label = document.createElement("span");
   label.classList.add("bn-collaboration-cursor__label");
-  label.setAttribute("aria-label", `${name} cursor`);
+  label.setAttribute("aria-label", translate(m.cursor, { name }));
   label.setAttribute("data-collaborator-name", name);
   label.setAttribute("role", "img");
   label.style.backgroundColor = color;
@@ -149,7 +151,7 @@ export function refreshRoomDocumentCursorName(
     ".bn-collaboration-cursor__label",
   );
   if (name === undefined || label === null) return;
-  label.setAttribute("aria-label", `${name} cursor`);
+  label.setAttribute("aria-label", translate(m.cursor, { name }));
   label.dataset.collaboratorName = name;
 }
 

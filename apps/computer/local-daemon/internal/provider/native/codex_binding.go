@@ -5,9 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/permission"
 )
 
 var (
@@ -219,10 +223,21 @@ func (op *codexOperation) openThread(ctx context.Context) error {
 	if limit := toolOutputTokenLimit(spec.ContextWindow); limit != toolOutputTokens && stableCodexAtLeast(op.proc.version, codexToolOutputLimitVersion) {
 		config["tool_output_token_limit"] = limit
 	}
+	hooks := map[string]any{}
+	// Codex runs a Windows command under PowerShell, whose quoting the shell
+	// text rule does not describe.
+	if spec.ShellTextHook != "" && runtime.GOOS != "windows" && stableCodexAtLeast(op.proc.version, codexHooksVersion) {
+		hooks["PreToolUse"] = permission.CodexShellTextHooks(spec.ShellTextHook)
+	}
 	if hook := spec.CodexPermissionHook; hook != nil {
-		params["approvalPolicy"], params["approvalsReviewer"] = "untrusted", "user"
+		if hook.ReviewPermissions {
+			params["approvalPolicy"], params["approvalsReviewer"] = "untrusted", "user"
+		}
+		maps.Copy(hooks, hook.Config)
+	}
+	if len(hooks) > 0 {
 		config["bypass_hook_trust"] = true
-		config["hooks"] = hook.Config
+		config["hooks"] = hooks
 	}
 	if len(config) > 0 {
 		params["config"] = config

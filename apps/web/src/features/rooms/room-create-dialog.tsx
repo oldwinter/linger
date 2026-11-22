@@ -5,11 +5,13 @@ import { useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { ModalDialog } from "@/components/ui/modal-dialog";
-import { classifyTeamHubCommandFailure } from "@/features/teamhub/teamhub-command-outcome";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
+import { TeamHubError } from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubRoomCreateInput } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
 
+import { roomDialogMessages as m } from "./room-dialogs.messages";
 import { requireRoomScope, tenantRoomsQueryOptions } from "./room-queries";
 
 export function RoomCreateDialog({
@@ -20,6 +22,7 @@ export function RoomCreateDialog({
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const formRef = useRef<HTMLFormElement>(null);
@@ -57,17 +60,15 @@ export function RoomCreateDialog({
           trimmedName.toLocaleLowerCase(),
     );
 
+  // TeamHub's own message is shown as it is; an unknown outcome is worded here.
   const failure = createRoom.error
-    ? classifyTeamHubCommandFailure(
-        createRoom.error,
-        "this Room was created",
-        "Check your Rooms before you retry.",
-      )
-    : null;
+    ? createRoom.error instanceof TeamHubError
+      ? createRoom.error.message
+      : t(m.createUnconfirmed)
+    : undefined;
   // Names only have to be unique among the Rooms this Human is in, so the
   // conflicting Room is always one they can see.
-  const nameTakenMessage =
-    "You already have a Room with this name. Choose a different name.";
+  const nameTakenMessage = t(m.nameTaken);
   const fieldError = duplicateName ? nameTakenMessage : undefined;
   const serverFailureMessage = duplicateName
     ? undefined
@@ -75,7 +76,7 @@ export function RoomCreateDialog({
         "code" in createRoom.error &&
         createRoom.error.code === "ROOM_NAME_TAKEN"
       ? nameTakenMessage
-      : failure?.message;
+      : failure;
 
   useEffect(() => {
     formRef.current?.querySelector("input")?.focus();
@@ -100,7 +101,7 @@ export function RoomCreateDialog({
     <ModalDialog
       onClose={requestClose}
       size="md"
-      title="Create Room"
+      title={t(m.createRoom)}
       footer={
         <Button
           disabled={!trimmedName || duplicateName}
@@ -109,7 +110,7 @@ export function RoomCreateDialog({
           tone="primary"
           type="submit"
         >
-          Create Room
+          {t(m.createRoom)}
         </Button>
       }
     >
@@ -128,13 +129,13 @@ export function RoomCreateDialog({
             : {})}
           disabled={createRoom.isPending}
           error={fieldError}
-          label="Room name"
+          label={t(m.roomName)}
           maxLength={120}
           onChange={(event) => {
             if (createRoom.error) createRoom.reset();
             setName(event.target.value);
           }}
-          placeholder="Room name"
+          placeholder={t(m.roomName)}
           value={name}
         />
 

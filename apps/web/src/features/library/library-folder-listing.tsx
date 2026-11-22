@@ -1,11 +1,13 @@
 import { Cancel01Icon, Search01Icon } from "@hugeicons/core-free-icons";
-import type { RoomDocumentMenuActions } from "@/features/rooms/documents/room-document-actions-menu";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Select, SelectItem } from "@/components/ui/select";
+import type { RoomDocumentMenuActions } from "@/features/rooms/documents/room-document-actions-menu";
 import type { TeamHubDocumentTreeSummary } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
 import { writeClipboardText } from "@/lib/clipboard";
-import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { documentFileTypes } from "./document-file-types";
 import { folderContentsMarkdown } from "./library-folder-contents";
@@ -25,6 +27,7 @@ import {
   visibleLibraryFolders,
 } from "./library-visible-documents";
 import type { WorkspaceTab } from "./library-workspace-tabs";
+import { libraryMessages as m } from "./library.messages";
 
 /**
  * One open folder level of My pages or Shared with me: search, type and sort
@@ -89,6 +92,7 @@ export function LibraryFolderListing({
   tenantId: string;
   trail: readonly LibraryFolder[];
 }) {
+  const t = useT();
   const visibleDocuments = visibleLibraryDocuments(documents, {
     fileType,
     query: searchQuery,
@@ -135,25 +139,25 @@ export function LibraryFolderListing({
           ) : null}
         </label>
         <Select
-          aria-label="File type"
+          aria-label={t(m.fileType)}
           onValueChange={onFileTypeChange}
           value={fileType}
           variant="pill"
         >
           {documentFileTypes.map(({ value, label }) => (
             <SelectItem key={value} value={value}>
-              {label}
+              {t(label)}
             </SelectItem>
           ))}
         </Select>
         <Select
-          aria-label="Sort documents"
+          aria-label={t(m.sortDocuments)}
           onValueChange={onSortByChange}
           value={sortBy}
           variant="pill"
         >
-          <SelectItem value="updated">Sort by last modified</SelectItem>
-          <SelectItem value="name">Sort by name</SelectItem>
+          <SelectItem value="updated">{t(m.sortByModified)}</SelectItem>
+          <SelectItem value="name">{t(m.sortByName)}</SelectItem>
         </Select>
         <FolderContentsCopyAction
           disabled={browsedPending || visibleDocuments.length === 0}
@@ -175,11 +179,12 @@ export function LibraryFolderListing({
             {error}
           </p>
           <button
+            data-voice-close
             className="shrink-0 rounded-md px-1.5 text-app-muted hover:bg-app-hover hover:text-app-body"
             onClick={onDismissError}
             type="button"
           >
-            Dismiss
+            {t(m.dismiss)}
           </button>
         </div>
       ) : null}
@@ -187,7 +192,7 @@ export function LibraryFolderListing({
         activeView={
           folderId
             ? {
-                empty: "This folder is empty",
+                empty: t(m.folderEmpty),
                 label: trail.at(-1)!.name,
               }
             : activeView

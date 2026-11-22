@@ -207,16 +207,21 @@ func decodeGatewayCommand(encoded []byte) (protocol.Command, error) {
 			Session          json.RawMessage `json:"session"`
 			MCPRelays        json.RawMessage `json:"mcp_relays"`
 			PermissionReview bool            `json:"permission_review"`
+			StopHook         bool            `json:"stop_hook"`
 		}
 		if err := json.Unmarshal(encoded, &envelope); err != nil {
 			return protocol.Command{}, fmt.Errorf("decode Operation preparation: %w", err)
 		}
 		command.OperationKind = "run.start"
+		runContext := map[string]any{"permission_review": envelope.PermissionReview}
+		if envelope.StopHook {
+			runContext["stop_hook"] = true
+		}
 		command.Payload, err = json.Marshal(map[string]any{
 			"kind": "run.start", "runtime": envelope.Runtime,
 			"session_options": envelope.SessionOptions, "session": envelope.Session,
 			"run_resources": map[string]any{"mcp_servers": envelope.MCPRelays},
-			"run_context":   map[string]any{"permission_review": envelope.PermissionReview},
+			"run_context":   runContext,
 		})
 		if err != nil {
 			return protocol.Command{}, fmt.Errorf("encode Operation preparation request: %w", err)

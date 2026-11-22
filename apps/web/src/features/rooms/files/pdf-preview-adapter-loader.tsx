@@ -1,5 +1,7 @@
 import { Spinner } from "@/components/ui/spinner";
 import { lazy, Suspense } from "react";
+import { useT } from "@/i18n/use-translation";
+import { filePreviewMessages as m } from "./file-preview.messages";
 
 import type { PdfPreviewAdapterProps } from "./pdf-preview-adapter";
 
@@ -9,6 +11,7 @@ const PdfPreviewAdapter = lazy(async () => {
 });
 
 export function PdfPreviewAdapterLoader(props: PdfPreviewAdapterProps) {
+  const t = useT();
   return (
     <Suspense
       fallback={
@@ -17,7 +20,7 @@ export function PdfPreviewAdapterLoader(props: PdfPreviewAdapterProps) {
           role="status"
         >
           <Spinner size={16} />
-          Loading PDF preview...
+          {t(m.loadingPdfPreview)}
         </div>
       }
     >

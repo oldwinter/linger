@@ -219,7 +219,7 @@ func TestBoundComputerServiceCommandCannotSelectAnotherConfig(t *testing.T) {
 func TestProviderInstallationsPreserveTerminalExecutionPath(t *testing.T) {
 	environment := map[string]string{"PATH": "daemon-path", "HOME": "/home/user"}
 	discovered := provider.DiscoveryResult{Installations: map[string]provider.RuntimeDiagnostic{"pi": {Type: "pi", ExecutablePath: "/mise/pi", EntryPath: "/mise/latest/pi", ExecutionPath: "terminal-node:daemon-path"}}}
-	installations, _ := providerInstallations(discovered, environment)
+	installations, _ := providerInstallations(discovered, environment, "")
 	if installations["pi"].Environment["PATH"] != "terminal-node:daemon-path" || environment["PATH"] != "daemon-path" {
 		t.Fatalf("terminal execution environment was lost or caller mutated: %+v", installations["pi"])
 	}
@@ -230,9 +230,40 @@ func TestProviderInstallationsKeepDiscoveredContextWindows(t *testing.T) {
 		Type: "codex", ExecutablePath: "/bin/codex",
 		Models: []provider.RuntimeModel{{ID: "local", ContextWindow: 64896}, {ID: "unknown"}},
 	}}}
-	installations, _ := providerInstallations(discovered, nil)
+	installations, _ := providerInstallations(discovered, nil, "")
 	if windows := installations["codex"].ContextWindows; len(windows) != 1 || windows["local"] != 64896 {
 		t.Fatalf("context windows = %v", windows)
+	}
+	if installations["codex"].DefaultModel != "" {
+		t.Fatalf("default model = %q from a catalog that marks none", installations["codex"].DefaultModel)
+	}
+}
+
+func TestProviderInstallationsKeepTheCatalogDefaultModel(t *testing.T) {
+	discovered := provider.DiscoveryResult{Installations: map[string]provider.RuntimeDiagnostic{"codex": {
+		Type: "codex", ExecutablePath: "/bin/codex",
+		Models: []provider.RuntimeModel{{ID: "gpt-other"}, {ID: "gpt-account-default", IsDefault: true}},
+	}}}
+	installations, _ := providerInstallations(discovered, nil, "")
+	if model := installations["codex"].DefaultModel; model != "gpt-account-default" {
+		t.Fatalf("default model = %q", model)
+	}
+}
+
+func TestProviderInstallationsMarkTheAPILink(t *testing.T) {
+	discovered := provider.DiscoveryResult{Installations: map[string]provider.RuntimeDiagnostic{
+		"codex":  {Type: "codex", ExecutablePath: "/bin/codex", Models: []provider.RuntimeModel{{ID: "gpt", Link: "api"}}},
+		"claude": {Type: "claude", ExecutablePath: "/bin/claude", Models: []provider.RuntimeModel{{ID: "opus", Link: "subscription"}}},
+	}}
+	installations, _ := providerInstallations(discovered, nil, "")
+	if !installations["codex"].APILink || installations["claude"].APILink {
+		t.Fatalf("API links = codex %v, claude %v", installations["codex"].APILink, installations["claude"].APILink)
+	}
+	state := t.TempDir()
+	gateway := map[string]string{"CLAUDE_CONFIG_DIR": filepath.Join(state, "byok-home", ".claude")}
+	installations, _ = providerInstallations(discovered, gateway, state)
+	if claude := installations["claude"]; !claude.ModelGateway || !claude.APILink {
+		t.Fatalf("gateway Claude = %+v", claude)
 	}
 }
 

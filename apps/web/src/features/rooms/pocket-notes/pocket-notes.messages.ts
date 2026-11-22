@@ -1,0 +1,33 @@
+import { defineMessages } from "@/i18n/messages";
+
+/** The Pocket Notes notepad: today's page, the pages of earlier days, dictation. */
+export const pocketNotesMessages = defineMessages("pocketNotes", {
+  panel: "Pocket notes",
+  couldNotLoad: "Couldn’t load notes",
+  todayTitle: "Today · {date}",
+  today: "Today",
+  todayNote: "Today’s note",
+  placeholder: "Jot anything down. Tomorrow starts a fresh page.",
+  allNotes: "All notes",
+  backToAllNotes: "Back to all notes",
+  closeNotes: "Close notes",
+  readOnly: "Read only",
+  pageCount: { one: "{count} page", other: "{count} pages" },
+  pageCountOrMore: "{count}+ pages",
+  nothingWritten: "Nothing written yet",
+  loadEarlier: "Load earlier notes",
+  saved: "Saved",
+  saving: "Saving…",
+  couldNotSave: "Couldn’t save · keep typing to retry",
+  pageFull: "Page is full · {limit} characters",
+  connecting: "Connecting…",
+  listening: "Listening…",
+  dictate: "Dictate",
+  stopDictation: "Stop dictation",
+  microphoneOtherTab: "The microphone is active in another tab.",
+  deleteNote: "Delete note",
+  deletePage: "Delete {page}",
+  deletePageQuestion: "Delete {page}?",
+  deleteThisNote: "Delete this note?",
+  couldNotDelete: "Couldn’t delete. Try again.",
+});

@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+
+import { translate } from "@/i18n/language";
+
 import {
   activityStatusLine,
   toolGroupPresentation,
@@ -20,47 +23,58 @@ describe("toolPresentation", () => {
     ["tool", "tool"],
     ["unknown_kind", "tool"],
   ])("presents the %s kind as %s", (kind, category) => {
-    expect(toolPresentation(kind).category).toBe(category);
+    expect(toolPresentation(translate, kind).category).toBe(category);
   });
 
   it("does not expose tool input in activity path summaries", () => {
-    expect(toolPresentation("read").summary).toBe("Reviewing files");
-    expect(toolPresentation("message").summary).toBe("Sending an update");
-    expect(toolPresentation("tool").summary).toBe("Working on the task");
+    expect(toolPresentation(translate, "read").summary).toBe("Reviewing files");
+    expect(toolPresentation(translate, "message").summary).toBe(
+      "Sending an update",
+    );
+    expect(toolPresentation(translate, "tool").summary).toBe(
+      "Working on the task",
+    );
   });
 
   it("labels a generic tool call by its tool name", () => {
     expect(
-      toolPresentation("tool", "mcp__computer__get_window_state").summary,
+      toolPresentation(translate, "tool", "mcp__computer__get_window_state")
+        .summary,
     ).toBe("Get window state");
-    expect(toolPresentation("tool", "Skill").summary).toBe("Skill");
-    expect(toolPresentation("unknown_kind", "run_script").summary).toBe(
-      "Run script",
-    );
-    expect(toolPresentation("read", "mcp__computer__read").summary).toBe(
-      "Reviewing files",
-    );
+    expect(toolPresentation(translate, "tool", "Skill").summary).toBe("Skill");
+    expect(
+      toolPresentation(translate, "unknown_kind", "run_script").summary,
+    ).toBe("Run script");
+    expect(
+      toolPresentation(translate, "read", "mcp__computer__read").summary,
+    ).toBe("Reviewing files");
     expect(toolNameLabel("mcp__teamhub__send_message")).toBe("Send message");
     expect(
-      toolGroupPresentation([toolPresentation("tool", "Skill")]).label,
+      toolGroupPresentation(translate, [
+        toolPresentation(translate, "tool", "Skill"),
+      ]).label,
     ).toBe("Skill");
   });
 
   it("summarizes mixed or unknown operations as user-facing steps", () => {
     expect(
       toolGroupPresentation(
-        ["read", "command", "search"].map((kind) => toolPresentation(kind)),
+        translate,
+        ["read", "command", "search"].map((kind) =>
+          toolPresentation(translate, kind),
+        ),
       ).label,
     ).toBe("Working through 3 steps");
     expect(
-      toolGroupPresentation([
-        toolPresentation("tool"),
-        toolPresentation("tool"),
+      toolGroupPresentation(translate, [
+        toolPresentation(translate, "tool"),
+        toolPresentation(translate, "tool"),
       ]).label,
     ).toBe("Working through 2 steps");
-    expect(toolGroupPresentation([toolPresentation("search")]).label).toBe(
-      "Searching for information",
-    );
+    expect(
+      toolGroupPresentation(translate, [toolPresentation(translate, "search")])
+        .label,
+    ).toBe("Searching for information");
   });
 });
 
@@ -68,6 +82,7 @@ describe("activityStatusLine", () => {
   it("takes the Runtime's description as a group title", () => {
     expect(
       activityStatusLine(
+        translate,
         "command",
         JSON.stringify({
           command: "npm test",
@@ -80,7 +95,7 @@ describe("activityStatusLine", () => {
 
   it("plays the steps the Computer read from the call", () => {
     expect(
-      activityStatusLine("search", {
+      activityStatusLine(translate, "search", {
         status_steps: ['Searching for "fares"', "", 3, "Reading notes.md"],
       }),
     ).toEqual({ steps: ['Searching for "fares"', "Reading notes.md"] });
@@ -103,6 +118,7 @@ describe("activityStatusLine", () => {
   ])("names an unnamed %s call by its kind", (kind, input, steps) => {
     expect(
       activityStatusLine(
+        translate,
         kind,
         typeof input === "string" ? input : JSON.stringify(input),
       ),

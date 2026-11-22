@@ -8,6 +8,8 @@ import {
 import { managedRuntimeEnvironment } from "@linger/local-installation/managed-codex";
 import type { components } from "@linger/wire-contracts/linger-installer/types";
 type Snapshot = components["schemas"]["RuntimeLogin"];
+/** Codex's two logins: the one that calls back to this computer, or a device code. */
+export type LoginMethod = "browser" | "device";
 interface Input {
   instance: string;
   home: string;
@@ -16,6 +18,7 @@ interface Input {
 }
 interface Session {
   runtime: NativeRuntime;
+  method: LoginMethod | undefined;
   snapshot: Snapshot;
   child: ChildProcess;
   timer: ReturnType<typeof setTimeout>;
@@ -48,6 +51,7 @@ export class RuntimeLoginManager {
   constructor(
     private inspect: typeof inspectRuntime = inspectRuntime,
     private platform: NodeJS.Platform = process.platform,
+    private timeoutMs = 15 * 60_000,
   ) {}
   private async probe(input: Input, signal?: AbortSignal) {
     const env = {
@@ -76,17 +80,38 @@ export class RuntimeLoginManager {
       session?.runtime === input.runtime ? session.snapshot : { state: "idle" },
     );
   }
-  async start(input: Input, code?: string): Promise<Snapshot> {
+  /**
+   * Starts the runtime's own login, or hands it a code. method picks Codex's
+   * login. Asked for browser on Linux, the caller opens the link itself, so
+   * the CLI is told not to through BROWSER, which it reads only there; on
+   * other platforms the CLI still opens its own page.
+   */
+  async start(
+    input: Input,
+    code?: string,
+    method?: LoginMethod,
+  ): Promise<Snapshot> {
     if (code !== undefined) {
       const session = this.sessions.get(input.instance);
+      const stdin = session?.child.stdin;
       if (
         session?.runtime !== input.runtime ||
         !session.snapshot.acceptsCode ||
-        !session.child.stdin?.writable ||
+        !stdin?.writable ||
         !/^[A-Za-z0-9._~+/#=-]{1,4096}$/.test(code)
       )
         throw new Error("Invalid authorization code or inactive login");
-      session.child.stdin.write(code + "\n");
+      await new Promise<void>((resolve, reject) => {
+        stdin.write(code + "\n", (error) => {
+          if (error)
+            reject(
+              new Error(
+                "Native sign-in could not accept the authorization code. Retry or sign in later.",
+              ),
+            );
+          else resolve();
+        });
+      });
       return structuredClone(session.snapshot);
     }
     if (this.closed) return { state: "idle" };
@@ -106,13 +131,21 @@ export class RuntimeLoginManager {
       return { state: "idle" };
     this.starting.delete(input.instance);
     const { env, state } = result;
+    const login: LoginMethod | undefined =
+      input.runtime === "codex"
+        ? (method ?? (usesBrowserOAuth(this.platform) ? "browser" : "device"))
+        : undefined;
     const existing = this.sessions.get(input.instance);
-    if (existing && existing.runtime !== input.runtime)
+    if (
+      existing &&
+      (existing.runtime !== input.runtime || existing.method !== login)
+    )
       this.stop(input.instance);
     if (state.ready) return { state: "ready" };
     if (
       existing &&
       existing.runtime === input.runtime &&
+      existing.method === login &&
       ["starting", "waiting_user"].includes(existing.snapshot.state)
     )
       return structuredClone(existing.snapshot);
@@ -120,44 +153,56 @@ export class RuntimeLoginManager {
     if (!state.installed || input.runtime === "pi")
       return {
         state: "failed",
+        reason: "unavailable",
         message:
           "Native browser sign-in is unavailable for this runtime. You can sign in later.",
       };
     const descriptor =
-      input.runtime === "codex" && !usesBrowserOAuth(this.platform)
+      login === "device"
         ? state.descriptor.deviceLoginCommand
         : state.descriptor.loginCommand;
     if (!descriptor)
       return {
         state: "failed",
+        reason: "unavailable",
         message:
           "The upstream Runtime does not offer browser sign-in. You can sign in later.",
       };
     const child = spawn(descriptor.executable, descriptor.args, {
-      env: { ...env, ...descriptor.env },
+      env: {
+        ...env,
+        ...descriptor.env,
+        ...(login === "browser" && method && this.platform === "linux"
+          ? { BROWSER: "true" }
+          : {}),
+      },
       shell: false,
       detached: process.platform !== "win32",
-      // Its output is read here; the browser opens on its own.
+      // Its output is read here; the browser opens on its own unless the
+      // caller asked to open it.
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
     const session: Session = {
       runtime: input.runtime,
+      method: login,
       child,
       snapshot: { state: "starting" },
       timer: setTimeout(() => {
         this.stop(input.instance);
         session.snapshot = {
           state: "failed",
+          reason: "timed_out",
           message: "Sign-in timed out. Retry or sign in later.",
         };
         this.sessions.set(input.instance, session);
-      }, 15 * 60_000),
+      }, this.timeoutMs),
     };
     session.timer.unref();
     this.sessions.set(input.instance, session);
     let output = "";
     const receive = (chunk: Buffer) => {
+      if (session.snapshot.state === "failed") return;
       output = stripVTControlCharacters(output + chunk.toString()).slice(
         -16384,
       );
@@ -166,7 +211,7 @@ export class RuntimeLoginManager {
           const url = new URL(match[0]);
           const allowed =
             input.runtime === "codex"
-              ? allowedCodexUrl(url, usesBrowserOAuth(this.platform))
+              ? allowedCodexUrl(url, login === "browser")
               : (url.hostname === "claude.com" &&
                   url.pathname === "/cai/oauth/authorize") ||
                 ([
@@ -187,31 +232,37 @@ export class RuntimeLoginManager {
         }
       }
       const deviceCode =
-        input.runtime === "codex" && !usesBrowserOAuth(this.platform)
+        login === "device"
           ? output.match(/^\s*([A-Z0-9]{4,8}-[A-Z0-9]{4,8})\s*$/m)?.[1]
           : undefined;
       if (deviceCode) session.snapshot.deviceCode = deviceCode;
     };
     child.stdout?.on("data", receive);
     child.stderr?.on("data", receive);
+    // A timed-out login was stopped here; it keeps saying so.
+    const timedOut = () => session.snapshot.reason === "timed_out";
     const failed = () => {
+      if (timedOut()) return;
       session.snapshot = {
         state: "failed",
+        reason: "ended",
         message: "Native sign-in ended. Retry or sign in later.",
       };
     };
     child.once("error", failed);
+    child.stdin?.on("error", failed);
     child.once("close", () => {
       clearTimeout(session.timer);
       output = "";
       void this.probe(input)
         .then(({ state }) => {
-          session.snapshot = state.ready
-            ? { state: "ready" }
-            : {
-                state: "failed",
-                message: "Sign-in was not completed. Retry or sign in later.",
-              };
+          if (state.ready) session.snapshot = { state: "ready" };
+          else if (!timedOut())
+            session.snapshot = {
+              state: "failed",
+              reason: "ended",
+              message: "Sign-in was not completed. Retry or sign in later.",
+            };
         })
         .catch(failed);
     });

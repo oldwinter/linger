@@ -31,6 +31,10 @@ import type { SharedDocumentContent } from "@/features/teamhub/teamhub-document-
 import { TeamHubError } from "@/features/teamhub/teamhub-error";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubSession } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
+
+import { sharedDocumentMessages } from "./shared-document.messages";
 
 const sharedDocumentSessionQueryKey = ["shared-document-session"] as const;
 
@@ -47,6 +51,7 @@ function SharedDocumentSurface({
   client: TeamHubClient;
   token: string;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [dirty, setDirty] = useState(false);
   const refreshHintId = useId();
@@ -104,7 +109,7 @@ function SharedDocumentSurface({
   });
   const refreshTitle = dirty
     ? "Save your changes before refreshing"
-    : "Refresh file";
+    : t(sharedDocumentMessages.refresh);
 
   return (
     <main className="min-h-dvh bg-app-surface text-app-body">
@@ -116,7 +121,7 @@ function SharedDocumentSurface({
             className="shrink-0 text-app-muted"
           />
           <h1 className="min-w-0 break-all text-lg">
-            {file.data?.filename ?? "Shared file"}
+            {file.data?.filename ?? t(sharedDocumentMessages.title)}
           </h1>
         </div>
         <div className="flex items-center gap-2">
@@ -132,7 +137,7 @@ function SharedDocumentSurface({
           <span className="inline-flex" title={refreshTitle}>
             <Button
               aria-describedby={dirty ? refreshHintId : undefined}
-              aria-label="Refresh file"
+              aria-label={t(sharedDocumentMessages.refresh)}
               title={refreshTitle}
               disabled={file.isFetching || !valid || dirty}
               onClick={() => void file.refetch()}
@@ -146,7 +151,7 @@ function SharedDocumentSurface({
       </header>
       {file.error && dirty ? (
         <p role="alert" className="px-5 pt-4 text-sm text-app-danger">
-          The link is unavailable. Your unsaved changes are still here.
+          {t(sharedDocumentMessages.unavailableWithChanges)}
         </p>
       ) : null}
       {!valid || (file.error && (!file.data || !dirty)) ? (
@@ -154,12 +159,12 @@ function SharedDocumentSurface({
           {file.error instanceof Error &&
           !(file.error instanceof TeamHubError && file.error.status === 404)
             ? file.error.message
-            : "This link is unavailable or has been revoked."}
+            : t(sharedDocumentMessages.unavailable)}
         </div>
       ) : file.isPending ? (
         <p className="flex items-center gap-2 p-6 text-sm text-app-muted">
           <Spinner size={16} />
-          Loading file…
+          {t(sharedDocumentMessages.loading)}
         </p>
       ) : (
         <SharedFileEditor
@@ -202,6 +207,7 @@ function SharedFileEditor({
   onSignedIn: (session: TeamHubSession) => void;
   onDirty: (dirty: boolean) => void;
 }) {
+  const t = useT();
   const [text, setText] = useState(data.text ?? "");
   const [pendingAction, setPendingAction] = useState<"save" | "upload" | null>(
     null,
@@ -233,7 +239,9 @@ function SharedFileEditor({
       await onSaved();
     } catch (cause) {
       setError(
-        cause instanceof Error ? cause.message : "Unable to save this version.",
+        cause instanceof Error
+          ? cause.message
+          : t(sharedDocumentMessages.saveFailed),
       );
     } finally {
       setPendingAction(null);
@@ -244,17 +252,21 @@ function SharedFileEditor({
     <section className="mx-auto max-w-5xl px-5 py-5">
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <span className="mr-auto text-sm text-app-muted">
-          {editable ? "Can edit" : "Read only"}
+          {t(
+            editable
+              ? sharedDocumentMessages.canEdit
+              : sharedDocumentMessages.readOnly,
+          )}
         </span>
         <Button
           tone="secondary"
           onClick={() => triggerArtifactDownload(data.blob, data.filename)}
         >
-          <Icon icon={Download04Icon} /> Download
+          <Icon icon={Download04Icon} /> {t(sharedDocumentMessages.download)}
         </Button>
         {editable && !signedIn ? (
           <Button onClick={() => setSignInOpen(true)} tone="primary">
-            Sign in to edit
+            {t(sharedDocumentMessages.signInToEdit)}
           </Button>
         ) : null}
         {editable && signedIn && data.text !== null ? (
@@ -270,13 +282,17 @@ function SharedFileEditor({
             tone="primary"
           >
             <Icon icon={FloppyDiskIcon} />{" "}
-            {pendingAction === "save" ? "Saving..." : "Save"}
+            {t(
+              pendingAction === "save"
+                ? sharedDocumentMessages.saving
+                : commonMessages.save,
+            )}
           </Button>
         ) : null}
         {editable && signedIn ? (
           <>
             <input
-              aria-label="Upload version"
+              aria-label={t(sharedDocumentMessages.uploadVersion)}
               className="hidden"
               disabled={pending}
               onChange={(event) => {
@@ -294,7 +310,8 @@ function SharedFileEditor({
               onClick={() => fileInputRef.current?.click()}
               tone="secondary"
             >
-              <Icon icon={Upload04Icon} /> Upload version
+              <Icon icon={Upload04Icon} />{" "}
+              {t(sharedDocumentMessages.uploadVersion)}
             </Button>
           </>
         ) : null}
@@ -307,7 +324,7 @@ function SharedFileEditor({
       {data.text !== null ? (
         editable && signedIn ? (
           <textarea
-            aria-label="File content"
+            aria-label={t(sharedDocumentMessages.fileContent)}
             disabled={pending}
             value={text}
             onChange={(event) => {

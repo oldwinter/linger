@@ -2,7 +2,10 @@ import { PlugSocketIcon } from "@hugeicons/core-free-icons";
 import { useEffect, useRef, useState } from "react";
 
 import { Icon } from "@/components/ui/icon";
+import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
+
+import { connectorMessages as m } from "./connectors.messages";
 
 const SIZES = {
   md: { image: "size-6", icon: 20 },
@@ -19,6 +22,7 @@ export function AppLogo({
   size?: keyof typeof SIZES;
   url?: string;
 }) {
+  const t = useT();
   const [failedUrl, setFailedUrl] = useState<string>();
   const [loadedUrl, setLoadedUrl] = useState<string>();
   const imgRef = useRef<HTMLImageElement>(null);
@@ -35,7 +39,7 @@ export function AppLogo({
   if (!showImage || !url) {
     return (
       <span
-        aria-label={`${name} icon`}
+        aria-label={t(m.appIcon, { name })}
         className="inline-flex items-center justify-center text-muted-foreground"
         role="img"
       >

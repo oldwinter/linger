@@ -1,5 +1,8 @@
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { TeamHubExternalConnection } from "@/features/teamhub/teamhub-types";
+import { type Translate, translate } from "@/i18n/language";
+
+import { connectorMessages as m } from "./connectors.messages";
 
 const NEEDS_ATTENTION = new Set<TeamHubExternalConnection["status"]>([
   "expired",
@@ -31,11 +34,32 @@ export function openPendingExternalConnection(
   );
 }
 
+export function externalConnectionEstablished(
+  connection: TeamHubExternalConnection,
+) {
+  return ["active", "disconnecting", "revoke_pending"].includes(
+    connection.status,
+  );
+}
+
 export function establishedExternalConnections(
   connections: TeamHubExternalConnection[],
 ) {
-  return connections.filter((connection) =>
-    ["active", "disconnecting", "revoke_pending"].includes(connection.status),
+  return connections.filter(externalConnectionEstablished);
+}
+
+/**
+ * A pending connection whose identity check failed after authorization. It
+ * stays listed so the user can check again or disconnect; a duplicate identity
+ * is excluded because checking again cannot resolve it.
+ */
+export function externalConnectionUnconfirmed(
+  connection: TeamHubExternalConnection,
+) {
+  return (
+    connection.status === "pending" &&
+    Boolean(connection.status_error_code) &&
+    connection.status_error_code !== "duplicate_remote_principal"
   );
 }
 
@@ -108,7 +132,8 @@ export function reauthorizationConnectUrl(connection?: {
 export function accountIdentityText(
   provider: string,
   label: string | null | undefined,
+  t: Translate = translate,
 ): string | undefined {
   if (!label) return undefined;
-  return provider === "outlook" ? `Signed in as ${label}` : label;
+  return provider === "outlook" ? t(m.signedInAs, { account: label }) : label;
 }

@@ -144,7 +144,7 @@ describe("Room Chat", () => {
       expect(openPanelTab).toHaveBeenCalledWith({
         actorId: "actor-codex",
         kind: "agentInfo",
-        title: "Agent · Codex",
+        title: "Codex",
       }),
     );
     expect(router.state.location.search).toBe("");

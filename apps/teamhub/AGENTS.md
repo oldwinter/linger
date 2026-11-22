@@ -121,6 +121,11 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   extra, or wrongly bound route. Handlers are `App` methods that read bound
   query and header parameters with `contractParams[T]` and path parameters
   with `c.Param`.
+- Text TeamHub writes for a person to read stays English and ships with the
+  meaning the client words it from: a status or error with a stable code, a
+  card with its kind and fields, catalog text with its id. Add the code (an
+  enum in `contracts/openapi`) beside the English rather than wording it per
+  language here; the client keeps the English for a code it does not know.
 - `internal/app` opens no transaction and calls no store queries: handlers
   call a domain service and map its errors. `TestAppLayerHoldsNoTransactionsOrQueries`
   (`tests/integration/layout`) fails on a transaction, SQL, a `store.Queries` or
@@ -239,6 +244,23 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   environment key over one saved in the product (`voice_provider_keys`, sealed
   with `TEAMHUB_SECRET_ENCRYPTION_KEY`), so a save applies without a restart
   on every replica. A save wakes the Node Services voice workers best effort.
+- Web search: `internal/websearch` runs Agent searches and page reads through
+  Tavily, Brave, Firecrawl and You.com with deployment-wide keys in
+  `web_search_keys` (sealed with `TEAMHUB_SECRET_ENCRYPTION_KEY`, read at each
+  call) and the chosen default in `web_search_settings`. TeamHub calls only the
+  providers' fixed API hosts; the CLI reads `direct` pages itself. A search
+  without a backend runs the chosen default as if it were named, even when its
+  key stopped working; without one it uses the first backend with a usable key,
+  else You.com's keyless MCP trial, which TeamHub does not count. A failed call
+  never falls back to another backend. `include_quota=false` lists the
+  backends without calling any provider. A missing or refused key,
+  or the end of the trial, posts a `search_key` card that stores the request.
+  A key added from that card replays the request first: a provider 401/403
+  leaves the key unsaved and the card open; any other outcome saves it and
+  answers the card `configured` with the backend and the call's results or
+  error code. Any save answers every other pending card `configured` with the
+  saved backend, which the Agent reruns with; saves outside a card use the
+  official check (Brave has none and stays unverified until its first call).
 - Local models: `local_computer_model_snapshots` keeps each Computer's latest
   model library snapshot and the last host any snapshot carried; removing the
   Computer deletes the row in the same transaction. Recording a snapshot
@@ -256,8 +278,9 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   `LOCAL_MODEL_ACTION_UNCONFIRMED`: it may still act, and the snapshots show
   the outcome. The Computer's refusal codes map to `LocalModelsErrorCode` in
   `internal/app/handlers_local_models.go` (and `LOAD_NO_ROOM` / `MEMORY_INSUFFICIENT`
-  on model-source switches map to `LOCAL_MODEL_NO_ROOM` in
-  `internal/app/handlers_model_source.go`).
+  map to `LOCAL_MODEL_NO_ROOM` and `BYOK_GATEWAY_FAILED` maps to HTTP 502
+  `BYOK_GATEWAY_FAILED` with the Computer's diagnostic message and a `gateway`
+  detail entry in `internal/app/handlers_model_source.go`).
 - A Computer's model source lives on the Computer
   (`internal/app/handlers_model_source.go`); TeamHub never stores a BYOK key.
   A switch checks for running work, runs `apply` on the Computer, then moves

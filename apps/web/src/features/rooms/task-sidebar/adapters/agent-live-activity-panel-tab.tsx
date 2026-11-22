@@ -3,6 +3,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 
 import { ActorAvatar } from "../../members/actor-avatar";
 import { Icon } from "@/components/ui/icon";
+import { useT } from "@/i18n/use-translation";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMessage } from "@/features/teamhub/teamhub-types";
 
@@ -10,6 +11,8 @@ import { roomMessagesInfiniteQueryOptions } from "../../room-queries";
 import { RuntimeActivityPath } from "../../runtime-status/runtime-activity-path-view";
 import { useRuntimePresentationEventRecords } from "../../runtime-status/use-runtime-presentation-event-records";
 import { PanelLoading } from "../panel-loading";
+import { sidePanelMessages } from "../side-panel.messages";
+import { activityPanelMessages as m } from "./activity-panel.messages";
 import { TaskConversationProvider } from "./task-conversation-dialog";
 
 const EMPTY_MESSAGES: readonly TeamHubMessage[] = [];
@@ -24,7 +27,7 @@ export function AgentLiveActivityPanelTab({
   messages = EMPTY_MESSAGES,
   messagesRoomId,
   onBack,
-  backLabel = "Back to Agent info",
+  backLabel,
   roomId,
   tenantId,
 }: {
@@ -41,6 +44,8 @@ export function AgentLiveActivityPanelTab({
   roomId: string;
   tenantId: string;
 }) {
+  const t = useT();
+  const back = backLabel ?? t(m.backToAgentInfo);
   const { client } = useTeamHubRuntime();
   // The sidebar supplies its parent Room's messages. A Thread Activity shares
   // the Thread conversation's existing query instead of reading that parent.
@@ -76,10 +81,10 @@ export function AgentLiveActivityPanelTab({
         <header className="flex min-h-14 shrink-0 items-center gap-2.5 border-b border-border bg-card px-4 py-2">
           {onBack ? (
             <button
-              aria-label={backLabel}
+              aria-label={back}
               className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-app-focus"
               onClick={onBack}
-              title={backLabel}
+              title={back}
               type="button"
             >
               <Icon icon={ArrowLeft01Icon} size={16} />
@@ -93,20 +98,20 @@ export function AgentLiveActivityPanelTab({
           />
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-sm font-semibold text-foreground">
-              {`${actorName} activity`}
+              {t(m.agentActivity, { name: actorName })}
             </h2>
             <p className="truncate text-xs font-normal leading-4 text-app-muted">
-              {pending || hasEvents ? "Activity" : "Waiting for activity"}
+              {t(pending || hasEvents ? m.activity : m.waitingForActivity)}
             </p>
           </div>
         </header>
         {events.error ? (
           <LiveActivityState
-            detail="Published Runtime events could not be read from TeamHub."
-            title="Activity could not be loaded"
+            detail={t(m.activityLoadFailedDetail)}
+            title={t(m.activityLoadFailedTitle)}
           />
         ) : pending ? (
-          <PanelLoading label="Loading activity" />
+          <PanelLoading label={t(sidePanelMessages.loadingActivity)} />
         ) : hasEvents ? (
           <RuntimeActivityPath
             key={`${activationKey}:${hidden}:${runId ?? runStatusId}`}
@@ -115,8 +120,8 @@ export function AgentLiveActivityPanelTab({
           />
         ) : (
           <LiveActivityState
-            detail="This run has not published any activity events yet."
-            title="No activity yet"
+            detail={t(m.noActivityDetail)}
+            title={t(m.noActivityTitle)}
           />
         )}
       </div>

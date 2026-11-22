@@ -1550,6 +1550,24 @@ describe("TeamHub Context Runtime state", () => {
     expect(workStateReads).toBe(1);
     await state.close();
   });
+
+  it("reads Local Run reply delivery status from TeamHub", async () => {
+    const getRunReplyStatus = vi.fn<
+      TeamHubRuntimeStateClient["getRunReplyStatus"]
+    >(async () => ({ replied: true }));
+    const { state } = await terminalFixture({ getRunReplyStatus });
+    const controller = new AbortController();
+
+    await expect(
+      state.hasLocalRunReplied("local-run-1", controller.signal),
+    ).resolves.toBe(true);
+    expect(getRunReplyStatus).toHaveBeenCalledExactlyOnceWith(
+      '["meta","agent-reviewer","room","room-1"]',
+      "local-run-1",
+      controller.signal,
+    );
+    await state.close();
+  });
 });
 
 const context = (targetResidency: "active" | "suspended"): RuntimeContext => ({

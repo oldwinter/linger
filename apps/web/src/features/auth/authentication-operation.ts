@@ -1,4 +1,7 @@
 import { TeamHubError } from "@/features/teamhub/teamhub-error";
+import { translate } from "@/i18n/language";
+
+import { authMessages as m } from "./auth.messages";
 
 // The race also bounds adapters that ignore AbortSignal (including response-body reads).
 export async function authenticationOperation<T>(
@@ -14,8 +17,7 @@ export async function authenticationOperation<T>(
       controller.abort(
         new TeamHubError({
           code: "AUTHENTICATION_TIMEOUT",
-          message:
-            "This step timed out. Try again. Your previous request may have completed.",
+          message: translate(m.timedOut),
           status: 408,
         }),
       ),

@@ -85,8 +85,8 @@ func routineTimezone(cadence Cadence) string {
 	return cadence.Timezone
 }
 
-// listenerOf names the app of a listener Routine's trigger. The installer
-// gives every listener one spec.
+// listenerOf names the app of a listener Routine's trigger. Multi-spec
+// listeners such as Outlook keep their connection provider on the first spec.
 func listenerOf(trigger []byte) *Listener {
 	var specs []ListenerSpec
 	if json.Unmarshal(trigger, &specs) != nil || len(specs) == 0 {

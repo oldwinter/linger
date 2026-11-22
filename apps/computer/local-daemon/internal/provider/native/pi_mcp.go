@@ -14,20 +14,21 @@ const (
 	piNodePathKey     = "NODE_PATH"
 	// The NODE_PATH Pi would have had without the Computer tools.
 	piInheritedNodePathKey = "LINGER_PI_INHERITED_NODE_PATH"
+	// The Daemon executable the managed extension runs as shell-text-hook.
+	piShellTextHookEnvKey = "LINGER_PI_SHELL_TEXT_HOOK"
 )
 
 // piMCPWiring is the managed MCP set prepared for one Pi process. A zero
 // value wires nothing.
 type piMCPWiring struct {
-	extension  string
 	configPath string
 }
 
 func (w piMCPWiring) wired() bool { return w.configPath != "" }
 
-// piPrepareMCP writes the caller's MCP bytes unchanged next to the session
-// and names the managed extension that loads them. Pi never falls back to
-// an ambient MCP configuration.
+// piPrepareMCP writes the caller's MCP bytes unchanged next to the session,
+// once the managed extension that loads them is installed. Pi never falls
+// back to an ambient MCP configuration.
 func piPrepareMCP(raw json.RawMessage, extension, sessionDir string) (piMCPWiring, error) {
 	raw = mcpNamespace(raw)
 	var config struct {
@@ -39,18 +40,26 @@ func piPrepareMCP(raw json.RawMessage, extension, sessionDir string) (piMCPWirin
 	if config.MCPServers == nil || len(*config.MCPServers) == 0 {
 		return piMCPWiring{}, nil
 	}
-	if extension == "" || !filepath.IsAbs(extension) {
-		return piMCPWiring{}, errors.New("the managed Pi MCP extension is not installed; repair the Computer installation")
-	}
-	info, err := os.Stat(extension)
-	if err != nil || !info.Mode().IsRegular() {
-		return piMCPWiring{}, errors.New("the managed Pi MCP extension is unavailable; repair the Computer installation")
+	if err := piCheckExtension(extension); err != nil {
+		return piMCPWiring{}, err
 	}
 	path := filepath.Join(sessionDir, piMCPConfigName)
 	if err := piWritePrivate(path, raw); err != nil {
 		return piMCPWiring{}, fmt.Errorf("managed Pi MCP configuration could not be written: %w", err)
 	}
-	return piMCPWiring{extension: extension, configPath: path}, nil
+	return piMCPWiring{configPath: path}, nil
+}
+
+// piCheckExtension checks that the managed extension is installed.
+func piCheckExtension(extension string) error {
+	if extension == "" || !filepath.IsAbs(extension) {
+		return errors.New("the managed Pi MCP extension is not installed; repair the Computer installation")
+	}
+	info, err := os.Stat(extension)
+	if err != nil || !info.Mode().IsRegular() {
+		return errors.New("the managed Pi MCP extension is unavailable; repair the Computer installation")
+	}
+	return nil
 }
 
 // piExtensionNodePath puts the Computer tools' node_modules on Pi's module

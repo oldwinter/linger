@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { FileTypeIcon } from "@/features/library/workspace-file-icon";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
 
 import { loadArtifactPreview } from "./artifact-preview-loader";
 import {
@@ -18,6 +19,7 @@ import {
   type ArtifactFileKind,
 } from "./artifact-file-kind";
 import { fileItemDetail, MessageFileItem } from "./message-file-item";
+import { chatMessages } from "../chat/chat.messages";
 import { FileVoiceMaterialButton } from "../chat/voice-mode/file-voice-material-button";
 
 /**
@@ -57,6 +59,7 @@ export function MessageFileAttachment({
   typeLabel?: string;
   versionId?: string;
 }) {
+  const t = useT();
   const renderer = selectArtifactRenderer({
     filename: sourceFilename,
     mediaType: mediaType ?? "",
@@ -89,7 +92,7 @@ export function MessageFileAttachment({
         actionLabel ?? (renderer === "download" ? "Open" : "Preview")
       }
       detail={fileItemDetail(
-        typeLabel ?? artifactFileTypeLabel(sourceFilename, mediaType),
+        typeLabel ?? artifactFileTypeLabel(sourceFilename, mediaType, t),
         sizeBytes,
       )}
       disabled={disabled}
@@ -202,6 +205,7 @@ function MessageImage({
   versionId: string;
 }) {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const container = useRef<HTMLDivElement>(null);
   const localFile = localMessageImage(documentId);
   const local = useDecodedImage(localFile);
@@ -277,7 +281,7 @@ function MessageImage({
         fallback
       ) : local || objectUrl ? (
         <button
-          aria-label={`Preview ${filename}`}
+          aria-label={t(chatMessages.previewFile, { name: filename })}
           className="block w-fit max-w-[28rem] overflow-hidden rounded-xl transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={onOpen}
           type="button"
@@ -293,11 +297,11 @@ function MessageImage({
         </button>
       ) : (
         <div
-          aria-label={`Loading ${filename}`}
+          aria-label={t(chatMessages.loadingFile, { name: filename })}
           className="flex h-40 w-80 max-w-full items-center justify-center rounded-xl bg-app-surface-soft text-sm text-app-muted"
           role="status"
         >
-          Loading image...
+          {t(chatMessages.loadingImage)}
         </div>
       )}
     </div>

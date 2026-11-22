@@ -31,7 +31,7 @@ export const modelCallEfforts: readonly ModelCallEffort[] = [
   "high",
 ];
 
-export type LocalRuntimeType = "codex" | "claude" | "pi";
+export type LocalRuntimeType = "codex" | "claude" | "pi" | "antigravity";
 
 export interface ModelOwner {
   readonly tenantId: string;
@@ -712,7 +712,9 @@ async function resolvePlacement(
 }
 
 /** Pi stays on Pi, even when it is unavailable. Codex and Claude retain
- * their same-Computer fallback. Invocations use the selected Runtime's default. */
+ * their same-Computer fallback. Antigravity has no model.invoke, so it uses
+ * Claude, falling back to Codex. Invocations use the selected Runtime's
+ * default. */
 function resolveTarget(
   gateway: RuntimeModelGateway,
   placement: ModelPlacement,
@@ -721,7 +723,8 @@ function resolveTarget(
   readonly offline: boolean;
   readonly model?: RuntimeModelInfo;
 } {
-  const preferred = placement.runtimeType;
+  const preferred =
+    placement.runtimeType === "antigravity" ? "claude" : placement.runtimeType;
   const fallback = preferred === "claude" ? "codex" : "claude";
   const runtimeType =
     preferred !== "pi" &&
@@ -1310,6 +1313,7 @@ function isPlacementItem(item: unknown): item is AnotherMePlacement {
     typeof item.computer_id === "string" &&
     (item.local_runtime_type === "codex" ||
       item.local_runtime_type === "claude" ||
-      item.local_runtime_type === "pi")
+      item.local_runtime_type === "pi" ||
+      item.local_runtime_type === "antigravity")
   );
 }

@@ -66,8 +66,12 @@ function parseYamlRecord(raw: string): Record<string, unknown> {
         return `${match[1]}${match[2]}: ${JSON.stringify(value)}`;
       })
       .join("\n");
-    const parsed = parse(repaired) as unknown;
-    return isRecord(parsed) ? parsed : {};
+    try {
+      const parsed = parse(repaired) as unknown;
+      return isRecord(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
   }
 }
 

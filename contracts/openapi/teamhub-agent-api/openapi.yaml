@@ -1205,6 +1205,14 @@ paths:
           $ref: "../components/agent-api-errors.yaml#/components/responses/ServiceUnavailable"
         default:
           $ref: "../components/agent-api-errors.yaml#/components/responses/InternalError"
+  /api/agent/v1/web/search:
+    $ref: "../paths/agent-web-search.yaml#/search"
+  /api/agent/v1/web/open:
+    $ref: "../paths/agent-web-search.yaml#/open"
+  /api/agent/v1/web/backends/query:
+    $ref: "../paths/agent-web-search.yaml#/backends"
+  /api/agent/v1/web/connect:
+    $ref: "../paths/agent-web-search.yaml#/connect"
   /api/agent/v1/computer/browser-connection:
     $ref: "../paths/agent-browser-connection.yaml#/request"
   /api/agent/v1/computer/permissions/status:

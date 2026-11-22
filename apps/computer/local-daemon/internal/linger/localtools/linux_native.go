@@ -178,4 +178,5 @@ func (op *operation) closeLinux() error {
 	return nil
 }
 
-const NativeLinuxToolGuide = `Computer tools control this signed-in user's Linux X11 desktop. get_window_state() reads AT-SPI elements; screenshot() captures the actual screen. click_element and set_value use numbers from the latest state. click({x,y}), drag({x,y,to_x,to_y}), type_text({text}), press_key({key:"ctrl+s"}), scroll({direction:"down"}) send native input. open_application supports Firefox, LibreOffice Writer/Calc/Impress, GNOME Terminal/Text Editor/Files and installed Xfce apps. open_url uses the user's default browser and existing profile. For an existing Firefox session, use computer tools; browser tools use a separate Chrome profile. Coordinates are screenshot pixels. `
+// NativeLinuxToolGuide describes how a provider targets the signed-in Linux desktop.
+const NativeLinuxToolGuide = `Use computer.ui_exec. Within the script, use ui.page for the managed browser or await ui.computer.get_window_state({}) for the signed-in user's Linux X11 desktop. Native click_element and set_value use numbers from the latest state. Use ui.emit(await ui.computer.screenshot({})) for a screenshot. Coordinates are screenshot pixels. ui.computer.open_url uses the user's default browser and existing profile. Use desktop tools for an existing Firefox session; browser tools use a separate Chrome profile. `

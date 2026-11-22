@@ -871,6 +871,9 @@ func (CapabilityBrowserFailed) RequiredFields() []string {
 // ByokConfigInput mirrors the ByokConfigInput schema shape.
 type ByokConfigInput struct {
 	BaseURL       string  `json:"base_url"`
+	Path          string  `json:"path"`
+	Endpoint      string  `json:"endpoint"`
+	Protocol      string  `json:"protocol"`
 	APIKey        string  `json:"api_key,omitempty"`
 	ModelID       string  `json:"model_id,omitempty"`
 	ContextWindow *uint64 `json:"context_window,omitempty"`
@@ -881,13 +884,17 @@ type ByokConfigInput struct {
 func (ByokConfigInput) FixedFields() map[string]string { return nil }
 
 // RequiredFields lists the keys a ByokConfigInput must carry.
-func (ByokConfigInput) RequiredFields() []string { return []string{"base_url"} }
+func (ByokConfigInput) RequiredFields() []string {
+	return []string{"base_url", "path", "endpoint", "protocol"}
+}
 
 // ByokSummary mirrors the ByokSummary schema shape.
 type ByokSummary struct {
 	Configured    bool    `json:"configured"`
 	Protocol      string  `json:"protocol,omitempty"`
 	BaseURL       string  `json:"base_url,omitempty"`
+	Path          string  `json:"path,omitempty"`
+	Endpoint      string  `json:"endpoint,omitempty"`
 	ModelID       string  `json:"model_id,omitempty"`
 	ContextWindow *uint64 `json:"context_window,omitempty"`
 	KeySaved      bool    `json:"key_saved"`
@@ -932,21 +939,21 @@ func (ByokModelListModelsItem) RequiredFields() []string { return []string{"id"}
 
 // ByokModelList mirrors the ByokModelList schema shape.
 type ByokModelList struct {
-	BaseURL string                    `json:"base_url"`
-	Models  []ByokModelListModelsItem `json:"models"`
+	URL    string                    `json:"url"`
+	Models []ByokModelListModelsItem `json:"models"`
 }
 
 // FixedFields lists the keys whose value the schema fixes for a ByokModelList.
 func (ByokModelList) FixedFields() map[string]string { return nil }
 
 // RequiredFields lists the keys a ByokModelList must carry.
-func (ByokModelList) RequiredFields() []string { return []string{"base_url", "models"} }
+func (ByokModelList) RequiredFields() []string { return []string{"url", "models"} }
 
 // ByokTestResult mirrors the ByokTestResult schema shape.
 type ByokTestResult struct {
 	Ok            bool   `json:"ok"`
 	Protocol      string `json:"protocol"`
-	BaseURL       string `json:"base_url"`
+	URL           string `json:"url"`
 	ModelID       string `json:"model_id"`
 	ContextWindow uint64 `json:"context_window"`
 }
@@ -956,7 +963,7 @@ func (ByokTestResult) FixedFields() map[string]string { return nil }
 
 // RequiredFields lists the keys a ByokTestResult must carry.
 func (ByokTestResult) RequiredFields() []string {
-	return []string{"ok", "protocol", "base_url", "model_id", "context_window"}
+	return []string{"ok", "protocol", "url", "model_id", "context_window"}
 }
 
 // CapabilityModelSource mirrors the CapabilityModelSource schema shape.
@@ -2068,6 +2075,7 @@ func (AgentInput) RequiredFields() []string { return []string{"type", "text"} }
 type ContextRunContext struct {
 	HumanInteractions *bool    `json:"human_interactions,omitempty"`
 	PermissionReview  *bool    `json:"permission_review,omitempty"`
+	StopHook          *bool    `json:"stop_hook,omitempty"`
 	ResumeAfterYield  *bool    `json:"resume_after_yield,omitempty"`
 	ExecutionRunRef   string   `json:"execution_run_ref"`
 	SourceInboxIDs    []string `json:"source_inbox_ids"`
@@ -2186,6 +2194,7 @@ type OperationPrepare struct {
 	SessionOptions      SessionOptions            `json:"session_options"`
 	Session             json.RawMessage           `json:"session"`
 	PermissionReview    *bool                     `json:"permission_review,omitempty"`
+	StopHook            *bool                     `json:"stop_hook,omitempty"`
 	MCPRelays           []LocalMcpRelayDescriptor `json:"mcp_relays"`
 	Target              string                    `json:"target"`
 }
@@ -2452,6 +2461,7 @@ func (OperationPrepared) RequiredFields() []string {
 type ProviderPrepareRunContext struct {
 	HumanInteractions *bool `json:"human_interactions,omitempty"`
 	PermissionReview  *bool `json:"permission_review,omitempty"`
+	StopHook          *bool `json:"stop_hook,omitempty"`
 }
 
 // FixedFields lists the keys whose value the schema fixes for a ProviderPrepareRunContext.

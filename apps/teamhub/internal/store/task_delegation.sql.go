@@ -161,7 +161,7 @@ FROM decisions decision
 WHERE decision.tenant_id=$1::text
   AND decision.alter_ego_task_id=$2::text
   AND decision.status='pending'
-  AND decision.kind NOT IN ('connection_auth','provider_key','browser_connection','computer_permission','document_access')
+  AND decision.kind NOT IN ('connection_auth','provider_key','browser_connection','computer_permission','document_access','search_key')
   AND (decision.kind<>'runtime_permission' OR decision.request->>'context_key'=$3::text)
 ORDER BY decision.created_at,decision.id
 `
@@ -182,7 +182,7 @@ type ListDelegatedTaskPendingApprovalsRow struct {
 
 // Approvals the Task's AlterEgo is waiting on: Runtime permission cards of
 // its Context and the other approvals it asked for. Connection, computer
-// permission and Document access cards are not approvals.
+// permission, web search key and Document access cards are not approvals.
 func (q *Queries) ListDelegatedTaskPendingApprovals(ctx context.Context, arg ListDelegatedTaskPendingApprovalsParams) ([]ListDelegatedTaskPendingApprovalsRow, error) {
 	rows, err := q.db.Query(ctx, listDelegatedTaskPendingApprovals, arg.TenantID, arg.TaskID, arg.ContextKey)
 	if err != nil {
