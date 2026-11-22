@@ -41,8 +41,8 @@ KIT_PYTHON=""
 PROMPT_VALUE=""
 
 # >>> stack release pin
-STACK_PIN_NPM_VERSION='0.1.0-dev.48'
-STACK_PIN_SHA256='ca38f28062ce350936a44951ac22f303cecbdee3b53fa9b7bc386c20b7429103'
+STACK_PIN_NPM_VERSION='0.1.0-dev.49'
+STACK_PIN_SHA256='f8bc9bc9b0467e77e4d79c047baf5f9fcf54fa968e744da86b3fda607b3d0781'
 # <<< stack release pin
 
 usage() {

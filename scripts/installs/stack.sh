@@ -2,13 +2,13 @@
 set -eu
 
 # >>> release pin
-STACK_VERSION='0.1.0.dev48'
-STACK_SOURCE_COMMIT='284e6b71a05556189b68a831a329ca21dbb0a722'
-STACK_NPM_VERSION='0.1.0-dev.48'
-STACK_KIT_darwin_arm64='7584ff8a0ebc2a8a547a9a116956845fcf0f5cd2f8dac879c8715ac99c942644'
-STACK_KIT_darwin_x64='1f9a9c2b972792831d91cf2397cb5641b6e3cc6efcfb1b8490932562bccad7a3'
-STACK_KIT_linux_arm64='e7b86522af0dac9fdde8e03e52b883de0fbdcb503602c63387ce111edc97ae8b'
-STACK_KIT_linux_x64='c85329633b7622241f57db46ec073c2738a20a7703488cc4f6dd71ce4f353b6b'
+STACK_VERSION='0.1.0.dev49'
+STACK_SOURCE_COMMIT='a3fbd1f266671fe5d32677582b180e0f9b23a858'
+STACK_NPM_VERSION='0.1.0-dev.49'
+STACK_KIT_darwin_arm64='df4db6fb39a5b912da55fa55c5025e2f49513adeae375a58bff5cb56eaa92816'
+STACK_KIT_darwin_x64='4a1823f787f0024695efc7e76274024cfe353695a443dbcaa3cb1a088a15d924'
+STACK_KIT_linux_arm64='79b5840856025b08603530f50a502b3db9ced2ebf22f5bd8484ee41fa07336d8'
+STACK_KIT_linux_x64='f20a671e9211e3fce62f42dbd831bb58a2e19dc535349445cc21f1b81317f235'
 # <<< release pin
 
 die() {
@@ -46,10 +46,10 @@ esac
 manifest='' inventory='' bytes='' files='' entries='' python='' modules=''
 # >>> bootstrap targets
 case "$target" in
-  darwin-arm64) manifest='42b22bef25e9c57b2f2421bbd02ac08b30d1ec26b57dca1f71c9d1a7de1cb310'; inventory='7e9b6d0e45cf1360a032efcd2d2899e00843fec30a0b35a5d8607f5e3b7fcd22'; bytes='14958725'; files='1368'; entries='1508'; python='python/bin/python3.12'; modules='modules' ;;
-  darwin-x64) manifest='e8079afe0b131d5400281ee11f7cc9b682baa47d2929911702a88936d7d1df1b'; inventory='7a61041fa6a70ae8413ed6ccdd1aeab686f8110516d6f1e69f6c0bffb9ed5022'; bytes='14791743'; files='1365'; entries='1504'; python='python/bin/python3.12'; modules='modules' ;;
-  linux-arm64) manifest='34b6b6108b606238e7e9b469d41c68bad7b746c7c5df1d6a897b5acc53c2a5b0'; inventory='550fab2b6ae3602662a3cbff0fad8468ea1d41e49861cb72ae2ebd3064ff1cc0'; bytes='17470325'; files='4239'; entries='4423'; python='python/bin/python3.12'; modules='modules' ;;
-  linux-x64) manifest='93dc4c0d186cee4e0e54ea2bec5a413443194942b3205cc8e15ed6485993130d'; inventory='00c77f38e22cf77fda46d6dbdb4e0bcc2e5975de699926dc50db6d09b75b2603'; bytes='20799093'; files='4239'; entries='4423'; python='python/bin/python3.12'; modules='modules' ;;
+  darwin-arm64) manifest='d8f3f38d037a70c56103b2e30a17b879fbbe4210e836e799b45f09150b81bf3d'; inventory='f7a1e10942b97ce3d96ba0f94980f5b8659dc61af82a6d7b6cfee2551b031da8'; bytes='14992818'; files='1372'; entries='1512'; python='python/bin/python3.12'; modules='modules' ;;
+  darwin-x64) manifest='8941572d45f324bf0611487e1b2ac39ff75f2694dffbbec5e5239e27f1c7aad8'; inventory='06971234b2b0198f750ef6167674b0112b142579d744981875d9560be0db96a0'; bytes='14823026'; files='1369'; entries='1508'; python='python/bin/python3.12'; modules='modules' ;;
+  linux-arm64) manifest='56404a305e95f4981d15f249852884923985cf41f3d1ccf90eca1c730853987d'; inventory='a9c368a8312f80c3fa64bf6a995a7b715281898c4c248b9ec783e07251bc94ee'; bytes='17504438'; files='4243'; entries='4427'; python='python/bin/python3.12'; modules='modules' ;;
+  linux-x64) manifest='5c482ab97544344f97ea3164e2b560e3abea28b087d03940a3029c354c006dbf'; inventory='ce55015cc2c04c51006b55d779fe91d65beb69511e9b9eb6098ffef025c1b85c'; bytes='20830959'; files='4243'; entries='4427'; python='python/bin/python3.12'; modules='modules' ;;
   *) die 'release lacks bootstrap pins' ;;
 esac
 # <<< bootstrap targets
