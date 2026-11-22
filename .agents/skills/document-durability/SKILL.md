@@ -7,7 +7,7 @@ description: "Formal TLA+ model check for native Room Document online body durab
 
 Model-checks every interleaving across `await` boundaries on the Document Runtime worker thread between WebSocket session opening/unloading, client edits, background durability flushes, and TeamHub server changes (`semantic`, `restore`, `comment_anchor`) sharing `document_bodies`.
 
-- **Sync commit**: `92c1d5d9393c2b19e1e1fa90ef733ae739d4f07a`
+- **Sync commit**: `df68b59ccff3a4c99a8026e1a628510250b41663`
 - **Baseline outcome at sync commit**: `NoDeadlock` **PASS**, `CommittedEditsPreserved` **PASS**, `ResidentHasAppliedChange` **FAIL** (current code breaks `ResidentHasAppliedChange`; do not weaken the property or edit product code unless fixing the bug is the task).
 - **Check command**: `node .agents/skills/document-durability/scripts/check.mjs`
 - **Result presentation**: Read every check result with the `/statechart` skill (never copy `/statechart` paths, flags, or scripts into this skill).
@@ -34,7 +34,7 @@ Model-checks every interleaving across `await` boundaries on the Document Runtim
 
 ## When a Change Touches Covered Code
 
-1. **Check for covered changes.** Run `git diff 92c1d5d9393c2b19e1e1fa90ef733ae739d4f07a..HEAD -- apps/node-services/src/document/` and check whether any covered function moved, split, or gained new callers writing `document_bodies` or `DocumentDurabilityCoordinator`.
+1. **Check for covered changes.** Run `git diff df68b59ccff3a4c99a8026e1a628510250b41663..HEAD -- apps/node-services/src/document/` and check whether any covered function moved, split, or gained new callers writing `document_bodies` or `DocumentDurabilityCoordinator`.
 2. **Run the current check first.** Run `node .agents/skills/document-durability/scripts/check.mjs` (uses TLC v1.7.4; first run caches `tla2tools-1.7.4.jar` verified by SHA-256 under `~/.cache/linger-formal-verification/`).
 3. **Update the model from the code.** Keep each synchronous TypeScript turn between `await` points as one TLA+ action in [DocumentDurability.tla](./DocumentDurability.tla). Update actions from the diff before re-running; never weaken `CommittedEditsPreserved` or `ResidentHasAppliedChange` to hide a failure.
 4. **Read every result with `/statechart`.** Run `/statechart` against [DocumentDurability.tla](./DocumentDurability.tla) and [DocumentDurability.cfg](./DocumentDurability.cfg) in a scratch directory outside the repo to inspect the state graph and shortest path to any rule break.
@@ -43,22 +43,25 @@ Model-checks every interleaving across `await` boundaries on the Document Runtim
    pnpm --filter @linger/node-services exec vitest run --project document <test-file>
    ```
    If any step in the trace cannot happen in the real code, fix the missing guard or granularity mismatch in [DocumentDurability.tla](./DocumentDurability.tla). If every step replays in TypeScript, the counterexample is a real bug.
-6. **Prove the check can still fail.** For any invariant that passes on `HEAD`, temporarily inject the broken behavior it guards in a scratch edit (for example, calling `#onCommitted` before `await #saveUntilCommitted` in `realtime-durability.ts`), re-run `check.mjs` to confirm the invariant goes red, and drop the scratch edit.
+6. **Prove the check can still fail.** For any invariant that passes on `HEAD`, temporarily inject the broken behavior it guards in a scratch edit to [DocumentDurability.tla](./DocumentDurability.tla) (for example, setting `ackedSeq'` and `ackedEdits'` in `DrainStart` to model calling `#onCommitted` before `await #saveUntilCommitted`, or removing the `dbSeq = batchBaseSeq` CAS guard from `DrainSaveSuccess`), re-run `check.mjs` to confirm the invariant goes red, and drop the scratch edit.
 7. **Advance the sync commit.** Update the coverage table above and set `Sync commit` to `git rev-parse HEAD` only after confirming the model describes the current code and `check.mjs` reflects the true status of every rule.
 
 ## Baseline Finding at Sync Commit
 
-At `92c1d5d9393c2b19e1e1fa90ef733ae739d4f07a`, `ResidentHasAppliedChange` breaks along two real-code paths:
+At `df68b59ccff3a4c99a8026e1a628510250b41663` (present since `ff4bcd6e`), `ResidentHasAppliedChange` breaks along two real-code paths:
 
 1. **Session open races an unopen server change (shortest 5-transition path):** `SessionOpenLoad` reads `seq = 0`; before `SessionOpenRegister` runs `durability.registerDocument`, `DocumentChangeCoordinator.apply` sees `!durability.hasDocument`, saves `seq = 1` with `s1`, skips `#publish`, and returns `applied` (`seq = 1`). `SessionOpenRegister` then registers the stale `seq = 0` snapshot as resident.
 2. **Lost `bodies.save` reply on an open Document followed by retry (`findOperation`):** `DocumentChangeCoordinator.apply` writes `seq = 1` (`s1` + `operation_id`) to `document_bodies` while the Document is open at `resSeq = 0`, then throws before `#publish` (HTTP 503 retryable). Retry hits `bodies.findOperation`, immediately returning `applied` (`seq = 1`) without updating `durability` (`resSeq` stays `0`, never broadcasting `s1`).
 
 ## Bounds, Assumptions, and Out-of-Scope Code
 
-- **Bounds**: One `ClientEdit` (`"c1"`), one `ServerEdit` (`"s1"`), `MaxAttempts = 2` for `DocumentChangeCoordinator.apply`, and abstract sequence numbers starting at `0`. Commuting Yjs updates are modeled as sets of edits rather than byte sequences.
+- **Bounds**: One `ClientEdit` (`"c1"`), one `ServerEdit` (`"s1"`), `MaxAttempts = 2` for `DocumentChangeCoordinator.apply` (real code uses `maxAttempts = 3`), and abstract sequence numbers starting at `0`. Commuting Yjs updates are modeled as sets of edits rather than byte sequences.
 - **Assumptions**: `document_bodies` CAS (`WHERE document_id = $1 AND seq = $2`) is atomic; the Document Runtime worker runs on one Node event-loop thread so code between `await` points is atomic.
 - **Not covered**:
-  - `ConnectionDisconnects` revocation races across `await bodies.checkReferences` in `realtime-preflight.ts`.
+  - Single-subsystem liveness/stall detection: `NoDeadlock` checks global model deadlock only, and because `SessionOpenLoad`/`SessionOpenRegister` remain unconditionally enabled in every state, a wedged drain or stuck ordering lease alone does not trigger `CHECK_DEADLOCK`.
+  - Ordering queue deadlines and timeout rejections (`mutationAuthorizationDeadlineMs` in `realtime-preflight.ts`/`realtime.ts`, `documentLoadDeadlineMs`, `changeDeadlineMs`).
+  - `ConnectionDisconnects` revocation races across `await bodies.checkReferences` in `realtime-preflight.ts`, and connections that drop between `onAuthenticate` (`registerDocument`) and `onLoadDocument`/`afterUnloadDocument`.
+  - Stale `SessionOpenLoad` snapshots racing a prior client save-and-unload (`Client 1` commits and releases the resident document while `Client 2` still holds an older loaded snapshot).
   - Yjs CRDT byte encoding, BlockNote schema validation, and `document-model` fingerprinting.
   - Permanent failure evidence (`failure-evidence.ts`), `RealtimeAdmissionController` limits, awareness, and History point idle/continuous timers in `bodies.ts`.
   - Cross-check drift after untouched commits: run `/maintain-formal-verification-skill` if covered files changed without updating this skill.
