@@ -17,6 +17,11 @@
       "linger-production": "./dist/byok-endpoint.js",
       "default": "./src/byok-endpoint.ts"
     },
+    "./featured-models": {
+      "types": "./src/featured-models.ts",
+      "linger-production": "./dist/featured-models.js",
+      "default": "./src/featured-models.ts"
+    },
     "./messages": {
       "types": "./src/messages.ts",
       "linger-production": "./dist/messages.js",

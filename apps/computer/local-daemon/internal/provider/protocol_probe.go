@@ -14,6 +14,7 @@ import (
 
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/process"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider/native"
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider/redact"
 	localworkspace "github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/workspace"
 )
 
@@ -80,7 +81,12 @@ func probeRuntimeProtocol(ctx context.Context, runtimeType, executable string, e
 		payload = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"linger-computer-doctor","title":"Linger Computer Doctor","version":"1.0.0"},"capabilities":null}}` + "\n"
 
 	case "antigravity":
-		args = []string{"acp"}
+		probeArgs, release, err := native.PrepareAntigravityProtocolProbe()
+		if err != nil {
+			return err
+		}
+		defer release()
+		args = append([]string{"acp"}, probeArgs...)
 		payload = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}` + "\n"
 	case "claude":
 		args = []string{
@@ -92,31 +98,53 @@ func probeRuntimeProtocol(ctx context.Context, runtimeType, executable string, e
 	default:
 		return errors.New("unsupported Runtime protocol probe")
 	}
-	stdout, _, runErr := runBoundedProbe(ctx, executable, args, environment, payload, timeout)
+	stdout, stderr, runErr := runBoundedProbe(ctx, executable, args, environment, payload, timeout)
 	if errors.Is(runErr, errProbeOutputLimit) {
+		logProbeExit("runner.runtime_probe.handshake_failed", runtimeType, runErr, stderr)
 		return runErr
 	}
-	if runErr != nil && len(stdout) == 0 {
-		return runErr
-	}
-	if runErr != nil && !errors.Is(runErr, context.DeadlineExceeded) && !errors.Is(runErr, context.Canceled) {
-		return runErr
-	}
-	matched := false
 	for _, line := range strings.Split(stdout, "\n") {
 		var response map[string]any
 		if json.Unmarshal([]byte(strings.TrimSpace(line)), &response) == nil && protocolProbeResponseMatches(runtimeType, response) {
-			matched = true
-			break
+			// The answer is what the handshake checks. How the Runtime exits
+			// once its input closes, or a descendant outliving it, says
+			// nothing about protocol compatibility, so it is only logged.
+			if runErr != nil && !errors.Is(runErr, context.DeadlineExceeded) && !errors.Is(runErr, context.Canceled) {
+				logProbeExit("runner.runtime_probe.exit_after_handshake", runtimeType, runErr, stderr)
+			}
+			return nil
 		}
 	}
-	if !matched {
-		if runErr != nil {
-			return runErr
-		}
-		return errors.New("Runtime capability probe closed without initialize response")
+	if runErr == nil {
+		runErr = errors.New("Runtime capability probe closed without initialize response")
 	}
-	return nil
+	logProbeExit("runner.runtime_probe.handshake_failed", runtimeType, runErr, stderr)
+	return runErr
+}
+
+// maxProbeStderrTail bounds the stderr a probe log keeps; the end of stderr
+// carries the error a CLI exits with.
+const maxProbeStderrTail = 1024
+
+// logProbeExit records why a probe process ended as it did. The diagnostic
+// sent to TeamHub stays categorical; this local log keeps the exit status and
+// the redacted end of stderr, without which a failed handshake cannot be
+// explained from the field.
+func logProbeExit(event, runtimeType string, err error, stderr string) {
+	attributes := []any{"runtime_type", runtimeType, "error", redact.Text(err.Error())}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		attributes = append(attributes, "exit_code", exitErr.ExitCode())
+		if signal := process.ExitSignal(exitErr.ProcessState); signal != "" {
+			attributes = append(attributes, "signal", signal)
+		}
+	}
+	// Redact before cutting: a cut through a credential's name or prefix
+	// would leave its value unrecognizable to redact.Text.
+	if tail := []rune(strings.TrimSpace(redact.Text(stderr))); len(tail) > 0 {
+		attributes = append(attributes, "stderr_tail", string(tail[max(0, len(tail)-maxProbeStderrTail):]))
+	}
+	slog.Warn(event, attributes...)
 }
 
 func protocolProbeResponseMatches(runtimeType string, response map[string]any) bool {

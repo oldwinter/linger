@@ -3,12 +3,23 @@ import { describe, expect, it } from "vitest";
 import { translate } from "@/i18n/language";
 
 import {
+  actionErrorCopy,
+  debugBannerCopy,
+  hostBlockerCopy,
+  modelErrorCopy,
+  modelErrorShortCopy,
+  unavailableCopy,
+  unavailableShortCopy,
+} from "./local-models-copy";
+import {
   collapsedRowBadges,
   contextLabel,
   downloadPercent,
   downloadStatusDetail,
   downloadStopped,
+  featuredInklingEntry,
   formatGigabytes,
+  hostBlocker,
   isModelOnComputer,
   loadCheck,
   localSwitchTargets,
@@ -657,5 +668,402 @@ describe("downloadStopped", () => {
         }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("featured Inkling 2 Mini rules", () => {
+  it("matches case-insensitive and org-prefixed Inkling 2 Mini IDs via the shared helper", () => {
+    const view = labView({
+      models: [
+        modelView(
+          localModel({
+            fit: "gpu",
+            id: "gemma3-4b:Q4_K_M",
+            name: "Gemma 3 4B",
+          }),
+        ),
+        modelView(
+          localModel({
+            fit: "system",
+            id: "thinkingmachines/Inkling-2-Mini",
+            name: "Inkling 2 Mini",
+            pool: "system",
+          }),
+        ),
+      ],
+    });
+    const ordered = modelEntries(view);
+    expect(ordered.map((entry) => entry.model.id)).toEqual([
+      "thinkingmachines/Inkling-2-Mini",
+      "gemma3-4b:Q4_K_M",
+    ]);
+    expect(featuredInklingEntry(ordered)?.model.id).toBe(
+      "thinkingmachines/Inkling-2-Mini",
+    );
+  });
+
+  it("orders featured models after recommended within each status and before fit order", () => {
+    const view = labView({
+      models: [
+        modelView(
+          localModel({
+            fit: "gpu",
+            id: "gemma3-4b:Q4_K_M",
+            name: "Gemma 3 4B",
+          }),
+        ),
+        modelView(
+          localModel({
+            fit: "system",
+            id: "inkling-2-mini:UD-Q4_K_M",
+            name: "Inkling 2 Mini",
+            pool: "system",
+          }),
+        ),
+        modelView(
+          localModel({
+            fit: "gpu",
+            id: "gpt-oss-20b:Q4_K_M",
+            name: "GPT-OSS 20B",
+            recommended: true,
+          }),
+        ),
+        // Display name alone never promotes a non-matching ID.
+        modelView(
+          localModel({
+            fit: "system",
+            id: "custom-model:Q4_K_M",
+            name: "Inkling 2 Mini Clone",
+            pool: "system",
+          }),
+        ),
+        modelView(
+          localModel({
+            id: "qwen3-coder-30b:Q4_K_M",
+            name: "Qwen3 Coder 30B",
+            state: "loaded",
+          }),
+        ),
+      ],
+    });
+    expect(modelEntries(view).map((entry) => entry.model.id)).toEqual([
+      "qwen3-coder-30b:Q4_K_M",
+      "gpt-oss-20b:Q4_K_M",
+      "inkling-2-mini:UD-Q4_K_M",
+      "gemma3-4b:Q4_K_M",
+      "custom-model:Q4_K_M",
+    ]);
+
+    // When nothing else is recommended, featured rises to the top of available.
+    const noRecommended = labView({
+      models: [
+        modelView(localModel({ id: "gemma3-4b:Q4_K_M", name: "Gemma 3 4B" })),
+        modelView(
+          localModel({
+            id: "inkling-2-mini:UD-Q4_K_M",
+            name: "Inkling 2 Mini",
+          }),
+        ),
+      ],
+    });
+    expect(modelEntries(noRecommended).map((entry) => entry.model.id)).toEqual([
+      "inkling-2-mini:UD-Q4_K_M",
+      "gemma3-4b:Q4_K_M",
+    ]);
+  });
+
+  it("selects the best Inkling 2 Mini entry, preferring UD-Q4_K_M when variants tie", () => {
+    expect(featuredInklingEntry(modelEntries(labView()))).toBeUndefined();
+
+    const multiAvailable = labView({
+      models: [
+        modelView(
+          localModel({
+            id: "inkling-2-mini-iq3xxs:UD-IQ3_XXS",
+            name: "Inkling 2 Mini (IQ3_XXS)",
+            quant: "UD-IQ3_XXS",
+          }),
+        ),
+        modelView(
+          localModel({
+            id: "inkling-2-mini:UD-Q4_K_M",
+            name: "Inkling 2 Mini",
+            quant: "UD-Q4_K_M",
+          }),
+        ),
+      ],
+    });
+    expect(featuredInklingEntry(modelEntries(multiAvailable))?.model.id).toBe(
+      "inkling-2-mini:UD-Q4_K_M",
+    );
+
+    // On a 16 GB host where Q4 is unavailable, sibling IQ3_XXS wins.
+    const q4Unavailable = labView({
+      models: [
+        modelView(
+          localModel({
+            availability: {
+              downloadable: false,
+              reason: {
+                code: "MEMORY_INSUFFICIENT",
+                have_bytes: gb(16),
+                need_bytes: gb(19.2),
+              },
+            },
+            fit: "none",
+            id: "inkling-2-mini:UD-Q4_K_M",
+            name: "Inkling 2 Mini",
+            pool: undefined,
+            quant: "UD-Q4_K_M",
+          }),
+        ),
+        modelView(
+          localModel({
+            fit: "gpu",
+            id: "inkling-2-mini-iq3xxs:UD-IQ3_XXS",
+            memory_bytes: gb(13.5),
+            name: "Inkling 2 Mini (IQ3_XXS)",
+            quant: "UD-IQ3_XXS",
+          }),
+        ),
+      ],
+    });
+    expect(featuredInklingEntry(modelEntries(q4Unavailable))?.model.id).toBe(
+      "inkling-2-mini-iq3xxs:UD-IQ3_XXS",
+    );
+
+    // A loaded variant beats an available UD-Q4_K_M.
+    const iq3Loaded = labView({
+      models: [
+        modelView(
+          localModel({
+            id: "inkling-2-mini:UD-Q4_K_M",
+            name: "Inkling 2 Mini",
+            quant: "UD-Q4_K_M",
+          }),
+        ),
+        modelView(
+          localModel({
+            id: "inkling-2-mini:UD-IQ3_S",
+            name: "Inkling 2 Mini (IQ3)",
+            quant: "UD-IQ3_S",
+            state: "loaded",
+          }),
+        ),
+      ],
+    });
+    expect(featuredInklingEntry(modelEntries(iq3Loaded))?.model.id).toBe(
+      "inkling-2-mini:UD-IQ3_S",
+    );
+  });
+});
+
+describe("hostBlocker, RAM reclaimability, and diagnostics copy", () => {
+  it("picks the highest-priority host blocker only when no model is downloadable or active", () => {
+    const blocked = (
+      id: string,
+      reason: NonNullable<
+        ReturnType<typeof localModel>["availability"]["reason"]
+      >,
+    ) =>
+      modelView(
+        localModel({
+          availability: { downloadable: false, reason },
+          fit: "none",
+          id,
+          name: id,
+          pool: undefined,
+        }),
+      );
+
+    const mixedView = labView({
+      models: [
+        blocked("m1", { code: "GPU_UNSUPPORTED", gpu_vendor: "amd" }),
+        blocked("m2", {
+          code: "DRIVER_UPDATE_REQUIRED",
+          detected_cuda: "11.8",
+          required_cuda: "12.4",
+        }),
+      ],
+    });
+    expect(hostBlocker(mixedView)).toEqual({
+      code: "DRIVER_UPDATE_REQUIRED",
+      detected_cuda: "11.8",
+      required_cuda: "12.4",
+    });
+
+    // Once any model can be downloaded, no global host blocker banner is shown.
+    const partialView = labView({
+      models: [
+        modelView(localModel({ id: "ok", name: "OK" })),
+        blocked("m1", { code: "GPU_UNSUPPORTED", gpu_vendor: "amd" }),
+      ],
+    });
+    expect(hostBlocker(partialView)).toBeNull();
+
+    // Pure MEMORY_INSUFFICIENT does not trigger a host blocker.
+    const memoryOnlyView = labView({
+      models: [
+        blocked("huge", {
+          code: "MEMORY_INSUFFICIENT",
+          have_bytes: gb(8),
+          need_bytes: gb(40),
+        }),
+      ],
+    });
+    expect(hostBlocker(memoryOnlyView)).toBeNull();
+  });
+
+  it("evaluates memory_kind=ram against system pools instead of GPU pools", () => {
+    const busyRamModel = localModel({
+      availability: {
+        downloadable: false,
+        reason: {
+          code: "MEMORY_INSUFFICIENT",
+          have_bytes: gb(4),
+          memory_kind: "ram",
+          need_bytes: gb(20),
+        },
+      },
+      fit: "none",
+      id: "ram-tight:Q4",
+      name: "RAM Tight",
+      pool: undefined,
+    });
+    const busySystemPool = {
+      ...memoryPool("system", 32),
+      used_bytes: gb(28),
+    };
+    const view = labView({
+      models: [modelView(busyRamModel)],
+      pools: [gpuPool(0, 24), busySystemPool],
+    });
+    expect(memoryReclaimable(view, busyRamModel)).toBe(true);
+    expect(memoryGuidance(view)).toMatchObject({
+      gpu: false,
+      kind: "blocked_download",
+      otherBytes: gb(28),
+    });
+
+    // Clean system pool with busy GPU does not mark a RAM shortfall reclaimable.
+    const cleanRamBusyGpu = labView({
+      models: [modelView(busyRamModel)],
+      pools: [
+        { ...gpuPool(0, 24), used_bytes: gb(20) },
+        memoryPool("system", 32),
+      ],
+    });
+    expect(memoryReclaimable(cleanRamBusyGpu, busyRamModel)).toBe(false);
+  });
+
+  it("formats actionable copy for GPU, driver, runtime, RAM, debug, and unknown fallback codes", () => {
+    expect(
+      unavailableShortCopy(
+        { code: "GPU_UNSUPPORTED", gpu_vendor: "amd" },
+        translate,
+      ),
+    ).toBe("GPU not supported");
+    expect(
+      unavailableCopy(
+        { code: "GPU_UNSUPPORTED", gpu_vendor: "amd" },
+        false,
+        translate,
+      ),
+    ).toContain("AMD GPUs");
+    expect(
+      unavailableCopy(
+        {
+          code: "DRIVER_UPDATE_REQUIRED",
+          detected_cuda: "11.8",
+          required_cuda: "12.4",
+        },
+        false,
+        translate,
+      ),
+    ).toContain("CUDA 11.8");
+    expect(
+      unavailableCopy(
+        {
+          code: "RUNTIME_DEPENDENCY_MISSING",
+          missing_libraries: ["libgomp.so.1"],
+        },
+        false,
+        translate,
+      ),
+    ).toContain("libgomp.so.1");
+    expect(
+      unavailableCopy(
+        {
+          code: "RUNTIME_DEPENDENCY_MISSING",
+          detected_glibc: "2.28",
+          required_glibc: "2.35",
+        },
+        false,
+        translate,
+      ),
+    ).toContain("2.28");
+    expect(
+      unavailableShortCopy(
+        {
+          code: "MEMORY_INSUFFICIENT",
+          memory_kind: "ram",
+          need_bytes: gb(16),
+        },
+        translate,
+      ),
+    ).toBe("needs 16 GB RAM");
+    expect(
+      unavailableCopy(
+        {
+          code: "MEMORY_INSUFFICIENT",
+          have_bytes: gb(8),
+          memory_kind: "ram",
+          need_bytes: gb(16),
+        },
+        false,
+        translate,
+      ),
+    ).toContain("system memory (RAM)");
+    expect(unavailableShortCopy({ code: "UNAVAILABLE" }, translate)).toBe(
+      "unavailable",
+    );
+    expect(
+      hostBlockerCopy(
+        {
+          code: "DRIVER_UPDATE_REQUIRED",
+          detected_cuda: "11.8",
+          required_cuda: "12.4",
+        },
+        translate,
+      ).body,
+    ).toContain("CUDA 12.4");
+    expect(
+      debugBannerCopy({ mode: "tiny", source: "env" }, translate),
+    ).toMatchObject({
+      title: "Debug mode active (tiny)",
+    });
+    expect(
+      debugBannerCopy(
+        {
+          config_path: "/home/u/.config/localmodels/debug.json",
+          mode: "simulate",
+          source: "user_config",
+        },
+        translate,
+      ).body,
+    ).toContain("/home/u/.config/localmodels/debug.json");
+    expect(
+      debugBannerCopy({ mode: "simulate", source: "user_config" }, translate)
+        .body,
+    ).not.toContain("debug.json");
+    expect(actionErrorCopy("LOCAL_MODEL_GPU_UNSUPPORTED", translate)).toContain(
+      "supported GPU",
+    );
+    expect(modelErrorShortCopy({ code: "UNKNOWN_ERROR" }, translate)).toBe(
+      "unexpected error",
+    );
+    expect(modelErrorCopy({ code: "UNKNOWN_ERROR" }, translate)).toContain(
+      "Something went wrong",
+    );
   });
 });

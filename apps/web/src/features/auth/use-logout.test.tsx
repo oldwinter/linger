@@ -196,6 +196,10 @@ describe("useLogout", () => {
       "linger:wiki-display:v1:tenant-northstar:account-jenny",
       JSON.stringify({ alpha: "delete" }),
     );
+    window.localStorage.setItem(
+      "linger.models.lastComputer:tenant-northstar",
+      "computer-mac",
+    );
     let finishOutbox!: () => void;
     const clearOutbox = vi
       .spyOn(browserRoomMessageOutbox, "clearAccount")
@@ -260,6 +264,11 @@ describe("useLogout", () => {
     expect(
       window.localStorage.getItem(
         "linger:wiki-display:v1:tenant-northstar:account-jenny",
+      ),
+    ).toBeNull();
+    expect(
+      window.localStorage.getItem(
+        "linger.models.lastComputer:tenant-northstar",
       ),
     ).toBeNull();
     expect(clearOutbox).toHaveBeenCalledWith(identity.account.id);

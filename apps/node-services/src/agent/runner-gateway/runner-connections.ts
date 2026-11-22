@@ -27,6 +27,7 @@ import {
   FIRST_MODEL_INVOKE_CANCEL_COMPUTER_VERSION,
   FIRST_PI_MODEL_INVOKE_COMPUTER_VERSION,
   FIRST_BYOK_ENDPOINT_COMPUTER_VERSION,
+  FIRST_LOCAL_MODELS_DIAGNOSTICS_COMPUTER_VERSION,
   FIRST_SERVICE_FEATURES_COMPUTER_VERSION,
   type LocalPlacementRequirement,
   type LocalReasoningEffort,
@@ -458,12 +459,21 @@ export class RunnerConnections {
         FIRST_SERVICE_FEATURES_COMPUTER_VERSION,
       )
         ? {
-            service_features: isComputerVersionAtLeast(
-              connection.hello.daemon_version,
-              FIRST_BYOK_ENDPOINT_COMPUTER_VERSION,
-            )
-              ? ["local_models", "byok_endpoint"]
-              : ["local_models"],
+            service_features: [
+              "local_models",
+              ...(isComputerVersionAtLeast(
+                connection.hello.daemon_version,
+                FIRST_BYOK_ENDPOINT_COMPUTER_VERSION,
+              )
+                ? (["byok_endpoint"] as const)
+                : []),
+              ...(isComputerVersionAtLeast(
+                connection.hello.daemon_version,
+                FIRST_LOCAL_MODELS_DIAGNOSTICS_COMPUTER_VERSION,
+              )
+                ? (["local_models_diagnostics"] as const)
+                : []),
+            ],
           }
         : {}),
     };

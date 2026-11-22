@@ -4,7 +4,7 @@ import {
 } from "@linger/service-kit/byok-endpoint";
 import { z } from "zod";
 
-import type { SetupCommand } from "../shared/setup.js";
+import { SETUP_EXTERNAL_URLS, type SetupCommand } from "../shared/setup.js";
 
 // A provider key, or "" to remove the saved one; the installer checks the
 // same shape before saving.
@@ -39,10 +39,13 @@ const byokConfig = z
   })
   .strict();
 
+const externalUrl = z.enum(SETUP_EXTERNAL_URLS);
+
 const setupCommand = z.discriminatedUnion("op", [
   z
     .object({ op: z.literal("server.set"), serverUrl: z.string().max(2048) })
     .strict(),
+  z.object({ op: z.literal("external.open"), url: externalUrl }).strict(),
   z
     .object({
       op: z.literal("local.start"),

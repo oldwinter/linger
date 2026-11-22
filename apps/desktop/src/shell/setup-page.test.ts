@@ -3,17 +3,19 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { isInkling2MiniModelId } from "@linger/service-kit/featured-models";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Language } from "../i18n/language.js";
 import zhCN from "../i18n/locales/zh-CN.json" with { type: "json" };
 import { localizePage } from "../i18n/page.js";
-import type {
-  SetupCommand,
-  SetupLocalAccount,
-  SetupLocalModelsCheck,
-  SetupReason,
-  SetupState,
+import {
+  INKLING_2_MINI_ANNOUNCEMENT_URL,
+  type SetupCommand,
+  type SetupLocalAccount,
+  type SetupLocalModelsCheck,
+  type SetupReason,
+  type SetupState,
 } from "../shared/setup.js";
 
 import { setupMessages } from "./setup.messages.js";
@@ -91,6 +93,7 @@ const openPage = async (
   Object.assign(window, {
     matchMedia: () => ({ matches: true }),
     lingerSetup: {
+      featuredAnnouncementUrl: INKLING_2_MINI_ANNOUNCEMENT_URL,
       getState: async () => current,
       onState: (callback: (next: SetupState) => void) => {
         listener = callback;
@@ -1186,5 +1189,199 @@ describe("setup page in Chinese", () => {
         amount: fill(zh.amountOf, { done: "3.0 GB", total: "4.0 GB" }),
       })} · 50 MB/s`,
     );
+  });
+
+  it("localizes the Inkling 2 Mini spotlight in both recommended and library states", async () => {
+    const inklingCapable: SetupLocalModelsCheck = {
+      ...capable,
+      model: {
+        name: "inkling-2-mini:Q4_K_M",
+        downloadBytes: 15 * GB,
+        diskBytes: 18 * GB,
+        memoryBytes: 22 * GB,
+        featuredInkling: true,
+      },
+    };
+    await openPage(welcome(inklingCapable), "welcome", "zh-CN");
+    expect($("plan-featured-badge").hidden).toBe(false);
+    expect($("plan-featured-badge").textContent).toBe(zh.featuredPartnerBadge);
+    expect($("featured-spotlight").hidden).toBe(false);
+    expect($("featured-spotlight-note").textContent).toBe(
+      zh.featuredModelSelected,
+    );
+    expect($("featured-spotlight-link").textContent).toBe(zh.learnMoreLink);
+    expect(
+      $("featured-spotlight").querySelector(".spotlight-specs")!.textContent,
+    ).toBe(zh.featuredModelSpecs);
+
+    $("local-customize").click();
+    expect($("local-model-featured").hidden).toBe(false);
+    expect($("local-model-featured").textContent).toBe(zh.featuredPartnerBadge);
+    expect($("local-spotlight-text").textContent).toBe(zh.featuredModelSpecs);
+    expect($("local-spotlight-link").textContent).toBe(zh.learnMoreLink);
+
+    await openPage(welcome(capable), "welcome", "zh-CN");
+    expect($("plan-featured-badge").hidden).toBe(true);
+    expect($("featured-spotlight").hidden).toBe(false);
+    expect($("featured-spotlight-note").textContent).toBe(
+      zh.featuredModelLibraryNote,
+    );
+    expect($("featured-spotlight-link").textContent).toBe(
+      zh.thinkingMachinesLink,
+    );
+    $("local-customize").click();
+    expect($("local-model-featured").hidden).toBe(true);
+    expect($("local-spotlight-text").textContent).toBe(
+      zh.featuredModelCustomizeNote,
+    );
+    expect($("local-spotlight-link").textContent).toBe(zh.thinkingMachinesLink);
+  });
+});
+
+describe("setup page Inkling 2 Mini featured spotlight", () => {
+  const inklingCapable = (
+    name = "inkling-2-mini:Q4_K_M",
+  ): SetupLocalModelsCheck => ({
+    ...capable,
+    model: {
+      name,
+      downloadBytes: 15 * GB,
+      diskBytes: 18 * GB,
+      memoryBytes: 22 * GB,
+      ...(isInkling2MiniModelId(name)
+        ? { featuredInkling: true as const }
+        : {}),
+    },
+  });
+
+  it("emphasizes Inkling 2 Mini directly in the plan line and local model card when recommended", async () => {
+    const { run } = await openPage(welcome(inklingCapable()), "welcome");
+    expect($("plan-summary").textContent).toBe(
+      "Recommended for this computer: Local model + Pi",
+    );
+    expect($("plan-featured-badge").hidden).toBe(false);
+    expect($("plan-featured-badge").textContent).toBe(
+      "Featured · Thinking Machines",
+    );
+    expect($("featured-spotlight").hidden).toBe(false);
+    expect($("featured-spotlight").dataset.recommended).toBe("true");
+    expect($("featured-spotlight-note").textContent).toBe(
+      "Selected for Quick Install on this computer.",
+    );
+    expect($("featured-spotlight-link").textContent).toBe("Learn more ↗");
+
+    $("featured-spotlight-link").click();
+    await vi.waitFor(() =>
+      expect(run).toHaveBeenCalledWith({
+        op: "external.open",
+        url: INKLING_2_MINI_ANNOUNCEMENT_URL,
+      }),
+    );
+
+    $("local-customize").click();
+    expect($("featured-spotlight").hidden).toBe(true);
+    expect($("plan-featured-badge").hidden).toBe(true);
+    expect($("local-model-name").textContent).toBe("inkling-2-mini:Q4_K_M");
+    expect($("local-model-featured").hidden).toBe(false);
+    expect($("local-model-featured").textContent).toBe(
+      "Featured · Thinking Machines",
+    );
+    expect($("local-spotlight").dataset.recommended).toBe("true");
+    expect($("local-spotlight-text").textContent).toBe(
+      "26.4B Looped MoE · 3.4B active · Vision & Agentic Coding · Apache 2.0",
+    );
+    expect($("local-spotlight-link").textContent).toBe("Learn more ↗");
+
+    $("local-spotlight-link").click();
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+    expect(run).toHaveBeenLastCalledWith({
+      op: "external.open",
+      url: INKLING_2_MINI_ANNOUNCEMENT_URL,
+    });
+  });
+
+  it("matches org-prefixed Inkling 2 Mini model IDs", async () => {
+    await openPage(
+      welcome(inklingCapable("thinkingmachines/Inkling-2-Mini")),
+      "welcome",
+    );
+    expect($("plan-featured-badge").hidden).toBe(false);
+    expect($("featured-spotlight").dataset.recommended).toBe("true");
+  });
+
+  it("shows the library spotlight strip with Thinking Machines link when another model or subscription is recommended", async () => {
+    for (const check of [capable, small, held]) {
+      const { run } = await openPage(welcome(check), "welcome");
+      expect($("plan-featured-badge").hidden).toBe(true);
+      expect($("featured-spotlight").hidden).toBe(false);
+      expect($("featured-spotlight").dataset.recommended).toBe("false");
+      expect($("featured-spotlight-note").textContent).toContain(
+        "Settings → Models",
+      );
+      expect($("featured-spotlight-link").textContent).toBe(
+        "Thinking Machines ↗",
+      );
+
+      $("featured-spotlight-link").click();
+      await vi.waitFor(() =>
+        expect(run).toHaveBeenCalledWith({
+          op: "external.open",
+          url: INKLING_2_MINI_ANNOUNCEMENT_URL,
+        }),
+      );
+
+      $("local-customize").click();
+      document
+        .querySelector<HTMLButtonElement>(
+          '[data-plan="source"] [data-value="local"]',
+        )!
+        .click();
+      expect($("local-model-featured").hidden).toBe(true);
+      expect($("local-spotlight").dataset.recommended).toBe("false");
+      expect($("local-spotlight-text").textContent).toContain(
+        "Settings → Models",
+      );
+      expect($("local-spotlight-link").textContent).toBe("Thinking Machines ↗");
+      $("local-spotlight-link").click();
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+    }
+  });
+
+  it("badges a held Inkling 2 Mini card in Customize without claiming Quick Install selected it", async () => {
+    await openPage(
+      welcome({
+        ...held,
+        model: {
+          name: "inkling-2-mini:UD-Q4_K_M",
+          downloadBytes: 15 * GB,
+          diskBytes: 18 * GB,
+          memoryBytes: 22 * GB,
+          featuredInkling: true,
+        },
+      }),
+      "welcome",
+    );
+    expect($("plan-featured-badge").hidden).toBe(true);
+    expect($("featured-spotlight").dataset.recommended).toBe("false");
+    $("local-customize").click();
+    document
+      .querySelector<HTMLButtonElement>(
+        '[data-plan="source"] [data-value="local"]',
+      )!
+      .click();
+    expect($("local-model-name").textContent).toBe("inkling-2-mini:UD-Q4_K_M");
+    expect($("local-model-featured").hidden).toBe(false);
+    expect($("local-spotlight").dataset.recommended).toBe("true");
+    expect($("local-spotlight-link").textContent).toBe("Learn more ↗");
+  });
+
+  it("hides the featured spotlight when local installation is unavailable", async () => {
+    const base = welcome(small);
+    await openPage(
+      { ...base, localServer: { ...base.localServer, available: false } },
+      "welcome",
+    );
+    expect($("featured-spotlight").hidden).toBe(true);
+    expect($("plan-featured-badge").hidden).toBe(true);
   });
 });

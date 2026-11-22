@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  closeWindowsPrivateWorker,
   WINDOWS_PRIVATE_SCRIPT,
   windowsPrivatePath,
 } from "./windows-private.js";
@@ -50,6 +51,8 @@ it.skipIf(process.platform !== "win32")(
       .filter(Boolean)
       .join(path.delimiter);
     vi.stubEnv("PSModulePath", foreignModules);
+    // Start a fresh worker so it inherits the stubbed PSModulePath.
+    closeWindowsPrivateWorker();
     try {
       const privateFile = path.join(root, "settings.json");
       await writeFile(privateFile, "{}");
@@ -59,6 +62,7 @@ it.skipIf(process.platform !== "win32")(
       expect(process.env.PSModulePath).toBe(foreignModules);
     } finally {
       vi.unstubAllEnvs();
+      closeWindowsPrivateWorker();
     }
   },
 );

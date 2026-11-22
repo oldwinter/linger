@@ -839,8 +839,10 @@ const (
 	CHECKSUMMISMATCH          LocalModelActionRefusalCode = "CHECKSUM_MISMATCH"
 	DISKINSUFFICIENT          LocalModelActionRefusalCode = "DISK_INSUFFICIENT"
 	DOWNLOADFAILED            LocalModelActionRefusalCode = "DOWNLOAD_FAILED"
+	DRIVERUPDATEREQUIRED      LocalModelActionRefusalCode = "DRIVER_UPDATE_REQUIRED"
 	ENGINESTARTFAILED         LocalModelActionRefusalCode = "ENGINE_START_FAILED"
 	GATEWAYREGISTRATIONFAILED LocalModelActionRefusalCode = "GATEWAY_REGISTRATION_FAILED"
+	GPUUNSUPPORTED            LocalModelActionRefusalCode = "GPU_UNSUPPORTED"
 	HEALTHCHECKFAILED         LocalModelActionRefusalCode = "HEALTH_CHECK_FAILED"
 	INVALIDSTATE              LocalModelActionRefusalCode = "INVALID_STATE"
 	JOBRUNNING                LocalModelActionRefusalCode = "JOB_RUNNING"
@@ -851,8 +853,10 @@ const (
 	NETWORKUNAVAILABLE        LocalModelActionRefusalCode = "NETWORK_UNAVAILABLE"
 	OUTOFMEMORY               LocalModelActionRefusalCode = "OUT_OF_MEMORY"
 	PLATFORMUNSUPPORTED       LocalModelActionRefusalCode = "PLATFORM_UNSUPPORTED"
+	RUNTIMEDEPENDENCYMISSING  LocalModelActionRefusalCode = "RUNTIME_DEPENDENCY_MISSING"
 	TOOLFAILED                LocalModelActionRefusalCode = "TOOL_FAILED"
 	TOOLNOTINSTALLED          LocalModelActionRefusalCode = "TOOL_NOT_INSTALLED"
+	UNKNOWNERROR              LocalModelActionRefusalCode = "UNKNOWN_ERROR"
 )
 
 // Valid indicates whether the value is a known member of the LocalModelActionRefusalCode enum.
@@ -866,9 +870,13 @@ func (e LocalModelActionRefusalCode) Valid() bool {
 		return true
 	case DOWNLOADFAILED:
 		return true
+	case DRIVERUPDATEREQUIRED:
+		return true
 	case ENGINESTARTFAILED:
 		return true
 	case GATEWAYREGISTRATIONFAILED:
+		return true
+	case GPUUNSUPPORTED:
 		return true
 	case HEALTHCHECKFAILED:
 		return true
@@ -890,9 +898,13 @@ func (e LocalModelActionRefusalCode) Valid() bool {
 		return true
 	case PLATFORMUNSUPPORTED:
 		return true
+	case RUNTIMEDEPENDENCYMISSING:
+		return true
 	case TOOLFAILED:
 		return true
 	case TOOLNOTINSTALLED:
+		return true
+	case UNKNOWNERROR:
 		return true
 	default:
 		return false

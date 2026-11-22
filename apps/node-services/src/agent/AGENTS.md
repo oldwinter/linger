@@ -155,6 +155,12 @@ take precedence.
   later (`FIRST_STOP_HOOK_COMPUTER_VERSION`), because an older Computer rejects
   unknown envelope fields and closes the connection; Runs on older Computers
   rely on `RunLoop`'s post-hoc `reply_not_sent` check.
+- Extended local-model diagnostics and debug metadata (`local_models_diagnostics`
+  in `runner.welcome`'s `service_features`) are advertised only to Computer
+  0.58.0 or later (`FIRST_LOCAL_MODELS_DIAGNOSTICS_COMPUTER_VERSION`), because
+  an older Computer rejects unknown `ServiceFeature` values and closes the
+  connection; a Daemon talking to an older Agent Service downgrades those
+  snapshot and refusal fields to legacy values.
 - Default unit, integration, and fixture smoke tests use deterministic adapters
   and do not call a live model provider. Explicitly named live suites such as
   `smoke:local-runner:live` may use an authenticated provider and must remain

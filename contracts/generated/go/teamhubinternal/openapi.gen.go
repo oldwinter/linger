@@ -799,9 +799,13 @@ func (e LocalModelArchitecture) Valid() bool {
 
 // Defines values for LocalModelAvailabilityReasonCode.
 const (
-	LocalModelAvailabilityDiskInsufficient    LocalModelAvailabilityReasonCode = "DISK_INSUFFICIENT"
-	LocalModelAvailabilityMemoryInsufficient  LocalModelAvailabilityReasonCode = "MEMORY_INSUFFICIENT"
-	LocalModelAvailabilityPlatformUnsupported LocalModelAvailabilityReasonCode = "PLATFORM_UNSUPPORTED"
+	LocalModelAvailabilityDiskInsufficient         LocalModelAvailabilityReasonCode = "DISK_INSUFFICIENT"
+	LocalModelAvailabilityDriverUpdateRequired     LocalModelAvailabilityReasonCode = "DRIVER_UPDATE_REQUIRED"
+	LocalModelAvailabilityGpuUnsupported           LocalModelAvailabilityReasonCode = "GPU_UNSUPPORTED"
+	LocalModelAvailabilityMemoryInsufficient       LocalModelAvailabilityReasonCode = "MEMORY_INSUFFICIENT"
+	LocalModelAvailabilityPlatformUnsupported      LocalModelAvailabilityReasonCode = "PLATFORM_UNSUPPORTED"
+	LocalModelAvailabilityRuntimeDependencyMissing LocalModelAvailabilityReasonCode = "RUNTIME_DEPENDENCY_MISSING"
+	LocalModelAvailabilityUnavailable              LocalModelAvailabilityReasonCode = "UNAVAILABLE"
 )
 
 // Valid indicates whether the value is a known member of the LocalModelAvailabilityReasonCode enum.
@@ -809,9 +813,62 @@ func (e LocalModelAvailabilityReasonCode) Valid() bool {
 	switch e {
 	case LocalModelAvailabilityDiskInsufficient:
 		return true
+	case LocalModelAvailabilityDriverUpdateRequired:
+		return true
+	case LocalModelAvailabilityGpuUnsupported:
+		return true
 	case LocalModelAvailabilityMemoryInsufficient:
 		return true
 	case LocalModelAvailabilityPlatformUnsupported:
+		return true
+	case LocalModelAvailabilityRuntimeDependencyMissing:
+		return true
+	case LocalModelAvailabilityUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LocalModelAvailabilityReasonGpuVendor.
+const (
+	LocalModelGpuVendorAmd     LocalModelAvailabilityReasonGpuVendor = "amd"
+	LocalModelGpuVendorIntel   LocalModelAvailabilityReasonGpuVendor = "intel"
+	LocalModelGpuVendorNone    LocalModelAvailabilityReasonGpuVendor = "none"
+	LocalModelGpuVendorUnknown LocalModelAvailabilityReasonGpuVendor = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the LocalModelAvailabilityReasonGpuVendor enum.
+func (e LocalModelAvailabilityReasonGpuVendor) Valid() bool {
+	switch e {
+	case LocalModelGpuVendorAmd:
+		return true
+	case LocalModelGpuVendorIntel:
+		return true
+	case LocalModelGpuVendorNone:
+		return true
+	case LocalModelGpuVendorUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LocalModelAvailabilityReasonMemoryKind.
+const (
+	LocalModelMemoryKindRam     LocalModelAvailabilityReasonMemoryKind = "ram"
+	LocalModelMemoryKindUnified LocalModelAvailabilityReasonMemoryKind = "unified"
+	LocalModelMemoryKindVram    LocalModelAvailabilityReasonMemoryKind = "vram"
+)
+
+// Valid indicates whether the value is a known member of the LocalModelAvailabilityReasonMemoryKind enum.
+func (e LocalModelAvailabilityReasonMemoryKind) Valid() bool {
+	switch e {
+	case LocalModelMemoryKindRam:
+		return true
+	case LocalModelMemoryKindUnified:
+		return true
+	case LocalModelMemoryKindVram:
 		return true
 	default:
 		return false
@@ -884,8 +941,10 @@ const (
 	CHECKSUMMISMATCH          LocalModelErrorCode = "CHECKSUM_MISMATCH"
 	DISKINSUFFICIENT          LocalModelErrorCode = "DISK_INSUFFICIENT"
 	DOWNLOADFAILED            LocalModelErrorCode = "DOWNLOAD_FAILED"
+	DRIVERUPDATEREQUIRED      LocalModelErrorCode = "DRIVER_UPDATE_REQUIRED"
 	ENGINESTARTFAILED         LocalModelErrorCode = "ENGINE_START_FAILED"
 	GATEWAYREGISTRATIONFAILED LocalModelErrorCode = "GATEWAY_REGISTRATION_FAILED"
+	GPUUNSUPPORTED            LocalModelErrorCode = "GPU_UNSUPPORTED"
 	HEALTHCHECKFAILED         LocalModelErrorCode = "HEALTH_CHECK_FAILED"
 	INVALIDSTATE              LocalModelErrorCode = "INVALID_STATE"
 	JOBRUNNING                LocalModelErrorCode = "JOB_RUNNING"
@@ -896,6 +955,8 @@ const (
 	NETWORKUNAVAILABLE        LocalModelErrorCode = "NETWORK_UNAVAILABLE"
 	OUTOFMEMORY               LocalModelErrorCode = "OUT_OF_MEMORY"
 	PLATFORMUNSUPPORTED       LocalModelErrorCode = "PLATFORM_UNSUPPORTED"
+	RUNTIMEDEPENDENCYMISSING  LocalModelErrorCode = "RUNTIME_DEPENDENCY_MISSING"
+	UNKNOWNERROR              LocalModelErrorCode = "UNKNOWN_ERROR"
 )
 
 // Valid indicates whether the value is a known member of the LocalModelErrorCode enum.
@@ -909,9 +970,13 @@ func (e LocalModelErrorCode) Valid() bool {
 		return true
 	case DOWNLOADFAILED:
 		return true
+	case DRIVERUPDATEREQUIRED:
+		return true
 	case ENGINESTARTFAILED:
 		return true
 	case GATEWAYREGISTRATIONFAILED:
+		return true
+	case GPUUNSUPPORTED:
 		return true
 	case HEALTHCHECKFAILED:
 		return true
@@ -932,6 +997,10 @@ func (e LocalModelErrorCode) Valid() bool {
 	case OUTOFMEMORY:
 		return true
 	case PLATFORMUNSUPPORTED:
+		return true
+	case RUNTIMEDEPENDENCYMISSING:
+		return true
+	case UNKNOWNERROR:
 		return true
 	default:
 		return false
@@ -1127,6 +1196,45 @@ func (e LocalModelState) Valid() bool {
 	case LocalModelStateLoaded:
 		return true
 	case LocalModelStateLoading:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LocalModelsDebugInfoMode.
+const (
+	LocalModelsDebugModeSimulate LocalModelsDebugInfoMode = "simulate"
+	LocalModelsDebugModeTiny     LocalModelsDebugInfoMode = "tiny"
+)
+
+// Valid indicates whether the value is a known member of the LocalModelsDebugInfoMode enum.
+func (e LocalModelsDebugInfoMode) Valid() bool {
+	switch e {
+	case LocalModelsDebugModeSimulate:
+		return true
+	case LocalModelsDebugModeTiny:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LocalModelsDebugInfoSource.
+const (
+	LocalModelsDebugSourceEnv         LocalModelsDebugInfoSource = "env"
+	LocalModelsDebugSourceStateConfig LocalModelsDebugInfoSource = "state_config"
+	LocalModelsDebugSourceUserConfig  LocalModelsDebugInfoSource = "user_config"
+)
+
+// Valid indicates whether the value is a known member of the LocalModelsDebugInfoSource enum.
+func (e LocalModelsDebugInfoSource) Valid() bool {
+	switch e {
+	case LocalModelsDebugSourceEnv:
+		return true
+	case LocalModelsDebugSourceStateConfig:
+		return true
+	case LocalModelsDebugSourceUserConfig:
 		return true
 	default:
 		return false
@@ -3324,13 +3432,43 @@ type LocalModelAvailability struct {
 
 // LocalModelAvailabilityReason defines model for LocalModelAvailabilityReason.
 type LocalModelAvailabilityReason struct {
-	Code      LocalModelAvailabilityReasonCode `json:"code"`
-	HaveBytes *int64                           `json:"have_bytes,omitempty"`
-	NeedBytes *int64                           `json:"need_bytes,omitempty"`
+	Code LocalModelAvailabilityReasonCode `json:"code"`
+
+	// DetectedCuda With DRIVER_UPDATE_REQUIRED: CUDA version reported by the installed driver.
+	DetectedCuda *string `json:"detected_cuda,omitempty"`
+
+	// DetectedGlibc With RUNTIME_DEPENDENCY_MISSING: glibc version detected on this Computer.
+	DetectedGlibc *string `json:"detected_glibc,omitempty"`
+
+	// DriverVersion With DRIVER_UPDATE_REQUIRED: installed NVIDIA driver version.
+	DriverVersion *string `json:"driver_version,omitempty"`
+
+	// GpuVendor With GPU_UNSUPPORTED: detected GPU vendor class on this Computer.
+	GpuVendor *LocalModelAvailabilityReasonGpuVendor `json:"gpu_vendor,omitempty"`
+	HaveBytes *int64                                 `json:"have_bytes,omitempty"`
+
+	// MemoryKind With MEMORY_INSUFFICIENT: which memory space was short.
+	MemoryKind *LocalModelAvailabilityReasonMemoryKind `json:"memory_kind,omitempty"`
+
+	// MissingLibraries With RUNTIME_DEPENDENCY_MISSING: missing shared libraries such as libgomp.so.1.
+	MissingLibraries *[]string `json:"missing_libraries,omitempty"`
+	NeedBytes        *int64    `json:"need_bytes,omitempty"`
+
+	// RequiredCuda With DRIVER_UPDATE_REQUIRED: minimum CUDA version required by the pinned engine.
+	RequiredCuda *string `json:"required_cuda,omitempty"`
+
+	// RequiredGlibc With RUNTIME_DEPENDENCY_MISSING: minimum glibc version required by the engine.
+	RequiredGlibc *string `json:"required_glibc,omitempty"`
 }
 
 // LocalModelAvailabilityReasonCode defines model for LocalModelAvailabilityReason.Code.
 type LocalModelAvailabilityReasonCode string
+
+// LocalModelAvailabilityReasonGpuVendor With GPU_UNSUPPORTED: detected GPU vendor class on this Computer.
+type LocalModelAvailabilityReasonGpuVendor string
+
+// LocalModelAvailabilityReasonMemoryKind With MEMORY_INSUFFICIENT: which memory space was short.
+type LocalModelAvailabilityReasonMemoryKind string
 
 // LocalModelCapability Model capability verified by localmodels on this platform.
 type LocalModelCapability string
@@ -3356,7 +3494,7 @@ type LocalModelError struct {
 	// Cause Why a GATEWAY_REGISTRATION_FAILED happened, when the Computer supervised the failed job. GATEWAY_HOME_NOT_PRIVATE: the local gateway's private folder at path has another owner; closing Linger and renaming that folder lets the model load.
 	Cause *LocalModelErrorCause `json:"cause,omitempty"`
 
-	// Code Closed localmodels library error set. It is extended only together with the localmodels library contract.
+	// Code Closed localmodels library error set. It is extended only together with the localmodels library contract; UNKNOWN_ERROR preserves forward compatibility with newer localmodels releases.
 	Code LocalModelErrorCode `json:"code"`
 
 	// Detail Diagnostic text for display; never matched on.
@@ -3369,7 +3507,7 @@ type LocalModelError struct {
 // LocalModelErrorCause Why a GATEWAY_REGISTRATION_FAILED happened, when the Computer supervised the failed job. GATEWAY_HOME_NOT_PRIVATE: the local gateway's private folder at path has another owner; closing Linger and renaming that folder lets the model load.
 type LocalModelErrorCause string
 
-// LocalModelErrorCode Closed localmodels library error set. It is extended only together with the localmodels library contract.
+// LocalModelErrorCode Closed localmodels library error set. It is extended only together with the localmodels library contract; UNKNOWN_ERROR preserves forward compatibility with newer localmodels releases.
 type LocalModelErrorCode string
 
 // LocalModelFamily Model family for brand presentation; never inferred from name.
@@ -3452,9 +3590,26 @@ type LocalModelPoolId = string
 // LocalModelState absent: not on disk. idle: on disk, holding no memory. loading reserves its memory before it finishes; loaded is registered with the local gateway and Pi.
 type LocalModelState string
 
+// LocalModelsDebugInfo Present only when localmodels debug mode (tiny or simulate) is active on the Computer. config_path is shown only to the Computer owner.
+type LocalModelsDebugInfo struct {
+	// ConfigPath Local debug.json path when source is state_config or user_config; owner-only in the public view.
+	ConfigPath *string                    `json:"config_path,omitempty"`
+	Mode       LocalModelsDebugInfoMode   `json:"mode"`
+	Source     LocalModelsDebugInfoSource `json:"source"`
+}
+
+// LocalModelsDebugInfoMode defines model for LocalModelsDebugInfo.Mode.
+type LocalModelsDebugInfoMode string
+
+// LocalModelsDebugInfoSource defines model for LocalModelsDebugInfo.Source.
+type LocalModelsDebugInfoSource string
+
 // LocalModelsSnapshot A Computer's model library as its Daemon reported it in runner.local_models, mapped from localmodels.library-status/v1. When available is false only reason and observed_at carry meaning and the lists are empty.
 type LocalModelsSnapshot struct {
 	Available bool `json:"available"`
+
+	// Debug Present only when localmodels debug mode (tiny or simulate) is active on the Computer. config_path is shown only to the Computer owner.
+	Debug *LocalModelsDebugInfo `json:"debug,omitempty"`
 
 	// Host Hardware and software of the Computer as localmodels reports it.
 	Host   *LocalModelHost `json:"host,omitempty"`

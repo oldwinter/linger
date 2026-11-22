@@ -174,20 +174,44 @@ library (`localmodels-computer.ts`). A fresh login passes it as
 `--localmodels-*` options; it is part of the managed-runtime fingerprint, so an
 existing Computer is rebound once on its next connect. A distribution without
 the tool writes none. External Computers (the Desktop's) get the same paths as
-the `LINGER_LOCALMODELS_*` keys of the installer's instance runtime.
+the `LINGER_LOCALMODELS_*` keys of the installer's instance runtime. Every
+`localmodels` invocation in both the installer and the Daemon also isolates
+`LOCALMODELS_TOOLS_DIR` (`<home>/runtime/localmodels/tools`),
+`LOCALMODELS_BIFROST_DIR` (`<home>/runtime/localmodels/bifrost`), and
+`LOCALMODELS_BIFROST_ADDR` per installation home, stripping inherited values.
+The Bifrost address comes from `<tools>/owned.json` (`gateway.bifrost.addr`)
+when present, else `<home>/runtime/localmodels/bifrost-addr`, and on commands
+that may plan or start Bifrost defaults to `127.0.0.1:18480` when free or
+allocates and persists a free loopback port when `127.0.0.1:18480` is held by
+another process; stop and read-only calls never probe or allocate a port.
 
 Setup sets the Computer's model source through `localmodels source apply`
 (`byok-source.ts`): BYOK after the Runtime is ready, a local model after the
 stack is, and a subscription after its Runtime installs, signed in or not.
 The local source is set only by a start whose request chose local models
-(`setupChoice` or a plan approval); a restart from the saved choice keeps a
-source the person switched to on the Models page.
+(`setupChoice` or a plan approval); a restart or version upgrade from the saved
+choice keeps a source the person switched to on the Models page (leaving the
+local model stack stopped while `model-source.json` names `byok` or
+`subscription`).
 The installer reads `model-source.json` (`readByokEnvironment`) but never
-writes it. `restoreLocalModels` (`local-models.ts`) brings back a
+writes it. When a deployed local-model stack's binding reports a stopped
+service or gateway (`deployment-unavailable` or `gateway-unavailable`) and its
+saved plan inputs still match, `prepareLocalModels` starts the installed stack
+in place with `localmodels stack up` first (no re-plan against a newer
+`localmodels` kit path, live free memory, or retired catalog models; previous
+kits under `<home>/tools/localmodels/<sha256>` stay on disk so existing
+deployments' launchers remain runnable) and falls back to `stack apply` only
+when `stack up` fails or the binding still needs repair (such as
+`pi-extensions-unavailable`). Structured `localmodels.stack-error/v1`,
+`stack apply` result, and `localmodels.stack-up/v1` failures are translated to
+redacted human-readable messages with their `causeCode` in `details.causeCode`,
+and an unreviewable saved plan returns `LOCAL_MODELS_RECOVERY_REQUIRED` with
+`STACK_PLAN_INVALID`. `restoreLocalModels` (`local-models.ts`) brings back a
 local-models setup's stack while its services keep running, such as after
-the desktop's quit stopped it, but only while that source is `local` or not
+the desktop's quit stopped it, only while that source is `local` or not
 saved yet: a ready stack costs one `setup binding` check, a stopped one gets
-its approved plan applied again and the local source set again. Deployments,
+the same restore (`stack up`, falling back to `stack apply`) and the local
+source set again. Deployments,
 that check and the quit-time stop share one lock per home
 (`withLocalModelsLock`); the check waits up to 180 s for it, past the stop's
 150 s hard exit, then asks to try again.

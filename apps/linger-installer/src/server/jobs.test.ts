@@ -414,7 +414,10 @@ test("local model recovery uses an explicit safe code and retries discard spent 
       state: "action_required",
       code: 4,
       message: "Review updated plan",
-      details: { code: "LOCAL_MODELS_RECOVERY_REQUIRED" },
+      details: {
+        code: "LOCAL_MODELS_RECOVERY_REQUIRED",
+        reasons: ["binding-unavailable", "INVALID REASON"],
+      },
     };
   });
   const job = await jobs.start({
@@ -425,6 +428,7 @@ test("local model recovery uses an explicit safe code and retries discard spent 
   expect(jobs.get(job.id)).toMatchObject({
     state: "waiting_user",
     errorCode: "LOCAL_MODELS_RECOVERY_REQUIRED",
+    errorReasons: ["binding-unavailable"],
   });
   const retry = await jobs.retry(job.id);
   await jobs.wait(retry!.id);

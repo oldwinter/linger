@@ -637,6 +637,8 @@ export interface components {
       knowledge?: string;
       localModelsPlan?: components["schemas"]["LocalModelsPlan"];
       errorCode?: string;
+      /** @description Structured upstream reason codes explaining why a local model binding or setup step is not ready. */
+      errorReasons?: string[];
       cancelRequested?: boolean;
     };
     InstallationEvent: {

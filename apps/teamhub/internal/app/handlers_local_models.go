@@ -29,31 +29,37 @@ var (
 // localModelRefusalCodes maps the Computer's refusals a Human can act on to
 // their own public code; every other refusal is LOCAL_MODEL_ACTION_FAILED.
 var localModelRefusalCodes = map[string]httpapi.LocalModelsErrorCode{
-	"TOOL_NOT_INSTALLED":   httpapi.LocalModelsErrorCodeLOCALMODELSUNAVAILABLE,
-	"TOOL_FAILED":          httpapi.LocalModelsErrorCodeLOCALMODELSUNAVAILABLE,
-	"MODEL_UNKNOWN":        httpapi.LocalModelsErrorCodeLOCALMODELUNKNOWN,
-	"INVALID_STATE":        httpapi.LocalModelsErrorCodeLOCALMODELINVALIDSTATE,
-	"JOB_RUNNING":          httpapi.LocalModelsErrorCodeLOCALMODELJOBRUNNING,
-	"LOAD_NO_ROOM":         httpapi.LocalModelsErrorCodeLOCALMODELNOROOM,
-	"MEMORY_INSUFFICIENT":  httpapi.LocalModelsErrorCodeLOCALMODELMEMORYINSUFFICIENT,
-	"DISK_INSUFFICIENT":    httpapi.LocalModelsErrorCodeLOCALMODELDISKINSUFFICIENT,
-	"PLATFORM_UNSUPPORTED": httpapi.LocalModelsErrorCodeLOCALMODELPLATFORMUNSUPPORTED,
+	"TOOL_NOT_INSTALLED":         httpapi.LocalModelsErrorCodeLOCALMODELSUNAVAILABLE,
+	"TOOL_FAILED":                httpapi.LocalModelsErrorCodeLOCALMODELSUNAVAILABLE,
+	"MODEL_UNKNOWN":              httpapi.LocalModelsErrorCodeLOCALMODELUNKNOWN,
+	"INVALID_STATE":              httpapi.LocalModelsErrorCodeLOCALMODELINVALIDSTATE,
+	"JOB_RUNNING":                httpapi.LocalModelsErrorCodeLOCALMODELJOBRUNNING,
+	"LOAD_NO_ROOM":               httpapi.LocalModelsErrorCodeLOCALMODELNOROOM,
+	"MEMORY_INSUFFICIENT":        httpapi.LocalModelsErrorCodeLOCALMODELMEMORYINSUFFICIENT,
+	"DISK_INSUFFICIENT":          httpapi.LocalModelsErrorCodeLOCALMODELDISKINSUFFICIENT,
+	"PLATFORM_UNSUPPORTED":       httpapi.LocalModelsErrorCodeLOCALMODELPLATFORMUNSUPPORTED,
+	"GPU_UNSUPPORTED":            httpapi.LocalModelsErrorCodeLOCALMODELGPUUNSUPPORTED,
+	"DRIVER_UPDATE_REQUIRED":     httpapi.LocalModelsErrorCodeLOCALMODELDRIVERUPDATEREQUIRED,
+	"RUNTIME_DEPENDENCY_MISSING": httpapi.LocalModelsErrorCodeLOCALMODELRUNTIMEDEPENDENCYMISSING,
 }
 
 var localModelsErrorMessages = map[httpapi.LocalModelsErrorCode]string{
-	httpapi.LocalModelsErrorCodeLOCALCOMPUTEROFFLINE:          "Local Computer is offline",
-	httpapi.LocalModelsErrorCodeLOCALMODELACTIONFORBIDDEN:     "Only the Computer's owner can change its models",
-	httpapi.LocalModelsErrorCodeLOCALMODELSUNAVAILABLE:        "The Computer has no usable model library",
-	httpapi.LocalModelsErrorCodeLOCALMODELUNKNOWN:             "The Computer does not know this model",
-	httpapi.LocalModelsErrorCodeLOCALMODELINVALIDSTATE:        "The model cannot do that in its current state",
-	httpapi.LocalModelsErrorCodeLOCALMODELJOBRUNNING:          "The Computer is already working on this model",
-	httpapi.LocalModelsErrorCodeLOCALMODELNOROOM:              "There is not enough free memory to load this model",
-	httpapi.LocalModelsErrorCodeLOCALMODELMEMORYINSUFFICIENT:  "The Computer does not have enough memory for this model",
-	httpapi.LocalModelsErrorCodeLOCALMODELDISKINSUFFICIENT:    "The Computer does not have enough disk space for this model",
-	httpapi.LocalModelsErrorCodeLOCALMODELPLATFORMUNSUPPORTED: "The model does not run on this Computer",
-	httpapi.LocalModelsErrorCodeLOCALMODELACTIONFAILED:        "The Computer could not start this action",
-	httpapi.LocalModelsErrorCodeLOCALMODELACTIONUNCONFIRMED:   "The Computer did not confirm the action in time",
-	httpapi.LocalModelsErrorCodeLOCALMODELSSERVICEUNAVAILABLE: "Local models are unavailable",
+	httpapi.LocalModelsErrorCodeLOCALCOMPUTEROFFLINE:               "Local Computer is offline",
+	httpapi.LocalModelsErrorCodeLOCALMODELACTIONFORBIDDEN:          "Only the Computer's owner can change its models",
+	httpapi.LocalModelsErrorCodeLOCALMODELSUNAVAILABLE:             "The Computer has no usable model library",
+	httpapi.LocalModelsErrorCodeLOCALMODELUNKNOWN:                  "The Computer does not know this model",
+	httpapi.LocalModelsErrorCodeLOCALMODELINVALIDSTATE:             "The model cannot do that in its current state",
+	httpapi.LocalModelsErrorCodeLOCALMODELJOBRUNNING:               "The Computer is already working on this model",
+	httpapi.LocalModelsErrorCodeLOCALMODELNOROOM:                   "There is not enough free memory to load this model",
+	httpapi.LocalModelsErrorCodeLOCALMODELMEMORYINSUFFICIENT:       "The Computer does not have enough memory for this model",
+	httpapi.LocalModelsErrorCodeLOCALMODELDISKINSUFFICIENT:         "The Computer does not have enough disk space for this model",
+	httpapi.LocalModelsErrorCodeLOCALMODELPLATFORMUNSUPPORTED:      "The model does not run on this Computer",
+	httpapi.LocalModelsErrorCodeLOCALMODELGPUUNSUPPORTED:           "This Computer's GPU is not supported for local models",
+	httpapi.LocalModelsErrorCodeLOCALMODELDRIVERUPDATEREQUIRED:     "Update the NVIDIA driver on this Computer to run local models",
+	httpapi.LocalModelsErrorCodeLOCALMODELRUNTIMEDEPENDENCYMISSING: "This Computer is missing required system runtime libraries for local models",
+	httpapi.LocalModelsErrorCodeLOCALMODELACTIONFAILED:             "The Computer could not start this action",
+	httpapi.LocalModelsErrorCodeLOCALMODELACTIONUNCONFIRMED:        "The Computer did not confirm the action in time",
+	httpapi.LocalModelsErrorCodeLOCALMODELSSERVICEUNAVAILABLE:      "Local models are unavailable",
 }
 
 var localModelsErrorStatuses = map[httpapi.LocalModelsErrorCode]int{
@@ -73,6 +79,7 @@ type storedLocalModelsSnapshot struct {
 	ToolVersion *string                                   `json:"tool_version"`
 	Pools       []httpapi.LocalModelPool                  `json:"pools"`
 	Models      []httpapi.LocalModel                      `json:"models"`
+	Debug       *httpapi.LocalModelsDebugInfo             `json:"debug,omitempty"`
 }
 
 // getLocalComputerModels shows a Computer's last reported model library to
@@ -133,6 +140,13 @@ func localModelsView(record agentruntimestate.LocalModelsRecord, viewerID string
 		return httpapi.LocalModelsView{}, err
 	}
 	view.Available, view.Reason, view.ObservedAt, view.ToolVersion = snapshot.Available, snapshot.Reason, snapshot.ObservedAt, snapshot.ToolVersion
+	if snapshot.Debug != nil {
+		debugCopy := *snapshot.Debug
+		if !view.ViewerIsOwner {
+			debugCopy.ConfigPath = nil
+		}
+		view.Debug = &debugCopy
+	}
 	if snapshot.Pools != nil {
 		view.Pools = snapshot.Pools
 	}
@@ -286,6 +300,7 @@ func (a *App) recordAgentRuntimeLocalModels(c *gin.Context) {
 	if !a.decodeAgentRuntimeStateBody(c, &request) {
 		return
 	}
+	sanitizeLocalModelsSnapshot(&request.Snapshot)
 	if !validLocalModelsSnapshot(request.Snapshot) {
 		a.writeAgentRuntimeStateError(c, "decode Local Computer models", agentruntimestate.ErrInvalid)
 		return
@@ -306,6 +321,63 @@ func (a *App) recordAgentRuntimeLocalModels(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+// sanitizeLocalModelsSnapshot normalizes extensible display and diagnostic
+// enums so a newer Computer Daemon or localmodels catalog never fails snapshot
+// ingestion with HTTP 400 while preserving structural and security checks.
+func sanitizeLocalModelsSnapshot(snapshot *teamhubinternal.LocalModelsSnapshot) {
+	if snapshot.Debug != nil && (!snapshot.Debug.Mode.Valid() || !snapshot.Debug.Source.Valid()) {
+		snapshot.Debug = nil
+	}
+	for i := range snapshot.Models {
+		model := &snapshot.Models[i]
+		if model.Family != nil && !model.Family.Valid() {
+			other := teamhubinternal.LocalModelFamilyOther
+			model.Family = &other
+		}
+		if model.Architecture != nil && !model.Architecture.Valid() {
+			model.Architecture = nil
+		}
+		if model.Capabilities != nil {
+			filtered := make([]teamhubinternal.LocalModelCapability, 0, len(*model.Capabilities))
+			for _, capability := range *model.Capabilities {
+				if capability.Valid() && !slices.Contains(filtered, capability) {
+					filtered = append(filtered, capability)
+				}
+			}
+			if len(filtered) > 0 {
+				model.Capabilities = &filtered
+			} else {
+				model.Capabilities = nil
+			}
+		}
+		if reason := model.Availability.Reason; reason != nil {
+			if !reason.Code.Valid() {
+				model.Availability.Reason = &teamhubinternal.LocalModelAvailabilityReason{
+					Code: teamhubinternal.LocalModelAvailabilityUnavailable,
+				}
+			} else {
+				if reason.MemoryKind != nil && !reason.MemoryKind.Valid() {
+					reason.MemoryKind = nil
+				}
+				if reason.GpuVendor != nil && !reason.GpuVendor.Valid() {
+					reason.GpuVendor = nil
+				}
+			}
+		}
+		if model.Error != nil {
+			if !model.Error.Code.Valid() {
+				model.Error.Code = teamhubinternal.UNKNOWNERROR
+				model.Error.Cause, model.Error.Path = nil, nil
+			} else if model.Error.Cause != nil && !model.Error.Cause.Valid() {
+				model.Error.Cause, model.Error.Path = nil, nil
+			}
+		}
+		if model.Note != nil && !model.Note.Code.Valid() {
+			model.Note = nil
+		}
+	}
 }
 
 // validLocalModelsSnapshot checks what the public view relies on: the

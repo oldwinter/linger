@@ -58,6 +58,7 @@ import {
   TEAMHUB_BINARY_DIRECTORY,
 } from "@linger/local-installation/teamhub-binaries";
 import { redact } from "@linger/local-installation/redaction";
+import { isInkling2MiniModelId } from "@linger/service-kit/featured-models";
 import {
   windowsPrivateRefusal,
   type WindowsPrivateRefusal,
@@ -321,6 +322,14 @@ export interface LocalServerStatus {
   // While failed because the installer refused a folder as not private
   // (Windows): its code and reason.
   readonly refusal?: WindowsPrivateRefusal;
+  // While ready after a degraded resume where local models could not be restored.
+  readonly localModelsDegraded?: LocalModelsDegradedStatus;
+}
+
+export interface LocalModelsDegradedStatus {
+  readonly code: string;
+  readonly message: string;
+  readonly reasons?: readonly string[];
 }
 
 export interface LocalServerOptions {
@@ -467,6 +476,7 @@ export class LocalServerModule implements Module {
   #location: string | undefined;
   #locationError: string | undefined;
   #refusal: WindowsPrivateRefusal | undefined;
+  #localModelsDegraded: LocalModelsDegradedStatus | undefined;
   #node: Promise<string> | undefined;
   #abort = new AbortController();
   #offRetry: (() => void) | undefined;
@@ -668,6 +678,9 @@ export class LocalServerModule implements Module {
       ...(this.#byokModels ? { byokModels: this.#byokModels } : {}),
       ...(this.#legacyBackup ? { legacyBackup: this.#legacyBackup } : {}),
       ...(this.#refusal ? { refusal: this.#refusal } : {}),
+      ...(this.#localModelsDegraded
+        ? { localModelsDegraded: this.#localModelsDegraded }
+        : {}),
     };
   }
 
@@ -1058,6 +1071,9 @@ export class LocalServerModule implements Module {
               downloadBytes: bytes(estimate?.downloadBytes),
               diskBytes: bytes(estimate?.diskBytes),
               memoryBytes: bytes(estimate?.memoryBytes),
+              ...(isInkling2MiniModelId(name)
+                ? { featuredInkling: true as const }
+                : {}),
             },
           }
         : {}),
@@ -1643,6 +1659,7 @@ export class LocalServerModule implements Module {
     this.#phase = phase;
     this.#message = message;
     this.#refusal = phase === "failed" ? refusal : undefined;
+    if (phase !== "ready") this.#localModelsDegraded = undefined;
     this.#ctx?.bus.emit("local-server.changed");
   }
 
@@ -2739,24 +2756,18 @@ export class LocalServerModule implements Module {
       ms: Date.now() - resumeStartedAt,
     });
     if (outcome.code !== 0) {
-      const { code, reasons } = outcome.details ?? {};
+      const { code, causeCode, reasons } = outcome.details ?? {};
       const action =
-        typeof code === "string" && Object.hasOwn(RESUME_ACTIONS, code)
-          ? RESUME_ACTIONS[code]
-          : undefined;
-      const reason = Array.isArray(reasons)
-        ? reasons.find(
-            (item): item is string =>
-              typeof item === "string" &&
-              Object.hasOwn(LOCAL_MODEL_NOT_READY, item),
-          )
-        : undefined;
+        code === "LOCAL_MODELS_RECOVERY_REQUIRED" &&
+        typeof causeCode === "string" &&
+        REPLAN_ONLY_CAUSES.has(causeCode)
+          ? RESUME_REPLAN_ACTION
+          : typeof code === "string" && Object.hasOwn(RESUME_ACTIONS, code)
+            ? RESUME_ACTIONS[code]
+            : undefined;
+      const notReady = localModelNotReadyMessage(reasons);
       throw new Error(
-        [
-          reason && LOCAL_MODEL_NOT_READY[reason],
-          outcome.message || "The installation stopped",
-          action,
-        ]
+        [notReady, outcome.message || "The installation stopped", action]
           .filter(Boolean)
           .join(" "),
       );
@@ -2777,6 +2788,37 @@ export class LocalServerModule implements Module {
         message:
           typeof byokGateway.message === "string" ? byokGateway.message : "",
       });
+    // The services run without local models; the person can still reach the
+    // workspace and the Models page to manage local models or switch runtimes.
+    const localModelsDegraded = outcome.details?.localModelsDegraded as
+      | { code?: unknown; message?: unknown; reasons?: unknown }
+      | null
+      | undefined;
+    if (
+      localModelsDegraded &&
+      typeof localModelsDegraded === "object" &&
+      typeof localModelsDegraded.code === "string"
+    ) {
+      const degradedReasons = Array.isArray(localModelsDegraded.reasons)
+        ? localModelsDegraded.reasons.filter(
+            (item): item is string => typeof item === "string",
+          )
+        : [];
+      const degraded: LocalModelsDegradedStatus = {
+        code: localModelsDegraded.code,
+        message:
+          typeof localModelsDegraded.message === "string"
+            ? localModelsDegraded.message
+            : "",
+        ...(degradedReasons.length ? { reasons: degradedReasons } : {}),
+      };
+      this.#localModelsDegraded = degraded;
+      this.#ctx?.log.warn("local_server.local_models_unavailable", {
+        ...degraded,
+      });
+    } else {
+      this.#localModelsDegraded = undefined;
+    }
     this.#adoptRuntime(outcome.runtime);
     const { source, origin } = outcome.details ?? {};
     return {
@@ -2908,9 +2950,12 @@ interface ResumeOutcome {
     source?: unknown;
     origin?: unknown;
     code?: unknown;
+    causeCode?: unknown;
     reasons?: unknown;
     // Why a saved BYOK source's gateway did not come back: `{ code, message }`.
     byokGateway?: unknown;
+    // Why local models did not come back on resume: `{ code, message, reasons? }`.
+    localModelsDegraded?: unknown;
   };
   runtime?: InstanceRuntime;
 }
@@ -3028,6 +3073,7 @@ interface Job {
   readonly message?: string;
   readonly origin?: string;
   readonly errorCode?: string;
+  readonly errorReasons?: readonly string[];
   // The deployment the installer asks to approve before a local model.
   readonly localModelsPlan?: { readonly planId: string };
   readonly stages: readonly {
@@ -3101,12 +3147,23 @@ const LOCAL_MODEL_FAILURES = new Set([
 // What works from the start-failure page when the local model stops a
 // restart: a restart applies the approved plan again, but only setup can
 // approve a new one or switch the runtime.
+const RESUME_REPLAN_ACTION =
+  "Set Up Again to review a new plan or choose another AI runtime.";
 const RESUME_ACTIONS: Record<string, string> = {
   LOCAL_MODELS_RECOVERY_REQUIRED:
     "Try Again to apply the approved local model plan again, or Set Up Again to review a new plan or choose another AI runtime.",
   LOCAL_MODELS_APPROVAL_REQUIRED:
     "Set Up Again to review the local model plan or choose another AI runtime.",
 };
+// Upstream stack guard codes where re-applying the same saved plan without
+// replanning cannot succeed (for example after a localmodels kit or catalog
+// update, or when the saved plan no longer fits).
+const REPLAN_ONLY_CAUSES = new Set([
+  "STACK_REPLAN_FAILED",
+  "STACK_PLAN_CHANGED",
+  "STACK_APPROVAL_MISMATCH",
+  "STACK_PLAN_INVALID",
+]);
 
 // Why the local model stack was not ready, by the reason code localmodels'
 // setup binding gives.
@@ -3122,6 +3179,15 @@ const LOCAL_MODEL_NOT_READY: Record<string, string> = {
   "plan-invalid": "The approved local model plan can't be read.",
   "binding-unavailable": "The local model stack couldn't be checked.",
 };
+
+function localModelNotReadyMessage(reasons: unknown): string | undefined {
+  if (!Array.isArray(reasons)) return undefined;
+  const code = reasons.find(
+    (item): item is string =>
+      typeof item === "string" && Object.hasOwn(LOCAL_MODEL_NOT_READY, item),
+  );
+  return code ? LOCAL_MODEL_NOT_READY[code] : undefined;
+}
 
 export interface Reconnect {
   readonly windowMs: number;
@@ -3338,7 +3404,8 @@ export class InstallerApi {
         job.state === "waiting_user" &&
         job.errorCode === "LOCAL_MODELS_RECOVERY_REQUIRED" &&
         plan.runtime === "local" &&
-        !replanned
+        !replanned &&
+        !job.errorReasons?.includes("binding-unavailable")
       ) {
         replanned = true;
         onStep("services", 0, "Deploying the local model");
@@ -3348,16 +3415,18 @@ export class InstallerApi {
         );
         continue;
       }
-      if (!["queued", "running"].includes(job.state))
+      if (!["queued", "running"].includes(job.state)) {
+        const notReady = localModelNotReadyMessage(job.errorReasons);
         throw new Error(
           // Only the planner finding no model that fits can be helped by
           // freeing memory; free memory is what it measures at that moment.
           job.errorCode === "LOCAL_MODELS_UNAVAILABLE"
             ? `This computer can't run the local model right now. Close other programs to free memory, or choose another AI runtime, and try again.${job.message ? ` (${job.message})` : ""}`
             : LOCAL_MODEL_FAILURES.has(job.errorCode ?? "")
-              ? `This computer can't run the local model right now. Choose another AI runtime and try again.${job.message ? ` (${job.message})` : ""}`
+              ? `${notReady ? `${notReady} ` : ""}This computer can't run the local model right now. Choose another AI runtime and try again.${!notReady && job.message ? ` (${job.message})` : ""}`
               : job.message || "The installation stopped",
         );
+      }
       await delay(this.#pollMs, undefined, { signal });
       job = await this.#poll(job.id, signal, () => {
         if (shown) onStep(shown[0], shown[1], "Reconnecting to the installer…");

@@ -8,13 +8,21 @@ import type { ComponentProps, ReactNode } from "react";
 export function DropdownOptions({
   children,
   className = "",
+  header,
   listClassName = "",
+  listProps,
   ref,
   ...props
-}: ComponentProps<"div"> & { listClassName?: string }) {
+}: ComponentProps<"div"> & {
+  header?: ReactNode;
+  listClassName?: string;
+  listProps?: ComponentProps<"div">;
+}) {
   return (
     <div {...props} className={`dropdown-options ${className}`} ref={ref}>
+      {header}
       <div
+        {...listProps}
         className={`dropdown-options-list workspace-scrollbar ${listClassName}`}
       >
         {children}
@@ -26,11 +34,23 @@ export function DropdownOptions({
 export function DropdownOption({
   children,
   className = "",
+  labelClassName = "",
+  leading,
+  trailing,
   ...props
-}: Omit<ComponentProps<"button">, "children"> & { children: ReactNode }) {
+}: Omit<ComponentProps<"button">, "children"> & {
+  children: ReactNode;
+  labelClassName?: string;
+  leading?: ReactNode;
+  trailing?: ReactNode;
+}) {
   return (
     <button type="button" {...props} className={`dropdown-option ${className}`}>
-      <span className="dropdown-option-label truncate">{children}</span>
+      {leading}
+      <span className={`dropdown-option-label truncate ${labelClassName}`}>
+        {children}
+      </span>
+      {trailing}
     </button>
   );
 }

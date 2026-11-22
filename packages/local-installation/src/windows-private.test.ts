@@ -1,10 +1,14 @@
+import { EventEmitter } from "node:events";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 import { expect, it, vi } from "vitest";
 import {
+  createWindowsPrivateClient,
   windowsPrivatePath,
   windowsPrivateRefusal,
   WINDOWS_PRIVATE_PATH_UNSAFE,
   WINDOWS_PRIVATE_SCRIPT,
+  WINDOWS_PRIVATE_WORKER_SCRIPT,
 } from "./windows-private.js";
 it("sends paths through stdin and runs a fixed encoded ACL program", async () => {
   const run = vi.fn().mockResolvedValue({ code: 0, stdout: "", stderr: "" });
@@ -81,6 +85,22 @@ it("ignores inherit-only ACEs only for effective ancestor permissions", () => {
   );
   expect(target).not.toContain("PropagationFlags");
   expect(target).toContain("SHARED_ACCESS");
+  expect(WINDOWS_PRIVATE_SCRIPT).toContain(
+    "$env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules')",
+  );
+  expect(WINDOWS_PRIVATE_WORKER_SCRIPT).toContain(
+    "$env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules')",
+  );
+  expect(WINDOWS_PRIVATE_WORKER_SCRIPT).toContain("ReparsePoint");
+  expect(WINDOWS_PRIVATE_WORKER_SCRIPT).toContain("SHARED_ACCESS");
+  expect(WINDOWS_PRIVATE_WORKER_SCRIPT).toContain("Test-Administrator");
+  expect(WINDOWS_PRIVATE_WORKER_SCRIPT).toContain(
+    "if (-not ('LingerLinkedToken' -as [type]))",
+  );
+  expect(WINDOWS_PRIVATE_WORKER_SCRIPT).toContain("$script:isAdministrator");
+  expect(WINDOWS_PRIVATE_WORKER_SCRIPT).toContain(
+    "$replace = 'DeleteSubdirectoriesAndFiles,ChangePermissions,TakeOwnership'",
+  );
 });
 it("hands on the code and reason of a refusal, and nothing else", async () => {
   const run = vi.fn().mockResolvedValue({
@@ -112,4 +132,135 @@ it("hands on the code and reason of a refusal, and nothing else", async () => {
     { code: WINDOWS_PRIVATE_PATH_UNSAFE, reason: "toString" },
   ])
     expect(windowsPrivateRefusal(other)).toBeUndefined();
+});
+
+function fakeWorker(
+  onLine: (line: string, stdout: PassThrough, emitClose: () => void) => void,
+) {
+  const emitter = new EventEmitter();
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  let killed = false;
+  let ended = false;
+  let buffer = "";
+  stdin.on("data", (chunk: Buffer) => {
+    buffer += chunk.toString("utf8");
+    for (;;) {
+      const nl = buffer.indexOf("\n");
+      if (nl < 0) break;
+      const line = buffer.slice(0, nl);
+      buffer = buffer.slice(nl + 1);
+      onLine(line, stdout, () => emitter.emit("close"));
+    }
+  });
+  stdin.on("finish", () => {
+    ended = true;
+  });
+  return {
+    child: {
+      stdin,
+      stdout,
+      kill: () => {
+        killed = true;
+      },
+      on: (event: "close" | "error", listener: () => void) =>
+        emitter.on(event, listener),
+    },
+    wasKilled: () => killed,
+    wasEnded: () => ended,
+  };
+}
+
+it("reuses one persistent worker across concurrent requests and respawns cleanly after failures", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const workers: Array<ReturnType<typeof fakeWorker>> = [];
+  let count = 0;
+  const client = createWindowsPrivateClient({
+    idleMs: 10_000,
+    timeoutMs: 200,
+    spawnWorker: () => {
+      const id = ++count;
+      const w = fakeWorker((line, stdout, emitClose) => {
+        const req = JSON.parse(line) as { path: string };
+        if (req.path === "ok-1" || req.path === "ok-2")
+          stdout.write("__LINGER_ACL_OK__\n");
+        else if (req.path === "bad-owner")
+          stdout.write("__LINGER_ACL_ERR__:UNSAFE_OWNER\n");
+        else if (req.path === "crash") emitClose();
+        else if (req.path === "desync") stdout.write("unexpected output\n");
+        else if (req.path === "hang" && id > 0) {
+          // Intentionally never replies so the request timeout fires.
+        }
+      });
+      workers.push(w);
+      return w.child;
+    },
+  });
+  try {
+    const [r1, r2, r3] = await Promise.all([
+      client.execute(JSON.stringify({ path: "ok-1" })),
+      client.execute(JSON.stringify({ path: "ok-2" })),
+      client.execute(JSON.stringify({ path: "bad-owner" })),
+    ]);
+    expect(r1).toEqual({ code: 0, stdout: "" });
+    expect(r2).toEqual({ code: 0, stdout: "" });
+    expect(r3).toEqual({ code: 1, stdout: "UNSAFE_OWNER" });
+    expect(workers).toHaveLength(1);
+
+    // Unexpected close fails closed and respawns on the next request.
+    expect(await client.execute(JSON.stringify({ path: "crash" }))).toEqual({
+      code: 1,
+      stdout: "",
+    });
+    expect(await client.execute(JSON.stringify({ path: "ok-1" }))).toEqual({
+      code: 0,
+      stdout: "",
+    });
+    expect(workers).toHaveLength(2);
+
+    // Unexpected stdout kills the worker and fails closed.
+    expect(await client.execute(JSON.stringify({ path: "desync" }))).toEqual({
+      code: 1,
+      stdout: "",
+    });
+    expect(workers[1]!.wasKilled()).toBe(true);
+
+    // Timeout kills a hung worker and fails closed.
+    const timedOut = client.execute(JSON.stringify({ path: "hang" }));
+    await vi.advanceTimersByTimeAsync(200);
+    expect(await timedOut).toEqual({
+      code: 1,
+      stdout: "",
+    });
+    expect(workers[2]!.wasKilled()).toBe(true);
+  } finally {
+    client.close();
+    vi.useRealTimers();
+  }
+});
+
+it("closes an idle persistent worker after the idle period", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const workers: Array<ReturnType<typeof fakeWorker>> = [];
+  const client = createWindowsPrivateClient({
+    idleMs: 30,
+    spawnWorker: () => {
+      const w = fakeWorker((_line, stdout) => {
+        stdout.write("__LINGER_ACL_OK__\n");
+      });
+      workers.push(w);
+      return w.child;
+    },
+  });
+  try {
+    expect(await client.execute(JSON.stringify({ path: "ok" }))).toEqual({
+      code: 0,
+      stdout: "",
+    });
+    await vi.advanceTimersByTimeAsync(30);
+    expect(workers[0]!.wasEnded()).toBe(true);
+  } finally {
+    client.close();
+    vi.useRealTimers();
+  }
 });

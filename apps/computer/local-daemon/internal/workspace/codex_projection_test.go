@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -258,4 +259,66 @@ requires_openai_auth = true
 	if projectionRead(t, auth) != `{"synthetic":"credential"}` {
 		t.Fatal("source auth.json was modified")
 	}
+}
+
+func TestProjectedAuthenticationIsReadableInCodexAndInvokeHomes(t *testing.T) {
+	home, opts := projectionFixture(t)
+	sourceAuth := filepath.Join(opts.SharedHome, "auth.json")
+	want := `{"auth_mode":"chatgpt","tokens":{"account_id":"acct-1"}}`
+	projectionWrite(t, sourceAuth, want)
+
+	assertProjectedAuth := func(t *testing.T, targetHome, expected string) {
+		t.Helper()
+		projected := filepath.Join(targetHome, "auth.json")
+		got, err := os.ReadFile(projected)
+		if err != nil {
+			t.Fatalf("read projected auth.json: %v", err)
+		}
+		if string(got) != expected {
+			t.Fatalf("projected auth.json = %q, want %q", got, expected)
+		}
+		info, err := os.Lstat(projected)
+		if err != nil {
+			t.Fatalf("lstat projected auth.json: %v", err)
+		}
+		if runtime.GOOS == "windows" {
+			if !info.Mode().IsRegular() {
+				t.Fatalf("Windows auth.json mode = %v, want regular file", info.Mode())
+			}
+			return
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("auth.json mode = %v, want symlink", info.Mode())
+		}
+		target, err := os.Readlink(projected)
+		if err != nil || target != sourceAuth {
+			t.Fatalf("auth.json link = %q, %v; want %q", target, err, sourceAuth)
+		}
+	}
+
+	if _, err := PrepareCodexHome(home, opts, nil); err != nil {
+		t.Fatal(err)
+	}
+	assertProjectedAuth(t, home, want)
+
+	invokeHome := filepath.Join(t.TempDir(), "invoke-home")
+	result, err := PrepareCodexInvokeHome(invokeHome, opts.SharedHome, "", CodexModelsCachePeers{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AuthenticationMissing {
+		t.Fatal("PrepareCodexInvokeHome reported missing authentication")
+	}
+	assertProjectedAuth(t, invokeHome, want)
+
+	updated := `{"auth_mode":"chatgpt","tokens":{"account_id":"acct-2"}}`
+	projectionWrite(t, sourceAuth, updated)
+	if _, err := PrepareCodexHome(home, opts, nil); err != nil {
+		t.Fatal(err)
+	}
+	assertProjectedAuth(t, home, updated)
+	if _, err := PrepareCodexInvokeHome(invokeHome, opts.SharedHome, "", CodexModelsCachePeers{}); err != nil {
+		t.Fatal(err)
+	}
+	assertProjectedAuth(t, invokeHome, updated)
 }

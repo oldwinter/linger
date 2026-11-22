@@ -7,6 +7,10 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import {
+  INKLING_2_MINI_ANNOUNCEMENT_URL,
+  INKLING_2_MINI_HF_URL,
+} from "@linger/service-kit/featured-models";
 import { afterEach, expect, it, vi } from "vitest";
 import { byokEndpoint, emptyByokDraft } from "./ByokPanel.js";
 import { SetupChoicePanel, type SetupReport } from "./SetupChoicePanel.js";
@@ -226,4 +230,160 @@ it("reports a listing failure in the status line and keeps the model box typeabl
   expect(status().getAttribute("data-tone")).toBe("err");
   fireEvent.change(combobox("Model"), { target: { value: "typed-model" } });
   expect(combobox("Model").value).toBe("typed-model");
+});
+
+it("renders the Inkling 2 Mini spotlight with safe external links and hardware context when not eligible", () => {
+  render(
+    <SetupChoicePanel
+      report={
+        {
+          ...report,
+          localModels: {
+            eligible: false,
+            estimate: { model: "" },
+          },
+        } as unknown as SetupReport
+      }
+      choice="codex"
+      onChange={() => {}}
+      onInstall={() => {}}
+      disabled={false}
+    />,
+  );
+  const spotlight = screen.getByRole("complementary", {
+    name: "Featured local model: Inkling 2 Mini",
+  });
+  expect(spotlight.getAttribute("data-ready")).toBe("false");
+  expect(spotlight.textContent).toContain("Featured · Thinking Machines");
+  expect(spotlight.textContent).toContain(
+    "Inkling 2 Mini — 26.4B looped MoE (3.4B active), native vision, built for local agentic coding (Apache 2.0).",
+  );
+  expect(spotlight.textContent).toContain(
+    "Runs on 16–24 GB GPUs and 32 GB+ Macs · Manage anytime in Settings → Models",
+  );
+
+  const announcement = screen.getByRole<HTMLAnchorElement>("link", {
+    name: "Thinking Machines",
+  });
+  expect(announcement.href).toBe(INKLING_2_MINI_ANNOUNCEMENT_URL);
+  expect(announcement.target).toBe("_blank");
+  expect(announcement.rel).toBe("noopener noreferrer");
+
+  const hf = screen.getByRole<HTMLAnchorElement>("link", {
+    name: "Hugging Face",
+  });
+  expect(hf.href).toBe(INKLING_2_MINI_HF_URL);
+  expect(hf.target).toBe("_blank");
+  expect(hf.rel).toBe("noopener noreferrer");
+});
+
+it("shows ready-to-run status when local models are eligible and badges recommended Inkling 2 Mini plans", () => {
+  const eligibleReport = {
+    ...report,
+    choices: ["local-models", "codex", "claude", "pi"],
+    recommendation: "local-models",
+    localModels: {
+      eligible: true,
+      estimate: {
+        model: "inkling-2-mini:Q4_K_M",
+        downloadBytes: 15 * 1024 ** 3,
+        diskBytes: 18 * 1024 ** 3,
+        memoryBytes: 22 * 1024 ** 3,
+      },
+    },
+  } as unknown as SetupReport;
+
+  const { rerender } = render(
+    <SetupChoicePanel
+      report={eligibleReport}
+      choice="codex"
+      onChange={() => {}}
+      onInstall={() => {}}
+      disabled={false}
+    />,
+  );
+  const spotlight = screen.getByRole("complementary", {
+    name: "Featured local model: Inkling 2 Mini",
+  });
+  expect(spotlight.getAttribute("data-ready")).toBe("true");
+  expect(spotlight.textContent).toContain(
+    "Ready to run locally on this computer · Switchable anytime in Settings → Models",
+  );
+  expect(
+    document.querySelector(".recommended-plan .featured-partner-tag"),
+  ).toBeNull();
+
+  rerender(
+    <SetupChoicePanel
+      report={eligibleReport}
+      choice="local-models"
+      onChange={() => {}}
+      onInstall={() => {}}
+      disabled={false}
+    />,
+  );
+  expect(
+    document.querySelector(".recommended-plan .featured-partner-tag")
+      ?.textContent,
+  ).toBe("Featured · Thinking Machines");
+});
+
+it("does not claim Inkling 2 Mini is ready when another model is planned or hardware is ineligible", () => {
+  const otherModelEligible = {
+    ...report,
+    choices: ["local-models", "codex", "claude", "pi"],
+    recommendation: "local-models",
+    localModels: {
+      eligible: true,
+      estimate: {
+        model: "qwen3.8-27b:UD-Q4_K_M",
+        downloadBytes: 15 * 1024 ** 3,
+        diskBytes: 18 * 1024 ** 3,
+        memoryBytes: 22 * 1024 ** 3,
+      },
+    },
+  } as unknown as SetupReport;
+
+  const { rerender } = render(
+    <SetupChoicePanel
+      report={otherModelEligible}
+      choice="local-models"
+      onChange={() => {}}
+      onInstall={() => {}}
+      disabled={false}
+    />,
+  );
+  const spotlight = screen.getByRole("complementary", {
+    name: "Featured local model: Inkling 2 Mini",
+  });
+  expect(spotlight.getAttribute("data-ready")).toBe("false");
+  expect(spotlight.textContent).toContain(
+    "Runs on 16–24 GB GPUs and 32 GB+ Macs · Manage anytime in Settings → Models",
+  );
+  expect(
+    document.querySelector(".recommended-plan .featured-partner-tag"),
+  ).toBeNull();
+
+  // Even if choice is local-models and estimate names Inkling, eligible: false stays neutral.
+  rerender(
+    <SetupChoicePanel
+      report={
+        {
+          ...report,
+          localModels: {
+            eligible: false,
+            estimate: { model: "inkling-2-mini:UD-Q4_K_M" },
+          },
+        } as unknown as SetupReport
+      }
+      choice="local-models"
+      onChange={() => {}}
+      onInstall={() => {}}
+      disabled={false}
+    />,
+  );
+  expect(spotlight.getAttribute("data-ready")).toBe("false");
+  expect(spotlight.textContent).toContain(
+    "Runs on 16–24 GB GPUs and 32 GB+ Macs · Manage anytime in Settings → Models",
+  );
 });

@@ -1126,6 +1126,10 @@ components:
         localModelsPlan:
           $ref: "#/components/schemas/LocalModelsPlan"
         errorCode: *a1
+        errorReasons:
+          type: array
+          items: *a1
+          description: Structured upstream reason codes explaining why a local model binding or setup step is not ready.
         cancelRequested: *a6
     InstallationEvent:
       type: object

@@ -68,6 +68,23 @@ export const setupMessages = defineMessages("setup", {
   locationHint:
     "Go back and set the install location to the drive itself (Linger installs into {folder}) or an empty folder directly on the drive.",
 
+  // Featured partner model spotlight (Inkling 2 Mini by Thinking Machines).
+  featuredModelName: "Inkling 2 Mini",
+  featuredPartnerBadge: "Featured · Thinking Machines",
+  featuredModelSpecs:
+    "26.4B Looped MoE · 3.4B active · Vision & Agentic Coding · Apache 2.0",
+  featuredModelSelected: "Selected for Quick Install on this computer.",
+  featuredModelLibraryNote:
+    "Featured in Linger's local model library · Switchable anytime in Settings → Models",
+  featuredModelCustomizeNote:
+    "Featured: Inkling 2 Mini by Thinking Machines · Switchable anytime in Settings → Models",
+  featuredModelAriaLabel:
+    "Featured local model: Inkling 2 Mini by Thinking Machines",
+  learnMoreLink: "Learn more ↗",
+  thinkingMachinesLink: "Thinking Machines ↗",
+  openAnnouncement:
+    "Open Thinking Machines Inkling 2 Mini announcement in browser",
+
   // Download progress.
   lessThanMinuteLeft: "less than a minute left",
   minutesLeft: "about {minutes} min left",

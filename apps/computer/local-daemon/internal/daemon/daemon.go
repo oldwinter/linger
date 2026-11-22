@@ -129,12 +129,15 @@ type Daemon struct {
 	// byokEndpoint holds whether the current Agent Service declared
 	// serviceFeatureByokEndpoint in its welcome.
 	byokEndpoint atomic.Bool
-	welcomeSeen  bool
-	prewarmOnce  sync.Once
-	welcomedAt   time.Time
-	daemonID     string
-	activeMu     sync.Mutex
-	admissionMu  sync.Mutex
+	// localModelsDiagnostics holds whether the current Agent Service declared
+	// serviceFeatureLocalModelsDiagnostics in its welcome.
+	localModelsDiagnostics atomic.Bool
+	welcomeSeen            bool
+	prewarmOnce            sync.Once
+	welcomedAt             time.Time
+	daemonID               string
+	activeMu               sync.Mutex
+	admissionMu            sync.Mutex
 	// authorityRevision counts, under admissionMu, the commands that can change
 	// what an accepted Operation may start with: Registration snapshots, Agent
 	// Runner commands and Context commands. A start whose revision is unchanged

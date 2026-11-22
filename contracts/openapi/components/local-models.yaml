@@ -24,7 +24,8 @@ components:
     LocalModelErrorCode:
       description: >-
         Closed localmodels library error set. It is extended only together with
-        the localmodels library contract.
+        the localmodels library contract; UNKNOWN_ERROR preserves forward
+        compatibility with newer localmodels releases.
       type: string
       enum:
         - MODEL_UNKNOWN
@@ -33,6 +34,9 @@ components:
         - MEMORY_INSUFFICIENT
         - DISK_INSUFFICIENT
         - PLATFORM_UNSUPPORTED
+        - GPU_UNSUPPORTED
+        - DRIVER_UPDATE_REQUIRED
+        - RUNTIME_DEPENDENCY_MISSING
         - LOAD_NO_ROOM
         - DOWNLOAD_FAILED
         - CHECKSUM_MISMATCH
@@ -43,6 +47,7 @@ components:
         - MODEL_FILES_MISSING
         - GATEWAY_REGISTRATION_FAILED
         - CANCELLED
+        - UNKNOWN_ERROR
     LocalModelsUnavailableCode:
       description: >-
         Why a Computer reports no model library. TOOL_NOT_INSTALLED: its
@@ -62,6 +67,9 @@ components:
         - MEMORY_INSUFFICIENT
         - DISK_INSUFFICIENT
         - PLATFORM_UNSUPPORTED
+        - GPU_UNSUPPORTED
+        - DRIVER_UPDATE_REQUIRED
+        - RUNTIME_DEPENDENCY_MISSING
         - LOAD_NO_ROOM
         - DOWNLOAD_FAILED
         - CHECKSUM_MISMATCH
@@ -72,6 +80,7 @@ components:
         - MODEL_FILES_MISSING
         - GATEWAY_REGISTRATION_FAILED
         - CANCELLED
+        - UNKNOWN_ERROR
         - TOOL_NOT_INSTALLED
         - TOOL_FAILED
     LocalModelGpu:
@@ -225,13 +234,22 @@ components:
       properties:
         code:
           type: string
-          enum: [MEMORY_INSUFFICIENT, DISK_INSUFFICIENT, PLATFORM_UNSUPPORTED]
+          enum:
+            - MEMORY_INSUFFICIENT
+            - DISK_INSUFFICIENT
+            - PLATFORM_UNSUPPORTED
+            - GPU_UNSUPPORTED
+            - DRIVER_UPDATE_REQUIRED
+            - RUNTIME_DEPENDENCY_MISSING
+            - UNAVAILABLE
           x-enum-varnames:
-            [
-              LocalModelAvailabilityMemoryInsufficient,
-              LocalModelAvailabilityDiskInsufficient,
-              LocalModelAvailabilityPlatformUnsupported,
-            ]
+            - LocalModelAvailabilityMemoryInsufficient
+            - LocalModelAvailabilityDiskInsufficient
+            - LocalModelAvailabilityPlatformUnsupported
+            - LocalModelAvailabilityGpuUnsupported
+            - LocalModelAvailabilityDriverUpdateRequired
+            - LocalModelAvailabilityRuntimeDependencyMissing
+            - LocalModelAvailabilityUnavailable
         need_bytes:
           type: integer
           format: int64
@@ -240,6 +258,89 @@ components:
           type: integer
           format: int64
           minimum: 0
+        memory_kind:
+          description: "With MEMORY_INSUFFICIENT: which memory space was short."
+          type: string
+          enum: [vram, ram, unified]
+          x-enum-varnames:
+            [
+              LocalModelMemoryKindVram,
+              LocalModelMemoryKindRam,
+              LocalModelMemoryKindUnified,
+            ]
+        gpu_vendor:
+          description: "With GPU_UNSUPPORTED: detected GPU vendor class on this Computer."
+          type: string
+          enum: [amd, intel, none, unknown]
+          x-enum-varnames:
+            [
+              LocalModelGpuVendorAmd,
+              LocalModelGpuVendorIntel,
+              LocalModelGpuVendorNone,
+              LocalModelGpuVendorUnknown,
+            ]
+        required_cuda:
+          description: "With DRIVER_UPDATE_REQUIRED: minimum CUDA version required by the pinned engine."
+          type: string
+          minLength: 1
+          maxLength: 32
+        detected_cuda:
+          description: "With DRIVER_UPDATE_REQUIRED: CUDA version reported by the installed driver."
+          type: string
+          minLength: 1
+          maxLength: 32
+        driver_version:
+          description: "With DRIVER_UPDATE_REQUIRED: installed NVIDIA driver version."
+          type: string
+          minLength: 1
+          maxLength: 64
+        missing_libraries:
+          description: "With RUNTIME_DEPENDENCY_MISSING: missing shared libraries such as libgomp.so.1."
+          type: array
+          minItems: 1
+          maxItems: 16
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+        required_glibc:
+          description: "With RUNTIME_DEPENDENCY_MISSING: minimum glibc version required by the engine."
+          type: string
+          minLength: 1
+          maxLength: 32
+        detected_glibc:
+          description: "With RUNTIME_DEPENDENCY_MISSING: glibc version detected on this Computer."
+          type: string
+          minLength: 1
+          maxLength: 32
+    LocalModelsDebugInfo:
+      description: >-
+        Present only when localmodels debug mode (tiny or simulate) is active on
+        the Computer. config_path is shown only to the Computer owner.
+      type: object
+      additionalProperties: false
+      required: [mode, source]
+      properties:
+        mode:
+          type: string
+          enum: [tiny, simulate]
+          x-enum-varnames:
+            [LocalModelsDebugModeTiny, LocalModelsDebugModeSimulate]
+        source:
+          type: string
+          enum: [env, state_config, user_config]
+          x-enum-varnames:
+            [
+              LocalModelsDebugSourceEnv,
+              LocalModelsDebugSourceStateConfig,
+              LocalModelsDebugSourceUserConfig,
+            ]
+        config_path:
+          description: Local debug.json path when source is state_config or user_config; owner-only in the public view.
+          type: string
+          minLength: 1
+          maxLength: 4096
     LocalModelDownloadProgress:
       type: object
       additionalProperties: false
@@ -559,6 +660,9 @@ components:
           maxItems: 256
           items:
             $ref: "#/components/schemas/LocalModel"
+        debug:
+          $ref: "#/components/schemas/LocalModelsDebugInfo"
+          description: Present only when localmodels debug mode is active on the Computer.
     RecordLocalModelsRequest:
       description: >-
         The latest runner.local_models snapshot of one Computer. TeamHub keeps
@@ -732,6 +836,9 @@ components:
         - LOCAL_MODEL_MEMORY_INSUFFICIENT
         - LOCAL_MODEL_DISK_INSUFFICIENT
         - LOCAL_MODEL_PLATFORM_UNSUPPORTED
+        - LOCAL_MODEL_GPU_UNSUPPORTED
+        - LOCAL_MODEL_DRIVER_UPDATE_REQUIRED
+        - LOCAL_MODEL_RUNTIME_DEPENDENCY_MISSING
         - LOCAL_MODEL_ACTION_FAILED
         - LOCAL_MODEL_ACTION_UNCONFIRMED
         - LOCAL_MODELS_SERVICE_UNAVAILABLE
@@ -869,3 +976,6 @@ components:
           maxItems: 256
           items:
             $ref: "#/components/schemas/LocalModelView"
+        debug:
+          $ref: "#/components/schemas/LocalModelsDebugInfo"
+          description: Present only when localmodels debug mode is active on the Computer; config_path is omitted for non-owners.

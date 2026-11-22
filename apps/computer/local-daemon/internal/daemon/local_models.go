@@ -22,6 +22,11 @@ const serviceFeatureLocalModels = "local_models"
 // Agent Service accepts a BYOK summary's path and endpoint.
 const serviceFeatureByokEndpoint = "byok_endpoint"
 
+// serviceFeatureLocalModelsDiagnostics in runner.welcome's service_features says
+// the Agent Service accepts extended local-models diagnostic reasons, refusal
+// codes, and debug-mode metadata. Older services close the connection on them.
+const serviceFeatureLocalModelsDiagnostics = "local_models_diagnostics"
+
 // LocalModelLibrary runs the actions a Computer owner chooses on this
 // Computer's localmodels library. The Daemon never picks a model itself.
 type LocalModelLibrary interface {
@@ -52,6 +57,9 @@ func (d *Daemon) PublishLocalModels(snapshot wire.LocalModelsSnapshot) {
 	d.connectionMu.Unlock()
 	if stream == nil {
 		return
+	}
+	if !d.localModelsDiagnostics.Load() {
+		snapshot = downgradeLocalModelsSnapshot(snapshot)
 	}
 	d.localModelsRevision++
 	sentAt := time.Now().UTC()
@@ -122,14 +130,18 @@ func (d *Daemon) handleLocalModelsCommand(ctx context.Context, stream transport.
 		Action: request.Action, ModelID: request.ModelID, Outcome: wire.OutcomeAccepted,
 	}
 	if refusal != nil {
+		wireRefusal := *refusal
+		if !d.localModelsDiagnostics.Load() {
+			wireRefusal = downgradeLocalModelActionRefusal(wireRefusal)
+		}
 		route = protocol.EventCapabilityLocalModelsRefused
 		frame = wire.CapabilityLocalModelsRefused{
 			ProtocolVersion: request.ProtocolVersion, CommandID: request.CommandID, RunnerID: request.RunnerID,
 			TenantID: request.TenantID, OwnerActorID: request.OwnerActorID, ConnectionEpoch: request.ConnectionEpoch,
 			ExpiresAt: request.ExpiresAt, Type: wire.TypeExecuted, Kind: wire.KindLocalModels,
-			Action: request.Action, ModelID: request.ModelID, Refusal: *refusal, Outcome: wire.OutcomeRefused,
+			Action: request.Action, ModelID: request.ModelID, Refusal: wireRefusal, Outcome: wire.OutcomeRefused,
 		}
-		slog.Info("local_models.command_refused", "action", action.Name, "model", action.Model, "code", refusal.Code)
+		slog.Info("local_models.command_refused", "action", action.Name, "model", action.Model, "code", wireRefusal.Code)
 	}
 	payload, err := json.Marshal(frame)
 	if err != nil {
@@ -171,4 +183,56 @@ func (d *Daemon) acceptsLocalModels(stream transport.Stream) bool {
 	d.connectionMu.Lock()
 	defer d.connectionMu.Unlock()
 	return d.localModelsStream != nil && d.localModelsStream == stream
+}
+
+// downgradeLocalModelsSnapshot strips diagnostic fields and maps newer codes to
+// legacy equivalents when talking to an Agent Service that did not announce
+// serviceFeatureLocalModelsDiagnostics.
+func downgradeLocalModelsSnapshot(snapshot wire.LocalModelsSnapshot) wire.LocalModelsSnapshot {
+	snapshot.Debug = nil
+	if len(snapshot.Models) == 0 {
+		return snapshot
+	}
+	models := make([]wire.LocalModel, len(snapshot.Models))
+	for i, model := range snapshot.Models {
+		if reason := model.Availability.Reason; reason != nil {
+			legacy := &wire.LocalModelAvailabilityReason{Code: reason.Code, NeedBytes: reason.NeedBytes, HaveBytes: reason.HaveBytes}
+			switch legacy.Code {
+			case "MEMORY_INSUFFICIENT", "DISK_INSUFFICIENT", "PLATFORM_UNSUPPORTED":
+			default:
+				legacy.Code = "PLATFORM_UNSUPPORTED"
+				legacy.NeedBytes, legacy.HaveBytes = nil, nil
+			}
+			model.Availability.Reason = legacy
+		}
+		if model.Error != nil {
+			copied := *model.Error
+			copied.Code = downgradeLocalModelErrorCode(copied.Code)
+			model.Error = &copied
+		}
+		models[i] = model
+	}
+	snapshot.Models = models
+	return snapshot
+}
+
+func downgradeLocalModelActionRefusal(refusal wire.LocalModelActionRefusal) wire.LocalModelActionRefusal {
+	switch refusal.Code {
+	case "GPU_UNSUPPORTED", "DRIVER_UPDATE_REQUIRED", "RUNTIME_DEPENDENCY_MISSING":
+		refusal.Code = "PLATFORM_UNSUPPORTED"
+	case "UNKNOWN_ERROR":
+		refusal.Code = "ENGINE_START_FAILED"
+	}
+	return refusal
+}
+
+func downgradeLocalModelErrorCode(code string) string {
+	switch code {
+	case "GPU_UNSUPPORTED", "DRIVER_UPDATE_REQUIRED", "RUNTIME_DEPENDENCY_MISSING":
+		return "PLATFORM_UNSUPPORTED"
+	case "UNKNOWN_ERROR":
+		return "ENGINE_START_FAILED"
+	default:
+		return code
+	}
 }

@@ -74,7 +74,15 @@ enabled = true
 	if !reflect.DeepEqual(names, []string{"auth.json", "config.toml"}) {
 		t.Fatalf("home entries = %v", names)
 	}
-	if runtime.GOOS != "windows" {
+	if projectionRead(t, filepath.Join(home, "auth.json")) != `{"tokens":{}}` {
+		t.Fatal("auth.json content differs")
+	}
+	if runtime.GOOS == "windows" {
+		info, err := os.Lstat(filepath.Join(home, "auth.json"))
+		if err != nil || !info.Mode().IsRegular() {
+			t.Fatalf("auth.json = %+v, %v", info, err)
+		}
+	} else {
 		target, err := os.Readlink(filepath.Join(home, "auth.json"))
 		if err != nil || target != filepath.Join(opts.SharedHome, "auth.json") {
 			t.Fatalf("auth.json link = %q, %v", target, err)

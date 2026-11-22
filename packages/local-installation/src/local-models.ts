@@ -38,6 +38,47 @@ export interface LocalModelsPlanSummary {
   components: string[];
   warnings: string[];
 }
+export interface LocalModelsDegraded {
+  code: string;
+  message: string;
+  reasons?: string[];
+}
+const REASON_CODE = /^[a-z][a-z0-9-]{0,63}$/;
+export function reasonCodeList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is string =>
+          typeof item === "string" && REASON_CODE.test(item),
+      )
+    : [];
+}
+export function localModelsDegradedFromOutcome(
+  outcome: InstallOutcome,
+): LocalModelsDegraded {
+  const details =
+    outcome.details && typeof outcome.details === "object"
+      ? (outcome.details as { code?: unknown; reasons?: unknown })
+      : undefined;
+  const code =
+    typeof details?.code === "string" && details.code.trim()
+      ? details.code.trim()
+      : "LOCAL_MODELS_RECOVERY_REQUIRED";
+  const reasons = reasonCodeList(details?.reasons);
+  return {
+    code,
+    message: outcome.message || "The local model stack is not ready.",
+    ...(reasons.length ? { reasons } : {}),
+  };
+}
+export function localModelsDegradedFromError(
+  error: unknown,
+): LocalModelsDegraded {
+  const message =
+    error instanceof Error && error.message.trim()
+      ? error.message.trim()
+      : "The local model stack is not ready.";
+  return { code: "LOCAL_MODELS_RECOVERY_REQUIRED", message };
+}
 interface Binding {
   schema: "localmodels.stack-binding/v1";
   ready: boolean;
@@ -69,6 +110,13 @@ interface RestoreDependencies extends Dependencies {
 // A little above the quit-time stop's 150 s hard exit, so a reopen during
 // that stop sees where it left the stack.
 const LOCK_WAIT_MS = 180_000;
+// Binding reasons that a stopped stack reports after a quit, reboot, or app
+// update; `stack up` starts the installed deployments and gateway without
+// re-planning against a newer localmodels kit or model catalog.
+const RESTARTABLE_BINDING_REASONS = new Set([
+  "deployment-unavailable",
+  "gateway-unavailable",
+]);
 /**
  * Runs `callback` holding the lock every deployment, restore check and
  * quit-time stop of a home's local model stack takes, so none of them sees
@@ -218,11 +266,8 @@ function binding(value: unknown, id?: string): Binding {
 }
 // The binding's reason codes, such as pi-extensions-unavailable.
 function reasonCodes(observed: Binding | null): string[] {
-  return (observed?.reasons ?? []).flatMap((reason) =>
-    typeof reason?.code === "string" &&
-    /^[a-z][a-z0-9-]{0,63}$/.test(reason.code)
-      ? [reason.code]
-      : [],
+  return reasonCodeList(
+    (observed?.reasons ?? []).map((reason) => reason?.code),
   );
 }
 // The first reason's upstream message, for display only.
@@ -289,6 +334,13 @@ async function observeBinding(
   if (result.code !== 0) return null;
   return binding(JSON.parse(result.stdout), planID);
 }
+class ReviewPlanExitError extends Error {
+  readonly result: { code: number; stdout: string; stderr: string };
+  constructor(result: { code: number; stdout: string; stderr: string }) {
+    super("The upstream model plan could not be reviewed.");
+    this.result = result;
+  }
+}
 export async function reviewSavedModelPlan(
   home: string,
   file: string,
@@ -300,8 +352,7 @@ export async function reviewSavedModelPlan(
     ["setup", "review", "--plan", path.resolve(file), "--lang", "en", "--json"],
     { signal: options.signal, timeoutMs: 120000 },
   );
-  if (result.code !== 0)
-    throw new Error("The upstream model plan could not be reviewed.");
+  if (result.code !== 0) throw new ReviewPlanExitError(result);
   return review(JSON.parse(result.stdout));
 }
 export async function prepareLocalModels(
@@ -315,17 +366,25 @@ export async function prepareLocalModels(
   const action = (
     code: string,
     message: string,
-    summary?: LocalModelsPlanSummary,
-  ): InstallOutcome => ({
-    code: 4,
-    state: "action_required",
-    message,
-    details: {
-      code,
-      ...(summary ? { localModelsPlan: summary } : {}),
-      ...(reasons.length ? { reasons } : {}),
-    },
-  });
+    extra: {
+      summary?: LocalModelsPlanSummary;
+      causeCode?: string;
+      bindingReasons?: string[];
+    } = {},
+  ): InstallOutcome => {
+    const bindingReasons = extra.bindingReasons ?? reasons;
+    return {
+      code: 4,
+      state: "action_required",
+      message,
+      details: {
+        code,
+        ...(extra.causeCode ? { causeCode: extra.causeCode } : {}),
+        ...(extra.summary ? { localModelsPlan: extra.summary } : {}),
+        ...(bindingReasons.length ? { reasons: bindingReasons } : {}),
+      },
+    };
+  };
   if (options.localModelsReplan && options.localModelsApproval)
     return action(
       "LOCAL_MODELS_RECOVERY_REQUIRED",
@@ -369,12 +428,13 @@ export async function prepareLocalModels(
       args: string[],
       result: { code: number; stdout: string; stderr: string },
     ) => {
-      const { cause, log } = localmodelsFailure(args, result);
+      const { cause, causeCode, log } = localmodelsFailure(args, result);
       for (const message of log)
         options.onEvent({ kind: "log", stage: "runtime", message });
       return action(
         code,
         `${text}${cause ? `: ${cause}` : "."} Existing resources were preserved.`,
+        { causeCode },
       );
     };
     const command = async (args: string[]) => {
@@ -382,9 +442,30 @@ export async function prepareLocalModels(
       // The end of an uncaptured run's output, without its byte counters.
       let tail = "";
       const captured = !(args[0] === "stack" && args[1] === "apply");
+      const handleLine = (rawLine: string, emitProgress: boolean) => {
+        let event: unknown;
+        try {
+          event = JSON.parse(rawLine);
+        } catch {
+          if (!captured) tail = `${tail}${rawLine}\n`.slice(-8000);
+          return;
+        }
+        if (
+          !captured &&
+          (event as { event?: unknown } | null)?.event !== "progress"
+        )
+          tail = `${tail}${rawLine}\n`.slice(-8000);
+        if (emitProgress) {
+          const progress = stackProgress(event);
+          if (progress) options.onEvent(progress);
+        }
+      };
       const result = await invoke(home, args, {
         signal: options.signal,
-        timeoutMs: args[1] === "apply" ? undefined : 120000,
+        timeoutMs:
+          args[0] === "stack" && (args[1] === "apply" || args[1] === "up")
+            ? undefined
+            : 120000,
         capture: captured,
         onEvent: options.onEvent,
         onOutput: (chunk) => {
@@ -395,23 +476,11 @@ export async function prepareLocalModels(
             if (newline < 0) break;
             const line = buffer.slice(0, newline);
             buffer = buffer.slice(newline + 1);
-            let event: unknown;
-            try {
-              event = JSON.parse(line);
-            } catch {
-              if (!captured) tail = `${tail}${line}\n`.slice(-8000);
-              continue;
-            }
-            if (
-              !captured &&
-              (event as { event?: unknown } | null)?.event !== "progress"
-            )
-              tail = `${tail}${line}\n`.slice(-8000);
-            const progress = stackProgress(event);
-            if (progress) options.onEvent(progress);
+            handleLine(line, true);
           }
         },
       });
+      if (!captured && buffer.trim()) handleLine(buffer, false);
       return captured ? result : { ...result, stderr: tail };
     };
     if (!saved && options.localModelsApproval)
@@ -461,12 +530,30 @@ export async function prepareLocalModels(
         await rm(temporary, { force: true });
       }
     }
-    const summary = await reviewSavedModelPlan(
-      home,
-      planFile,
-      { signal: options.signal },
-      { localmodels: invoke },
-    );
+    let summary: LocalModelsPlanSummary;
+    try {
+      summary = await reviewSavedModelPlan(
+        home,
+        planFile,
+        { signal: options.signal },
+        { localmodels: invoke },
+      );
+    } catch (error) {
+      if (
+        options.signal.aborted ||
+        options.localModelsReplan ||
+        !(error instanceof ReviewPlanExitError)
+      )
+        throw error;
+      const { log } = localmodelsFailure(["setup", "review"], error.result);
+      for (const message of log)
+        options.onEvent({ kind: "log", stage: "runtime", message });
+      return action(
+        "LOCAL_MODELS_RECOVERY_REQUIRED",
+        "The saved local model plan could not be reviewed with the current local model tool. Review a new plan; existing resources were preserved.",
+        { causeCode: "STACK_PLAN_INVALID" },
+      );
+    }
     const bindFile = path.join(root, "binding.json");
     const previous = await readPrivate(bindFile);
     const observe = async () => {
@@ -502,11 +589,52 @@ export async function prepareLocalModels(
         return action(
           "LOCAL_MODELS_RECOVERY_REQUIRED",
           "The local model stack is not ready, and its resource choices changed since its plan was approved. Review a new plan; existing resources were preserved.",
+          { bindingReasons: [] },
         );
-      // Whatever stopped the approved stack (a stopped or adopted
-      // deployment, a Pi without extension support from an earlier
-      // localmodels), applying the same plan again restores it; the
-      // approval it was deployed under still holds.
+      // When the installed stack is simply stopped (quit, reboot, or an app
+      // upgrade to a newer localmodels kit or catalog), start it in place with
+      // `stack up` first. Unlike `stack apply`, `stack up` does not re-plan
+      // against the current kit's Python path, live free memory, or retired
+      // catalog entries.
+      if (
+        reasons.length > 0 &&
+        reasons.every((code) => RESTARTABLE_BINDING_REASONS.has(code))
+      ) {
+        options.onEvent({
+          kind: "log",
+          stage: "runtime",
+          message: `The local model stack is not ready (${reasons.join(", ")}); starting the installed stack again.\n`,
+        });
+        const started = await command([
+          "stack",
+          "up",
+          planFile,
+          ...(shareGpu ? ["--share-gpu"] : []),
+          "--json",
+        ]);
+        if (started.code === 0) {
+          const revived = await observe();
+          if (revived?.ready) {
+            await atomicPrivate(bindFile, JSON.stringify(revived));
+            options.onEvent({
+              kind: "stage",
+              stage: "runtime",
+              state: "succeeded",
+              message:
+                "The upstream local model stack and Pi connection are ready.",
+            });
+            return;
+          }
+        } else {
+          const upFailure = localmodelsFailure(["stack", "up"], started);
+          for (const message of upFailure.log)
+            options.onEvent({ kind: "log", stage: "runtime", message });
+        }
+      }
+      // If `stack up` did not restore the binding (for example drift, missing
+      // files, or a Pi without extension support from an earlier localmodels),
+      // applying the approved plan again can still repair it while the
+      // approval it was deployed under holds.
       options.onEvent({
         kind: "log",
         stage: "runtime",
@@ -525,7 +653,7 @@ export async function prepareLocalModels(
         return action(
           "LOCAL_MODELS_APPROVAL_REQUIRED",
           "Review the upstream local model plan before installing.",
-          summary,
+          { summary },
         );
     }
     const applied = await command([

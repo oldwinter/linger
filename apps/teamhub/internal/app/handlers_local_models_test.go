@@ -223,3 +223,57 @@ func TestValidLocalModelsSnapshot(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalModelsViewShowsDebugConfigPathOnlyToOwner(t *testing.T) {
+	snapshot := strings.TrimSuffix(storedLocalModelsSnapshotJSON, "}") +
+		`,"debug":{"mode":"tiny","source":"user_config","config_path":"/home/ana/.config/localmodels/debug.json"}}`
+	record := agentruntimestate.LocalModelsRecord{
+		ComputerID: "computer_1", DisplayName: "Studio", Status: "online",
+		Owner:    agentruntimestate.LocalComputerOwner{TenantID: "tenant_1", OwnerActorID: "actor_owner"},
+		Snapshot: json.RawMessage(snapshot),
+	}
+	for viewer, wantPath := range map[string]bool{"actor_owner": true, "actor_member": false} {
+		view, err := localModelsView(record, viewer, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if view.Debug == nil || view.Debug.Mode != httpapi.LocalModelsDebugModeTiny ||
+			view.Debug.Source != httpapi.LocalModelsDebugSourceUserConfig ||
+			(view.Debug.ConfigPath != nil) != wantPath {
+			t.Fatalf("%s: debug=%+v", viewer, view.Debug)
+		}
+	}
+}
+
+func TestSanitizeLocalModelsSnapshotForwardCompatibility(t *testing.T) {
+	var snapshot teamhubinternal.LocalModelsSnapshot
+	if err := json.Unmarshal([]byte(storedLocalModelsSnapshotJSON), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	badFamily := teamhubinternal.LocalModelFamily("new_vendor")
+	badArch := teamhubinternal.LocalModelArchitecture("ssm")
+	badCaps := []teamhubinternal.LocalModelCapability{"vision", "vision", "audio"}
+	badCause := teamhubinternal.LocalModelErrorCause("FUTURE_CAUSE")
+	path := "/tmp/x"
+	badNote := teamhubinternal.LocalModelNoteCode("FUTURE_NOTE")
+	snapshot.Models[0].Family = &badFamily
+	snapshot.Models[0].Architecture = &badArch
+	snapshot.Models[0].Capabilities = &badCaps
+	snapshot.Models[0].State = teamhubinternal.LocalModelStateFailed
+	snapshot.Models[0].Error = &teamhubinternal.LocalModelError{Code: "FUTURE_CODE", Cause: &badCause, Path: &path}
+	snapshot.Models[2].Note = &teamhubinternal.LocalModelNote{Code: badNote}
+	snapshot.Models[3].Availability.Reason = &teamhubinternal.LocalModelAvailabilityReason{Code: "FUTURE_REASON"}
+
+	sanitizeLocalModelsSnapshot(&snapshot)
+	if !validLocalModelsSnapshot(snapshot) {
+		t.Fatal("sanitized snapshot was rejected")
+	}
+	if snapshot.Models[0].Family == nil || *snapshot.Models[0].Family != teamhubinternal.LocalModelFamilyOther ||
+		snapshot.Models[0].Architecture != nil ||
+		snapshot.Models[0].Capabilities == nil || !slices.Equal(*snapshot.Models[0].Capabilities, []teamhubinternal.LocalModelCapability{teamhubinternal.LocalModelCapabilityVision}) ||
+		snapshot.Models[0].Error.Code != teamhubinternal.UNKNOWNERROR || snapshot.Models[0].Error.Cause != nil || snapshot.Models[0].Error.Path != nil ||
+		snapshot.Models[2].Note != nil ||
+		snapshot.Models[3].Availability.Reason.Code != teamhubinternal.LocalModelAvailabilityUnavailable {
+		t.Fatalf("unexpected sanitized models: %+v", snapshot.Models)
+	}
+}

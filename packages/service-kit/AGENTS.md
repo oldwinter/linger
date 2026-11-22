@@ -19,6 +19,10 @@ installation core.
   `defaultByokEndpoint`, `normalizeByokPath`, `normalizeByokBaseUrl`,
   `validByokPath`, `isByokProtocol`, and the BYOK path pattern and runtime
   default constants), exported as `@linger/service-kit/byok-endpoint`.
+- `src/featured-models.ts`: isomorphic featured partner model constants and
+  structured model-ID matching (`INKLING_2_MINI_ANNOUNCEMENT_URL`,
+  `INKLING_2_MINI_HF_URL`, `isInkling2MiniModelId`), exported as
+  `@linger/service-kit/featured-models` for Web, Desktop, and the installer.
 - `src/messages.ts`: isomorphic message formatting (`defineMessages`,
   `formatMessage`, `resolveMessage`; plurals through `Intl.PluralRules`,
   `{name}` placeholders and `<tag>` spans), exported as

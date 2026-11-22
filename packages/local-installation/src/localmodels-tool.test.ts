@@ -15,6 +15,7 @@ import {
   link,
 } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import net from "node:net";
 import path from "node:path";
 import os from "node:os";
 import { withInstanceLock, type Instance } from "./instance.js";
@@ -23,6 +24,11 @@ import { requestUrlText } from "@linger/service-kit";
 import { afterEach, expect, test, vi } from "vitest";
 import {
   ensureLocalmodelsTool,
+  localmodelsBifrostAddrFile,
+  localmodelsBifrostDirectory,
+  localmodelsStateDirectory,
+  localmodelsToolsDirectory,
+  resolveLocalmodelsBifrostAddr,
   runLocalmodels,
   stopLocalmodels,
   validateToolSource,
@@ -294,6 +300,37 @@ test.skipIf(process.platform === "win32")(
   },
 );
 test.skipIf(process.platform === "win32")(
+  "installing a newer pinned kit preserves the previous release's kit for existing stack deployments",
+  async () => {
+    const older = await fixture();
+    const olderPython = path.join(older.directory, "python/python");
+    const newer = await fixture();
+    const newerBytes = await packed(newer);
+    const newerSource = {
+      ...newer.source,
+      sha256: hash(newerBytes),
+      bytes: newerBytes.length,
+    };
+    const installed = await ensureLocalmodelsTool(
+      older.home,
+      {},
+      { source: newerSource, fetcher: async () => new Response(newerBytes) },
+    );
+    expect(installed.python).toBe(
+      path.join(
+        older.home,
+        "tools/localmodels",
+        newerSource.sha256,
+        "python/python",
+      ),
+    );
+    // Existing deployments created by the earlier release (for example
+    // slot_cache.py on macOS/Linux) reference the previous kit's Python binary
+    // in argv[0]; `stack up` requires it to remain on disk across upgrades.
+    expect((await stat(olderPython)).isFile()).toBe(true);
+  },
+);
+test.skipIf(process.platform === "win32")(
   "downloads the kit from the publisher's mirror when the primary host fails",
   async () => {
     const f = await fixture();
@@ -430,12 +467,52 @@ test("invokes the verified upstream module with isolated module and state paths"
       env: expect.objectContaining({
         PYTHONPATH: path.join(f.directory, "modules"),
         LOCALMODELS_STATE: path.join(f.home, "runtime/localmodels/state"),
+        PYTHONUTF8: "1",
+        PYTHONIOENCODING: "utf-8",
       }),
     }),
   );
   expect(await readFile(path.join(f.directory, "tool.json"), "utf8")).toContain(
     "sourceCommit",
   );
+});
+test("forces Python UTF-8 mode and strips conflicting case variants from the environment", async () => {
+  const f = await fixture();
+  vi.stubEnv("LINGER_LOCALMODELS_TOOL_JSON", JSON.stringify(f.source));
+  vi.stubEnv("PYTHONUTF8", "0");
+  vi.stubEnv("pythonutf8", "0");
+  vi.stubEnv("PYTHONIOENCODING", "gbk");
+  vi.stubEnv("PythonIOEncoding", "cp936");
+  const run = vi.fn(async () => ({ code: 0, stdout: "{}", stderr: "" }));
+  await runLocalmodels(
+    f.home,
+    ["foundations", "stop", "--json"],
+    {
+      env: {
+        PYTHONUTF8: "0",
+        PythonUtf8: "0",
+        PYTHONIOENCODING: "cp932",
+        pythonioencoding: "cp949",
+      },
+    },
+    { run },
+  );
+  expect(run).toHaveBeenCalledTimes(1);
+  const env = (
+    run.mock.calls[0] as unknown as [
+      string,
+      string[],
+      { env: NodeJS.ProcessEnv },
+    ]
+  )[2].env;
+  expect(env.PYTHONUTF8).toBe("1");
+  expect(env.PYTHONIOENCODING).toBe("utf-8");
+  expect(
+    Object.keys(env).filter((key) => key.toUpperCase() === "PYTHONUTF8"),
+  ).toEqual(["PYTHONUTF8"]);
+  expect(
+    Object.keys(env).filter((key) => key.toUpperCase() === "PYTHONIOENCODING"),
+  ).toEqual(["PYTHONIOENCODING"]);
 });
 test("passes the resolved download region to every localmodels child", async () => {
   const f = await fixture();
@@ -839,6 +916,30 @@ test("uses a configured development localmodels checkout without downloading a k
     }),
   );
 });
+test.skipIf(process.platform === "win32")(
+  "rejects a symlinked ancestor directory inside a kit during verification",
+  async () => {
+    const f = await fixture();
+    const external = path.join(f.home, "external-modules");
+    await mkdir(path.join(external, "localmodels"), { recursive: true });
+    await writeFile(path.join(external, "localmodels/__init__.py"), "package");
+    await rm(path.join(f.directory, "modules"), {
+      recursive: true,
+      force: true,
+    });
+    await symlink(external, path.join(f.directory, "modules"));
+    await expect(
+      ensureLocalmodelsTool(
+        f.home,
+        {},
+        {
+          source: f.source,
+          fetcher: async () => new Response("not the kit", { status: 200 }),
+        },
+      ),
+    ).rejects.toThrow(/checksum|size|SHA|link/i);
+  },
+);
 
 test("maps source apply download stages to model gateway messages", async () => {
   const f = await fixture();
@@ -983,4 +1084,250 @@ process.stdout.write(JSON.stringify({code:"BYOK_PROBE_FAILED",message:"Endpoint 
         "Downloading the model gateway: connecting to registry.npmmirror.com…",
     }),
   );
+});
+
+async function listenLoopback(): Promise<{
+  port: number;
+  close: () => Promise<void>;
+}> {
+  const server = net.createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const { port } = server.address() as net.AddressInfo;
+  return {
+    port,
+    close: () =>
+      new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      ),
+  };
+}
+
+test("isolates tools dir, bifrost dir, and bifrost addr per home and overrides ambient env", async () => {
+  const f = await fixture();
+  vi.stubEnv("LINGER_LOCALMODELS_TOOL_JSON", JSON.stringify(f.source));
+  vi.stubEnv("LOCALMODELS_TOOLS_DIR", "/ambient/tools");
+  vi.stubEnv("LOCALMODELS_BIFROST_DIR", "/ambient/bifrost");
+  vi.stubEnv("LOCALMODELS_BIFROST_ADDR", "127.0.0.1:19999");
+  const run = vi.fn(async () => ({ code: 0, stdout: "{}", stderr: "" }));
+  await runLocalmodels(
+    f.home,
+    ["source", "apply", "--mode", "byok", "--json"],
+    {
+      env: {
+        localmodels_tools_dir: "/lower/tools",
+        LOCALMODELS_BIFROST_DIR: "/override/bifrost",
+        localmodels_bifrost_addr: "127.0.0.1:20000",
+        localmodels_state: "/lower/state",
+      },
+    },
+    {
+      run,
+      portFree: async () => true,
+      freePort: async () => 18480,
+    },
+  );
+  const passedEnv = (
+    run.mock.calls[0] as unknown as [
+      string,
+      string[],
+      { env: NodeJS.ProcessEnv },
+    ]
+  )[2].env;
+  expect(passedEnv.LOCALMODELS_STATE).toBe(localmodelsStateDirectory(f.home));
+  expect(passedEnv.LOCALMODELS_TOOLS_DIR).toBe(
+    localmodelsToolsDirectory(f.home),
+  );
+  expect(passedEnv.LOCALMODELS_BIFROST_DIR).toBe(
+    localmodelsBifrostDirectory(f.home),
+  );
+  expect(passedEnv.LOCALMODELS_BIFROST_ADDR).toBe("127.0.0.1:18480");
+  expect(passedEnv.localmodels_tools_dir).toBeUndefined();
+  expect(passedEnv.localmodels_bifrost_addr).toBeUndefined();
+  expect(passedEnv.localmodels_state).toBeUndefined();
+  if (process.platform !== "win32") {
+    expect((await stat(localmodelsToolsDirectory(f.home))).mode & 0o777).toBe(
+      0o700,
+    );
+    expect((await stat(localmodelsBifrostDirectory(f.home))).mode & 0o777).toBe(
+      0o700,
+    );
+    expect((await stat(localmodelsBifrostAddrFile(f.home))).mode & 0o777).toBe(
+      0o600,
+    );
+  }
+  expect(
+    (await readFile(localmodelsBifrostAddrFile(f.home), "utf8")).trim(),
+  ).toBe("127.0.0.1:18480");
+});
+
+test("allocates and persists a fallback loopback port when 18480 is held by another process", async () => {
+  const f = await fixture();
+  const occupied = await listenLoopback();
+  try {
+    // First allocate when 18480 is occupied: falls back to a free port and persists it.
+    const allocated = await resolveLocalmodelsBifrostAddr(
+      f.home,
+      { allocate: true },
+      {
+        portFree: async (port) => port !== 18480,
+        freePort: async (_reserved, opts) => {
+          expect(opts?.preferred).toBe(18480);
+          return 49152;
+        },
+      },
+    );
+    expect(allocated).toBe("127.0.0.1:49152");
+    expect(
+      (await readFile(localmodelsBifrostAddrFile(f.home), "utf8")).trim(),
+    ).toBe("127.0.0.1:49152");
+
+    // Subsequent calls reuse the persisted port while it remains free.
+    const freeProbe = vi.fn(async () => 49999);
+    const reused = await resolveLocalmodelsBifrostAddr(
+      f.home,
+      { allocate: true },
+      { portFree: async () => true, freePort: freeProbe },
+    );
+    expect(reused).toBe("127.0.0.1:49152");
+    expect(freeProbe).not.toHaveBeenCalled();
+
+    // If the persisted port is later taken by a real foreign listener (and no owned.json exists),
+    // real port probing detects the collision and persists a fresh free port.
+    await writeFile(
+      localmodelsBifrostAddrFile(f.home),
+      `127.0.0.1:${occupied.port}\n`,
+      { mode: 0o600 },
+    );
+    const moved = await resolveLocalmodelsBifrostAddr(f.home, {
+      allocate: true,
+    });
+    expect(moved).toMatch(/^127\.0\.0\.1:\d+$/);
+    expect(moved).not.toBe(`127.0.0.1:${occupied.port}`);
+    expect(
+      (await readFile(localmodelsBifrostAddrFile(f.home), "utf8")).trim(),
+    ).toBe(moved);
+  } finally {
+    await occupied.close();
+  }
+});
+
+test("prefers this home's owned.json gateway.bifrost.addr even while its port is listening", async () => {
+  const f = await fixture();
+  const live = await listenLoopback();
+  try {
+    const toolsDir = localmodelsToolsDirectory(f.home);
+    await mkdir(toolsDir, { recursive: true, mode: 0o700 });
+    // localmodels writes owned.json with default umask (0644), not 0600.
+    await writeFile(
+      path.join(toolsDir, "owned.json"),
+      JSON.stringify({
+        schema: "localmodels.owned/v1",
+        gateway: { bifrost: { addr: `127.0.0.1:${live.port}` } },
+      }),
+      { mode: 0o644 },
+    );
+    await writeFile(localmodelsBifrostAddrFile(f.home), "127.0.0.1:49321\n", {
+      mode: 0o600,
+    });
+    const resolved = await resolveLocalmodelsBifrostAddr(f.home, {
+      allocate: true,
+    });
+    expect(resolved).toBe(`127.0.0.1:${live.port}`);
+
+    // Non-loopback or malformed owned.json entries are ignored.
+    await writeFile(
+      path.join(toolsDir, "owned.json"),
+      JSON.stringify({
+        schema: "localmodels.owned/v1",
+        gateway: { bifrost: { addr: "0.0.0.0:18480" } },
+      }),
+      { mode: 0o644 },
+    );
+    const fallback = await resolveLocalmodelsBifrostAddr(f.home, {
+      allocate: false,
+    });
+    expect(fallback).toBe("127.0.0.1:49321");
+  } finally {
+    await live.close();
+  }
+});
+
+test("stopLocalmodels and read-only commands isolate paths without allocating or persisting a port", async () => {
+  const f = await fixture();
+  vi.stubEnv("LINGER_LOCALMODELS_TOOL_JSON", JSON.stringify(f.source));
+  vi.stubEnv("LOCALMODELS_TOOLS_DIR", "/foreign/tools");
+  vi.stubEnv("LOCALMODELS_BIFROST_DIR", "/foreign/bifrost");
+  vi.stubEnv("LOCALMODELS_BIFROST_ADDR", "127.0.0.1:19876");
+  const invokedEnvs: NodeJS.ProcessEnv[] = [];
+  const runProc = vi.fn<typeof import("./process.js").runProcess>(
+    async (_file, args, options) => {
+      invokedEnvs.push(options?.env ?? {});
+      if (args.includes("status"))
+        return {
+          code: 0,
+          stdout: JSON.stringify({
+            schema: "localmodels.library-status/v1",
+            models: [],
+          }),
+          stderr: "",
+        };
+      return { code: 0, stdout: "{}", stderr: "" };
+    },
+  );
+  await stopLocalmodels(
+    f.home,
+    { signal: AbortSignal.timeout(5000) },
+    { runProcess: runProc },
+  );
+  expect(invokedEnvs).toHaveLength(3);
+  for (const env of invokedEnvs) {
+    expect(env.LOCALMODELS_TOOLS_DIR).toBe(localmodelsToolsDirectory(f.home));
+    expect(env.LOCALMODELS_BIFROST_DIR).toBe(
+      localmodelsBifrostDirectory(f.home),
+    );
+    expect(env.LOCALMODELS_BIFROST_ADDR).toBe("127.0.0.1:18480");
+  }
+  await expect(stat(localmodelsBifrostAddrFile(f.home))).rejects.toMatchObject({
+    code: "ENOENT",
+  });
+
+  // Read-only setup inspect also stays isolated without allocating or persisting a port.
+  const inspectRun = vi.fn(async () => ({ code: 0, stdout: "{}", stderr: "" }));
+  await runLocalmodels(
+    f.home,
+    ["setup", "inspect", "--json"],
+    {},
+    { run: inspectRun },
+  );
+  const inspectEnv = (
+    inspectRun.mock.calls[0] as unknown as [
+      string,
+      string[],
+      { env: NodeJS.ProcessEnv },
+    ]
+  )[2].env;
+  expect(inspectEnv.LOCALMODELS_TOOLS_DIR).toBe(
+    localmodelsToolsDirectory(f.home),
+  );
+  expect(inspectEnv.LOCALMODELS_BIFROST_ADDR).toBe("127.0.0.1:18480");
+  await expect(stat(localmodelsBifrostAddrFile(f.home))).rejects.toMatchObject({
+    code: "ENOENT",
+  });
+
+  // When this home already persisted an address, stopLocalmodels passes it cleanly.
+  await writeFile(localmodelsBifrostAddrFile(f.home), "127.0.0.1:49555\n", {
+    mode: 0o600,
+  });
+  invokedEnvs.length = 0;
+  await stopLocalmodels(
+    f.home,
+    { signal: AbortSignal.timeout(5000), keepController: true },
+    { runProcess: runProc },
+  );
+  expect(invokedEnvs).toHaveLength(2);
+  for (const env of invokedEnvs)
+    expect(env.LOCALMODELS_BIFROST_ADDR).toBe("127.0.0.1:49555");
 });

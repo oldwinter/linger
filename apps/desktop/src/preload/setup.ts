@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 import {
+  INKLING_2_MINI_ANNOUNCEMENT_URL,
   SETUP_IPC,
   type SetupState,
   type LingerSetupApi,
@@ -8,6 +9,7 @@ import {
 
 // Sandboxed preload for the local setup page only.
 const api: LingerSetupApi = {
+  featuredAnnouncementUrl: INKLING_2_MINI_ANNOUNCEMENT_URL,
   getState: () => ipcRenderer.invoke(SETUP_IPC.state),
   onState: (callback) => {
     const listener = (_event: unknown, state: SetupState): void =>

@@ -100,7 +100,12 @@ Progress and outcomes travel back only as snapshots:
    `TOOL_NOT_INSTALLED`. Each `LocalModel` may also carry optional model-card
    metadata (`family`, `publisher`, `architecture`, `parameters`,
    `active_parameters`, `capabilities`, `license`, `source_url`,
-   `prompt_tokens_per_second`).
+   `prompt_tokens_per_second`). Extended diagnostic reasons (`GPU_UNSUPPORTED`,
+   `DRIVER_UPDATE_REQUIRED`, `RUNTIME_DEPENDENCY_MISSING`, `UNAVAILABLE` and
+   their structured fields), extended error codes, and optional `debug`
+   metadata are sent only when `runner.welcome`'s `service_features` declares
+   `local_models_diagnostics` (`FIRST_LOCAL_MODELS_DIAGNOSTICS_COMPUTER_VERSION`,
+   `0.58.0`); otherwise the Daemon downgrades them for older Agent Services.
 2. Agent Service records it through TeamHub `recordAgentRuntimeLocalModels`
    (`POST /v0/agent-runtime/local-computers/local-models`). TeamHub keeps the
    latest snapshot per Computer, so an offline Computer shows what it last

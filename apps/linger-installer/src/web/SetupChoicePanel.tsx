@@ -1,4 +1,9 @@
 import { useState } from "react";
+import {
+  INKLING_2_MINI_ANNOUNCEMENT_URL,
+  INKLING_2_MINI_HF_URL,
+  isInkling2MiniModelId,
+} from "@linger/service-kit/featured-models";
 import type { components } from "@linger/wire-contracts/linger-installer/types";
 import {
   ByokPanel,
@@ -52,6 +57,10 @@ export function SetupChoicePanel({
         : "";
   const byokIncomplete =
     isByok && (!byok.modelId.trim() || Boolean(byokAddressProblem(byok)));
+  const inklingPlanned = isInkling2MiniModelId(
+    report.localModels?.estimate?.model,
+  );
+  const localReady = inklingPlanned && Boolean(report.localModels?.eligible);
   return (
     <section className="setup-choice" aria-label={"Deployment plan"}>
       <p className="recommended-plan">
@@ -59,6 +68,11 @@ export function SetupChoicePanel({
           {choice === report.recommendation ? "Recommended" : "Selected"}
         </span>
         <strong>{label}</strong>
+        {choice === "local-models" && inklingPlanned && (
+          <span className="featured-partner-tag">
+            {"Featured · Thinking Machines"}
+          </span>
+        )}
       </p>
       {selected && (
         <div className="setup-budget">
@@ -152,6 +166,44 @@ export function SetupChoicePanel({
         </div>
         {isByok && <ByokPanel draft={byok} onDraftChange={setByok} />}
       </div>
+      <aside
+        className="featured-model-spotlight"
+        aria-label={"Featured local model: Inkling 2 Mini"}
+        data-ready={localReady ? "true" : "false"}
+      >
+        <div className="featured-model-header">
+          <span className="featured-partner-tag">
+            {"Featured · Thinking Machines"}
+          </span>
+        </div>
+        <p className="featured-model-summary">
+          <strong>{"Inkling 2 Mini"}</strong>
+          {
+            " — 26.4B looped MoE (3.4B active), native vision, built for local agentic coding (Apache 2.0)."
+          }
+        </p>
+        <p className="featured-model-status">
+          {localReady
+            ? "Ready to run locally on this computer · Switchable anytime in Settings → Models"
+            : "Runs on 16–24 GB GPUs and 32 GB+ Macs · Manage anytime in Settings → Models"}
+        </p>
+        <div className="featured-model-links">
+          <a
+            href={INKLING_2_MINI_ANNOUNCEMENT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {"Thinking Machines"} <span aria-hidden="true">↗</span>
+          </a>
+          <a
+            href={INKLING_2_MINI_HF_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {"Hugging Face"} <span aria-hidden="true">↗</span>
+          </a>
+        </div>
+      </aside>
       <button
         className="button primary deploy-action"
         disabled={disabled || byokIncomplete}

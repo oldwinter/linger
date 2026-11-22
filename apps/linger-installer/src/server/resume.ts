@@ -3,8 +3,11 @@ import path from "node:path";
 
 import { loadInstance } from "@linger/local-installation/instance";
 import {
+  localModelsDegradedFromError,
+  localModelsDegradedFromOutcome,
   restoreByokSource,
   restoreLocalModels,
+  type LocalModelsDegraded,
 } from "@linger/local-installation/local-models";
 import { userEnvironmentPending } from "@linger/local-installation/user-environment";
 import type { InstallOutcome } from "@linger/local-installation/events";
@@ -91,20 +94,33 @@ export async function resumeSourceInstance(
     const onEvent = (event: { message?: string }) => {
       if (event.message) options.log(event.message);
     };
-    const restored = await restore(instance, {
-      signal: options.signal,
-      onEvent,
-    });
-    if (restored) return restored;
-    // A gateway that did not come back is reported, not a failed resume:
-    // the person can still reach the Models page.
-    const byokGateway = await restoreByok(
-      path.resolve(instance.root, "../.."),
-      {
+    // A local model stack that did not come back is reported, not a failed
+    // resume: the person can still reach the workspace and the Models page
+    // to manage local models or choose another AI runtime.
+    let localModelsDegraded: LocalModelsDegraded | undefined;
+    try {
+      const restored = await restore(instance, {
         signal: options.signal,
         onEvent,
-      },
-    );
+      });
+      if (restored)
+        localModelsDegraded = localModelsDegradedFromOutcome(restored);
+    } catch (error) {
+      if (options.signal.aborted) throw error;
+      localModelsDegraded = localModelsDegradedFromError(error);
+    }
+    if (localModelsDegraded)
+      options.log(
+        `${localModelsDegraded.message} (${localModelsDegraded.code}) Linger is opening without local models; open the Models page to manage local models or switch to another AI runtime.\n`,
+      );
+    // A gateway that did not come back is reported, not a failed resume:
+    // the person can still reach the Models page.
+    const byokGateway = localModelsDegraded
+      ? undefined
+      : await restoreByok(path.resolve(instance.root, "../.."), {
+          signal: options.signal,
+          onEvent,
+        });
     return {
       code: 0,
       state: "ready",
@@ -113,6 +129,7 @@ export async function resumeSourceInstance(
         origin: instance.origin,
         source: instance.source.repo,
         ...(byokGateway ? { byokGateway } : {}),
+        ...(localModelsDegraded ? { localModelsDegraded } : {}),
       },
     };
   }

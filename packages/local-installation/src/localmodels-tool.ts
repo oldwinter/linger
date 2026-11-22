@@ -7,9 +7,11 @@ import { downloadInRegion, resolveRegion } from "./region.js";
 import {
   atomicPrivate,
   privateDirectory,
+  readPrivate,
   withInstanceLock,
   type Instance,
 } from "./instance.js";
+import { freePort, portFree } from "./ports.js";
 import { runProcess, type ProcessOptions } from "./process.js";
 import {
   validatePublishedServiceSource,
@@ -71,18 +73,45 @@ async function digest(file: string) {
   for await (const chunk of createReadStream(file)) h.update(chunk);
   return h.digest("hex");
 }
-async function regular(root: string, relative: string) {
-  if (!safeRelative(relative)) throw new Error("Unsafe upstream tool path.");
-  let file = root;
-  for (const part of relative.split("/")) {
-    file = path.join(file, part);
-    const s = await lstat(file);
+async function verifyDirectory(
+  directory: string,
+  checkedDirs?: Map<string, Promise<void>>,
+) {
+  if (!checkedDirs) {
+    const s = await lstat(directory);
     if (s.isSymbolicLink())
       throw new Error("Linked upstream tool paths are forbidden.");
+    return;
   }
-  if (!(await lstat(file)).isFile())
+  let pending = checkedDirs.get(directory);
+  if (!pending) {
+    pending = lstat(directory).then((s) => {
+      if (s.isSymbolicLink())
+        throw new Error("Linked upstream tool paths are forbidden.");
+    });
+    checkedDirs.set(directory, pending);
+  }
+  await pending;
+}
+async function regular(
+  root: string,
+  relative: string,
+  checkedDirs?: Map<string, Promise<void>>,
+) {
+  if (!safeRelative(relative)) throw new Error("Unsafe upstream tool path.");
+  const parts = relative.split("/");
+  let current = root;
+  for (let i = 0; i < parts.length - 1; i++) {
+    current = path.join(current, parts[i]!);
+    await verifyDirectory(current, checkedDirs);
+  }
+  const file = path.join(current, parts[parts.length - 1]!);
+  const info = await lstat(file);
+  if (info.isSymbolicLink())
+    throw new Error("Linked upstream tool paths are forbidden.");
+  if (!info.isFile())
     throw new Error("Upstream tool payload must be a regular file.");
-  return file;
+  return { file, info };
 }
 // Size and modification time of each asset when it last matched its
 // checksum. An asset whose stamp still matches is not hashed again: the kit
@@ -122,13 +151,18 @@ async function writeStamps(
 export const LOCALMODELS_KIT_VERIFICATION_FAILED =
   "LOCALMODELS_KIT_VERIFICATION_FAILED";
 // Assets hashed at once.
-const CONCURRENCY = 16;
+const CONCURRENCY = 32;
 async function verify(
   directory: string,
   source: LocalmodelsToolSource,
   known: Stamps = {},
 ) {
-  const manifestFile = await regular(directory, "tool.json");
+  const checkedDirs = new Map<string, Promise<void>>();
+  const { file: manifestFile, info: manifestInfo } = await regular(
+    directory,
+    "tool.json",
+    checkedDirs,
+  );
   const body = await readFile(manifestFile);
   if (createHash("sha256").update(body).digest("hex") !== source.manifestSha256)
     throw new Error("Upstream tool manifest checksum mismatch.");
@@ -147,7 +181,7 @@ async function verify(
     );
   const assets = Object.entries(m.assets);
   const writable: string[] = [];
-  if (process.platform === "win32" && (await lstat(manifestFile)).mode & 0o200)
+  if (process.platform === "win32" && manifestInfo.mode & 0o200)
     writable.push(manifestFile);
   const stamps: Stamps = {};
   let hashed = 0;
@@ -157,8 +191,7 @@ async function verify(
       const [name, expected] = assets[next++]!;
       if (!/^[a-f0-9]{64}$/.test(expected))
         throw new Error("Upstream tool payload checksum mismatch.");
-      const file = await regular(directory, name);
-      const info = await lstat(file);
+      const { file, info } = await regular(directory, name, checkedDirs);
       if (process.platform === "win32" && info.mode & 0o200)
         writable.push(file);
       const stamp: [number, number] = [info.size, info.mtimeMs];
@@ -184,8 +217,10 @@ async function verify(
   );
   if (failure) throw failure.reason;
   return {
-    python: await regular(directory, m.python),
+    python: path.join(directory, ...m.python.split("/")),
+    pythonRel: m.python,
     moduleDir: path.join(directory, m.moduleDir),
+    moduleDirRel: m.moduleDir,
     sourceCommit: m.sourceCommit,
     stamps,
     hashed,
@@ -213,6 +248,7 @@ async function unpack(archive: string, directory: string) {
     cwd: directory,
     strict: true,
     preservePaths: false,
+    noMtime: true,
     filter: (name, entry) => {
       const type =
         "type" in entry
@@ -385,12 +421,19 @@ async function prepareLocalmodelsTool(
       await sealWindowsFiles(tool.writable);
       signal.throwIfAborted();
       await renameRetrying(kit, directory, { signal });
-      // The rename keeps every stamp, so this checks the published kit
-      // without hashing it a second time.
-      const verified = await verify(directory, source, tool.stamps);
+      // Every file and stamp was just verified inside the locked private stage
+      // before this atomic rename, so only confirm the published entry path.
+      const { file: publishedPython } = await regular(
+        directory,
+        tool.pythonRel,
+      );
       await setKitMode(directory, true);
-      await writeStamps(directory, source, verified.stamps);
-      return location(verified);
+      await writeStamps(directory, source, tool.stamps);
+      return {
+        python: publishedPython,
+        moduleDir: path.join(directory, tool.moduleDirRel),
+        sourceCommit: tool.sourceCommit,
+      };
     } finally {
       await rm(stage, { recursive: true, force: true });
       await rm(archive, { force: true });
@@ -437,6 +480,43 @@ export async function ensureLocalmodelsTool(
     preparing.delete(key);
   }
 }
+const DEFAULT_BIFROST_HOST = "127.0.0.1";
+const DEFAULT_BIFROST_PORT = 18480;
+const DEFAULT_BIFROST_ADDR = `${DEFAULT_BIFROST_HOST}:${DEFAULT_BIFROST_PORT}`;
+const MAX_OWNED_MANIFEST_BYTES = 1024 * 1024;
+
+interface LoopbackBifrostAddress {
+  addr: string;
+  port: number;
+}
+
+interface BifrostAddressDependencies {
+  portFree?: (port: number) => Promise<boolean>;
+  freePort?: (
+    reserved: Set<number>,
+    options?: { preferred?: number },
+  ) => Promise<number>;
+}
+
+interface RunCommandControl extends BifrostAddressDependencies {
+  allocateBifrostAddr?: boolean;
+}
+
+const STRIPPED_LOCALMODELS_ENVIRONMENT = new Set([
+  "PYTHONHOME",
+  "PYTHONSTARTUP",
+  "PYTHONINSPECT",
+  "PYTHONPATH",
+  "PYTHONUTF8",
+  "PYTHONIOENCODING",
+  "LOCALMODELS_STATE",
+  "LOCALMODELS_TOOLS_DIR",
+  "LOCALMODELS_BIFROST_DIR",
+  "LOCALMODELS_BIFROST_ADDR",
+]);
+
+const resolvingBifrostAddr = new Map<string, Promise<string>>();
+
 /** LOCALMODELS_STATE of every call for this home. */
 export function localmodelsStateDirectory(home: string): string {
   return path.join(path.resolve(home), "runtime", "localmodels", "state");
@@ -444,6 +524,142 @@ export function localmodelsStateDirectory(home: string): string {
 /** Where this home's models live: every call's --base-dir. */
 export function localmodelsBaseDirectory(home: string): string {
   return path.join(path.resolve(home), "runtime", "localmodels", "models");
+}
+/** LOCALMODELS_TOOLS_DIR of every call for this home. */
+export function localmodelsToolsDirectory(home: string): string {
+  return path.join(path.resolve(home), "runtime", "localmodels", "tools");
+}
+/** LOCALMODELS_BIFROST_DIR of every call for this home. */
+export function localmodelsBifrostDirectory(home: string): string {
+  return path.join(path.resolve(home), "runtime", "localmodels", "bifrost");
+}
+/** Persisted loopback Bifrost address file for this home. */
+export function localmodelsBifrostAddrFile(home: string): string {
+  return path.join(
+    path.resolve(home),
+    "runtime",
+    "localmodels",
+    "bifrost-addr",
+  );
+}
+function parseLoopbackBifrostAddress(
+  raw: unknown,
+): LoopbackBifrostAddress | undefined {
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim();
+  const match = /^127\.0\.0\.1:([1-9][0-9]{0,4})$/.exec(trimmed);
+  if (!match) return undefined;
+  const port = Number(match[1]);
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65535) return undefined;
+  return { addr: `${DEFAULT_BIFROST_HOST}:${port}`, port };
+}
+// owned.json is written by localmodels with the process umask rather than 0600,
+// inside this home's private tools directory.
+async function readOwnedBifrostAddress(
+  toolsDir: string,
+): Promise<LoopbackBifrostAddress | undefined> {
+  const ownedPath = path.join(toolsDir, "owned.json");
+  try {
+    const info = await lstat(ownedPath);
+    if (
+      !info.isFile() ||
+      info.isSymbolicLink() ||
+      info.size > MAX_OWNED_MANIFEST_BYTES ||
+      (process.platform !== "win32" && info.uid !== process.getuid?.())
+    )
+      return undefined;
+    const parsed: unknown = JSON.parse(await readFile(ownedPath, "utf8"));
+    if (!parsed || typeof parsed !== "object") return undefined;
+    const gateway = "gateway" in parsed ? parsed.gateway : undefined;
+    if (!gateway || typeof gateway !== "object") return undefined;
+    const bifrost = "bifrost" in gateway ? gateway.bifrost : undefined;
+    if (!bifrost || typeof bifrost !== "object") return undefined;
+    return parseLoopbackBifrostAddress(
+      "addr" in bifrost ? bifrost.addr : undefined,
+    );
+  } catch {
+    return undefined;
+  }
+}
+async function readSavedBifrostAddress(
+  addrFile: string,
+): Promise<LoopbackBifrostAddress | undefined> {
+  try {
+    const raw = await readPrivate(addrFile);
+    return raw ? parseLoopbackBifrostAddress(raw) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+function isReadOnlyOrStopCommand(args: readonly string[]): boolean {
+  const [group, verb] = args;
+  if (group === "harness" || group === "debug") return true;
+  if (group === "stack") return verb === "down" || verb === "remove";
+  if (group === "library")
+    return (
+      verb === "status" ||
+      verb === "unload" ||
+      verb === "remove" ||
+      verb === "cancel"
+    );
+  if (group === "foundations") return verb === "stop";
+  if (group === "gateway") return verb === "stop";
+  if (group === "source")
+    return verb === "status" || verb === "check" || verb === "models";
+  if (group === "setup")
+    return verb === "inspect" || verb === "review" || verb === "binding";
+  return false;
+}
+function stripInheritedEnvironment(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const cleaned: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(base)) {
+    if (!STRIPPED_LOCALMODELS_ENVIRONMENT.has(key.toUpperCase()))
+      cleaned[key] = value;
+  }
+  return cleaned;
+}
+/**
+ * Resolves the per-home loopback Bifrost address: prefers this home's owned
+ * gateway record, then its persisted bifrost-addr file, and on allocating
+ * calls picks 127.0.0.1:18480 when free or persists an ephemeral free port
+ * when another process holds 18480. Read-only and stop calls never probe or
+ * persist a port.
+ */
+export async function resolveLocalmodelsBifrostAddr(
+  home: string,
+  options: { allocate?: boolean } = {},
+  dependencies: BifrostAddressDependencies = {},
+): Promise<string> {
+  const allocate = options.allocate ?? true;
+  const toolsDir = localmodelsToolsDirectory(home);
+  const addrFile = localmodelsBifrostAddrFile(home);
+  const checkFree = dependencies.portFree ?? ((port: number) => portFree(port));
+  const pickFree = dependencies.freePort ?? freePort;
+  const resolveOnce = async (): Promise<string> => {
+    const owned = await readOwnedBifrostAddress(toolsDir);
+    if (owned) return owned.addr;
+    const saved = await readSavedBifrostAddress(addrFile);
+    if (saved && (!allocate || (await checkFree(saved.port))))
+      return saved.addr;
+    if (!allocate) return DEFAULT_BIFROST_ADDR;
+    const port = await pickFree(new Set(), { preferred: DEFAULT_BIFROST_PORT });
+    const addr = `${DEFAULT_BIFROST_HOST}:${port}`;
+    await privateDirectory(path.dirname(addrFile));
+    await atomicPrivate(addrFile, `${addr}\n`);
+    return addr;
+  };
+  if (!allocate || dependencies.portFree || dependencies.freePort)
+    return resolveOnce();
+  const key = path.resolve(home);
+  const pending = resolvingBifrostAddr.get(key);
+  if (pending) return pending;
+  const task = resolveOnce();
+  resolvingBifrostAddr.set(key, task);
+  try {
+    return await task;
+  } finally {
+    resolvingBifrostAddr.delete(key);
+  }
 }
 function formatDownloadedBytes(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -454,7 +670,7 @@ export async function runLocalmodels(
   home: string,
   args: string[],
   options: Options = {},
-  dependencies: { run?: typeof runProcess } = {},
+  dependencies: { run?: typeof runProcess } & BifrostAddressDependencies = {},
 ) {
   return runLocalmodelsCommand(
     home,
@@ -462,6 +678,11 @@ export async function runLocalmodels(
     options,
     () => ensureLocalmodelsTool(home, options),
     dependencies.run,
+    {
+      allocateBifrostAddr: !isReadOnlyOrStopCommand(args),
+      portFree: dependencies.portFree,
+      freePort: dependencies.freePort,
+    },
   );
 }
 // Hosts come from the kit's mirror list; anything else is not shown.
@@ -498,22 +719,40 @@ async function runLocalmodelsCommand(
   options: Options,
   loadTool: () => Promise<ToolLocation | undefined>,
   run: typeof runProcess = runProcess,
+  control: RunCommandControl = {},
 ) {
   const startedAt = Date.now();
   const tool = await loadTool();
   if (!tool) throw new Error("The installed localmodels tool kit is missing.");
   const checkedAt = Date.now();
   const state = localmodelsStateDirectory(home);
+  const tools = localmodelsToolsDirectory(home);
+  const bifrost = localmodelsBifrostDirectory(home);
   await privateDirectory(state);
+  await privateDirectory(tools);
+  await privateDirectory(bifrost);
+  const allocateBifrostAddr =
+    control.allocateBifrostAddr ?? !isReadOnlyOrStopCommand(args);
+  const bifrostAddr = await resolveLocalmodelsBifrostAddr(
+    home,
+    { allocate: allocateBifrostAddr },
+    control,
+  );
   const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    ...options.env,
+    ...stripInheritedEnvironment({ ...process.env, ...options.env }),
     // localmodels downloads from the same region and does not probe again.
     SIMPLEX_REGION: await resolveRegion(home, { signal: options.signal }),
     PYTHONPATH: tool.moduleDir,
     LOCALMODELS_STATE: state,
+    LOCALMODELS_TOOLS_DIR: tools,
+    LOCALMODELS_BIFROST_DIR: bifrost,
+    LOCALMODELS_BIFROST_ADDR: bifrostAddr,
     PYTHONNOUSERSITE: "1",
     PYTHONDONTWRITEBYTECODE: "1",
+    // Force UTF-8 mode so Python reads and writes UTF-8 state files and stdio
+    // instead of falling back to a legacy Windows ANSI code page.
+    PYTHONUTF8: "1",
+    PYTHONIOENCODING: "utf-8",
   };
   delete env.PYTHONHOME;
   delete env.PYTHONSTARTUP;
@@ -646,6 +885,7 @@ export async function stopLocalmodels(
   },
   dependencies: {
     run?: typeof runLocalmodels;
+    runProcess?: typeof runProcess;
     installed?: (home: string) => Promise<boolean>;
   } = {},
 ): Promise<void> {
@@ -666,8 +906,13 @@ export async function stopLocalmodels(
   const run =
     dependencies.run ??
     ((home, args, options = {}) =>
-      runLocalmodelsCommand(home, args, options, () =>
-        installedPinnedTool(home),
+      runLocalmodelsCommand(
+        home,
+        args,
+        options,
+        () => installedPinnedTool(home),
+        dependencies.runProcess,
+        { allocateBifrostAddr: false },
       ));
   const base = localmodelsBaseDirectory(home);
   const failed: string[] = [];
